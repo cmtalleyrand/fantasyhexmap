@@ -9,6 +9,7 @@
     "dev:server": "tsx watch server/index.ts",
     "dev:web": "vite",
     "build": "tsc -b tsconfig.json && vite build",
+    "test": "tsx --test test/*.test.ts",
     "typecheck": "tsc -b tsconfig.json tsconfig.server.json",
     "preview": "vite preview"
   },
