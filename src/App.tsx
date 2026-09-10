@@ -3,11 +3,26 @@ import { edgeBetween, indexToOffset } from '../shared/hex.js';
 import { LAYER_META, createMapState } from '../shared/layers.js';
 import { LAYER_ORDER, type LayerId, type MapState } from '../shared/types.js';
 import {
-  fetchHealth,
+  detectTransport,
   generateLayer as requestLayer,
-  type HealthInfo,
   type ProgressEvent,
+  type Transport,
 } from './api/client.js';
+import {
+  DEFAULT_PREFS,
+  forgetKey,
+  loadApiKey,
+  loadLockedKey,
+  loadPrefs,
+  saveApiKey,
+  saveLockedKey,
+  savePrefs,
+  type Prefs,
+} from './api/settings.js';
+import { decryptKey, encryptKey } from './api/keyvault.js';
+import UnlockDialog from './components/UnlockDialog.js';
+import SettingsDialog from './components/SettingsDialog.js';
+import DecisionLog from './components/DecisionLog.js';
 import ExportPanel from './components/ExportPanel.js';
 import Inspector from './components/Inspector.js';
 import LayerPipeline from './components/LayerPipeline.js';
@@ -31,7 +46,15 @@ export default function App() {
   );
 
   const [loaded, setLoaded] = useState(false);
-  const [health, setHealth] = useState<HealthInfo | null>(null);
+  const [transport, setTransport] = useState<Transport>({ mode: 'server', health: null, reason: null });
+  const [apiKey, setApiKey] = useState('');
+  const [prefs, setPrefs] = useState<Prefs>(DEFAULT_PREFS);
+  const [showSettings, setShowSettings] = useState(false);
+  const [showDecisions, setShowDecisions] = useState(false);
+  // A passphrase-protected key lives on disk as ciphertext; the plaintext only
+  // ever exists in `apiKey`, for this page load.
+  const [lockedKey, setLockedKey] = useState<ReturnType<typeof loadLockedKey>>(null);
+  const [showUnlock, setShowUnlock] = useState(false);
   const [activeLayer, setActiveLayer] = useState<LayerId>('base');
   const [visible, setVisible] = useState<VisibleLayers>(defaultVisibility);
   const [labels, setLabels] = useState(true);
@@ -54,9 +77,12 @@ export default function App() {
       })
       .catch((e) => setError(`Could not read the autosave: ${e instanceof Error ? e.message : e}`))
       .finally(() => setLoaded(true));
-    fetchHealth()
-      .then(setHealth)
-      .catch(() => setHealth(null));
+    setApiKey(loadApiKey());
+    setPrefs(loadPrefs());
+    const locked = loadLockedKey();
+    setLockedKey(locked);
+    if (locked) setShowUnlock(true);
+    void detectTransport().then(setTransport);
     autosave.onError((e) =>
       setError(`Autosave failed: ${e instanceof Error ? e.message : String(e)}`),
     );
@@ -90,13 +116,24 @@ export default function App() {
       const controller = new AbortController();
       abortRef.current = controller;
       try {
-        const result = await requestLayer(map, layer, instructionText, setProgress, controller.signal);
+        const result = await requestLayer(
+          map,
+          layer,
+          instructionText,
+          transport.mode,
+          { apiKey: apiKey || null, model: prefs.model, effort: prefs.effort, offline: prefs.offline },
+          setProgress,
+          controller.signal,
+        );
         dispatch({
           type: 'applyGeneration',
           layer,
           data: result.data,
           warnings: result.warnings,
           notes: result.notes,
+          decisions: result.decisions,
+          model: result.model,
+          instruction: instructionText,
         });
         setVisible((v) => ({ ...v, [layer]: true }));
         setActiveLayer(layer);
@@ -111,7 +148,7 @@ export default function App() {
         abortRef.current = null;
       }
     },
-    [map],
+    [map, transport.mode, apiKey, prefs],
   );
 
   const onStrokeEnd = useCallback(
@@ -167,6 +204,7 @@ export default function App() {
           throw new Error('That file does not look like a fantasyhexmap export.');
         }
         // Older exports may omit the undo stacks; give every layer empty ones.
+        imported.journal ??= [];
         for (const id of LAYER_ORDER) {
           const layer = imported.layers[id];
           if (!layer) throw new Error(`The file is missing the "${id}" layer.`);
@@ -181,29 +219,123 @@ export default function App() {
       .catch((e) => setError(`Import failed: ${e instanceof Error ? e.message : String(e)}`));
   }, []);
 
+  const settings = showSettings ? (
+    <SettingsDialog
+      mode={transport.mode}
+      apiKey={apiKey}
+      prefs={prefs}
+      onClose={() => setShowSettings(false)}
+      locked={lockedKey !== null}
+      onForget={() => {
+        forgetKey();
+        setApiKey('');
+        setLockedKey(null);
+        setShowSettings(false);
+      }}
+      onSave={(nextKey, nextPrefs, passphrase) => {
+        const trimmed = nextKey.trim();
+        setPrefs(nextPrefs);
+        savePrefs(nextPrefs);
+        setApiKey(trimmed);
+        setShowSettings(false);
+        if (passphrase === null) {
+          // A protected key that did not change: leave the stored ciphertext alone.
+          return;
+        }
+        if (trimmed && passphrase && nextPrefs.remember) {
+          void encryptKey(trimmed, passphrase)
+            .then((payload) => {
+              saveLockedKey(payload);
+              setLockedKey(payload);
+            })
+            .catch((e) => setError(`Could not encrypt the key: ${e instanceof Error ? e.message : e}`));
+        } else {
+          saveApiKey(trimmed, nextPrefs.remember);
+          setLockedKey(null);
+        }
+      }}
+    />
+  ) : null;
+
+  const unlock =
+    showUnlock && lockedKey ? (
+      <UnlockDialog
+        onDismiss={() => setShowUnlock(false)}
+        onForget={() => {
+          forgetKey();
+          setLockedKey(null);
+          setApiKey('');
+          setShowUnlock(false);
+        }}
+        onUnlock={async (passphrase) => {
+          const plain = await decryptKey(lockedKey, passphrase);
+          setApiKey(plain);
+          setShowUnlock(false);
+        }}
+      />
+    ) : null;
+
+  const decisionLog =
+    showDecisions && map ? (
+      <DecisionLog
+        map={map}
+        onClose={() => setShowDecisions(false)}
+        onSelectHexes={(indices) => setSelection(new Set(indices))}
+      />
+    ) : null;
+
   if (!loaded) return <div className="setup">Loading…</div>;
 
   if (!map) {
     return (
-      <SetupScreen
-        health={health}
-        onImport={handleImport}
-        onCreate={(description, cols, rows, name) =>
-          dispatch({ type: 'load', map: createMapState(description, cols, rows, name) })
-        }
-      />
+      <>
+        {settings}
+        {unlock}
+        <SetupScreen
+          transport={transport}
+          keyPresent={apiKey.trim().length > 0 || prefs.offline}
+          onOpenSettings={() => setShowSettings(true)}
+          onImport={handleImport}
+          onCreate={(description, cols, rows, name) =>
+            dispatch({ type: 'load', map: createMapState(description, cols, rows, name) })
+          }
+        />
+      </>
     );
   }
 
   const canEdit = map.layers[activeLayer].data !== null;
 
+
   return (
     <div className="app">
+      {settings}
+      {unlock}
+      {decisionLog}
       <div className="topbar">
         <h1>{map.name}</h1>
         <span className="meta">
           {map.cols}×{map.rows} · {(map.cols * map.rows).toLocaleString()} hexes
-          {health?.mock ? ' · MOCK MODE' : health ? ` · ${health.model}` : ''}
+        </span>
+        <span
+          className={`mode-pill ${transport.mode}`}
+          title={
+            transport.mode === 'server'
+              ? 'A server holds the API key; this page never sees one.'
+              : 'No server: this page calls Anthropic with the key you supplied, stored in this browser only.'
+          }
+        >
+          {transport.mode === 'server'
+            ? transport.health?.mock
+              ? 'server · offline generator'
+              : `server · ${transport.health?.model ?? 'ready'}`
+            : prefs.offline
+              ? 'your browser · offline generator'
+              : apiKey
+                ? `your browser · ${prefs.model}${lockedKey ? ' · unlocked' : ''}`
+                : lockedKey
+                  ? 'your browser · key locked'
+                  : 'your browser · no key set'}
         </span>
         <span className="spacer" />
         <label
@@ -224,6 +356,21 @@ export default function App() {
           />
           labels on map
         </label>
+        {lockedKey && !apiKey && (
+          <button className="tiny" onClick={() => setShowUnlock(true)}>
+            unlock key
+          </button>
+        )}
+        <button
+          className="tiny"
+          onClick={() => setShowDecisions(true)}
+          title="What the AI decided while generating this map, and why"
+        >
+          decisions ({(map.journal ?? []).reduce((n, e) => n + e.decisions.length, 0)})
+        </button>
+        <button className="tiny" onClick={() => setShowSettings(true)}>
+          settings
+        </button>
         <button className="tiny" onClick={() => exportJson(map, false)}>
           export JSON
         </button>
@@ -357,6 +504,7 @@ export default function App() {
           busy={busyLayer !== null}
           riverDraft={riverDraft}
           setRiverDraft={setRiverDraft}
+          onOpenDecisionLog={() => setShowDecisions(true)}
         />
       </div>
     </div>

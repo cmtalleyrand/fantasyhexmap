@@ -158,3 +158,40 @@ label { display: block; font-size: 11px; text-transform: uppercase; letter-spaci
 .kv dd { margin: 0; }
 
 .hint { font-size: 11px; color: var(--ink-faint); }
+
+.modal-backdrop {
+  position: fixed; inset: 0; background: rgba(4,7,10,0.7);
+  display: flex; align-items: center; justify-content: center; z-index: 50; padding: 20px;
+}
+.modal {
+  background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+  padding: 18px; width: min(560px, 100%); max-height: 90vh; overflow-y: auto;
+  box-shadow: 0 24px 60px rgba(0,0,0,0.5);
+}
+.modal h2 { margin: 0 0 12px; font-size: 15px; }
+.modal code { background: #0e141a; padding: 0 3px; border-radius: 3px; }
+
+.mode-pill {
+  font-size: 11px; padding: 2px 8px; border-radius: 999px;
+  border: 1px solid var(--line); color: var(--ink-dim); white-space: nowrap;
+}
+.mode-pill.browser { border-color: #5b4526; color: var(--warn); }
+.mode-pill.server { border-color: #2e4d3c; color: var(--ok); }
+
+.modal.wide { width: min(780px, 100%); }
+
+.journal { max-height: 52vh; overflow-y: auto; padding-right: 4px; }
+.journal-entry {
+  border: 1px solid var(--line); border-left-width: 3px; border-radius: 7px;
+  padding: 9px 11px; margin-bottom: 8px; background: var(--panel-2);
+}
+.journal-entry.generate, .journal-entry.instruct { border-left-color: var(--accent-2); }
+.journal-entry.manual { border-left-color: var(--ink-faint); }
+.journal-entry.undo, .journal-entry.redo { border-left-color: #4a3a5c; opacity: 0.75; }
+.journal-entry .instruction {
+  margin-top: 6px; padding: 5px 8px; border-radius: 5px;
+  background: #0e141a; color: var(--accent); font-style: italic;
+}
+.journal-entry .decisions { margin: 8px 0 0; padding-left: 18px; }
+.journal-entry .decisions li { margin-bottom: 8px; }
+.journal-entry .decisions li > div { color: var(--ink-dim); margin-top: 2px; }

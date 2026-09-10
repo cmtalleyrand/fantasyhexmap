@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { MAX_DIM, MIN_DIM } from '../../shared/types.js';
-import type { HealthInfo } from '../api/client.js';
+import type { Transport } from '../api/client.js';
 
 const EXAMPLE =
   'The Sundered Coast: a long north-south continent on the western edge of a warm inland sea. ' +
@@ -12,11 +12,16 @@ const EXAMPLE =
 export default function SetupScreen({
   onCreate,
   onImport,
-  health,
+  transport,
+  keyPresent,
+  onOpenSettings,
 }: {
   onCreate: (description: string, cols: number, rows: number, name: string) => void;
   onImport: (file: File) => void;
-  health: HealthInfo | null;
+  transport: Transport;
+  /** Whether generation can actually run: a key is set, or the offline generator is on. */
+  keyPresent: boolean;
+  onOpenSettings: () => void;
 }) {
   const [description, setDescription] = useState('');
   const [name, setName] = useState('Untitled map');
@@ -85,16 +90,36 @@ export default function SetupScreen({
           </div>
         </div>
 
-        {health && !health.credentials && !health.mock && (
+        {transport.mode === 'server' && transport.health && !transport.health.credentials && !transport.health.mock && (
           <div className="notice error">
             The server has no Anthropic credentials. Copy <code>.env.example</code> to{' '}
             <code>.env</code> and set <code>ANTHROPIC_API_KEY</code>, or start it with{' '}
             <code>HEXMAP_MOCK=1</code> to use the offline procedural generator.
           </div>
         )}
-        {health?.mock && (
+        {transport.mode === 'server' && transport.health?.mock && (
           <div className="notice warn">
-            Running in mock mode: layers come from the offline procedural generator, not from Claude.
+            The server is running its offline procedural generator, not Claude.
+          </div>
+        )}
+        {transport.mode === 'browser' && !keyPresent && (
+          <div className="notice warn">
+            <b>No API key set.</b> This deployment has no server, so generation runs from your
+            browser with a key you supply. It is stored in this browser only and is never part of
+            the site anyone else downloads.
+            <div style={{ marginTop: 6 }}>
+              <button className="tiny" onClick={onOpenSettings}>
+                open settings
+              </button>
+            </div>
+          </div>
+        )}
+        {transport.mode === 'browser' && keyPresent && (
+          <div className="notice info">
+            Generating from your browser with your own key.{' '}
+            <button className="tiny" onClick={onOpenSettings}>
+              settings
+            </button>
           </div>
         )}
 

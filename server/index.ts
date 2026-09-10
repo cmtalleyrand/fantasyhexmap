@@ -12,21 +12,47 @@ import express from 'express';
 import cors from 'cors';
 import Anthropic from '@anthropic-ai/sdk';
 
-import { MAX_DIM, MIN_DIM, LAYER_ORDER, type LayerId } from '../shared/types.js';
+import { LAYER_ORDER } from '../shared/types.js';
 import { LAYER_META } from '../shared/layers.js';
+import { validateGenerateBody, type GenerateBody } from '../core/request.js';
 import {
+  DEFAULT_EFFORT,
+  DEFAULT_MODEL,
   generateLayer,
-  hasCredentials,
-  isMockMode,
-  MODEL,
-  type GenerateRequest,
-} from './generate.js';
-import type { PromptContext } from './prompts.js';
+  type Effort,
+  type GenerationConfig,
+} from '../core/pipeline.js';
+
+const MODEL = process.env.HEXMAP_MODEL ?? DEFAULT_MODEL;
+const EFFORT = (process.env.HEXMAP_EFFORT ?? DEFAULT_EFFORT) as Effort;
+
+const isMockMode = () => process.env.HEXMAP_MOCK === '1';
+const hasCredentials = () =>
+  Boolean(process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN);
+
+let anthropic: Anthropic | null = null;
+/**
+ * The credential is read here and nowhere else. It never enters a response
+ * body, never reaches the pipeline as anything but a configured client, and
+ * never leaves this process.
+ */
+function generationConfig(): GenerationConfig {
+  if (isMockMode()) return { client: null, model: MODEL, effort: EFFORT };
+  if (!anthropic) anthropic = new Anthropic();
+  return { client: anthropic, model: MODEL, effort: EFFORT };
+}
 
 const app = express();
 const PORT = Number(process.env.PORT ?? 8787);
 
-app.use(cors({ origin: true }));
+// A browser on another origin (a GitHub Pages build pointed at this server via
+// VITE_API_BASE) has to be able to reach it. HEXMAP_ALLOWED_ORIGINS narrows that
+// to a list when the server is not just a local dev convenience.
+const allowedOrigins = (process.env.HEXMAP_ALLOWED_ORIGINS ?? '')
+  .split(',')
+  .map((s) => s.trim())
+  .filter(Boolean);
+app.use(cors({ origin: allowedOrigins.length > 0 ? allowedOrigins : true }));
 app.use(express.json({ limit: '32mb' }));
 
 app.get('/api/health', (_req, res) => {
@@ -38,67 +64,6 @@ app.get('/api/health', (_req, res) => {
     layers: LAYER_ORDER.map((id) => LAYER_META[id]),
   });
 });
-
-interface GenerateBody {
-  layer?: string;
-  description?: string;
-  cols?: number;
-  rows?: number;
-  instruction?: string | null;
-  layers?: Partial<Record<LayerId, unknown>>;
-}
-
-function validateBody(body: GenerateBody): { error: string } | { req: GenerateRequest } {
-  const layer = body.layer as LayerId | undefined;
-  if (!layer || !LAYER_ORDER.includes(layer)) {
-    return { error: `Unknown layer "${String(body.layer)}".` };
-  }
-  const cols = Number(body.cols);
-  const rows = Number(body.rows);
-  if (!Number.isInteger(cols) || !Number.isInteger(rows)) {
-    return { error: 'cols and rows must be integers.' };
-  }
-  if (cols < MIN_DIM || rows < MIN_DIM || cols > MAX_DIM || rows > MAX_DIM) {
-    return { error: `Grid must be between ${MIN_DIM}x${MIN_DIM} and ${MAX_DIM}x${MAX_DIM}.` };
-  }
-
-  const supplied = (body.layers ?? {}) as Record<string, unknown>;
-  const ctx: PromptContext = {
-    description: String(body.description ?? ''),
-    cols,
-    rows,
-    base: (supplied.base as PromptContext['base']) ?? null,
-    elevation: (supplied.elevation as PromptContext['elevation']) ?? null,
-    climate: (supplied.climate as PromptContext['climate']) ?? null,
-    vegetation: (supplied.vegetation as PromptContext['vegetation']) ?? null,
-    rivers: (supplied.rivers as PromptContext['rivers']) ?? null,
-    cities: (supplied.cities as PromptContext['cities']) ?? null,
-    polities: (supplied.polities as PromptContext['polities']) ?? null,
-    population: (supplied.population as PromptContext['population']) ?? null,
-    instruction: body.instruction ?? null,
-  };
-
-  for (const dep of LAYER_META[layer].requires) {
-    if (!ctx[dep as keyof PromptContext]) {
-      return { error: `Layer "${layer}" requires the ${LAYER_META[dep].label} layer, which was not supplied.` };
-    }
-  }
-  if (ctx.base && ctx.base.length !== cols * rows) {
-    return { error: `Base geography has ${ctx.base.length} hexes but the grid is ${cols * rows}.` };
-  }
-
-  return {
-    req: {
-      layer,
-      ctx,
-      existing: {
-        rivers: ctx.rivers?.rivers,
-        cities: ctx.cities?.cities,
-        polities: ctx.polities?.polities,
-      },
-    },
-  };
-}
 
 function describeError(err: unknown): string {
   if (err instanceof Anthropic.AuthenticationError) {
@@ -124,7 +89,7 @@ function describeError(err: unknown): string {
  * POST rather than GET because the request carries the whole map state.
  */
 app.post('/api/generate', async (req, res) => {
-  const checked = validateBody(req.body as GenerateBody);
+  const checked = validateGenerateBody(req.body as GenerateBody);
   if ('error' in checked) {
     res.status(400).json({ error: checked.error });
     return;
@@ -159,7 +124,7 @@ app.post('/api/generate', async (req, res) => {
   send('progress', { phase: 'starting', layer: checked.req.layer, model: isMockMode() ? 'mock' : MODEL });
 
   try {
-    const result = await generateLayer(checked.req, (event) => {
+    const result = await generateLayer(generationConfig(), checked.req, (event) => {
       if (!closed) send('progress', event);
     });
     if (!closed) {

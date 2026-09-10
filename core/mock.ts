@@ -401,15 +401,56 @@ function toRowTokens(values: (string | null)[], cols: number, rows: number, empt
   return out;
 }
 
-const MOCK_NOTE = 'Generated offline by the procedural mock generator (HEXMAP_MOCK=1), not by Claude.';
+const MOCK_NOTE = 'Generated offline by the procedural mock generator, not by Claude.';
+
+/**
+ * The offline generator has no reasoning to report - it is arithmetic. Rather
+ * than invent prose that would read like the model's, it states the rule it
+ * actually applied, so a map made this way is never mistaken for a designed one.
+ */
+function mockDecisions(layer: LayerId, ctx: PromptContext): { title: string; detail: string; hexes: string[] }[] {
+  const rules: Record<LayerId, [string, string][]> = {
+    base: [
+      ['Landmasses from overlapping blobs', 'Three to five random discs were summed and thresholded; no part of the brief was read.'],
+      ['Ice at both edges', `The top and bottom ${Math.max(1, Math.round(ctx.rows * 0.06))} rows were set to Ice regardless of latitude or climate.`],
+    ],
+    elevation: [
+      ['Height from distance to water', 'Each land hex was ranked by how many hexes it sits from the nearest sea, plus one arbitrary north-south ridge line.'],
+      ['Islands are always Lowland', 'No attempt was made to read the brief for mountainous islands.'],
+    ],
+    climate: [
+      ['Latitude bands only', 'Row position was mapped to a pole-to-pole gradient and shifted colder on high ground. There is no rain shadow, no continentality and no monsoon.'],
+    ],
+    vegetation: [
+      ['One cover type per climate code', 'A lookup table maps each Köppen code to a single vegetation, with cultivated land sprinkled at random in temperate lowlands.'],
+    ],
+    rivers: [
+      ['Greedy downhill walks', 'Rivers start on high ground and step to the lowest unvisited neighbour until they reach water; paths that fail to reach the sea are discarded.'],
+      ['Navigable below the midpoint', 'The lower half of each path is marked navigable with no regard to elevation or size.'],
+    ],
+    cities: [
+      ['Random sites, spaced apart', 'Candidate hexes are drawn at random, rejected if within three hexes of an existing city, and biased towards coast and river hexes.'],
+      ['Populations by rank alone', 'The first city drawn becomes the primate city; the rest are scaled by draw order, not by site quality.'],
+    ],
+    polities: [
+      ['Flood fill from random seeds', 'Borders are a Voronoi partition grown outward from random land hexes, ignoring rivers, ranges and coasts entirely.'],
+    ],
+    population: [
+      ['Table lookup by vegetation', 'Each hex takes a fixed figure for its land cover, scaled down on high ground and jittered. Rivers, coasts and polities are ignored.'],
+    ],
+  };
+  return (rules[layer] ?? []).map(([title, detail]) => ({ title, detail, hexes: [] }));
+}
 
 export function mockLayer(layer: LayerId, ctx: PromptContext): unknown {
   const { cols, rows } = ctx;
+  const decisions = mockDecisions(layer, ctx);
   switch (layer) {
     case 'base':
       return {
         rows: toRowChars(buildBase(ctx).map((v) => BASE_CHARS[v]), cols, rows, '~'),
         notes: MOCK_NOTE,
+        decisions,
       };
     case 'elevation':
       return {
@@ -420,12 +461,14 @@ export function mockLayer(layer: LayerId, ctx: PromptContext): unknown {
           '.',
         ),
         notes: MOCK_NOTE,
+        decisions,
       };
     case 'climate':
       return {
         latitudeBand: 'mock: pole to pole',
         rows: toRowTokens(buildClimate(ctx), cols, rows, '--'),
         notes: MOCK_NOTE,
+        decisions,
       };
     case 'vegetation':
       return {
@@ -436,13 +479,14 @@ export function mockLayer(layer: LayerId, ctx: PromptContext): unknown {
           '--',
         ),
         notes: MOCK_NOTE,
+        decisions,
       };
     case 'rivers':
-      return { rivers: buildRivers(ctx), notes: MOCK_NOTE };
+      return { rivers: buildRivers(ctx), notes: MOCK_NOTE, decisions };
     case 'cities':
-      return { cities: buildCities(ctx), notes: MOCK_NOTE };
+      return { cities: buildCities(ctx), notes: MOCK_NOTE, decisions };
     case 'polities':
-      return { ...buildPolities(ctx), notes: MOCK_NOTE };
+      return { ...buildPolities(ctx), notes: MOCK_NOTE, decisions };
     case 'population':
       return {
         rows: toRowTokens(
@@ -452,6 +496,7 @@ export function mockLayer(layer: LayerId, ctx: PromptContext): unknown {
           '-',
         ),
         notes: MOCK_NOTE,
+        decisions,
       };
     default:
       throw new Error(`No mock generator for ${layer}`);

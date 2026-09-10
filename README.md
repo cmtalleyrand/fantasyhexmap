@@ -9,6 +9,10 @@ Claude, undone and redone independently, and exported as PNG or SVG.
 Nothing regenerates behind your back. Changing an upstream layer marks the layers below it **stale**
 and leaves them exactly as they were; whether to re-run them is your call.
 
+It runs in three arrangements from one codebase: locally with a small Express server, as a static
+GitHub Pages site where you supply your own key, or as a Pages site pointed at a key-holding proxy.
+See [Deployment](#deployment).
+
 ## Quick start
 
 ```bash
@@ -46,6 +50,68 @@ layers say so in their notes.
 
 Other scripts: `npm run typecheck` (client and server), `npm run build` (production client bundle),
 `npm run dev:server` / `npm run dev:web` to run one half on its own.
+
+## Deployment
+
+A GitHub Actions workflow (`.github/workflows/deploy.yml`) typechecks, builds and publishes to
+GitHub Pages on every push to `main`. Enable it once, under **Settings → Pages → Build and
+deployment → Source: GitHub Actions**. Pull requests build without deploying.
+
+### First, the thing you cannot do
+
+**You cannot safely put a shared Anthropic API key into a GitHub Pages build.** Actions secrets
+protect a key in the repository and during the build; they do not protect it afterwards. Anything
+the browser needs at runtime is in the bundle the browser downloads, so a key injected at build time
+— `VITE_ANTHROPIC_API_KEY` or any other name — is published to every visitor in plain text and takes
+about ten seconds to read out of DevTools. Pages is static hosting; there is no server to hide it
+behind. No workflow setting changes this.
+
+So the site does not ship a key. Instead:
+
+### Option A — each user supplies their own key (default, nothing to configure)
+
+Push to `main`, and the site is live at `https://<user>.github.io/<repo>/`. It detects that no
+backend is answering and asks whoever opens it for an Anthropic key. This is a perfectly safe way to
+run a web app on someone's key — it is the same trust model as a desktop app holding a credential in
+its config file — provided the app is built so the key is only ever the user's own and never leaves
+their machine. Here that means:
+
+- **Nothing secret is in the repository, the workflow or the bundle.** The key is typed in at
+  runtime; there is nothing to extract from the published site.
+- **It is sent to exactly one place.** The build ships a Content-Security-Policy whose `connect-src`
+  allows only `api.anthropic.com` (and a configured proxy). Even script that somehow ran on the page
+  could not post the key anywhere else.
+- **No third-party code runs on the page.** `script-src 'self'`, and the app loads no analytics, no
+  CDN, no web fonts — so there is no supply chain to compromise the origin through.
+- **At rest it can be encrypted.** Ticking "protect the stored key with a passphrase" stores AES-GCM
+  ciphertext under a PBKDF2-derived key (310k iterations) instead of the key itself, and asks for the
+  passphrase once per session. The passphrase is never stored.
+- **Or it need not be stored at all.** Unticking "remember" keeps it in `sessionStorage`, gone when
+  the tab closes.
+- **It refuses to pretend on an insecure origin.** Served over plain HTTP, the settings dialog says
+  so rather than accepting a key it cannot protect.
+
+What none of that defends against is script running on the page while the key is in use — it has to
+be usable to be used. That is what the CSP and the no-third-party-code rule are for, and it is why
+they matter more than the encryption does. Use a key with a spend limit set.
+
+Visitors without a key can still switch on the offline procedural generator from Settings and get a
+feel for the tool.
+
+### Option B — a proxy that holds the key (if others will use your page)
+
+Deploy the small Cloudflare Worker in [`worker/`](worker/README.md), which speaks the same `/api`
+contract and keeps the key as a platform secret, then add a repository **variable** (not a secret)
+named `VITE_API_BASE` pointing at it. The next build points the site at the Worker and stops asking
+for a key. The URL in that variable is public, which is fine; the key never leaves Cloudflare.
+
+The Worker restricts origins but does not authenticate callers — anyone who learns its URL can spend
+your credit through it. `worker/README.md` says what to do about that.
+
+### Private repositories
+
+GitHub Pages on a private repository requires a paid plan. On a free account the repository has to
+be public, which is a reason to be sure no key is in it — with Option A, none is.
 
 ## The grid
 
@@ -106,6 +172,23 @@ coastal edges and river membership are recomputed and polity claims on hexes tha
 are dropped. That is bookkeeping to keep the data internally truthful, not a regeneration: it
 creates no undo entry and bumps no version, and the affected layer is already flagged stale.
 
+## The decision record
+
+Every generation asks the model for the three to eight choices that most shaped the layer — where a
+range runs and why, which cue in the brief a desert answers, why a capital sits at that river mouth,
+what it invented because the brief was silent. Those choices are kept, not just the resulting hexes.
+
+- The inspector shows **why the layer being edited looks like this**, inline.
+- **decisions** in the top bar opens the whole record: every generation and instruction with the
+  model's reasoning, filterable by layer.
+- Hand edits, undos and redos are logged alongside, so the record never credits the AI with a
+  choice you made. The "AI decisions only" toggle separates them.
+- **Export Markdown** writes the record out as a document, grouped by layer, with the brief at the
+  top — the reasoning survives outside the app.
+- Decisions with hex references have a **select** button that jumps to the hexes they are about.
+
+The record is part of the map: it is autosaved, exported in the JSON, and imported back with it.
+
 ## Editing
 
 Every layer supports both edit paths the same way.
@@ -127,7 +210,9 @@ Both paths push onto the same per-layer undo stack (40 entries deep, with redo).
   visible, as **PNG** or **SVG**, with a toggle for city and polity name labels. Single-layer
   exports keep base geography as a substrate — a land-only layer is unreadable without knowing where
   the land is — and drop labels unless the layer is cities or polities.
-- **JSON.** The full map state, with or without undo history, and a matching import.
+- **Markdown.** The decision record: what the model chose, why, and what you changed by hand.
+- **JSON.** The full map state including the decision record, with or without undo history, and a
+  matching import.
 
 ## Persistence
 
@@ -137,14 +222,17 @@ JSON export is the portable copy.
 ## How it is put together
 
 ```
-shared/     types, hex geometry, wire codec, validation - imported by BOTH client and server
-server/     Express app, prompt builders, response schemas, generation pipeline, mock generator
-src/        React app: render (scene/canvas/svg/export), state (reducer/persistence), components
+shared/     types, hex geometry, wire codec, validation, derived facts
+core/       prompts, response schemas, generation pipeline, request validation, offline generator
+server/     Express app: reads the key from .env, calls core
+worker/     optional Cloudflare Worker: holds the key as a secret, calls core (same /api contract)
+src/        React app: render (scene/canvas/svg/export), state (reducer/persistence), api, components
 ```
 
-`shared/` is the reason the two halves cannot disagree. The encoding the model is asked for, the
-adjacency rules the prompts describe, and the validation applied afterwards are all one
-implementation used from both sides.
+`shared/` and `core/` are why the deployments cannot disagree. `core/` reads no environment variable
+and knows nothing about where a credential came from — it is handed a configured client — so the
+encoding the model is asked for, the adjacency rules the prompts describe and the validation applied
+afterwards are one implementation, whether it runs in Node, in a Worker, or in the browser.
 
 **Row-string encoding.** Per-hex layers travel to and from the model as one string per grid row
 rather than as arrays of objects. A 50×50 layer costs a few hundred output tokens instead of tens of
@@ -170,6 +258,13 @@ the same list of drawing primitives. None of them knows how to draw a hex map �
 polygon, a polyline, a circle and a label — so the vector file, the bitmap and the screen cannot
 drift apart.
 
+## Design decisions
+
+[`DECISIONS.md`](DECISIONS.md) records the choices made while building this and what the
+alternatives would have cost — the coordinate system, the row-string wire format, repair-versus-flag
+validation, version-based staleness, the single scene model, and the deployment and key-handling
+decisions above.
+
 ## Limitations
 
 - Generation quality on a large grid depends heavily on the description. A vague brief gives a
@@ -177,4 +272,5 @@ drift apart.
 - Rivers are modelled as independent paths. A tributary is a separate river that happens to join a
   trunk and follow it; there is no explicit confluence object.
 - Undo is per layer by design, not one global stack across the whole map.
-- There is no cloud sync, no accounts and no deployment configuration. It runs locally.
+- There is no cloud sync and no accounts. A map lives in one browser until you export it.
+- The optional proxy restricts origins but does not authenticate callers; see `worker/README.md`.

@@ -1,0 +1,14 @@
+name = "fantasyhexmap-api"
+main = "index.ts"
+compatibility_date = "2026-01-01"
+compatibility_flags = ["nodejs_compat"]
+
+# The key is NOT set here. Set it as an encrypted secret:
+#   npx wrangler secret put ANTHROPIC_API_KEY
+#
+# Anything in [vars] is plain configuration and is visible in the dashboard.
+[vars]
+HEXMAP_MODEL = "claude-opus-5"
+HEXMAP_EFFORT = "high"
+# Restrict who may call this worker from a browser. Set it to your Pages origin.
+# ALLOWED_ORIGINS = "https://YOUR-USERNAME.github.io"

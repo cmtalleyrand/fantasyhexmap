@@ -108,6 +108,21 @@ function section(title: string, lines: string[]): string {
   return `${title}\n${lines.join('\n')}`;
 }
 
+const RECORD_YOUR_DECISIONS = `RECORD YOUR DECISIONS
+Along with the layer, return the 3 to 8 decisions that most shaped it, in "decisions". This is read
+by the person whose world this is, and it is the only record of why the map looks the way it does.
+
+- Write about choices, not contents. "The eastern basin is BWk" is data the map already shows.
+  "The eastern basin is arid because the Spine takes the westerly rain out of the air before it gets
+  there, which is what the brief's rain-shadow desert asks for" is a decision.
+- Say what you did with the brief: which cue you followed, where two parts of it pulled against each
+  other and how you resolved that, and what you invented because the brief was silent.
+- Include anything a reader would otherwise think was a mistake - a desert at a temperate latitude,
+  a great city on a frontier, an empty quarter no polity claims.
+- Name places and give hex coordinates where they help. Use the "hexes" field for the hexes a
+  decision is actually about; leave it empty for decisions about the map as a whole.
+- Be specific and be brief. Three good sentences beat a paragraph of hedging.`;
+
 const HOUSE_STYLE = `HOW TO WORK
 - Think about the map as a whole before writing any row. Geography is continuous: coastlines, ranges, climate belts and borders are large connected shapes, not per-hex noise.
 - Never produce speckle - isolated single hexes of one value scattered through a field of another - unless the brief explicitly calls for it (an archipelago, an oasis chain).
@@ -146,6 +161,8 @@ function basePrompt(ctx: PromptContext): BuiltPrompt {
     rowFormatRules(ctx.cols, ctx.rows, 'char'),
     '',
     HOUSE_STYLE,
+    '',
+    RECORD_YOUR_DECISIONS,
   ].join('\n');
 
   const parts = [descriptionBlock(ctx.description)];
@@ -206,6 +223,8 @@ function elevationPrompt(ctx: PromptContext): BuiltPrompt {
     'A hex that is not Land or Island MUST be "." in your output.',
     '',
     HOUSE_STYLE,
+    '',
+    RECORD_YOUR_DECISIONS,
   ].join('\n');
 
   const parts = [
@@ -275,6 +294,8 @@ function climatePrompt(ctx: PromptContext): BuiltPrompt {
     rowFormatRules(ctx.cols, ctx.rows, 'token'),
     '',
     HOUSE_STYLE,
+    '',
+    RECORD_YOUR_DECISIONS,
   ].join('\n');
 
   const parts = [
@@ -352,6 +373,8 @@ function vegetationPrompt(ctx: PromptContext): BuiltPrompt {
     rowFormatRules(ctx.cols, ctx.rows, 'token'),
     '',
     HOUSE_STYLE,
+    '',
+    RECORD_YOUR_DECISIONS,
   ].join('\n');
 
   const parts = [
@@ -438,6 +461,8 @@ function riversPrompt(ctx: PromptContext): BuiltPrompt {
     'Name rivers in a style consistent with the brief.',
     '',
     HOUSE_STYLE,
+    '',
+    RECORD_YOUR_DECISIONS,
   ].join('\n');
 
   const parts = [
@@ -496,6 +521,8 @@ function citiesPrompt(ctx: PromptContext): BuiltPrompt {
     'Do not report whether a city is coastal or on a river: that is derived from the map itself.',
     '',
     HOUSE_STYLE,
+    '',
+    RECORD_YOUR_DECISIONS,
   ].join('\n');
 
   const parts = [
@@ -567,6 +594,8 @@ function politiesPrompt(ctx: PromptContext): BuiltPrompt {
     ]),
     '',
     HOUSE_STYLE,
+    '',
+    RECORD_YOUR_DECISIONS,
   ].join('\n');
 
   const parts = [
@@ -646,6 +675,8 @@ function populationPrompt(ctx: PromptContext): BuiltPrompt {
     rowFormatRules(ctx.cols, ctx.rows, 'token'),
     '',
     HOUSE_STYLE,
+    '',
+    RECORD_YOUR_DECISIONS,
   ].join('\n');
 
   const parts = [

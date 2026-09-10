@@ -2,6 +2,13 @@
  * The generation pipeline: build a prompt, stream a structured response from
  * Claude, decode the compact row-string form back into layer data, then repair
  * and validate it against the layers it depends on.
+ *
+ * This module is isomorphic on purpose. It runs unchanged in the Express server
+ * (key from .env, or from a proxy's secret store) and in the browser (key
+ * supplied by the person using the page). Whoever calls it hands in a
+ * configured client; nothing here reads an environment variable or knows where
+ * the credential came from, so there is exactly one implementation of prompting,
+ * decoding and validation regardless of how the app is deployed.
  */
 
 import Anthropic from '@anthropic-ai/sdk';
@@ -26,7 +33,15 @@ import {
   validateRivers,
   validateVegetation,
 } from '../shared/validate.js';
-import type { City, LayerDataMap, LayerId, Polity, River } from '../shared/types.js';
+import type {
+  City,
+  Decision,
+  LayerDataMap,
+  LayerId,
+  MapState,
+  Polity,
+  River,
+} from '../shared/types.js';
 import { buildPrompt, type PromptContext } from './prompts.js';
 import {
   BaseResponse,
@@ -39,21 +54,26 @@ import {
   VegetationResponse,
 } from './schemas.js';
 import { mockLayer } from './mock.js';
+import { MAX_TOKENS, type Effort } from './config.js';
 
-export const MODEL = process.env.HEXMAP_MODEL ?? 'claude-opus-5';
-const MAX_TOKENS = 64000;
-const EFFORT = (process.env.HEXMAP_EFFORT ?? 'high') as
-  | 'low'
-  | 'medium'
-  | 'high'
-  | 'xhigh'
-  | 'max';
+export { DEFAULT_EFFORT, DEFAULT_MODEL, type Effort } from './config.js';
+
+export interface GenerationConfig {
+  /** null runs the offline procedural generator instead of calling the API. */
+  client: Anthropic | null;
+  model: string;
+  effort: Effort;
+}
 
 export interface GenerateResult<K extends LayerId = LayerId> {
   layer: K;
   data: LayerDataMap[K];
   warnings: string[];
   notes: string | null;
+  /** The model's account of the choices that shaped this layer. */
+  decisions: Decision[];
+  /** Model that produced it, or null when the offline generator did. */
+  model: string | null;
   usage: { input: number; output: number; cacheRead: number } | null;
 }
 
@@ -70,34 +90,21 @@ const SCHEMAS = {
   population: PopulationResponse,
 } as const;
 
-let client: Anthropic | null = null;
-function getClient(): Anthropic {
-  if (!client) client = new Anthropic();
-  return client;
-}
-
-export function isMockMode(): boolean {
-  return process.env.HEXMAP_MOCK === '1';
-}
-
-export function hasCredentials(): boolean {
-  return Boolean(process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN);
-}
-
 /** One structured, streamed call to the Messages API. */
 async function callModel<S extends z.ZodType>(
+  config: GenerationConfig & { client: Anthropic },
   schema: S,
   system: string,
   user: string,
   onProgress: ProgressFn,
 ): Promise<{ parsed: z.infer<S>; usage: GenerateResult['usage'] }> {
-  const stream = getClient().messages.stream({
-    model: MODEL,
+  const stream = config.client.messages.stream({
+    model: config.model,
     max_tokens: MAX_TOKENS,
     system: [{ type: 'text', text: system, cache_control: { type: 'ephemeral' } }],
     messages: [{ role: 'user', content: user }],
     output_config: {
-      effort: EFFORT,
+      effort: config.effort,
       format: zodOutputFormat(schema),
     },
   });
@@ -209,6 +216,7 @@ export interface GenerateRequest {
 }
 
 export async function generateLayer(
+  config: GenerationConfig,
   req: GenerateRequest,
   onProgress: ProgressFn,
 ): Promise<GenerateResult> {
@@ -218,13 +226,19 @@ export async function generateLayer(
   let parsed: unknown;
   let usage: GenerateResult['usage'] = null;
 
-  if (isMockMode()) {
-    onProgress({ phase: 'writing', detail: 'mock generator' });
+  if (!config.client) {
+    onProgress({ phase: 'writing', detail: 'offline generator' });
     parsed = mockLayer(layer, ctx);
   } else {
     onProgress({ phase: 'prompting' });
     const { system, user } = buildPrompt(layer, ctx);
-    const result = await callModel(SCHEMAS[layer], system, user, onProgress);
+    const result = await callModel(
+      { ...config, client: config.client },
+      SCHEMAS[layer],
+      system,
+      user,
+      onProgress,
+    );
     parsed = result.parsed;
     usage = result.usage;
   }
@@ -373,5 +387,69 @@ export async function generateLayer(
     }
   }
 
-  return { layer, data, warnings, notes: notes || null, usage };
+  // Every response schema carries `decisions`, so it is lifted once here rather
+  // than repeated in all eight branches above.
+  const decisions = normaliseDecisions((parsed as { decisions?: unknown }).decisions);
+
+  return {
+    layer,
+    data,
+    warnings,
+    notes: notes || null,
+    decisions,
+    model: config.client ? config.model : null,
+    usage,
+  };
+}
+
+/** Trust the schema for shape, but not for emptiness or stray whitespace. */
+function normaliseDecisions(raw: unknown): Decision[] {
+  if (!Array.isArray(raw)) return [];
+  const out: Decision[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue;
+    const { title, detail, hexes } = item as Partial<Decision>;
+    const cleanTitle = typeof title === 'string' ? title.trim() : '';
+    const cleanDetail = typeof detail === 'string' ? detail.trim() : '';
+    if (!cleanTitle && !cleanDetail) continue;
+    const cleanHexes = Array.isArray(hexes)
+      ? hexes.filter((h): h is string => typeof h === 'string' && /^\d+,\d+$/.test(h.trim())).map((h) => h.trim())
+      : [];
+    out.push({
+      title: cleanTitle || 'Untitled decision',
+      detail: cleanDetail,
+      ...(cleanHexes.length > 0 ? { hexes: cleanHexes } : {}),
+    });
+  }
+  return out;
+}
+
+/**
+ * Build a prompt context straight from a map. The browser path uses this; the
+ * server builds the same shape from its request body, where the input is
+ * untrusted and has to be validated field by field first.
+ */
+export function contextFromMap(map: MapState, instruction: string | null): PromptContext {
+  return {
+    description: map.description,
+    cols: map.cols,
+    rows: map.rows,
+    base: map.layers.base.data,
+    elevation: map.layers.elevation.data,
+    climate: map.layers.climate.data,
+    vegetation: map.layers.vegetation.data,
+    rivers: map.layers.rivers.data,
+    cities: map.layers.cities.data,
+    polities: map.layers.polities.data,
+    population: map.layers.population.data,
+    instruction,
+  };
+}
+
+export function existingFeatures(ctx: PromptContext): GenerateRequest['existing'] {
+  return {
+    rivers: ctx.rivers?.rivers,
+    cities: ctx.cities?.cities,
+    polities: ctx.polities?.polities,
+  };
 }

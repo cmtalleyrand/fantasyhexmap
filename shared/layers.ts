@@ -131,6 +131,7 @@ export function createMapState(
     createdAt: now,
     updatedAt: now,
     layers: emptyLayers(),
+    journal: [],
   };
 }
 
