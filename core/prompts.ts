@@ -92,8 +92,8 @@ The map is a rectangular grid of pointy-top hexes, ${cols} columns wide and ${ro
     odd  r:  E=(c+1,r)  SE=(c+1,r+1)  SW=(c,r+1)    W=(c-1,r)  NW=(c,r-1)    NE=(c+1,r-1)
 - Nothing exists beyond the grid: the map edge is either open ocean continuing off-map, or land continuing off-map. Do not treat it as a wall.
 
-SCALE
-Unless the description implies otherwise, treat each hex as roughly 40 km across - about 1,400 km of land. A hex is a region, not a field.`;
+SPATIAL SCALE
+Use a physical scale only when the map description states or clearly entails one. Otherwise, do not assume a distance, area, or kilometres-per-hex value; reason from relative positions and terrain patterns. A hex represents one map region, at the description’s scale.`;
 }
 
 function rowFormatRules(cols: number, rows: number, kind: 'char' | 'token'): string {
@@ -705,10 +705,10 @@ function populationPrompt(ctx: PromptContext): BuiltPrompt {
       '- Then climate: temperate and subtropical hexes support more than arid or polar ones.',
       '- Then rule: settled polities are more densely populated than unclaimed wilderness.',
       '',
-      'At roughly 1,400 km per hex, sensible pre-modern figures look like:',
-      '  rich cultivated lowland 25,000-60,000   ordinary farmland 8,000-25,000   mixed forest/farm 3,000-8,000',
-      '  grassland/pastoral 800-4,000            marginal upland 200-1,500        desert, ice, high mountains 0-300',
-      'Shift the whole scale if the brief implies a denser or emptier world, and say so in your notes.',
+      'Infer absolute per-hex figures only from a physical scale supplied or clearly entailed by the brief.',
+      'If no physical scale is available, keep figures internally consistent with the relative carrying capacity',
+      'of the terrain and state in your notes that the totals use an unspecified regional scale; do not invent a',
+      'distance or area for each hex.',
     ]),
     '',
     '- Population is a smooth field: neighbouring hexes of similar land should hold similar numbers. Do not produce',
