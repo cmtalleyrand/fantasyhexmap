@@ -324,3 +324,50 @@ coasts" — rather than imitating the model's reasoning.
 would sit in an exported document indistinguishable from the real thing. Saying plainly that the
 climate is latitude bands with no rain shadow is both honest and more useful: it tells you exactly
 what a mock map is not.
+
+---
+
+# Scoping the work on large maps
+
+Added when it became clear that running all eight layers is too much on a large grid.
+
+## 21. The user chooses the layer plan; there is still no "generate everything" button
+
+**Chosen.** A map records which layers it is meant to have, chosen at creation from presets or
+individually, and changeable afterwards. Layers left out are not generated, not shown, and not
+exported.
+
+**Why this rather than a batch run.** The complaint is that the full pipeline is too much work on a
+large grid, and there are two possible answers: make the whole run one click, or make the run
+smaller. A batch button would multiply the cost of the thing that is already too expensive, and it
+would trample the review-and-edit step between layers that the design is built around — the point of
+generating in stages is that you can correct stage three before stage four reads it. Choosing fewer
+layers attacks the actual quantity. Eight generations become three, and the three are the ones that
+were wanted.
+
+**Consequence for cost.** The picker states the arithmetic rather than hiding it: how many layers are
+selected, and that each is one pass over every hex on the grid. Grid size and layer count multiply,
+and the person choosing both should see that in one place.
+
+## 22. "Not yet" and "never" are different things to say to the model
+
+**Chosen.** The prompt context carries the excluded layers, and every place a prompt describes an
+absent dependency has two wordings.
+
+**Why.** This is the part that would have been easy to skip and would have quietly degraded output.
+The existing prompts said things like "no rivers layer exists yet - they can be revised after rivers
+are generated", which is true when rivers are pending and actively misleading when the map will never
+have them: it invites the model to leave the question half-answered for a pass that is not coming. So
+vegetation without a climate layer is now told to work the climate out itself and commit; cities
+without rivers are told to judge water access from the coast and terrain and to say when they have
+sited a town on a river they inferred; population without vegetation or cities is told what it is
+missing and to record its assumptions.
+
+## 23. Removing a layer from the plan is not destructive
+
+**Chosen.** A layer dropped from the plan keeps its data, hidden. Re-adding it brings the data back.
+
+**Why.** The alternative - clearing the data - makes the plan a trap: one mis-click discards a
+generation that cost real money and minutes, and undo would have to reach across a layer boundary to
+recover it. Hiding costs nothing but a retained array, and the picker says plainly what will happen,
+so nobody has to guess whether removing a layer is safe.

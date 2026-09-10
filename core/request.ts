@@ -19,6 +19,8 @@ export interface GenerateBody {
   rows?: number;
   instruction?: string | null;
   layers?: Partial<Record<LayerId, unknown>>;
+  /** Layers this map has chosen not to have; changes how absent context is described. */
+  excluded?: string[];
 }
 
 export function validateGenerateBody(body: GenerateBody): { error: string } | { req: GenerateRequest } {
@@ -49,6 +51,9 @@ export function validateGenerateBody(body: GenerateBody): { error: string } | { 
     polities: (supplied.polities as PromptContext['polities']) ?? null,
     population: (supplied.population as PromptContext['population']) ?? null,
     instruction: body.instruction ?? null,
+    excluded: (body.excluded ?? []).filter((id): id is LayerId =>
+      LAYER_ORDER.includes(id as LayerId),
+    ),
   };
 
   for (const dep of LAYER_META[layer].requires) {

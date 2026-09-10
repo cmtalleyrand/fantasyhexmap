@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import { LAYER_META } from '../../shared/layers.js';
-import { LAYER_ORDER, type LayerId, type MapState } from '../../shared/types.js';
+import { LAYER_META, plannedLayers } from '../../shared/layers.js';
+import { type LayerId, type MapState } from '../../shared/types.js';
 import { exportComposite, exportLayer } from '../render/export.js';
 import type { VisibleLayers } from '../render/scene.js';
 
@@ -28,7 +28,8 @@ export default function ExportPanel({
     scale: Number(scale) || 2,
   };
 
-  const visibleCount = LAYER_ORDER.filter((id) => visible[id] && map.layers[id].data).length;
+  const planned = plannedLayers(map);
+  const visibleCount = planned.filter((id) => visible[id] && map.layers[id].data).length;
 
   return (
     <div className="section">
@@ -68,14 +69,23 @@ export default function ExportPanel({
         <div>
           <label>Single layer</label>
           <div className="stack">
-            {LAYER_ORDER.filter((id) => map.layers[id].data).map((id: LayerId) => (
-              <button
-                key={id}
-                onClick={() => run(() => exportLayer(map, id, { ...opts, labels: labels && (id === 'cities' || id === 'polities') }))}
-              >
-                {LAYER_META[id].label}
-              </button>
-            ))}
+            {planned
+              .filter((id) => map.layers[id].data)
+              .map((id: LayerId) => (
+                <button
+                  key={id}
+                  onClick={() =>
+                    run(() =>
+                      exportLayer(map, id, {
+                        ...opts,
+                        labels: labels && (id === 'cities' || id === 'polities'),
+                      }),
+                    )
+                  }
+                >
+                  {LAYER_META[id].label}
+                </button>
+              ))}
           </div>
           <p className="hint" style={{ marginTop: 4 }}>
             Single-layer exports keep the base geography as a substrate so land-only layers are

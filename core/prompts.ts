@@ -48,6 +48,30 @@ export interface PromptContext {
   population: PopulationData | null;
   /** Free-text edit instruction; when present the layer is being revised, not generated fresh. */
   instruction?: string | null;
+  /**
+   * Layers this map has chosen not to have at all. The distinction from "not
+   * generated yet" matters to the model: a layer that is merely pending can be
+   * deferred to, while one that is excluded never arrives, so anything that
+   * would have depended on it has to be settled now.
+   */
+  excluded?: LayerId[];
+}
+
+const isExcluded = (ctx: PromptContext, layer: LayerId) =>
+  (ctx.excluded ?? []).includes(layer);
+
+/**
+ * What to tell the model about a layer it would normally read but cannot see.
+ * `pending` is used when the layer is simply not generated yet; `never` when the
+ * map will not have one.
+ */
+function absentLayerNote(
+  ctx: PromptContext,
+  layer: LayerId,
+  pending: string,
+  never: string,
+): string {
+  return isExcluded(ctx, layer) ? never : pending;
 }
 
 export interface BuiltPrompt {
@@ -388,7 +412,15 @@ function vegetationPrompt(ctx: PromptContext): BuiltPrompt {
   if (ctx.climate) {
     parts.push('', section('CLIMATE', encodeClimate(ctx.climate, ctx.cols, ctx.rows)));
   } else {
-    parts.push('', 'No climate layer exists yet - infer climate from latitude and elevation as you go.');
+    parts.push(
+      '',
+      absentLayerNote(
+        ctx,
+        'climate',
+        'No climate layer exists yet - infer climate from latitude and elevation as you go.',
+        'This map will have no climate layer at all. Work out the climate for yourself from latitude, elevation, distance from the sea and rain shadow, commit to it, and say in your notes what you assumed - nothing later will correct it.',
+      ),
+    );
   }
   if (ctx.rivers && ctx.rivers.rivers.length > 0) {
     parts.push('', section('RIVERS (hexes each river runs through, source to mouth)', riverSummary(ctx.rivers)));
@@ -396,7 +428,12 @@ function vegetationPrompt(ctx: PromptContext): BuiltPrompt {
   } else {
     parts.push(
       '',
-      'No rivers layer exists yet. Place Flood Plain and Paddy Fields only where a major river is strongly implied by the terrain; they can be revised after rivers are generated.',
+      absentLayerNote(
+        ctx,
+        'rivers',
+        'No rivers layer exists yet. Place Flood Plain and Paddy Fields only where a major river is strongly implied by the terrain; they can be revised after rivers are generated.',
+        'This map will have no rivers layer. Decide where the major watercourses must run from the terrain alone, and place Flood Plain and Paddy Fields accordingly - there will be no later pass to correct them.',
+      ),
     );
   }
   if (ctx.instruction && ctx.vegetation) {
@@ -539,6 +576,11 @@ function citiesPrompt(ctx: PromptContext): BuiltPrompt {
   }
   if (ctx.rivers && ctx.rivers.rivers.length > 0) {
     parts.push('', section('RIVERS', riverSummary(ctx.rivers)));
+  } else if (isExcluded(ctx, 'rivers')) {
+    parts.push(
+      '',
+      'This map has no rivers layer. Judge water access from the coastline, the lakes and the shape of the land, and where you site a city on an implied river, say so in its reason.',
+    );
   }
   if (ctx.instruction && ctx.cities) {
     parts.push(
@@ -701,6 +743,15 @@ function populationPrompt(ctx: PromptContext): BuiltPrompt {
         'CITIES (their populations are NOT part of your figures)',
         ctx.cities.cities.map((c) => `${c.name} at (${c.col},${c.row}) pop ${c.population}`),
       ),
+    );
+  }
+  const missingForPopulation = (['vegetation', 'climate', 'rivers', 'cities'] as LayerId[]).filter(
+    (id) => isExcluded(ctx, id),
+  );
+  if (missingForPopulation.length > 0) {
+    parts.push(
+      '',
+      `This map has no ${missingForPopulation.map((id) => LAYER_META[id].label).join(' or ')} layer. Base your figures on what you can see - the land, the coast and the latitude - and say in your notes what you had to assume.`,
     );
   }
   if (ctx.polities && ctx.polities.polities.length > 0) {

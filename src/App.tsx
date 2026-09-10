@@ -23,6 +23,7 @@ import { decryptKey, encryptKey } from './api/keyvault.js';
 import UnlockDialog from './components/UnlockDialog.js';
 import SettingsDialog from './components/SettingsDialog.js';
 import DecisionLog from './components/DecisionLog.js';
+import PlanDialog from './components/PlanDialog.js';
 import ExportPanel from './components/ExportPanel.js';
 import Inspector from './components/Inspector.js';
 import LayerPipeline from './components/LayerPipeline.js';
@@ -51,6 +52,7 @@ export default function App() {
   const [prefs, setPrefs] = useState<Prefs>(DEFAULT_PREFS);
   const [showSettings, setShowSettings] = useState(false);
   const [showDecisions, setShowDecisions] = useState(false);
+  const [showPlan, setShowPlan] = useState(false);
   // A passphrase-protected key lives on disk as ciphertext; the plaintext only
   // ever exists in `apiKey`, for this page load.
   const [lockedKey, setLockedKey] = useState<ReturnType<typeof loadLockedKey>>(null);
@@ -73,7 +75,11 @@ export default function App() {
   useEffect(() => {
     loadMap()
       .then((restored) => {
-        if (restored) dispatch({ type: 'load', map: restored });
+        if (restored) {
+          // Maps autosaved before layer plans existed have every layer.
+          restored.enabledLayers ??= [...LAYER_ORDER];
+          dispatch({ type: 'load', map: restored });
+        }
       })
       .catch((e) => setError(`Could not read the autosave: ${e instanceof Error ? e.message : e}`))
       .finally(() => setLoaded(true));
@@ -205,6 +211,7 @@ export default function App() {
         }
         // Older exports may omit the undo stacks; give every layer empty ones.
         imported.journal ??= [];
+        imported.enabledLayers ??= [...LAYER_ORDER];
         for (const id of LAYER_ORDER) {
           const layer = imported.layers[id];
           if (!layer) throw new Error(`The file is missing the "${id}" layer.`);
@@ -275,6 +282,24 @@ export default function App() {
       />
     ) : null;
 
+  const planDialog =
+    showPlan && map ? (
+      <PlanDialog
+        map={map}
+        onClose={() => setShowPlan(false)}
+        onSave={(layers) => {
+          dispatch({ type: 'setPlan', layers });
+          // A layer that is no longer part of the map should not stay drawn on it.
+          setVisible((v) => {
+            const next = { ...v };
+            for (const id of LAYER_ORDER) if (!layers.includes(id)) next[id] = false;
+            return next;
+          });
+          if (!layers.includes(activeLayer)) setActiveLayer('base');
+        }}
+      />
+    ) : null;
+
   const decisionLog =
     showDecisions && map ? (
       <DecisionLog
@@ -296,8 +321,8 @@ export default function App() {
           keyPresent={apiKey.trim().length > 0 || prefs.offline}
           onOpenSettings={() => setShowSettings(true)}
           onImport={handleImport}
-          onCreate={(description, cols, rows, name) =>
-            dispatch({ type: 'load', map: createMapState(description, cols, rows, name) })
+          onCreate={(description, cols, rows, name, layers) =>
+            dispatch({ type: 'load', map: createMapState(description, cols, rows, name, layers) })
           }
         />
       </>
@@ -311,6 +336,7 @@ export default function App() {
     <div className="app">
       {settings}
       {unlock}
+      {planDialog}
       {decisionLog}
       <div className="topbar">
         <h1>{map.name}</h1>
@@ -426,6 +452,7 @@ export default function App() {
             }}
             onToggleVisible={(id) => setVisible((v) => ({ ...v, [id]: !v[id] }))}
             onGenerate={(id) => void runGeneration(id, null)}
+            onEditPlan={() => setShowPlan(true)}
           />
 
           {busyLayer && (

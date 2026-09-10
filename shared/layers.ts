@@ -120,6 +120,7 @@ export function createMapState(
   cols: number,
   rows: number,
   name = 'Untitled map',
+  enabledLayers: LayerId[] = [...LAYER_ORDER],
 ): MapState {
   const now = Date.now();
   return {
@@ -130,9 +131,55 @@ export function createMapState(
     rows,
     createdAt: now,
     updatedAt: now,
+    enabledLayers: normaliseSelection(enabledLayers),
     layers: emptyLayers(),
     journal: [],
   };
+}
+
+/**
+ * A selection is only coherent if every hard dependency of a chosen layer is
+ * chosen too, and base geography is always chosen - nothing works without it.
+ * Returns the layers in pipeline order.
+ */
+export function normaliseSelection(selection: Iterable<LayerId>): LayerId[] {
+  const chosen = new Set<LayerId>(selection);
+  chosen.add('base');
+  let grew = true;
+  while (grew) {
+    grew = false;
+    for (const id of [...chosen]) {
+      for (const dep of LAYER_META[id].requires) {
+        if (!chosen.has(dep)) {
+          chosen.add(dep);
+          grew = true;
+        }
+      }
+    }
+  }
+  return LAYER_ORDER.filter((id) => chosen.has(id));
+}
+
+/** Layers a map does not plan to have; soft dependencies among these will never arrive. */
+export function excludedLayers(map: MapState): LayerId[] {
+  const enabled = new Set(map.enabledLayers ?? LAYER_ORDER);
+  return LAYER_ORDER.filter((id) => !enabled.has(id));
+}
+
+export function isLayerEnabled(map: MapState, id: LayerId): boolean {
+  return (map.enabledLayers ?? LAYER_ORDER).includes(id);
+}
+
+/** Enabled layers in pipeline order. */
+export function plannedLayers(map: MapState): LayerId[] {
+  const enabled = new Set(map.enabledLayers ?? LAYER_ORDER);
+  return LAYER_ORDER.filter((id) => enabled.has(id));
+}
+
+/** Soft dependencies of `id` that this map has chosen not to have at all. */
+export function excludedInfluences(map: MapState, id: LayerId): LayerId[] {
+  const enabled = new Set(map.enabledLayers ?? LAYER_ORDER);
+  return LAYER_META[id].uses.filter((dep) => !enabled.has(dep));
 }
 
 export function hasData(map: MapState, id: LayerId): boolean {
@@ -143,6 +190,44 @@ export function hasData(map: MapState, id: LayerId): boolean {
 export function isUnlocked(map: MapState, id: LayerId): boolean {
   return LAYER_META[id].requires.every((dep) => hasData(map, dep));
 }
+
+export interface LayerPreset {
+  id: string;
+  label: string;
+  blurb: string;
+  layers: LayerId[];
+}
+
+/**
+ * Starting points for the layer plan. Every one of these is a real way people
+ * use a hex map, and each is far less work than the full pipeline on a big grid.
+ */
+export const LAYER_PRESETS: LayerPreset[] = [
+  {
+    id: 'everything',
+    label: 'Everything',
+    blurb: 'The full pipeline. Eight generations - slow and expensive on a large grid.',
+    layers: [...LAYER_ORDER],
+  },
+  {
+    id: 'physical',
+    label: 'Physical world',
+    blurb: 'Land, height, climate, cover and water. No people.',
+    layers: ['base', 'elevation', 'climate', 'vegetation', 'rivers'],
+  },
+  {
+    id: 'terrain',
+    label: 'Terrain only',
+    blurb: 'The shape of the land and its rivers - the quickest useful map.',
+    layers: ['base', 'elevation', 'rivers'],
+  },
+  {
+    id: 'political',
+    label: 'Land and powers',
+    blurb: 'Geography with settlements and borders, skipping the natural detail.',
+    layers: ['base', 'elevation', 'cities', 'polities'],
+  },
+];
 
 export function missingRequirements(map: MapState, id: LayerId): LayerId[] {
   return LAYER_META[id].requires.filter((dep) => !hasData(map, dep));

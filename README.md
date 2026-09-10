@@ -133,6 +133,32 @@ Grid dimensions are capped at 50×50 (2,500 hexes) in the setup form and again s
 
 ## Layers
 
+### Choosing which layers to build
+
+Every layer is one generation pass over the entire grid, so a 50×50 map with the full pipeline is
+eight long, expensive generations — and most maps do not need all eight. When you create a map you
+choose which layers it will have, from presets or hex by hex:
+
+| Preset | Layers |
+| --- | --- |
+| Everything | the full pipeline |
+| Physical world | base, elevation, climate, vegetation, rivers |
+| Terrain only | base, elevation, rivers |
+| Land and powers | base, elevation, cities, polities |
+
+Base geography is always included; nothing works without it. The picker keeps the selection coherent
+(a layer's hard dependencies come with it) and tells you what a chosen layer will be missing.
+
+The plan is not a commitment. **plan** in the sidebar changes it at any time: add a layer you
+skipped, or drop one you decided against. Dropping a layer that already holds data hides it from the
+map, the pipeline and the exports but does not delete it — add it back and the data returns.
+
+Leaving a layer out changes how the others are generated. There is a real difference between "the
+climate layer does not exist yet" and "this map will never have one", and the prompts say which:
+a layer that is merely pending can be deferred to, while an excluded one never arrives, so vegetation
+asked to work without climate is told to infer the climate itself, commit to it, and record what it
+assumed — because nothing later will correct it.
+
 | Layer | Values | Applies to |
 | --- | --- | --- |
 | Base Geography | Land, Sea, Lake, Ice, Island | every hex |

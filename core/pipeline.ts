@@ -54,6 +54,7 @@ import {
   VegetationResponse,
 } from './schemas.js';
 import { mockLayer } from './mock.js';
+import { excludedLayers } from '../shared/layers.js';
 import { MAX_TOKENS, type Effort } from './config.js';
 
 export { DEFAULT_EFFORT, DEFAULT_MODEL, type Effort } from './config.js';
@@ -443,6 +444,7 @@ export function contextFromMap(map: MapState, instruction: string | null): Promp
     polities: map.layers.polities.data,
     population: map.layers.population.data,
     instruction,
+    excluded: excludedLayers(map),
   };
 }
 
