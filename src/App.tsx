@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { edgeBetween, indexToOffset } from '../shared/hex.js';
 import { LAYER_META, createMapState } from '../shared/layers.js';
+import { nextGenerationWave } from '../shared/generationQueue.js';
 import { LAYER_ORDER, type LayerId, type MapState } from '../shared/types.js';
 import {
   detectTransport,
@@ -64,11 +65,14 @@ export default function App() {
   const [brush, setBrushState] = useState<Record<string, string>>({});
   const [brushMode, setBrushMode] = useState(false);
   const [instruction, setInstruction] = useState('');
-  const [busyLayer, setBusyLayer] = useState<LayerId | null>(null);
-  const [progress, setProgress] = useState<ProgressEvent | null>(null);
+  const [busyLayers, setBusyLayers] = useState<Set<LayerId>>(new Set());
+  const [concurrency, setConcurrency] = useState(1);
+  const [progress, setProgress] = useState<Partial<Record<LayerId, ProgressEvent>>>({});
   const [error, setError] = useState<string | null>(null);
   const [riverDraft, setRiverDraft] = useState<number[] | null>(null);
-  const abortRef = useRef<AbortController | null>(null);
+  const abortRef = useRef<Map<LayerId, AbortController>>(new Map());
+  const batchCancelled = useRef(false);
+  const mapRef = useRef<MapState | null>(map);
   const autosave = useMemo(() => makeAutosaver(), []);
 
   // --- boot: restore the autosaved map, and ask the server what mode it is in
@@ -96,6 +100,7 @@ export default function App() {
 
   useEffect(() => {
     if (map) autosave.save(map);
+    mapRef.current = map;
   }, [map, autosave]);
 
   useEffect(() => {
@@ -115,23 +120,24 @@ export default function App() {
 
   const runGeneration = useCallback(
     async (layer: LayerId, instructionText: string | null) => {
-      if (!map) return;
-      setBusyLayer(layer);
+      const requestMap = mapRef.current;
+      if (!requestMap || abortRef.current.has(layer)) return;
+      setBusyLayers((current) => new Set(current).add(layer));
       setError(null);
-      setProgress({ phase: 'starting' });
+      setProgress((current) => ({ ...current, [layer]: { phase: 'starting' } }));
       const controller = new AbortController();
-      abortRef.current = controller;
+      abortRef.current.set(layer, controller);
       try {
         const result = await requestLayer(
-          map,
+          requestMap,
           layer,
           instructionText,
           transport.mode,
           { apiKey: apiKey || null, model: prefs.model, effort: prefs.effort, offline: prefs.offline },
-          setProgress,
+          (event) => setProgress((current) => ({ ...current, [layer]: event })),
           controller.signal,
         );
-        dispatch({
+        const action: Action = {
           type: 'applyGeneration',
           layer,
           data: result.data,
@@ -140,7 +146,9 @@ export default function App() {
           decisions: result.decisions,
           model: result.model,
           instruction: instructionText,
-        });
+        };
+        mapRef.current = reducer(mapRef.current!, action);
+        dispatch(action);
         setVisible((v) => ({ ...v, [layer]: true }));
         setActiveLayer(layer);
         if (instructionText) setInstruction('');
@@ -149,13 +157,36 @@ export default function App() {
           setError(e instanceof Error ? e.message : String(e));
         }
       } finally {
-        setBusyLayer(null);
-        setProgress(null);
-        abortRef.current = null;
+        setBusyLayers((current) => {
+          const next = new Set(current);
+          next.delete(layer);
+          return next;
+        });
+        setProgress((current) => {
+          const next = { ...current };
+          delete next[layer];
+          return next;
+        });
+        abortRef.current.delete(layer);
       }
     },
-    [map, transport.mode, apiKey, prefs],
+    [transport.mode, apiKey, prefs],
   );
+
+  const generateRemaining = useCallback(async () => {
+    if (!mapRef.current || abortRef.current.size > 0) return;
+    batchCancelled.current = false;
+    let pending = LAYER_ORDER.filter(
+      (id) => (mapRef.current!.enabledLayers ?? LAYER_ORDER).includes(id) && !mapRef.current!.layers[id].data,
+    );
+    while (pending.length > 0) {
+      const wave = nextGenerationWave(pending, mapRef.current, concurrency);
+      if (wave.length === 0) break;
+      await Promise.all(wave.map((id) => runGeneration(id, null)));
+      if (batchCancelled.current) break;
+      pending = pending.filter((id) => !wave.includes(id));
+    }
+  }, [concurrency, runGeneration]);
 
   const onStrokeEnd = useCallback(
     (indices: number[]) => {
@@ -445,32 +476,40 @@ export default function App() {
             map={map}
             activeLayer={activeLayer}
             visible={visible}
-            busyLayer={busyLayer}
+            busyLayers={busyLayers}
             onSelect={(id) => {
               setActiveLayer(id);
               setRiverDraft(null);
             }}
             onToggleVisible={(id) => setVisible((v) => ({ ...v, [id]: !v[id] }))}
             onGenerate={(id) => void runGeneration(id, null)}
+            concurrency={concurrency}
+            onConcurrencyChange={setConcurrency}
+            onGenerateRemaining={() => void generateRemaining()}
             onEditPlan={() => setShowPlan(true)}
           />
 
-          {busyLayer && (
+          {busyLayers.size > 0 && (
             <div className="section">
-              <div className="progress">
-                Generating {LAYER_META[busyLayer].label.toLowerCase()}
-                {progress?.phase ? ` - ${progress.phase}` : ''}
-                {progress?.chars ? ` (${progress.chars.toLocaleString()} chars)` : ''}
-                <div className="bar">
-                  <i />
+              {[...busyLayers].map((layer) => (
+                <div className="progress" key={layer}>
+                  Generating {LAYER_META[layer].label.toLowerCase()}
+                  {progress[layer]?.phase ? ` - ${progress[layer]?.phase}` : ''}
+                  {progress[layer]?.chars ? ` (${progress[layer]?.chars?.toLocaleString()} chars)` : ''}
+                  <div className="bar">
+                    <i />
+                  </div>
                 </div>
-              </div>
+              ))}
               <button
                 className="tiny"
                 style={{ marginTop: 6 }}
-                onClick={() => abortRef.current?.abort()}
+                onClick={() => {
+                  batchCancelled.current = true;
+                  for (const controller of abortRef.current.values()) controller.abort();
+                }}
               >
-                cancel
+                cancel {busyLayers.size > 1 ? 'all' : ''}
               </button>
             </div>
           )}
@@ -528,7 +567,7 @@ export default function App() {
           instruction={instruction}
           setInstruction={setInstruction}
           onAiEdit={() => void runGeneration(activeLayer, instruction.trim())}
-          busy={busyLayer !== null}
+          busy={busyLayers.size > 0}
           riverDraft={riverDraft}
           setRiverDraft={setRiverDraft}
           onOpenDecisionLog={() => setShowDecisions(true)}
@@ -537,4 +576,3 @@ export default function App() {
     </div>
   );
 }
-

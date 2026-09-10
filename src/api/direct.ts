@@ -80,10 +80,12 @@ export async function generateDirect(
     const result = await generateLayer(config, { layer, ctx, existing: existingFeatures(ctx) }, (event) => {
       if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
       onProgress(event);
-    });
+    }, signal);
     return { ...result, elapsedMs: Date.now() - started };
   } catch (err) {
-    if ((err as Error)?.name === 'AbortError') throw err;
+    if (signal?.aborted || (err as Error)?.name === 'AbortError') {
+      throw new DOMException('Aborted', 'AbortError');
+    }
     throw new Error(describeError(err));
   }
 }

@@ -13,15 +13,18 @@ export interface LayerPipelineProps {
   map: MapState;
   activeLayer: LayerId;
   visible: VisibleLayers;
-  busyLayer: LayerId | null;
+  busyLayers: ReadonlySet<LayerId>;
   onSelect: (layer: LayerId) => void;
   onToggleVisible: (layer: LayerId) => void;
   onGenerate: (layer: LayerId) => void;
+  concurrency: number;
+  onConcurrencyChange: (value: number) => void;
+  onGenerateRemaining: () => void;
   onEditPlan: () => void;
 }
 
 export default function LayerPipeline(props: LayerPipelineProps) {
-  const { map, activeLayer, visible, busyLayer } = props;
+  const { map, activeLayer, visible, busyLayers } = props;
   const planned = plannedLayers(map);
   const omitted = 8 - planned.length;
   return (
@@ -31,6 +34,28 @@ export default function LayerPipeline(props: LayerPipelineProps) {
         <button className="tiny" onClick={props.onEditPlan} title="Choose which layers this map has">
           plan{omitted > 0 ? ` (${omitted} left out)` : ''}
         </button>
+      </div>
+      <div className="row layer-batch-controls">
+        <button
+          className="tiny grow"
+          disabled={busyLayers.size > 0 || planned.every((id) => map.layers[id].data)}
+          onClick={props.onGenerateRemaining}
+        >
+          generate empty layers
+        </button>
+        <label title="Maximum layer requests run at the same time">
+          at once
+          <select
+            value={props.concurrency}
+            disabled={busyLayers.size > 0}
+            onChange={(event) => props.onConcurrencyChange(Number(event.target.value))}
+          >
+            <option value={1}>1</option>
+            <option value={2}>2</option>
+            <option value={3}>3</option>
+            <option value={4}>4</option>
+          </select>
+        </label>
       </div>
       {planned.map((id) => {
         const meta = LAYER_META[id];
@@ -85,14 +110,14 @@ export default function LayerPipeline(props: LayerPipelineProps) {
             )}
             <button
               className="tiny"
-              disabled={!unlocked || busyLayer !== null}
+              disabled={!unlocked || busyLayers.has(id)}
               onClick={(e) => {
                 e.stopPropagation();
                 props.onGenerate(id);
               }}
               title={layer.data ? 'Regenerate this layer from scratch' : 'Generate this layer'}
             >
-              {busyLayer === id ? '…' : layer.data ? 'regen' : 'generate'}
+              {busyLayers.has(id) ? '…' : layer.data ? 'regen' : 'generate'}
             </button>
           </div>
         );

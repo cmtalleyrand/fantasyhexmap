@@ -98,6 +98,7 @@ async function callModel<S extends z.ZodType>(
   system: string,
   user: string,
   onProgress: ProgressFn,
+  signal?: AbortSignal,
 ): Promise<{ parsed: z.infer<S>; usage: GenerateResult['usage'] }> {
   const stream = config.client.messages.stream({
     model: config.model,
@@ -108,7 +109,7 @@ async function callModel<S extends z.ZodType>(
       effort: config.effort,
       format: zodOutputFormat(schema),
     },
-  });
+  }, { signal });
 
   let chars = 0;
   let lastPing = 0;
@@ -220,6 +221,7 @@ export async function generateLayer(
   config: GenerationConfig,
   req: GenerateRequest,
   onProgress: ProgressFn,
+  signal?: AbortSignal,
 ): Promise<GenerateResult> {
   const { layer, ctx } = req;
   const { cols, rows } = ctx;
@@ -239,6 +241,7 @@ export async function generateLayer(
       system,
       user,
       onProgress,
+      signal,
     );
     parsed = result.parsed;
     usage = result.usage;
