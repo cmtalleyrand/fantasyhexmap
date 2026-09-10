@@ -8,19 +8,46 @@ import * as z from 'zod/v4';
 
 const notes = z
   .string()
-  .describe('One or two sentences explaining the main choices you made. Shown to the user.');
+  .describe('One or two sentences summarising this layer as a whole. Shown to the user.');
+
+/**
+ * The model's own account of the choices it made. This is not decoration: it is
+ * the record of why the map looks the way it does, which nothing else captures,
+ * and it is shown to the user and exported alongside the map.
+ */
+const decisions = z
+  .array(
+    z.object({
+      title: z
+        .string()
+        .describe('Short headline for the decision, e.g. "Rain shadow east of the Kelder Spine".'),
+      detail: z
+        .string()
+        .describe(
+          'One to three sentences: what you decided, and why - the reasoning, the cue in the brief you followed, or the trade-off you made. Not a restatement of the data.',
+        ),
+      hexes: z
+        .array(z.string())
+        .describe('Hexes this decision is about as "col,row" strings. Omit or leave empty if it is about the map as a whole.'),
+    }),
+  )
+  .describe(
+    'The 3 to 8 decisions that most shaped this layer. Include any place you departed from the obvious answer, resolved a conflict in the brief, or made something up because the brief was silent.',
+  );
 
 export const BaseResponse = z.object({
   rows: z
     .array(z.string())
     .describe('One string per grid row, north to south; one legend character per hex, west to east.'),
   notes,
+  decisions,
 });
 export type BaseResponse = z.infer<typeof BaseResponse>;
 
 export const ElevationResponse = z.object({
   rows: z.array(z.string()).describe('One string per grid row; one legend character per hex.'),
   notes,
+  decisions,
 });
 export type ElevationResponse = z.infer<typeof ElevationResponse>;
 
@@ -32,6 +59,7 @@ export const ClimateResponse = z.object({
     .array(z.string())
     .describe('One string per grid row; space-separated Köppen codes, one per hex.'),
   notes,
+  decisions,
 });
 export type ClimateResponse = z.infer<typeof ClimateResponse>;
 
@@ -40,6 +68,7 @@ export const VegetationResponse = z.object({
     .array(z.string())
     .describe('One string per grid row; space-separated two-letter vegetation codes, one per hex.'),
   notes,
+  decisions,
 });
 export type VegetationResponse = z.infer<typeof VegetationResponse>;
 
@@ -58,6 +87,7 @@ export const RiversResponse = z.object({
     }),
   ),
   notes,
+  decisions,
 });
 export type RiversResponse = z.infer<typeof RiversResponse>;
 
@@ -72,6 +102,7 @@ export const CitiesResponse = z.object({
     }),
   ),
   notes,
+  decisions,
 });
 export type CitiesResponse = z.infer<typeof CitiesResponse>;
 
@@ -87,6 +118,7 @@ export const PolitiesResponse = z.object({
     .array(z.string())
     .describe('One string per grid row; one polity key per hex, or "." for unclaimed.'),
   notes,
+  decisions,
 });
 export type PolitiesResponse = z.infer<typeof PolitiesResponse>;
 
@@ -95,5 +127,6 @@ export const PopulationResponse = z.object({
     .array(z.string())
     .describe('One string per grid row; space-separated integers, one per hex, "-" for water.'),
   notes,
+  decisions,
 });
 export type PopulationResponse = z.infer<typeof PopulationResponse>;

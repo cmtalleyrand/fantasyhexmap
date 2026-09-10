@@ -163,21 +163,29 @@ incoherent details, which is useful for exercising the validator and useless as 
 
 Added when the brief changed from "runs locally" to "deploys to GitHub Pages via Actions".
 
-## 12. No shared API key in a static build — the request as posed cannot be satisfied
+## 12. A user-supplied key is safe; a developer-supplied one in a static build is not
 
 **The ask.** Deploy to GitHub Pages via Actions, with an easy way to supply an API key safely there.
 
-**The finding.** There isn't one, and this is worth being precise about because the intuition behind
-the question is reasonable. GitHub Actions secrets are genuinely safe *for the repository and for the
-build*: they are encrypted at rest, masked in logs, and unavailable to forked pull requests. What they
-do not do is survive contact with a static site. Anything the browser needs at runtime must be in the
-bundle the browser downloads, so a key injected at build time — as `VITE_ANTHROPIC_API_KEY` or under
-any other name — is published to every visitor in plain text, readable in DevTools in seconds. GitHub
-Pages has no server-side execution, so there is nowhere else to put it. This is a property of static
-hosting, not a setting that can be configured differently.
+**The distinction that matters.** These are two different questions wearing the same words, and the
+first answer given here blurred them by leading with the impossible one.
+
+*Can a web app let a user safely provide an API key?* Yes, and that is what this app does. The key is
+typed in at runtime by the person whose key it is, kept in their browser, and sent to one host. It
+never touches the repository, the build or anyone else's download. This is an ordinary, sound pattern
+— the same trust model as a desktop app holding a credential in its config file — and it is worth
+building carefully rather than apologising for. What "carefully" means is decision 14.
+
+*Can a build bake in a key for visitors to use?* No. GitHub Actions secrets are genuinely safe for
+the repository and the build — encrypted at rest, masked in logs, withheld from forked pull requests
+— but they do not survive contact with a static site. Anything the browser needs at runtime is in the
+bundle it downloads, so a key injected at build time under any name is published to every visitor in
+plain text. Pages has no server-side execution; there is nowhere else to put it. That is a property
+of static hosting, not a setting.
 
 Rejected outright: build-time key injection of any kind. The workflow carries a comment saying so, so
-that the next person to reach for it finds the reason rather than the temptation.
+the next person to reach for it finds the reason rather than the temptation. Where a shared key is
+genuinely wanted, decision 16 covers it.
 
 ## 13. Three deployment shapes, one build, chosen at runtime
 
@@ -197,25 +205,38 @@ easier to reason about than three build configurations, and a failed health prob
 signal that there is no server — it is the same condition the fallback exists for. The cost is one
 harmless 404 in the console on a static deploy, which is expected and handled.
 
-## 14. Bring-your-own-key as the default for the static deploy
+## 14. Bring-your-own-key, and what makes it actually safe
 
-**Chosen.** In browser mode the page asks for a key, stores it in `localStorage` (or `sessionStorage`
-if the user unticks "remember"), and calls Anthropic directly with the SDK's
-`dangerouslyAllowBrowser` flag.
+**Chosen.** In browser mode the page asks for a key and calls Anthropic directly with the SDK's
+`dangerouslyAllowBrowser` flag. Five things make that a sound arrangement rather than a shrug, and
+they are the substance of the decision — the flag alone would not be:
 
-**Why this is acceptable here, when it usually is not.** That flag has a deliberately alarming name
-because the usual case is a developer shipping *their* key to *users*, which exposes it to everyone.
-The relationship is inverted here: the key belongs to the person looking at the page, they typed it in
-themselves, it is stored only in their browser, and it is never part of what anyone else downloads.
-That is the same trust model as a desktop app holding a credential in its config file.
+1. **The key is only ever the user's own.** `dangerouslyAllowBrowser` earns its name in the usual
+   case, where a developer ships *their* key to *users*. Here the relationship is inverted: the
+   holder and the viewer are the same person.
+2. **`connect-src` is locked to Anthropic.** The production build carries a Content-Security-Policy
+   allowing connections only to `api.anthropic.com` and a configured proxy. Exfiltration is the
+   threat that actually matters for a credential in a browser, and this is what closes it.
+3. **No third-party code runs on the origin.** `script-src 'self'`; no analytics, CDN or web fonts.
+   An app that pulls in a script from someone else's server cannot honestly claim to protect a
+   secret on its own origin, so this app pulls in none.
+4. **At-rest encryption is available.** Opting into a passphrase stores AES-GCM ciphertext under a
+   PBKDF2-derived key (310,000 iterations, SHA-256, random salt and IV) and unlocks once per
+   session; the passphrase is never stored. This defends the real scenario it can defend — someone
+   else reading this browser's storage — and is offered rather than forced.
+5. **It declines to pretend.** On a non-secure origin the settings dialog says the key cannot be
+   protected there instead of quietly accepting it.
 
-**What it does not protect against.** Any script running on the page's own origin can read
-`localStorage`, so the page loads no third-party code — no analytics, no fonts, no CDN — which is why
-that matters more than it might seem. Anyone the user shares a machine with can also read it, hence
-the session-only option, and the settings dialog recommends a key with a spend limit.
+**What none of it protects against, stated because encryption invites over-confidence.** Script
+running on the page while the key is unlocked can read it from memory, because the page must be able
+to use it. That is what (2) and (3) are for; the encryption in (4) is the weaker of the two defences,
+not the stronger, and the settings dialog says so where a user will read it.
 
 **Rejected: no persistence at all.** Re-pasting a key on every page load would push people towards
-keeping it in a text file, which is worse.
+keeping it in a text file, which is worse. The session-only option covers the cautious case.
+
+**Rejected: `frame-ancestors` in the meta CSP.** It is ignored outside a response header, and Pages
+cannot set headers. Claiming it in the policy would have been decoration.
 
 ## 15. The pipeline was made isomorphic rather than duplicated
 
@@ -248,3 +269,58 @@ rather than presenting the Worker as the more professional option.
 authenticate callers, and an origin header is trivially forged outside a browser. For a genuinely
 public deployment it needs a passphrase or Cloudflare Access in front of it, plus a spend limit on the
 key. This is documented in `worker/README.md`, not left for someone to discover from a bill.
+
+---
+
+# The in-app decision record
+
+Added when it became clear that "a written summary of key decisions taken by the AI" meant the
+decisions the model makes *while generating a map*, not the decisions behind the codebase.
+
+## 17. The model reports its reasoning as structured decisions, not prose
+
+**Chosen.** Every layer's response schema carries a `decisions` array — three to eight entries of
+`{title, detail, hexes}` — alongside the one-line summary that already existed. The prompt asks
+specifically for choices rather than contents: which cue in the brief was followed, where two parts
+of it pulled against each other and how that was resolved, what was invented because the brief was
+silent, and anything a reader would otherwise take for a mistake.
+
+**Why structured rather than a paragraph.** A paragraph cannot be filtered by layer, cannot carry hex
+references that the UI turns into a selection, and cannot be laid out as a document. Structure also
+disciplines the model: a field called `title` gets a claim, where free text drifts into restating the
+data. The prompt says so outright, because "the eastern basin is BWk" is the map, not a decision.
+
+**Why it is stored per generation rather than per layer.** Regenerating or rewriting a layer produces
+new reasoning without erasing what came before, so the record is the history of the map's making, not
+a snapshot of its current state.
+
+## 18. Human edits are logged in the same record
+
+**Chosen.** The journal records manual edits, undos and redos next to the AI entries, with an "AI
+decisions only" filter defaulting to on.
+
+**Why.** A record of only the model's choices, kept alongside a map the user has been editing by
+hand, quietly misattributes their work to the AI. The value of the record is that a reader can tell
+which decisions were whose, and that requires logging both. The filter exists because the AI entries
+are usually what someone came to read.
+
+## 19. The record is part of the map
+
+**Chosen.** The journal lives in the map state: autosaved to IndexedDB, included in the JSON export,
+restored on import (and tolerated as absent in files written before this existed).
+
+**Why.** Reasoning that vanishes when you export the map is reasoning you cannot use. A generated
+world is defensible only if the account of why it looks like this travels with it — hence also the
+Markdown export, which is a document rather than a data dump, grouped by layer and opening with the
+brief that started it.
+
+## 20. The offline generator reports what it actually did
+
+**Chosen.** The procedural generator emits decision entries too, but they describe its arithmetic —
+"landmasses from overlapping blobs", "flood fill from random seeds, ignoring rivers, ranges and
+coasts" — rather than imitating the model's reasoning.
+
+**Why.** Generated prose about the design intent behind a random blob would be a fabrication, and it
+would sit in an exported document indistinguishable from the real thing. Saying plainly that the
+climate is latitude bands with no rain shadow is both honest and more useful: it tells you exactly
+what a mock map is not.

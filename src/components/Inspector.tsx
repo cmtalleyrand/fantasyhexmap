@@ -35,6 +35,40 @@ export interface InspectorProps {
   busy: boolean;
   riverDraft: number[] | null;
   setRiverDraft: (next: number[] | null) => void;
+  onOpenDecisionLog: () => void;
+}
+
+/** The reasoning behind the layer being edited, as the model reported it. */
+function LayerDecisions({
+  map,
+  layer,
+  onOpenLog,
+}: {
+  map: MapState;
+  layer: LayerId;
+  onOpenLog: () => void;
+}) {
+  const latest = [...(map.journal ?? [])]
+    .reverse()
+    .find((e) => e.layer === layer && (e.kind === 'generate' || e.kind === 'instruct'));
+  if (!latest || latest.decisions.length === 0) return null;
+  return (
+    <div className="notice info" style={{ marginTop: 8 }}>
+      <b>Why it looks like this</b>
+      <ul className="warnlist">
+        {latest.decisions.slice(0, 4).map((d, i) => (
+          <li key={i}>
+            <b>{d.title}.</b> {d.detail}
+          </li>
+        ))}
+      </ul>
+      <button className="tiny" style={{ marginTop: 6 }} onClick={onOpenLog}>
+        {latest.decisions.length > 4
+          ? `+${latest.decisions.length - 4} more · full record`
+          : 'full record'}
+      </button>
+    </div>
+  );
 }
 
 function coordLabel(map: MapState, index: number): string {
@@ -92,6 +126,7 @@ export default function Inspector(props: InspectorProps) {
             {layer.notes}
           </div>
         )}
+        <LayerDecisions map={map} layer={activeLayer} onOpenLog={props.onOpenDecisionLog} />
         {layer.warnings.length > 0 && (
           <div className="notice warn" style={{ marginTop: 8 }}>
             <b>{layer.warnings.length} validation note{layer.warnings.length === 1 ? '' : 's'}</b>
@@ -467,13 +502,7 @@ function RiverEditor(props: SubProps) {
     );
     props.setRiverDraft(null);
     if (!river) return;
-    dispatch({
-      type: 'applyGeneration',
-      layer: 'rivers',
-      data: { rivers: [...data.rivers, river] },
-      warnings: [...map.layers.rivers.warnings, ...warnings],
-      notes: map.layers.rivers.notes,
-    });
+    dispatch({ type: 'addRiver', river });
   };
 
   return (

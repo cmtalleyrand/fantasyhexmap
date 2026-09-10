@@ -15,8 +15,12 @@
 
 import { recomputeCityFacts, isLandLike } from '../../shared/derive.js';
 import { currentDepVersions, trimHistory } from '../../shared/layers.js';
+import { LAYER_META } from '../../shared/layers.js';
 import type {
   City,
+  Decision,
+  JournalEntry,
+  JournalKind,
   LayerDataMap,
   LayerId,
   LayerSnapshot,
@@ -29,13 +33,25 @@ import type {
 export type Action =
   | { type: 'load'; map: MapState }
   | { type: 'setMeta'; name?: string; description?: string }
-  | { type: 'applyGeneration'; layer: LayerId; data: LayerDataMap[LayerId]; warnings: string[]; notes: string | null }
+  | {
+      type: 'applyGeneration';
+      layer: LayerId;
+      data: LayerDataMap[LayerId];
+      warnings: string[];
+      notes: string | null;
+      decisions?: Decision[];
+      model?: string | null;
+      instruction?: string | null;
+      /** Omit the journal entry for changes that are not a generation (a hand-built river). */
+      journal?: false;
+    }
   | { type: 'setHexValues'; layer: 'base' | 'elevation' | 'climate' | 'vegetation' | 'population'; indices: number[]; value: unknown }
   | { type: 'setPolityOwner'; indices: number[]; polityId: string | null }
   | { type: 'upsertPolity'; polity: Polity }
   | { type: 'removePolity'; id: string }
   | { type: 'upsertCity'; city: City }
   | { type: 'removeCity'; id: string }
+  | { type: 'addRiver'; river: River }
   | { type: 'updateRiver'; river: River }
   | { type: 'removeRiver'; id: string }
   | { type: 'clearLayer'; layer: LayerId }
@@ -73,6 +89,40 @@ function withLayer(map: MapState, id: LayerId, layer: LayerState): MapState {
     layers: { ...map.layers, [id]: layer },
   };
 }
+
+const MAX_JOURNAL = 400;
+
+/**
+ * Append to the record of how the map came to be. Human actions are logged
+ * alongside the model's so the account never credits the AI with a choice a
+ * person made - which is the whole point of keeping it.
+ */
+function journal(
+  map: MapState,
+  entry: Omit<JournalEntry, 'id' | 'at'> & Partial<Pick<JournalEntry, 'at'>>,
+): MapState {
+  const at = entry.at ?? Date.now();
+  const next: JournalEntry = {
+    ...entry,
+    at,
+    id: `j_${at.toString(36)}_${Math.random().toString(36).slice(2, 7)}`,
+  };
+  const all = [...(map.journal ?? []), next];
+  return {
+    ...map,
+    journal: all.length > MAX_JOURNAL ? all.slice(all.length - MAX_JOURNAL) : all,
+  };
+}
+
+const manualEntry = (layer: LayerId, summary: string) => ({
+  layer,
+  kind: 'manual' as JournalKind,
+  instruction: null,
+  summary,
+  decisions: [],
+  model: null,
+  warnings: 0,
+});
 
 /**
  * Re-derive facts that are functions of other layers. Runs after any change to
@@ -138,7 +188,7 @@ export function reducer(map: MapState, action: Action): MapState {
 
     case 'applyGeneration': {
       const layer = map.layers[action.layer];
-      const next = withLayer(
+      let next = withLayer(
         map,
         action.layer,
         commit(layer, {
@@ -149,6 +199,17 @@ export function reducer(map: MapState, action: Action): MapState {
           depVersions: currentDepVersions(map, action.layer),
         }),
       );
+      if (action.journal !== false) {
+        next = journal(next, {
+          layer: action.layer,
+          kind: action.instruction ? 'instruct' : 'generate',
+          instruction: action.instruction ?? null,
+          summary: action.notes ?? `${LAYER_META[action.layer].label} generated.`,
+          decisions: action.decisions ?? [],
+          model: action.model ?? null,
+          warnings: action.warnings.length,
+        });
+      }
       return action.layer === 'base' || action.layer === 'rivers' ? reconcile(next) : next;
     }
 
@@ -160,10 +221,17 @@ export function reducer(map: MapState, action: Action): MapState {
       for (const i of action.indices) {
         if (i >= 0 && i < data.length) data[i] = action.value;
       }
-      const next = withLayer(
-        map,
-        action.layer,
-        commit(layer as LayerState, { data: data as LayerDataMap[LayerId] }),
+      const value = action.value === null ? 'no value' : String(action.value);
+      const next = journal(
+        withLayer(
+          map,
+          action.layer,
+          commit(layer as LayerState, { data: data as LayerDataMap[LayerId] }),
+        ),
+        manualEntry(
+          action.layer,
+          `Set ${action.indices.length} hex${action.indices.length === 1 ? '' : 'es'} to ${value} by hand.`,
+        ),
       );
       return action.layer === 'base' ? reconcile(next) : next;
     }
@@ -179,7 +247,16 @@ export function reducer(map: MapState, action: Action): MapState {
         if (action.polityId && base && !isLandLike(base[i])) continue;
         owner[i] = action.polityId;
       }
-      return withLayer(map, 'polities', commit(layer, { data: { ...layer.data, owner } }));
+      const target = action.polityId
+        ? layer.data.polities.find((p) => p.id === action.polityId)?.name ?? 'a polity'
+        : 'unclaimed';
+      return journal(
+        withLayer(map, 'polities', commit(layer, { data: { ...layer.data, owner } })),
+        manualEntry(
+          'polities',
+          `Assigned ${action.indices.length} hex${action.indices.length === 1 ? '' : 'es'} to ${target} by hand.`,
+        ),
+      );
     }
 
     case 'upsertPolity': {
@@ -189,21 +266,28 @@ export function reducer(map: MapState, action: Action): MapState {
       const polities = exists
         ? current.polities.map((p) => (p.id === action.polity.id ? action.polity : p))
         : [...current.polities, action.polity];
-      return withLayer(map, 'polities', commit(layer, { data: { ...current, polities } }));
+      return journal(
+        withLayer(map, 'polities', commit(layer, { data: { ...current, polities } })),
+        manualEntry('polities', `${exists ? 'Edited' : 'Added'} the polity "${action.polity.name}" by hand.`),
+      );
     }
 
     case 'removePolity': {
       const layer = map.layers.polities;
       if (!layer.data) return map;
-      return withLayer(
-        map,
-        'polities',
-        commit(layer, {
-          data: {
-            polities: layer.data.polities.filter((p) => p.id !== action.id),
-            owner: layer.data.owner.map((id) => (id === action.id ? null : id)),
-          },
-        }),
+      const removed = layer.data.polities.find((p) => p.id === action.id)?.name ?? 'a polity';
+      return journal(
+        withLayer(
+          map,
+          'polities',
+          commit(layer, {
+            data: {
+              polities: layer.data.polities.filter((p) => p.id !== action.id),
+              owner: layer.data.owner.map((id) => (id === action.id ? null : id)),
+            },
+          }),
+        ),
+        manualEntry('polities', `Removed the polity "${removed}" by hand.`),
       );
     }
 
@@ -218,30 +302,54 @@ export function reducer(map: MapState, action: Action): MapState {
       const cities = exists
         ? current.cities.map((c) => (c.id === city.id ? city : c))
         : [...current.cities, city];
-      return withLayer(map, 'cities', commit(layer, { data: { cities } }));
+      return journal(
+        withLayer(map, 'cities', commit(layer, { data: { cities } })),
+        manualEntry('cities', `${exists ? 'Edited' : 'Added'} the city "${city.name}" by hand.`),
+      );
     }
 
     case 'removeCity': {
       const layer = map.layers.cities;
       if (!layer.data) return map;
-      return withLayer(
-        map,
-        'cities',
-        commit(layer, { data: { cities: layer.data.cities.filter((c) => c.id !== action.id) } }),
+      const gone = layer.data.cities.find((c) => c.id === action.id)?.name ?? 'a city';
+      return journal(
+        withLayer(
+          map,
+          'cities',
+          commit(layer, { data: { cities: layer.data.cities.filter((c) => c.id !== action.id) } }),
+        ),
+        manualEntry('cities', `Removed the city "${gone}" by hand.`),
       );
+    }
+
+    case 'addRiver': {
+      const layer = map.layers.rivers;
+      const current = layer.data ?? { rivers: [] };
+      const next = journal(
+        withLayer(
+          map,
+          'rivers',
+          commit(layer, { data: { rivers: [...current.rivers, action.river] } }),
+        ),
+        manualEntry('rivers', `Drew the river "${action.river.name}" by hand.`),
+      );
+      return reconcile(next);
     }
 
     case 'updateRiver': {
       const layer = map.layers.rivers;
       if (!layer.data) return map;
-      const next = withLayer(
-        map,
-        'rivers',
-        commit(layer, {
-          data: {
-            rivers: layer.data.rivers.map((r) => (r.id === action.river.id ? action.river : r)),
-          },
-        }),
+      const next = journal(
+        withLayer(
+          map,
+          'rivers',
+          commit(layer, {
+            data: {
+              rivers: layer.data.rivers.map((r) => (r.id === action.river.id ? action.river : r)),
+            },
+          }),
+        ),
+        manualEntry('rivers', `Edited the river "${action.river.name}" by hand.`),
       );
       return reconcile(next);
     }
@@ -249,10 +357,14 @@ export function reducer(map: MapState, action: Action): MapState {
     case 'removeRiver': {
       const layer = map.layers.rivers;
       if (!layer.data) return map;
-      const next = withLayer(
-        map,
-        'rivers',
-        commit(layer, { data: { rivers: layer.data.rivers.filter((r) => r.id !== action.id) } }),
+      const dropped = layer.data.rivers.find((r) => r.id === action.id)?.name ?? 'a river';
+      const next = journal(
+        withLayer(
+          map,
+          'rivers',
+          commit(layer, { data: { rivers: layer.data.rivers.filter((r) => r.id !== action.id) } }),
+        ),
+        manualEntry('rivers', `Removed the river "${dropped}" by hand.`),
       );
       return reconcile(next);
     }
@@ -260,10 +372,13 @@ export function reducer(map: MapState, action: Action): MapState {
     case 'clearLayer': {
       const layer = map.layers[action.layer];
       if (!layer.data) return map;
-      const next = withLayer(
-        map,
-        action.layer,
-        commit(layer, { data: null, warnings: [], notes: null, generatedAt: null, depVersions: {} }),
+      const next = journal(
+        withLayer(
+          map,
+          action.layer,
+          commit(layer, { data: null, warnings: [], notes: null, generatedAt: null, depVersions: {} }),
+        ),
+        manualEntry(action.layer, `Cleared the ${LAYER_META[action.layer].label} layer.`),
       );
       return action.layer === 'base' || action.layer === 'rivers' ? reconcile(next) : next;
     }
@@ -272,13 +387,19 @@ export function reducer(map: MapState, action: Action): MapState {
       const layer = map.layers[action.layer];
       const previous = layer.past[layer.past.length - 1];
       if (!previous) return map;
-      const next = withLayer(map, action.layer, {
-        ...layer,
-        ...previous,
-        version: layer.version + 1,
-        past: layer.past.slice(0, -1),
-        future: trimHistory([...layer.future, snapshotOf(layer)]),
-      });
+      const next = journal(
+        withLayer(map, action.layer, {
+          ...layer,
+          ...previous,
+          version: layer.version + 1,
+          past: layer.past.slice(0, -1),
+          future: trimHistory([...layer.future, snapshotOf(layer)]),
+        }),
+        {
+          ...manualEntry(action.layer, `Undid the last change to ${LAYER_META[action.layer].label}.`),
+          kind: 'undo' as JournalKind,
+        },
+      );
       return action.layer === 'base' || action.layer === 'rivers' ? reconcile(next) : next;
     }
 
@@ -286,13 +407,19 @@ export function reducer(map: MapState, action: Action): MapState {
       const layer = map.layers[action.layer];
       const ahead = layer.future[layer.future.length - 1];
       if (!ahead) return map;
-      const next = withLayer(map, action.layer, {
-        ...layer,
-        ...ahead,
-        version: layer.version + 1,
-        past: trimHistory([...layer.past, snapshotOf(layer)]),
-        future: layer.future.slice(0, -1),
-      });
+      const next = journal(
+        withLayer(map, action.layer, {
+          ...layer,
+          ...ahead,
+          version: layer.version + 1,
+          past: trimHistory([...layer.past, snapshotOf(layer)]),
+          future: layer.future.slice(0, -1),
+        }),
+        {
+          ...manualEntry(action.layer, `Redid a change to ${LAYER_META[action.layer].label}.`),
+          kind: 'redo' as JournalKind,
+        },
+      );
       return action.layer === 'base' || action.layer === 'rivers' ? reconcile(next) : next;
     }
 

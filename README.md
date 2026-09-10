@@ -68,16 +68,32 @@ behind. No workflow setting changes this.
 
 So the site does not ship a key. Instead:
 
-### Option A — bring your own key (default, nothing to configure)
+### Option A — each user supplies their own key (default, nothing to configure)
 
 Push to `main`, and the site is live at `https://<user>.github.io/<repo>/`. It detects that no
-backend is answering and asks whoever opens it for an Anthropic key, which is stored in that browser
-(localStorage, or sessionStorage if they untick "remember") and sent only to `api.anthropic.com`.
-Nothing secret exists in the repository, the workflow or the bundle.
+backend is answering and asks whoever opens it for an Anthropic key. This is a perfectly safe way to
+run a web app on someone's key — it is the same trust model as a desktop app holding a credential in
+its config file — provided the app is built so the key is only ever the user's own and never leaves
+their machine. Here that means:
 
-This is the right option if you are the user. It is the same trust model as a desktop app holding a
-credential in its config file. Because any script on the page's origin could read that key, the page
-loads no third-party code at all — no analytics, no CDN fonts. Use a key with a spend limit.
+- **Nothing secret is in the repository, the workflow or the bundle.** The key is typed in at
+  runtime; there is nothing to extract from the published site.
+- **It is sent to exactly one place.** The build ships a Content-Security-Policy whose `connect-src`
+  allows only `api.anthropic.com` (and a configured proxy). Even script that somehow ran on the page
+  could not post the key anywhere else.
+- **No third-party code runs on the page.** `script-src 'self'`, and the app loads no analytics, no
+  CDN, no web fonts — so there is no supply chain to compromise the origin through.
+- **At rest it can be encrypted.** Ticking "protect the stored key with a passphrase" stores AES-GCM
+  ciphertext under a PBKDF2-derived key (310k iterations) instead of the key itself, and asks for the
+  passphrase once per session. The passphrase is never stored.
+- **Or it need not be stored at all.** Unticking "remember" keeps it in `sessionStorage`, gone when
+  the tab closes.
+- **It refuses to pretend on an insecure origin.** Served over plain HTTP, the settings dialog says
+  so rather than accepting a key it cannot protect.
+
+What none of that defends against is script running on the page while the key is in use — it has to
+be usable to be used. That is what the CSP and the no-third-party-code rule are for, and it is why
+they matter more than the encryption does. Use a key with a spend limit set.
 
 Visitors without a key can still switch on the offline procedural generator from Settings and get a
 feel for the tool.
@@ -156,6 +172,23 @@ coastal edges and river membership are recomputed and polity claims on hexes tha
 are dropped. That is bookkeeping to keep the data internally truthful, not a regeneration: it
 creates no undo entry and bumps no version, and the affected layer is already flagged stale.
 
+## The decision record
+
+Every generation asks the model for the three to eight choices that most shaped the layer — where a
+range runs and why, which cue in the brief a desert answers, why a capital sits at that river mouth,
+what it invented because the brief was silent. Those choices are kept, not just the resulting hexes.
+
+- The inspector shows **why the layer being edited looks like this**, inline.
+- **decisions** in the top bar opens the whole record: every generation and instruction with the
+  model's reasoning, filterable by layer.
+- Hand edits, undos and redos are logged alongside, so the record never credits the AI with a
+  choice you made. The "AI decisions only" toggle separates them.
+- **Export Markdown** writes the record out as a document, grouped by layer, with the brief at the
+  top — the reasoning survives outside the app.
+- Decisions with hex references have a **select** button that jumps to the hexes they are about.
+
+The record is part of the map: it is autosaved, exported in the JSON, and imported back with it.
+
 ## Editing
 
 Every layer supports both edit paths the same way.
@@ -177,7 +210,9 @@ Both paths push onto the same per-layer undo stack (40 entries deep, with redo).
   visible, as **PNG** or **SVG**, with a toggle for city and polity name labels. Single-layer
   exports keep base geography as a substrate — a land-only layer is unreadable without knowing where
   the land is — and drop labels unless the layer is cities or polities.
-- **JSON.** The full map state, with or without undo history, and a matching import.
+- **Markdown.** The decision record: what the model chose, why, and what you changed by hand.
+- **JSON.** The full map state including the decision record, with or without undo history, and a
+  matching import.
 
 ## Persistence
 

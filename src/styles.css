@@ -177,3 +177,21 @@ label { display: block; font-size: 11px; text-transform: uppercase; letter-spaci
 }
 .mode-pill.browser { border-color: #5b4526; color: var(--warn); }
 .mode-pill.server { border-color: #2e4d3c; color: var(--ok); }
+
+.modal.wide { width: min(780px, 100%); }
+
+.journal { max-height: 52vh; overflow-y: auto; padding-right: 4px; }
+.journal-entry {
+  border: 1px solid var(--line); border-left-width: 3px; border-radius: 7px;
+  padding: 9px 11px; margin-bottom: 8px; background: var(--panel-2);
+}
+.journal-entry.generate, .journal-entry.instruct { border-left-color: var(--accent-2); }
+.journal-entry.manual { border-left-color: var(--ink-faint); }
+.journal-entry.undo, .journal-entry.redo { border-left-color: #4a3a5c; opacity: 0.75; }
+.journal-entry .instruction {
+  margin-top: 6px; padding: 5px 8px; border-radius: 5px;
+  background: #0e141a; color: var(--accent); font-style: italic;
+}
+.journal-entry .decisions { margin: 8px 0 0; padding-left: 18px; }
+.journal-entry .decisions li { margin-bottom: 8px; }
+.journal-entry .decisions li > div { color: var(--ink-dim); margin-top: 2px; }

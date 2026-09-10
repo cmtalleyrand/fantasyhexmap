@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import type { Effort } from '../../core/config.js';
-import { looksLikeKey, type Prefs } from '../api/settings.js';
+import { insecureOrigin, looksLikeKey, type Prefs } from '../api/settings.js';
+import { cryptoAvailable } from '../api/keyvault.js';
 import type { TransportMode } from '../api/client.js';
 
 const MODELS = [
@@ -15,16 +16,37 @@ export interface SettingsDialogProps {
   mode: TransportMode;
   apiKey: string;
   prefs: Prefs;
-  onSave: (apiKey: string, prefs: Prefs) => void;
+  /**
+   * `passphrase` is a string to (re-)encrypt the key at rest, '' to store it
+   * as-is, and null to leave whatever is already stored untouched - which is the
+   * case when a protected key is unchanged and only other settings were edited.
+   */
+  onSave: (apiKey: string, prefs: Prefs, passphrase: string | null) => void;
+  onForget: () => void;
   onClose: () => void;
+  /** True when a passphrase-protected key is already stored. */
+  locked: boolean;
 }
 
 export default function SettingsDialog(props: SettingsDialogProps) {
   const [key, setKey] = useState(props.apiKey);
   const [prefs, setPrefs] = useState<Prefs>(props.prefs);
   const [reveal, setReveal] = useState(false);
+  const [protect, setProtect] = useState(props.locked);
+  const [passphrase, setPassphrase] = useState('');
+  const [confirm, setConfirm] = useState('');
   const browserMode = props.mode === 'browser';
   const suspect = key.trim().length > 0 && !looksLikeKey(key);
+  const canEncrypt = cryptoAvailable();
+  // Re-encryption is only needed when the key itself changed, or protection was
+  // just switched on. An already-protected, unchanged key must not force the
+  // passphrase to be retyped to save an unrelated setting.
+  const keyChanged = key.trim() !== props.apiKey.trim();
+  const needsEncrypt = protect && key.trim().length > 0 && (keyChanged || !props.locked);
+  const passMismatch = needsEncrypt && passphrase.length > 0 && passphrase !== confirm;
+  const passTooShort = needsEncrypt && passphrase.length > 0 && passphrase.length < 8;
+  const blocked =
+    browserMode && needsEncrypt && (passphrase.length === 0 || passMismatch || passTooShort);
 
   return (
     <div className="modal-backdrop" onClick={props.onClose}>
@@ -72,6 +94,13 @@ export default function SettingsDialog(props: SettingsDialogProps) {
               </p>
             </div>
 
+            {insecureOrigin() && (
+              <div className="notice error">
+                This page is not on a secure origin. Do not enter a real key: it cannot be protected
+                in transit or at rest here.
+              </div>
+            )}
+
             <label style={{ display: 'flex', alignItems: 'center', gap: 6, textTransform: 'none', fontSize: 12 }}>
               <input
                 type="checkbox"
@@ -81,6 +110,55 @@ export default function SettingsDialog(props: SettingsDialogProps) {
               />
               Remember the key in this browser (otherwise it is forgotten when the tab closes)
             </label>
+
+            {prefs.remember && canEncrypt && (
+              <div className="stack" style={{ gap: 6 }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 6, textTransform: 'none', fontSize: 12 }}>
+                  <input
+                    type="checkbox"
+                    style={{ width: 'auto' }}
+                    checked={protect}
+                    onChange={(e) => setProtect(e.target.checked)}
+                  />
+                  Protect the stored key with a passphrase
+                </label>
+                {protect && !needsEncrypt && (
+                  <p className="hint" style={{ margin: 0 }}>
+                    The stored key is already encrypted. Change the key above to set a new
+                    passphrase.
+                  </p>
+                )}
+                {protect && needsEncrypt && (
+                  <>
+                    <div className="row">
+                      <input
+                        type="password"
+                        placeholder="Passphrase"
+                        autoComplete="new-password"
+                        value={passphrase}
+                        onChange={(e) => setPassphrase(e.target.value)}
+                      />
+                      <input
+                        type="password"
+                        placeholder="Confirm"
+                        autoComplete="new-password"
+                        value={confirm}
+                        onChange={(e) => setConfirm(e.target.value)}
+                      />
+                    </div>
+                    {passTooShort && <p className="hint" style={{ color: 'var(--warn)' }}>Use at least 8 characters.</p>}
+                    {passMismatch && <p className="hint" style={{ color: 'var(--warn)' }}>The two passphrases differ.</p>}
+                    <p className="hint" style={{ margin: 0 }}>
+                      The key is stored as AES-GCM ciphertext and unlocked once per session. The
+                      passphrase itself is never stored, so it cannot be recovered - if you forget
+                      it, delete the key and paste a new one. This protects the key against someone
+                      reading this browser's storage; it cannot protect it from script running on
+                      this page while it is unlocked.
+                    </p>
+                  </>
+                )}
+              </div>
+            )}
 
             <label style={{ display: 'flex', alignItems: 'center', gap: 6, textTransform: 'none', fontSize: 12 }}>
               <input
@@ -125,12 +203,12 @@ export default function SettingsDialog(props: SettingsDialogProps) {
         )}
 
         <div className="row" style={{ marginTop: 16, justifyContent: 'flex-end' }}>
-          {browserMode && key.trim().length > 0 && (
+          {browserMode && (key.trim().length > 0 || props.locked) && (
             <button
               className="danger"
               onClick={() => {
                 setKey('');
-                props.onSave('', prefs);
+                props.onForget();
               }}
             >
               forget key
@@ -138,7 +216,11 @@ export default function SettingsDialog(props: SettingsDialogProps) {
           )}
           <span className="grow" />
           <button onClick={props.onClose}>cancel</button>
-          <button className="primary" onClick={() => props.onSave(key, prefs)}>
+          <button
+            className="primary"
+            disabled={blocked}
+            onClick={() => props.onSave(key, prefs, needsEncrypt ? passphrase : protect ? null : '')}
+          >
             save
           </button>
         </div>

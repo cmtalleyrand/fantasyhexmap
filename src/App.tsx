@@ -10,13 +10,19 @@ import {
 } from './api/client.js';
 import {
   DEFAULT_PREFS,
+  forgetKey,
   loadApiKey,
+  loadLockedKey,
   loadPrefs,
   saveApiKey,
+  saveLockedKey,
   savePrefs,
   type Prefs,
 } from './api/settings.js';
+import { decryptKey, encryptKey } from './api/keyvault.js';
+import UnlockDialog from './components/UnlockDialog.js';
 import SettingsDialog from './components/SettingsDialog.js';
+import DecisionLog from './components/DecisionLog.js';
 import ExportPanel from './components/ExportPanel.js';
 import Inspector from './components/Inspector.js';
 import LayerPipeline from './components/LayerPipeline.js';
@@ -44,6 +50,11 @@ export default function App() {
   const [apiKey, setApiKey] = useState('');
   const [prefs, setPrefs] = useState<Prefs>(DEFAULT_PREFS);
   const [showSettings, setShowSettings] = useState(false);
+  const [showDecisions, setShowDecisions] = useState(false);
+  // A passphrase-protected key lives on disk as ciphertext; the plaintext only
+  // ever exists in `apiKey`, for this page load.
+  const [lockedKey, setLockedKey] = useState<ReturnType<typeof loadLockedKey>>(null);
+  const [showUnlock, setShowUnlock] = useState(false);
   const [activeLayer, setActiveLayer] = useState<LayerId>('base');
   const [visible, setVisible] = useState<VisibleLayers>(defaultVisibility);
   const [labels, setLabels] = useState(true);
@@ -68,6 +79,9 @@ export default function App() {
       .finally(() => setLoaded(true));
     setApiKey(loadApiKey());
     setPrefs(loadPrefs());
+    const locked = loadLockedKey();
+    setLockedKey(locked);
+    if (locked) setShowUnlock(true);
     void detectTransport().then(setTransport);
     autosave.onError((e) =>
       setError(`Autosave failed: ${e instanceof Error ? e.message : String(e)}`),
@@ -117,6 +131,9 @@ export default function App() {
           data: result.data,
           warnings: result.warnings,
           notes: result.notes,
+          decisions: result.decisions,
+          model: result.model,
+          instruction: instructionText,
         });
         setVisible((v) => ({ ...v, [layer]: true }));
         setActiveLayer(layer);
@@ -187,6 +204,7 @@ export default function App() {
           throw new Error('That file does not look like a fantasyhexmap export.');
         }
         // Older exports may omit the undo stacks; give every layer empty ones.
+        imported.journal ??= [];
         for (const id of LAYER_ORDER) {
           const layer = imported.layers[id];
           if (!layer) throw new Error(`The file is missing the "${id}" layer.`);
@@ -207,15 +225,64 @@ export default function App() {
       apiKey={apiKey}
       prefs={prefs}
       onClose={() => setShowSettings(false)}
-      onSave={(nextKey, nextPrefs) => {
-        setApiKey(nextKey.trim());
-        saveApiKey(nextKey, nextPrefs.remember);
+      locked={lockedKey !== null}
+      onForget={() => {
+        forgetKey();
+        setApiKey('');
+        setLockedKey(null);
+        setShowSettings(false);
+      }}
+      onSave={(nextKey, nextPrefs, passphrase) => {
+        const trimmed = nextKey.trim();
         setPrefs(nextPrefs);
         savePrefs(nextPrefs);
+        setApiKey(trimmed);
         setShowSettings(false);
+        if (passphrase === null) {
+          // A protected key that did not change: leave the stored ciphertext alone.
+          return;
+        }
+        if (trimmed && passphrase && nextPrefs.remember) {
+          void encryptKey(trimmed, passphrase)
+            .then((payload) => {
+              saveLockedKey(payload);
+              setLockedKey(payload);
+            })
+            .catch((e) => setError(`Could not encrypt the key: ${e instanceof Error ? e.message : e}`));
+        } else {
+          saveApiKey(trimmed, nextPrefs.remember);
+          setLockedKey(null);
+        }
       }}
     />
   ) : null;
+
+  const unlock =
+    showUnlock && lockedKey ? (
+      <UnlockDialog
+        onDismiss={() => setShowUnlock(false)}
+        onForget={() => {
+          forgetKey();
+          setLockedKey(null);
+          setApiKey('');
+          setShowUnlock(false);
+        }}
+        onUnlock={async (passphrase) => {
+          const plain = await decryptKey(lockedKey, passphrase);
+          setApiKey(plain);
+          setShowUnlock(false);
+        }}
+      />
+    ) : null;
+
+  const decisionLog =
+    showDecisions && map ? (
+      <DecisionLog
+        map={map}
+        onClose={() => setShowDecisions(false)}
+        onSelectHexes={(indices) => setSelection(new Set(indices))}
+      />
+    ) : null;
 
   if (!loaded) return <div className="setup">Loading…</div>;
 
@@ -223,6 +290,7 @@ export default function App() {
     return (
       <>
         {settings}
+        {unlock}
         <SetupScreen
           transport={transport}
           keyPresent={apiKey.trim().length > 0 || prefs.offline}
@@ -242,6 +310,8 @@ export default function App() {
   return (
     <div className="app">
       {settings}
+      {unlock}
+      {decisionLog}
       <div className="topbar">
         <h1>{map.name}</h1>
         <span className="meta">
@@ -262,8 +332,10 @@ export default function App() {
             : prefs.offline
               ? 'your browser · offline generator'
               : apiKey
-                ? `your browser · ${prefs.model}`
-                : 'your browser · no key set'}
+                ? `your browser · ${prefs.model}${lockedKey ? ' · unlocked' : ''}`
+                : lockedKey
+                  ? 'your browser · key locked'
+                  : 'your browser · no key set'}
         </span>
         <span className="spacer" />
         <label
@@ -284,6 +356,18 @@ export default function App() {
           />
           labels on map
         </label>
+        {lockedKey && !apiKey && (
+          <button className="tiny" onClick={() => setShowUnlock(true)}>
+            unlock key
+          </button>
+        )}
+        <button
+          className="tiny"
+          onClick={() => setShowDecisions(true)}
+          title="What the AI decided while generating this map, and why"
+        >
+          decisions ({(map.journal ?? []).reduce((n, e) => n + e.decisions.length, 0)})
+        </button>
         <button className="tiny" onClick={() => setShowSettings(true)}>
           settings
         </button>
@@ -420,6 +504,7 @@ export default function App() {
           busy={busyLayer !== null}
           riverDraft={riverDraft}
           setRiverDraft={setRiverDraft}
+          onOpenDecisionLog={() => setShowDecisions(true)}
         />
       </div>
     </div>

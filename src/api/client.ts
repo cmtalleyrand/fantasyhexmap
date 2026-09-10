@@ -19,7 +19,7 @@
  * visitor.
  */
 
-import type { LayerDataMap, LayerId, MapState } from '../../shared/types.js';
+import type { Decision, LayerDataMap, LayerId, MapState } from '../../shared/types.js';
 import type { DirectOptions } from './direct.js';
 
 /** Empty means "same origin", which is what the local dev proxy expects. */
@@ -40,6 +40,8 @@ export interface GenerateResult<K extends LayerId = LayerId> {
   data: LayerDataMap[K];
   warnings: string[];
   notes: string | null;
+  decisions: Decision[];
+  model: string | null;
   usage: { input: number; output: number; cacheRead: number } | null;
   elapsedMs: number;
 }

@@ -12,7 +12,10 @@
 
 import { DEFAULT_EFFORT, DEFAULT_MODEL, type Effort } from '../../core/config.js';
 
+import type { EncryptedKey } from './keyvault.js';
+
 const KEY_NAME = 'fantasyhexmap.apiKey';
+const LOCKED_NAME = 'fantasyhexmap.apiKey.locked';
 const PREFS_NAME = 'fantasyhexmap.prefs';
 
 export interface Prefs {
@@ -44,17 +47,56 @@ export function loadApiKey(): string {
   );
 }
 
-export function saveApiKey(key: string, remember: boolean): void {
-  const trimmed = key.trim();
+/** The passphrase-protected key, when one is stored. */
+export function loadLockedKey(): EncryptedKey | null {
+  const raw = safeGet(window.localStorage, LOCKED_NAME);
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as EncryptedKey;
+    return parsed?.v === 1 && parsed.salt && parsed.iv && parsed.data ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function clearStored(): void {
   try {
     window.localStorage.removeItem(KEY_NAME);
+    window.localStorage.removeItem(LOCKED_NAME);
     window.sessionStorage.removeItem(KEY_NAME);
-    if (trimmed) {
-      (remember ? window.localStorage : window.sessionStorage).setItem(KEY_NAME, trimmed);
-    }
+  } catch {
+    /* ignore */
+  }
+}
+
+export function saveApiKey(key: string, remember: boolean): void {
+  const trimmed = key.trim();
+  clearStored();
+  if (!trimmed) return;
+  try {
+    (remember ? window.localStorage : window.sessionStorage).setItem(KEY_NAME, trimmed);
   } catch {
     /* storage unavailable; the key stays in memory for this page load only */
   }
+}
+
+/** Replaces any plaintext copy: a locked key is the only one on disk. */
+export function saveLockedKey(payload: EncryptedKey): void {
+  clearStored();
+  try {
+    window.localStorage.setItem(LOCKED_NAME, JSON.stringify(payload));
+  } catch {
+    /* ignore */
+  }
+}
+
+export function forgetKey(): void {
+  clearStored();
+}
+
+/** A page served over plain HTTP cannot protect a key in transit or at rest. */
+export function insecureOrigin(): boolean {
+  return typeof window !== 'undefined' && !window.isSecureContext;
 }
 
 export function loadPrefs(): Prefs {

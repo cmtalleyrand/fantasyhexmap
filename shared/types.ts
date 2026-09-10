@@ -209,6 +209,44 @@ export interface LayerState<K extends LayerId = LayerId> extends LayerSnapshot<K
 
 export type LayersState = { [K in LayerId]: LayerState<K> };
 
+/**
+ * One choice the model made while generating a layer, in its own words.
+ *
+ * The map itself only records *what* is where. This records *why*, which is the
+ * part a reader of the map cannot reconstruct and the part that makes a
+ * generated world defensible rather than arbitrary.
+ */
+export interface Decision {
+  /** Short headline, e.g. "Rain shadow east of the Kelder Spine". */
+  title: string;
+  /** One to three sentences of reasoning. */
+  detail: string;
+  /** Hexes the decision is about, as "col,row" - optional and often absent. */
+  hexes?: string[];
+}
+
+export type JournalKind = 'generate' | 'instruct' | 'manual' | 'undo' | 'redo';
+
+/**
+ * A chronological account of how the map came to look the way it does. AI
+ * entries carry the model's reasoning; the others are recorded so the record
+ * never implies the AI decided something a person actually did.
+ */
+export interface JournalEntry {
+  id: string;
+  layer: LayerId;
+  kind: JournalKind;
+  at: number;
+  /** The user's instruction, for `instruct` entries. */
+  instruction: string | null;
+  /** One-line summary; for manual entries, what was changed. */
+  summary: string;
+  decisions: Decision[];
+  /** Model that produced this, or null for a manual edit or the offline generator. */
+  model: string | null;
+  warnings: number;
+}
+
 export interface MapState {
   id: string;
   name: string;
@@ -218,6 +256,8 @@ export interface MapState {
   createdAt: number;
   updatedAt: number;
   layers: LayersState;
+  /** Append-only record of every change, oldest first. */
+  journal: JournalEntry[];
 }
 
 export const MAX_DIM = 50;

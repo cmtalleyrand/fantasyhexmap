@@ -33,7 +33,15 @@ import {
   validateRivers,
   validateVegetation,
 } from '../shared/validate.js';
-import type { City, LayerDataMap, LayerId, MapState, Polity, River } from '../shared/types.js';
+import type {
+  City,
+  Decision,
+  LayerDataMap,
+  LayerId,
+  MapState,
+  Polity,
+  River,
+} from '../shared/types.js';
 import { buildPrompt, type PromptContext } from './prompts.js';
 import {
   BaseResponse,
@@ -62,6 +70,10 @@ export interface GenerateResult<K extends LayerId = LayerId> {
   data: LayerDataMap[K];
   warnings: string[];
   notes: string | null;
+  /** The model's account of the choices that shaped this layer. */
+  decisions: Decision[];
+  /** Model that produced it, or null when the offline generator did. */
+  model: string | null;
   usage: { input: number; output: number; cacheRead: number } | null;
 }
 
@@ -375,7 +387,41 @@ export async function generateLayer(
     }
   }
 
-  return { layer, data, warnings, notes: notes || null, usage };
+  // Every response schema carries `decisions`, so it is lifted once here rather
+  // than repeated in all eight branches above.
+  const decisions = normaliseDecisions((parsed as { decisions?: unknown }).decisions);
+
+  return {
+    layer,
+    data,
+    warnings,
+    notes: notes || null,
+    decisions,
+    model: config.client ? config.model : null,
+    usage,
+  };
+}
+
+/** Trust the schema for shape, but not for emptiness or stray whitespace. */
+function normaliseDecisions(raw: unknown): Decision[] {
+  if (!Array.isArray(raw)) return [];
+  const out: Decision[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue;
+    const { title, detail, hexes } = item as Partial<Decision>;
+    const cleanTitle = typeof title === 'string' ? title.trim() : '';
+    const cleanDetail = typeof detail === 'string' ? detail.trim() : '';
+    if (!cleanTitle && !cleanDetail) continue;
+    const cleanHexes = Array.isArray(hexes)
+      ? hexes.filter((h): h is string => typeof h === 'string' && /^\d+,\d+$/.test(h.trim())).map((h) => h.trim())
+      : [];
+    out.push({
+      title: cleanTitle || 'Untitled decision',
+      detail: cleanDetail,
+      ...(cleanHexes.length > 0 ? { hexes: cleanHexes } : {}),
+    });
+  }
+  return out;
 }
 
 /**
