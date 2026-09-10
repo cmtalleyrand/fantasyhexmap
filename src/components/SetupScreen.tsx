@@ -1,6 +1,7 @@
 import { useState } from 'react';
-import { MAX_DIM, MIN_DIM } from '../../shared/types.js';
+import { LAYER_ORDER, MAX_DIM, MIN_DIM, type LayerId } from '../../shared/types.js';
 import type { Transport } from '../api/client.js';
+import LayerPicker from './LayerPicker.js';
 
 const EXAMPLE =
   'The Sundered Coast: a long north-south continent on the western edge of a warm inland sea. ' +
@@ -16,7 +17,13 @@ export default function SetupScreen({
   keyPresent,
   onOpenSettings,
 }: {
-  onCreate: (description: string, cols: number, rows: number, name: string) => void;
+  onCreate: (
+    description: string,
+    cols: number,
+    rows: number,
+    name: string,
+    layers: LayerId[],
+  ) => void;
   onImport: (file: File) => void;
   transport: Transport;
   /** Whether generation can actually run: a key is set, or the offline generator is on. */
@@ -27,6 +34,7 @@ export default function SetupScreen({
   const [name, setName] = useState('Untitled map');
   const [cols, setCols] = useState('30');
   const [rows, setRows] = useState('22');
+  const [layers, setLayers] = useState<LayerId[]>([...LAYER_ORDER]);
 
   const clamp = (v: string) =>
     Math.max(MIN_DIM, Math.min(MAX_DIM, Math.round(Number(v) || MIN_DIM)));
@@ -90,6 +98,19 @@ export default function SetupScreen({
           </div>
         </div>
 
+        <div>
+          <label>Which layers should this map have?</label>
+          <LayerPicker
+            selection={layers}
+            onChange={setLayers}
+            cols={clamp(cols)}
+            rows={clamp(rows)}
+          />
+          <p className="hint">
+            You can add a layer you left out at any time, and remove one without losing its data.
+          </p>
+        </div>
+
         {transport.mode === 'server' && transport.health && !transport.health.credentials && !transport.health.mock && (
           <div className="notice error">
             The server has no Anthropic credentials. Copy <code>.env.example</code> to{' '}
@@ -127,7 +148,9 @@ export default function SetupScreen({
           <button
             className="primary"
             disabled={description.trim().length === 0}
-            onClick={() => onCreate(description.trim(), clamp(cols), clamp(rows), name.trim() || 'Untitled map')}
+            onClick={() =>
+              onCreate(description.trim(), clamp(cols), clamp(rows), name.trim() || 'Untitled map', layers)
+            }
           >
             Create map
           </button>

@@ -255,6 +255,14 @@ export interface MapState {
   rows: number;
   createdAt: number;
   updatedAt: number;
+  /**
+   * The layers this map is meant to have. Chosen when the map is created and
+   * changeable afterwards: a large grid is eight long generations if you want
+   * all of it, and most maps do not. Layers left out are not generated, not
+   * shown and not exported; a layer removed after it has data keeps that data,
+   * so removing one is never destructive.
+   */
+  enabledLayers: LayerId[];
   layers: LayersState;
   /** Append-only record of every change, oldest first. */
   journal: JournalEntry[];

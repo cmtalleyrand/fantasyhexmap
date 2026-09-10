@@ -1,5 +1,12 @@
-import { LAYER_META, isUnlocked, missingRequirements, stalenessOf } from '../../shared/layers.js';
-import { LAYER_ORDER, type LayerId, type MapState } from '../../shared/types.js';
+import {
+  LAYER_META,
+  excludedInfluences,
+  isUnlocked,
+  missingRequirements,
+  plannedLayers,
+  stalenessOf,
+} from '../../shared/layers.js';
+import { type LayerId, type MapState } from '../../shared/types.js';
 import type { VisibleLayers } from '../render/scene.js';
 
 export interface LayerPipelineProps {
@@ -10,19 +17,28 @@ export interface LayerPipelineProps {
   onSelect: (layer: LayerId) => void;
   onToggleVisible: (layer: LayerId) => void;
   onGenerate: (layer: LayerId) => void;
+  onEditPlan: () => void;
 }
 
 export default function LayerPipeline(props: LayerPipelineProps) {
   const { map, activeLayer, visible, busyLayer } = props;
+  const planned = plannedLayers(map);
+  const omitted = 8 - planned.length;
   return (
     <div className="section">
-      <h2>Layers</h2>
-      {LAYER_ORDER.map((id) => {
+      <div className="row" style={{ alignItems: 'baseline' }}>
+        <h2 style={{ flex: 1 }}>Layers</h2>
+        <button className="tiny" onClick={props.onEditPlan} title="Choose which layers this map has">
+          plan{omitted > 0 ? ` (${omitted} left out)` : ''}
+        </button>
+      </div>
+      {planned.map((id) => {
         const meta = LAYER_META[id];
         const layer = map.layers[id];
         const unlocked = isUnlocked(map, id);
         const staleness = stalenessOf(map, id);
         const missing = missingRequirements(map, id);
+        const gaps = excludedInfluences(map, id);
         return (
           <div
             key={id}
@@ -52,7 +68,9 @@ export default function LayerPipeline(props: LayerPipelineProps) {
                 {layer.data
                   ? staleness.stale
                     ? staleness.reasons.join('; ')
-                    : meta.blurb
+                    : gaps.length > 0
+                      ? `Made without ${gaps.map((g) => LAYER_META[g].label).join(', ')}`
+                      : meta.blurb
                   : unlocked
                     ? 'Not generated yet'
                     : `Locked - needs ${missing.map((m) => LAYER_META[m].label).join(', ')}`}

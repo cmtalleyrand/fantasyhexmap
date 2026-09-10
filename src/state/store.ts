@@ -15,7 +15,7 @@
 
 import { recomputeCityFacts, isLandLike } from '../../shared/derive.js';
 import { currentDepVersions, trimHistory } from '../../shared/layers.js';
-import { LAYER_META } from '../../shared/layers.js';
+import { LAYER_META, normaliseSelection } from '../../shared/layers.js';
 import type {
   City,
   Decision,
@@ -33,6 +33,7 @@ import type {
 export type Action =
   | { type: 'load'; map: MapState }
   | { type: 'setMeta'; name?: string; description?: string }
+  | { type: 'setPlan'; layers: LayerId[] }
   | {
       type: 'applyGeneration';
       layer: LayerId;
@@ -185,6 +186,29 @@ export function reducer(map: MapState, action: Action): MapState {
         description: action.description ?? map.description,
         updatedAt: Date.now(),
       };
+
+    case 'setPlan': {
+      const next = normaliseSelection(action.layers);
+      const before = new Set(map.enabledLayers ?? []);
+      const after = new Set(next);
+      const added = next.filter((id) => !before.has(id));
+      const removed = [...before].filter((id) => !after.has(id));
+      if (added.length === 0 && removed.length === 0) return map;
+      const parts: string[] = [];
+      if (added.length > 0) parts.push(`added ${added.map((id) => LAYER_META[id].label).join(', ')}`);
+      if (removed.length > 0) {
+        parts.push(`removed ${removed.map((id) => LAYER_META[id].label).join(', ')}`);
+      }
+      return journal({ ...map, enabledLayers: next, updatedAt: Date.now() }, {
+        layer: added[0] ?? removed[0] ?? 'base',
+        kind: 'manual',
+        instruction: null,
+        summary: `Changed the layer plan: ${parts.join('; ')}.`,
+        decisions: [],
+        model: null,
+        warnings: 0,
+      });
+    }
 
     case 'applyGeneration': {
       const layer = map.layers[action.layer];

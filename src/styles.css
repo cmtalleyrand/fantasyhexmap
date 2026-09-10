@@ -195,3 +195,7 @@ label { display: block; font-size: 11px; text-transform: uppercase; letter-spaci
 .journal-entry .decisions { margin: 8px 0 0; padding-left: 18px; }
 .journal-entry .decisions li { margin-bottom: 8px; }
 .journal-entry .decisions li > div { color: var(--ink-dim); margin-top: 2px; }
+
+.list .entry.picker { align-items: flex-start; padding: 8px; }
+.list .entry.picker.off { opacity: 0.55; }
+.list .entry.picker .hint { margin-top: 2px; }

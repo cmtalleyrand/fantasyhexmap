@@ -19,6 +19,7 @@
  * visitor.
  */
 
+import { excludedLayers } from '../../shared/layers.js';
 import type { Decision, LayerDataMap, LayerId, MapState } from '../../shared/types.js';
 import type { DirectOptions } from './direct.js';
 
@@ -116,6 +117,7 @@ export async function generateLayer(
       rows: map.rows,
       instruction,
       layers,
+      excluded: excludedLayers(map),
     }),
     signal: signal ?? null,
   });
