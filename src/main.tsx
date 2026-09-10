@@ -1,7 +1,10 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App.js';
+import { installPreloadRecovery } from './preloadRecovery.js';
 import './styles.css';
+
+installPreloadRecovery(window);
 
 const container = document.getElementById('root');
 if (!container) throw new Error('Missing #root element');
