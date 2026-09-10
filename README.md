@@ -9,6 +9,10 @@ Claude, undone and redone independently, and exported as PNG or SVG.
 Nothing regenerates behind your back. Changing an upstream layer marks the layers below it **stale**
 and leaves them exactly as they were; whether to re-run them is your call.
 
+It runs in three arrangements from one codebase: locally with a small Express server, as a static
+GitHub Pages site where you supply your own key, or as a Pages site pointed at a key-holding proxy.
+See [Deployment](#deployment).
+
 ## Quick start
 
 ```bash
@@ -46,6 +50,52 @@ layers say so in their notes.
 
 Other scripts: `npm run typecheck` (client and server), `npm run build` (production client bundle),
 `npm run dev:server` / `npm run dev:web` to run one half on its own.
+
+## Deployment
+
+A GitHub Actions workflow (`.github/workflows/deploy.yml`) typechecks, builds and publishes to
+GitHub Pages on every push to `main`. Enable it once, under **Settings → Pages → Build and
+deployment → Source: GitHub Actions**. Pull requests build without deploying.
+
+### First, the thing you cannot do
+
+**You cannot safely put a shared Anthropic API key into a GitHub Pages build.** Actions secrets
+protect a key in the repository and during the build; they do not protect it afterwards. Anything
+the browser needs at runtime is in the bundle the browser downloads, so a key injected at build time
+— `VITE_ANTHROPIC_API_KEY` or any other name — is published to every visitor in plain text and takes
+about ten seconds to read out of DevTools. Pages is static hosting; there is no server to hide it
+behind. No workflow setting changes this.
+
+So the site does not ship a key. Instead:
+
+### Option A — bring your own key (default, nothing to configure)
+
+Push to `main`, and the site is live at `https://<user>.github.io/<repo>/`. It detects that no
+backend is answering and asks whoever opens it for an Anthropic key, which is stored in that browser
+(localStorage, or sessionStorage if they untick "remember") and sent only to `api.anthropic.com`.
+Nothing secret exists in the repository, the workflow or the bundle.
+
+This is the right option if you are the user. It is the same trust model as a desktop app holding a
+credential in its config file. Because any script on the page's origin could read that key, the page
+loads no third-party code at all — no analytics, no CDN fonts. Use a key with a spend limit.
+
+Visitors without a key can still switch on the offline procedural generator from Settings and get a
+feel for the tool.
+
+### Option B — a proxy that holds the key (if others will use your page)
+
+Deploy the small Cloudflare Worker in [`worker/`](worker/README.md), which speaks the same `/api`
+contract and keeps the key as a platform secret, then add a repository **variable** (not a secret)
+named `VITE_API_BASE` pointing at it. The next build points the site at the Worker and stops asking
+for a key. The URL in that variable is public, which is fine; the key never leaves Cloudflare.
+
+The Worker restricts origins but does not authenticate callers — anyone who learns its URL can spend
+your credit through it. `worker/README.md` says what to do about that.
+
+### Private repositories
+
+GitHub Pages on a private repository requires a paid plan. On a free account the repository has to
+be public, which is a reason to be sure no key is in it — with Option A, none is.
 
 ## The grid
 
@@ -137,14 +187,17 @@ JSON export is the portable copy.
 ## How it is put together
 
 ```
-shared/     types, hex geometry, wire codec, validation - imported by BOTH client and server
-server/     Express app, prompt builders, response schemas, generation pipeline, mock generator
-src/        React app: render (scene/canvas/svg/export), state (reducer/persistence), components
+shared/     types, hex geometry, wire codec, validation, derived facts
+core/       prompts, response schemas, generation pipeline, request validation, offline generator
+server/     Express app: reads the key from .env, calls core
+worker/     optional Cloudflare Worker: holds the key as a secret, calls core (same /api contract)
+src/        React app: render (scene/canvas/svg/export), state (reducer/persistence), api, components
 ```
 
-`shared/` is the reason the two halves cannot disagree. The encoding the model is asked for, the
-adjacency rules the prompts describe, and the validation applied afterwards are all one
-implementation used from both sides.
+`shared/` and `core/` are why the deployments cannot disagree. `core/` reads no environment variable
+and knows nothing about where a credential came from — it is handed a configured client — so the
+encoding the model is asked for, the adjacency rules the prompts describe and the validation applied
+afterwards are one implementation, whether it runs in Node, in a Worker, or in the browser.
 
 **Row-string encoding.** Per-hex layers travel to and from the model as one string per grid row
 rather than as arrays of objects. A 50×50 layer costs a few hundred output tokens instead of tens of
@@ -170,6 +223,13 @@ the same list of drawing primitives. None of them knows how to draw a hex map �
 polygon, a polyline, a circle and a label — so the vector file, the bitmap and the screen cannot
 drift apart.
 
+## Design decisions
+
+[`DECISIONS.md`](DECISIONS.md) records the choices made while building this and what the
+alternatives would have cost — the coordinate system, the row-string wire format, repair-versus-flag
+validation, version-based staleness, the single scene model, and the deployment and key-handling
+decisions above.
+
 ## Limitations
 
 - Generation quality on a large grid depends heavily on the description. A vague brief gives a
@@ -177,4 +237,5 @@ drift apart.
 - Rivers are modelled as independent paths. A tributary is a separate river that happens to join a
   trunk and follow it; there is no explicit confluence object.
 - Undo is per layer by design, not one global stack across the whole map.
-- There is no cloud sync, no accounts and no deployment configuration. It runs locally.
+- There is no cloud sync and no accounts. A map lives in one browser until you export it.
+- The optional proxy restricts origins but does not authenticate callers; see `worker/README.md`.

@@ -3,11 +3,20 @@ import { edgeBetween, indexToOffset } from '../shared/hex.js';
 import { LAYER_META, createMapState } from '../shared/layers.js';
 import { LAYER_ORDER, type LayerId, type MapState } from '../shared/types.js';
 import {
-  fetchHealth,
+  detectTransport,
   generateLayer as requestLayer,
-  type HealthInfo,
   type ProgressEvent,
+  type Transport,
 } from './api/client.js';
+import {
+  DEFAULT_PREFS,
+  loadApiKey,
+  loadPrefs,
+  saveApiKey,
+  savePrefs,
+  type Prefs,
+} from './api/settings.js';
+import SettingsDialog from './components/SettingsDialog.js';
 import ExportPanel from './components/ExportPanel.js';
 import Inspector from './components/Inspector.js';
 import LayerPipeline from './components/LayerPipeline.js';
@@ -31,7 +40,10 @@ export default function App() {
   );
 
   const [loaded, setLoaded] = useState(false);
-  const [health, setHealth] = useState<HealthInfo | null>(null);
+  const [transport, setTransport] = useState<Transport>({ mode: 'server', health: null, reason: null });
+  const [apiKey, setApiKey] = useState('');
+  const [prefs, setPrefs] = useState<Prefs>(DEFAULT_PREFS);
+  const [showSettings, setShowSettings] = useState(false);
   const [activeLayer, setActiveLayer] = useState<LayerId>('base');
   const [visible, setVisible] = useState<VisibleLayers>(defaultVisibility);
   const [labels, setLabels] = useState(true);
@@ -54,9 +66,9 @@ export default function App() {
       })
       .catch((e) => setError(`Could not read the autosave: ${e instanceof Error ? e.message : e}`))
       .finally(() => setLoaded(true));
-    fetchHealth()
-      .then(setHealth)
-      .catch(() => setHealth(null));
+    setApiKey(loadApiKey());
+    setPrefs(loadPrefs());
+    void detectTransport().then(setTransport);
     autosave.onError((e) =>
       setError(`Autosave failed: ${e instanceof Error ? e.message : String(e)}`),
     );
@@ -90,7 +102,15 @@ export default function App() {
       const controller = new AbortController();
       abortRef.current = controller;
       try {
-        const result = await requestLayer(map, layer, instructionText, setProgress, controller.signal);
+        const result = await requestLayer(
+          map,
+          layer,
+          instructionText,
+          transport.mode,
+          { apiKey: apiKey || null, model: prefs.model, effort: prefs.effort, offline: prefs.offline },
+          setProgress,
+          controller.signal,
+        );
         dispatch({
           type: 'applyGeneration',
           layer,
@@ -111,7 +131,7 @@ export default function App() {
         abortRef.current = null;
       }
     },
-    [map],
+    [map, transport.mode, apiKey, prefs],
   );
 
   const onStrokeEnd = useCallback(
@@ -181,29 +201,69 @@ export default function App() {
       .catch((e) => setError(`Import failed: ${e instanceof Error ? e.message : String(e)}`));
   }, []);
 
+  const settings = showSettings ? (
+    <SettingsDialog
+      mode={transport.mode}
+      apiKey={apiKey}
+      prefs={prefs}
+      onClose={() => setShowSettings(false)}
+      onSave={(nextKey, nextPrefs) => {
+        setApiKey(nextKey.trim());
+        saveApiKey(nextKey, nextPrefs.remember);
+        setPrefs(nextPrefs);
+        savePrefs(nextPrefs);
+        setShowSettings(false);
+      }}
+    />
+  ) : null;
+
   if (!loaded) return <div className="setup">Loading…</div>;
 
   if (!map) {
     return (
-      <SetupScreen
-        health={health}
-        onImport={handleImport}
-        onCreate={(description, cols, rows, name) =>
-          dispatch({ type: 'load', map: createMapState(description, cols, rows, name) })
-        }
-      />
+      <>
+        {settings}
+        <SetupScreen
+          transport={transport}
+          keyPresent={apiKey.trim().length > 0 || prefs.offline}
+          onOpenSettings={() => setShowSettings(true)}
+          onImport={handleImport}
+          onCreate={(description, cols, rows, name) =>
+            dispatch({ type: 'load', map: createMapState(description, cols, rows, name) })
+          }
+        />
+      </>
     );
   }
 
   const canEdit = map.layers[activeLayer].data !== null;
 
+
   return (
     <div className="app">
+      {settings}
       <div className="topbar">
         <h1>{map.name}</h1>
         <span className="meta">
           {map.cols}×{map.rows} · {(map.cols * map.rows).toLocaleString()} hexes
-          {health?.mock ? ' · MOCK MODE' : health ? ` · ${health.model}` : ''}
+        </span>
+        <span
+          className={`mode-pill ${transport.mode}`}
+          title={
+            transport.mode === 'server'
+              ? 'A server holds the API key; this page never sees one.'
+              : 'No server: this page calls Anthropic with the key you supplied, stored in this browser only.'
+          }
+        >
+          {transport.mode === 'server'
+            ? transport.health?.mock
+              ? 'server · offline generator'
+              : `server · ${transport.health?.model ?? 'ready'}`
+            : prefs.offline
+              ? 'your browser · offline generator'
+              : apiKey
+                ? `your browser · ${prefs.model}`
+                : 'your browser · no key set'}
         </span>
         <span className="spacer" />
         <label
@@ -224,6 +284,9 @@ export default function App() {
           />
           labels on map
         </label>
+        <button className="tiny" onClick={() => setShowSettings(true)}>
+          settings
+        </button>
         <button className="tiny" onClick={() => exportJson(map, false)}>
           export JSON
         </button>
