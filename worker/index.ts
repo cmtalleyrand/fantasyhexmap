@@ -99,7 +99,7 @@ export default {
             model,
             effort,
           };
-          const result = await generateLayer(config, checked.req, (event) => send('progress', event));
+          const result = await generateLayer(config, checked.req, (event) => send('progress', event), request.signal);
           send('result', { ...result, elapsedMs: Date.now() - started });
         } catch (err) {
           send('error', { error: err instanceof Error ? err.message : String(err) });

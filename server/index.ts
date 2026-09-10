@@ -116,8 +116,10 @@ app.post('/api/generate', async (req, res) => {
   // Listen on the RESPONSE, not the request: `req`'s 'close' fires as soon as the
   // request body has been read, which is immediately, and would suppress every result.
   let closed = false;
+  const controller = new AbortController();
   res.on('close', () => {
     closed = true;
+    controller.abort();
   });
 
   const started = Date.now();
@@ -126,7 +128,7 @@ app.post('/api/generate', async (req, res) => {
   try {
     const result = await generateLayer(generationConfig(), checked.req, (event) => {
       if (!closed) send('progress', event);
-    });
+    }, controller.signal);
     if (!closed) {
       send('result', { ...result, elapsedMs: Date.now() - started });
       res.end();

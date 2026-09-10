@@ -109,6 +109,9 @@ label { display: block; font-size: 11px; text-transform: uppercase; letter-spaci
   overflow: hidden;
 }
 .layer-row input[type='checkbox'] { width: auto; }
+.layer-batch-controls { margin: 0 0 8px; align-items: end; }
+.layer-batch-controls label { margin: 0; }
+.layer-batch-controls select { width: auto; display: block; padding: 2px 5px; }
 
 .badge {
   font-size: 10px; padding: 1px 6px; border-radius: 999px;
