@@ -25,10 +25,16 @@ function download(blob: Blob, filename: string): void {
   const a = document.createElement('a');
   a.href = url;
   a.download = filename;
+  a.style.display = 'none';
   document.body.appendChild(a);
   a.click();
-  a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 2000);
+  // Keep both the element and its object URL alive until the browser has had a
+  // chance to begin reading the download. Removing the element synchronously
+  // causes JSON exports to be discarded by some browser/webview combinations.
+  setTimeout(() => {
+    a.remove();
+    URL.revokeObjectURL(url);
+  }, 2000);
 }
 
 function slug(s: string): string {
@@ -134,7 +140,7 @@ export function exportDecisions(map: MapState, opts: { aiOnly: boolean }): void 
   download(new Blob([lines.join('\n')], { type: 'text/markdown;charset=utf-8' }), `${slug(map.name)}-decisions.md`);
 }
 
-export function exportJson(map: MapState, includeHistory: boolean): void {
+export function serializeMapExport(map: MapState, includeHistory: boolean): string {
   const payload = includeHistory
     ? map
     : {
@@ -143,10 +149,11 @@ export function exportJson(map: MapState, includeHistory: boolean): void {
           Object.entries(map.layers).map(([id, layer]) => [id, { ...layer, past: [], future: [] }]),
         ),
       };
-  download(
-    new Blob([JSON.stringify({ format: 'fantasyhexmap/v1', map: payload }, null, 2)], {
-      type: 'application/json',
-    }),
-    `${slug(map.name)}.json`,
-  );
+  return JSON.stringify({ format: 'fantasyhexmap/v1', map: payload }, null, 2);
+}
+
+export function exportJson(map: MapState, includeHistory: boolean): void {
+  download(new Blob([serializeMapExport(map, includeHistory)], {
+    type: 'application/json;charset=utf-8',
+  }), `${slug(map.name)}.json`);
 }
