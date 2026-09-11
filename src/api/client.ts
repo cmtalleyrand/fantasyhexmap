@@ -24,7 +24,10 @@ import type { Decision, LayerDataMap, LayerId, MapState } from '../../shared/typ
 import type { DirectOptions } from './direct.js';
 
 /** Empty means "same origin", which is what the local dev proxy expects. */
-export const API_BASE = (import.meta.env.VITE_API_BASE ?? '').replace(/\/$/, '');
+export const API_BASE = (import.meta.env?.VITE_API_BASE ?? '').replace(/\/$/, '');
+
+const browserFallbackReason =
+  'No generation server answered, so this page will call Anthropic directly with a key you supply.';
 
 export type TransportMode = 'server' | 'browser';
 
@@ -62,15 +65,26 @@ export interface Transport {
 }
 
 /**
- * Probe for a backend. A static deployment simply has nothing at /api/health,
- * so the failure is expected rather than an error, and the app falls back to
- * bring-your-own-key mode.
+ * Probe for a configured backend. Development uses the same-origin Vite proxy;
+ * production probes only when VITE_API_BASE explicitly identifies a backend.
+ * A production build without that variable is static and enters
+ * bring-your-own-key mode without making a predictably failing request.
  */
-export async function detectTransport(timeoutMs = 4000): Promise<Transport> {
+export async function detectTransport(
+  timeoutMs = 4000,
+  fetchHealth: typeof fetch = fetch,
+  probeSameOrigin = Boolean(import.meta.env?.DEV),
+): Promise<Transport> {
+  // Production builds without an explicit proxy are static deployments. Avoid
+  // issuing a request that is guaranteed to fail every time the page loads.
+  if (!API_BASE && !probeSameOrigin) {
+    return { mode: 'browser', health: null, reason: browserFallbackReason };
+  }
+
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const res = await fetch(`${API_BASE}/api/health`, { signal: controller.signal });
+    const res = await fetchHealth(`${API_BASE}/api/health`, { signal: controller.signal });
     if (!res.ok) throw new Error(`Server responded ${res.status}`);
     const health = (await res.json()) as HealthInfo;
     if (!health?.ok) throw new Error('Server health check returned an unexpected body.');
@@ -79,7 +93,7 @@ export async function detectTransport(timeoutMs = 4000): Promise<Transport> {
     return {
       mode: 'browser',
       health: null,
-      reason: 'No generation server answered, so this page will call Anthropic directly with a key you supply.',
+      reason: browserFallbackReason,
     };
   } finally {
     clearTimeout(timer);
