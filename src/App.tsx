@@ -66,6 +66,7 @@ export default function App() {
   const [brushMode, setBrushMode] = useState(false);
   const [instruction, setInstruction] = useState('');
   const [busyLayers, setBusyLayers] = useState<Set<LayerId>>(new Set());
+  const [selectedLayers, setSelectedLayers] = useState<Set<LayerId>>(new Set());
   const [concurrency, setConcurrency] = useState(1);
   const [progress, setProgress] = useState<Partial<Record<LayerId, ProgressEvent>>>({});
   const [error, setError] = useState<string | null>(null);
@@ -119,9 +120,9 @@ export default function App() {
   }, []);
 
   const runGeneration = useCallback(
-    async (layer: LayerId, instructionText: string | null) => {
+    async (layer: LayerId, instructionText: string | null): Promise<boolean> => {
       const requestMap = mapRef.current;
-      if (!requestMap || abortRef.current.has(layer)) return;
+      if (!requestMap || abortRef.current.has(layer)) return false;
       setBusyLayers((current) => new Set(current).add(layer));
       setError(null);
       setProgress((current) => ({ ...current, [layer]: { phase: 'starting' } }));
@@ -152,10 +153,12 @@ export default function App() {
         setVisible((v) => ({ ...v, [layer]: true }));
         setActiveLayer(layer);
         if (instructionText) setInstruction('');
+        return true;
       } catch (e) {
         if ((e as Error).name !== 'AbortError') {
           setError(e instanceof Error ? e.message : String(e));
         }
+        return false;
       } finally {
         setBusyLayers((current) => {
           const next = new Set(current);
@@ -173,20 +176,33 @@ export default function App() {
     [transport.mode, apiKey, prefs],
   );
 
-  const generateRemaining = useCallback(async () => {
+  const generateSelected = useCallback(async () => {
     if (!mapRef.current || abortRef.current.size > 0) return;
     batchCancelled.current = false;
-    let pending = LAYER_ORDER.filter(
-      (id) => (mapRef.current!.enabledLayers ?? LAYER_ORDER).includes(id) && !mapRef.current!.layers[id].data,
-    );
+    let pending = LAYER_ORDER.filter((id) => selectedLayers.has(id));
+    let requestFailed = false;
     while (pending.length > 0) {
       const wave = nextGenerationWave(pending, mapRef.current, concurrency);
-      if (wave.length === 0) break;
-      await Promise.all(wave.map((id) => runGeneration(id, null)));
+      if (wave.length === 0) {
+        if (!requestFailed) {
+          setError(
+            `Cannot generate the remaining selection because its required layers are neither ready nor selected: ${pending.map((id) => LAYER_META[id].label).join(', ')}.`,
+          );
+        }
+        break;
+      }
+      const outcomes = await Promise.all(wave.map((id) => runGeneration(id, null)));
+      const completed = wave.filter((_, index) => outcomes[index]);
+      requestFailed ||= completed.length !== wave.length;
+      setSelectedLayers((current) => {
+        const next = new Set(current);
+        for (const id of completed) next.delete(id);
+        return next;
+      });
       if (batchCancelled.current) break;
       pending = pending.filter((id) => !wave.includes(id));
     }
-  }, [concurrency, runGeneration]);
+  }, [concurrency, runGeneration, selectedLayers]);
 
   const onStrokeEnd = useCallback(
     (indices: number[]) => {
@@ -327,6 +343,7 @@ export default function App() {
             return next;
           });
           if (!layers.includes(activeLayer)) setActiveLayer('base');
+          setSelectedLayers((current) => new Set([...current].filter((id) => layers.includes(id))));
         }}
       />
     ) : null;
@@ -476,16 +493,24 @@ export default function App() {
             map={map}
             activeLayer={activeLayer}
             visible={visible}
+            selectedLayers={selectedLayers}
             busyLayers={busyLayers}
             onSelect={(id) => {
               setActiveLayer(id);
               setRiverDraft(null);
             }}
             onToggleVisible={(id) => setVisible((v) => ({ ...v, [id]: !v[id] }))}
-            onGenerate={(id) => void runGeneration(id, null)}
+            onToggleSelected={(id) =>
+              setSelectedLayers((current) => {
+                const next = new Set(current);
+                if (next.has(id)) next.delete(id);
+                else next.add(id);
+                return next;
+              })
+            }
             concurrency={concurrency}
             onConcurrencyChange={setConcurrency}
-            onGenerateRemaining={() => void generateRemaining()}
+            onGenerateSelected={() => void generateSelected()}
             onEditPlan={() => setShowPlan(true)}
           />
 
