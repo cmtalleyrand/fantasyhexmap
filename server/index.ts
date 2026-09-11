@@ -113,11 +113,17 @@ app.post('/api/generate', async (req, res) => {
     res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
   };
 
+  // High-effort generations can spend minutes thinking without emitting text.
+  // Keep every intermediary's idle timer from mistaking that silence for a
+  // dead connection. SSE comment frames carry no application-level event.
+  const heartbeat = setInterval(() => res.write(': keep-alive\n\n'), 15_000);
+
   // Listen on the RESPONSE, not the request: `req`'s 'close' fires as soon as the
   // request body has been read, which is immediately, and would suppress every result.
   let closed = false;
   const controller = new AbortController();
   res.on('close', () => {
+    clearInterval(heartbeat);
     closed = true;
     controller.abort();
   });
@@ -139,6 +145,8 @@ app.post('/api/generate', async (req, res) => {
       send('error', { error: describeError(err) });
       res.end();
     }
+  } finally {
+    clearInterval(heartbeat);
   }
 });
 

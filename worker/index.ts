@@ -92,6 +92,13 @@ export default {
           controller.enqueue(encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`));
         };
         const started = Date.now();
+        // Extended thinking may produce no user-visible model text for long
+        // enough that a browser or intermediary closes an apparently idle SSE
+        // response. Comments keep the byte stream active without becoming UI
+        // events.
+        const heartbeat = setInterval(() => {
+          controller.enqueue(encoder.encode(': keep-alive\n\n'));
+        }, 15_000);
         send('progress', { phase: 'starting', layer: checked.req.layer, model });
         try {
           const config = {
@@ -104,6 +111,7 @@ export default {
         } catch (err) {
           send('error', { error: err instanceof Error ? err.message : String(err) });
         } finally {
+          clearInterval(heartbeat);
           controller.close();
         }
       },

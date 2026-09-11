@@ -121,20 +121,29 @@ export async function generateLayer(
     if (state.data !== null) layers[id as LayerId] = state.data;
   }
 
-  const res = await fetch(`${API_BASE}/api/generate`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({
-      layer,
-      description: map.description,
-      cols: map.cols,
-      rows: map.rows,
-      instruction,
-      layers,
-      excluded: excludedLayers(map),
-    }),
-    signal: signal ?? null,
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE}/api/generate`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        layer,
+        description: map.description,
+        cols: map.cols,
+        rows: map.rows,
+        instruction,
+        layers,
+        excluded: excludedLayers(map),
+      }),
+      signal: signal ?? null,
+    });
+  } catch (error) {
+    if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
+    throw new Error(
+      'Could not reach the generation server. Check your connection and the configured API proxy or its CORS settings.',
+      { cause: error },
+    );
+  }
 
   if (!res.ok) {
     let message = `Server responded ${res.status}`;
@@ -154,29 +163,37 @@ export async function generateLayer(
   let result: GenerateResult | null = null;
   let failure: string | null = null;
 
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    const frames = buffer.split('\n\n');
-    buffer = frames.pop() ?? '';
-    for (const frame of frames) {
-      const eventMatch = /^event: (.+)$/m.exec(frame);
-      const dataMatch = /^data: (.+)$/m.exec(frame);
-      if (!eventMatch || !dataMatch) continue;
-      const payload = JSON.parse(dataMatch[1]!) as unknown;
-      switch (eventMatch[1]) {
-        case 'progress':
-          onProgress(payload as ProgressEvent);
-          break;
-        case 'result':
-          result = payload as GenerateResult;
-          break;
-        case 'error':
-          failure = (payload as { error: string }).error;
-          break;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const frames = buffer.split('\n\n');
+      buffer = frames.pop() ?? '';
+      for (const frame of frames) {
+        const eventMatch = /^event: (.+)$/m.exec(frame);
+        const dataMatch = /^data: (.+)$/m.exec(frame);
+        if (!eventMatch || !dataMatch) continue;
+        const payload = JSON.parse(dataMatch[1]!) as unknown;
+        switch (eventMatch[1]) {
+          case 'progress':
+            onProgress(payload as ProgressEvent);
+            break;
+          case 'result':
+            result = payload as GenerateResult;
+            break;
+          case 'error':
+            failure = (payload as { error: string }).error;
+            break;
+        }
       }
     }
+  } catch (error) {
+    if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
+    throw new Error(
+      'The connection to the generation server was interrupted before the layer finished. Check the server logs and ensure the API proxy permits long-lived streaming responses, then retry.',
+      { cause: error },
+    );
   }
 
   if (failure) throw new Error(failure);
