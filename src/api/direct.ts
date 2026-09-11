@@ -18,12 +18,15 @@ import {
 } from '../../core/pipeline.js';
 import { LAYER_META } from '../../shared/layers.js';
 import { MAX_DIM, MIN_DIM, type LayerId, type MapState } from '../../shared/types.js';
+import { canSplit, rosterFromContext, type PassSelection } from '../../core/passes.js';
+import type { Roster } from '../../core/rosters.js';
 import type { GenerateResult, ProgressEvent } from './client.js';
 
 export interface DirectOptions {
   apiKey: string | null;
   model: string;
   effort: Effort;
+  taskBudget: number;
   offline: boolean;
 }
 
@@ -53,6 +56,8 @@ export async function generateDirect(
   options: DirectOptions,
   onProgress: (event: ProgressEvent) => void,
   signal?: AbortSignal,
+  selection: PassSelection = 'both',
+  roster: Roster | null = null,
 ): Promise<GenerateResult> {
   if (map.cols < MIN_DIM || map.rows < MIN_DIM || map.cols > MAX_DIM || map.rows > MAX_DIM) {
     throw new Error(`Grid must be between ${MIN_DIM}x${MIN_DIM} and ${MAX_DIM}x${MAX_DIM}.`);
@@ -72,12 +77,29 @@ export async function generateDirect(
       : new Anthropic({ apiKey: options.apiKey!, dangerouslyAllowBrowser: true }),
     model: options.model,
     effort: options.effort,
+    taskBudget: options.taskBudget,
   };
 
   const ctx = contextFromMap(map, instruction);
+  // A paint-only run falls back to the roster the layer already has, which is
+  // what "redraw the borders, keep the countries" means.
+  const effectiveRoster =
+    canSplit(layer) && selection === 'paint' ? roster ?? rosterFromContext(layer, ctx) : roster;
+  if (canSplit(layer) && selection === 'paint' && !effectiveRoster) {
+    throw new Error(
+      `Painting ${LAYER_META[layer].label} needs a roster: generate one first, or supply your own.`,
+    );
+  }
   const started = Date.now();
   try {
-    const result = await generateLayer(config, { layer, ctx, existing: existingFeatures(ctx) }, (event) => {
+    const request = {
+      layer,
+      ctx,
+      existing: existingFeatures(ctx),
+      selection,
+      roster: effectiveRoster,
+    };
+    const result = await generateLayer(config, request, (event) => {
       if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
       onProgress(event);
     }, signal);

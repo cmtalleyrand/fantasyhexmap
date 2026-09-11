@@ -39,7 +39,12 @@ time; asking for rows asks it to think about the map.
 
 **What it costs.** A miscounted row silently shifts an entire band of the map sideways, so the
 decoder checks every row's length and reports a warning rather than trusting it, and the prompt tells
-the model to count.
+the model to count. The response schemas now also pin the exact row count and width, so the API
+constrains generation to them and counting stops being work the model has to do.
+
+**What it did not solve, and was mistaken for solving.** Row-strings made the *answer* small, and
+that was read as making the whole response small — see §14. It did not: reasoning is output too,
+and on a hard layer it dwarfs the answer whatever encoding the answer uses.
 
 ## 3. Structured outputs and streaming, together
 
@@ -371,3 +376,94 @@ missing and to record its assumptions.
 generation that cost real money and minutes, and undo would have to reach across a layer boundary to
 recover it. Hiding costs nothing but a retained array, and the picker says plainly what will happen,
 so nobody has to guess whether removing a layer is safe.
+
+---
+
+# The output budget
+
+Added after generating polities for a 30×30 map failed with "the response hit the output token
+limit", on a layer whose answer is about three thousand tokens.
+
+## 24. `max_tokens` was sized against the answer, and the answer was never the problem
+
+**Chosen.** Raise the hard cap to the model's real maximum, and put an advisory task budget behind
+it that the model can actually see.
+
+**What went wrong.** `MAX_TOKENS` was 64,000, with the comment "a 50×50 layer is well under this."
+That was true and irrelevant. `max_tokens` bounds everything the model emits, and this model thinks
+by default: reasoning tokens are output tokens. A 30×30 polity response is roughly 3,000 tokens of
+rows, roster, notes and decisions — under 5% of the cap — and the generation still failed, because
+the other 61,000 went on working out where the borders should run. §2 made the answer small and was
+read as making the response small.
+
+**Why a task budget rather than just a bigger cap.** A bigger cap postpones the failure; it does not
+change its shape, because `max_tokens` is a ceiling the model cannot see and is simply cut off by.
+A task budget is advisory and visible: the model is told how much is left while it works, so it
+winds up and answers instead of running off the end. The cap becomes headroom behind it rather than
+the thing being enforced.
+
+**What it costs.** A beta flag, and a number the user can now get wrong. The default effort also
+drops from `high` to `medium`, which is a real quality trade on large maps — `high` is one setting
+away for anyone who wants it, and now has a budget to spend it against.
+
+## 25. A truncated response is retried, not surrendered
+
+**Chosen.** On `max_tokens`, retry once at one effort level lower — and for a layer that can be
+split, as two passes instead of one. Only then does the error reach the user, and it reports the
+token split rather than guessing at a cause.
+
+**Why.** The old behaviour threw away the whole generation and told the user to try a smaller grid.
+That advice was wrong in a way that mattered: shrinking a 30×30 map to 20×20 removes about 1,500
+tokens from a 64,000-token overrun, so anyone following it paid twice and still failed. Meanwhile
+64,000 billed output tokens — around $1.60 — were discarded per attempt, repeatably.
+
+**What it costs.** A failed generation can now cost two requests rather than one. That is worth it:
+the second is at lower effort and usually succeeds, and the alternative was two *user-initiated*
+attempts anyway, the first of which taught them nothing.
+
+## 26. Polities and rivers are two problems, not one
+
+**Chosen.** Both layers can run as a roster pass (who or what exists) followed by a geometry pass
+(where it goes), selectable per generation, with the roster importable or reusable from the layer as
+it stands.
+
+**Why.** These are the two layers that invent a vocabulary and apply it to the grid in the same
+request, and the halves constrain each other — you cannot size the territories until you know the
+roster, or finalise the roster without a feel for the ground. That mutual constraint is most of what
+the model was spending its budget on. Given a fixed, closed set of keys, painting the map is ordinary
+constraint satisfaction. Polities is also the only layer with a global structural requirement
+(contiguity), and with base geography alone all three of its soft dependencies are missing, so it was
+inventing an elevation map, a river network and a set of cities purely to satisfy its own border
+rules and then discarding them unwritten.
+
+**Why a roster is a first-class thing.** Once the geometry pass takes a roster as input, that roster
+need not come from a model at all. Someone who already knows their world's nations can supply the
+list and ask only for borders; someone who wants different borders for the same powers can repaint
+against the roster the map already has, and because ids are matched back by name, the polities keep
+their identity across the repaint.
+
+**What it costs.** Two round trips where there was one, and a recombination step. The halves are
+folded back into exactly the single-request shape before decoding, so there is still one decoder and
+one validator; and notes and decisions from both passes are kept, because the reasoning about who
+exists and the reasoning about where the border runs are different and the record needs both.
+
+## 27. The same prompt, carried by hand
+
+**Chosen.** Any layer or pass can be compiled into one self-contained block of text to paste into a
+chat window, and the reply pasted back and imported.
+
+**Why.** The in-app path is not always the right tool: there may be no key configured, or the user
+may prefer to argue with the model about the borders before committing them. The prompt is already a
+complete string, and the decoder is already a pure function, so the missing piece was only a
+description of the response shape — a webchat has no structured outputs to constrain it.
+
+**Why the shape is derived, not written.** The JSON Schema comes from the same Zod schema the API is
+given, and the worked example from the offline generator that already has to satisfy it. A
+hand-written copy of either would drift the first time a layer changed, and would drift silently,
+because nothing would be checking it against the real contract.
+
+**What it costs.** A looser parser on the way back in — the reply may be fenced, or wrapped in
+prose — and a validator that has to name the field that was wrong rather than just rejecting, since
+the fix is for the user to relay it. And the decision record has to record these as imported: it
+already refuses to credit the AI with a choice the user made, and crediting this app's model with a
+choice made somewhere else would be the same lie.

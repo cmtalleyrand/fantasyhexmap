@@ -1,5 +1,10 @@
 import { useState } from 'react';
-import type { Effort } from '../../core/config.js';
+import {
+  clampTaskBudget,
+  MAX_TASK_BUDGET,
+  MIN_TASK_BUDGET,
+  type Effort,
+} from '../../core/config.js';
 import { insecureOrigin, looksLikeKey, type Prefs } from '../api/settings.js';
 import { cryptoAvailable } from '../api/keyvault.js';
 import type { TransportMode } from '../api/client.js';
@@ -195,9 +200,31 @@ export default function SettingsDialog(props: SettingsDialogProps) {
                 </select>
               </div>
             </div>
+            <div className="row" style={{ marginTop: 8 }}>
+              <div style={{ width: 160 }}>
+                <label>Token budget</label>
+                <input
+                  type="number"
+                  min={MIN_TASK_BUDGET}
+                  max={MAX_TASK_BUDGET}
+                  step={5000}
+                  value={prefs.taskBudget}
+                  onChange={(e) =>
+                    setPrefs({ ...prefs, taskBudget: clampTaskBudget(Number(e.target.value)) })
+                  }
+                />
+              </div>
+            </div>
             <p className="hint" style={{ marginTop: 0 }}>
               Lower effort is cheaper and faster; coastlines, ranges and climate belts get less
               coherent. A 50×50 layer at high effort is a few minutes of thinking.
+            </p>
+            <p className="hint" style={{ marginTop: 4 }}>
+              The model reasons and writes out of one budget, and on a hard layer almost all of it
+              goes on reasoning — a big polity map can spend tens of thousands of tokens deciding
+              before it writes a single row. The budget is what it paces itself against: raise it if
+              a layer keeps running out of room, lower it to spend less. Between{' '}
+              {MIN_TASK_BUDGET.toLocaleString()} and {MAX_TASK_BUDGET.toLocaleString()}.
             </p>
           </div>
         )}

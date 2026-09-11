@@ -7,6 +7,7 @@ const KIND_LABEL: Record<JournalEntry['kind'], string> = {
   generate: 'generated',
   instruct: 'rewritten on instruction',
   manual: 'edited by hand',
+  import: 'generated elsewhere, imported',
   undo: 'undone',
   redo: 'redone',
 };
@@ -42,7 +43,7 @@ export default function DecisionLog({
     return all.filter(
       (e) =>
         (layerFilter === 'all' || e.layer === layerFilter) &&
-        (!aiOnly || e.kind === 'generate' || e.kind === 'instruct'),
+        (!aiOnly || e.kind === 'generate' || e.kind === 'instruct' || e.kind === 'import'),
     );
   }, [map.journal, layerFilter, aiOnly]);
 
@@ -124,7 +125,14 @@ export default function DecisionLog({
                 <span className="badge">{KIND_LABEL[entry.kind]}</span>
                 <span className="grow" />
                 <span className="hint">
-                  {entry.model ? entry.model : entry.kind === 'manual' ? 'you' : 'offline generator'} ·{' '}
+                  {entry.kind === 'import'
+                    ? `imported${entry.model ? ` from ${entry.model}` : ''}`
+                    : entry.model
+                      ? entry.model
+                      : entry.kind === 'manual'
+                        ? 'you'
+                        : 'offline generator'}{' '}
+                  ·{' '}
                   {when(entry.at)}
                 </span>
               </div>
@@ -152,7 +160,7 @@ export default function DecisionLog({
 
               {entry.warnings > 0 && (
                 <p className="hint" style={{ marginBottom: 0 }}>
-                  {entry.warnings} validation note{entry.warnings === 1 ? '' : 's'} were raised on this pass.
+                  {entry.warnings} validation note{entry.warnings === 1 ? ' was' : 's were'} raised on this pass.
                 </p>
               )}
             </div>

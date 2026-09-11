@@ -43,6 +43,12 @@ export type Action =
       decisions?: Decision[];
       model?: string | null;
       instruction?: string | null;
+      /**
+       * True when the layer was produced outside this app and pasted in. The
+       * record has to say so: it must never imply the in-app model made a
+       * choice that was actually made elsewhere.
+       */
+      imported?: boolean;
       /** Omit the journal entry for changes that are not a generation (a hand-built river). */
       journal?: false;
     }
@@ -226,9 +232,11 @@ export function reducer(map: MapState, action: Action): MapState {
       if (action.journal !== false) {
         next = journal(next, {
           layer: action.layer,
-          kind: action.instruction ? 'instruct' : 'generate',
+          kind: action.imported ? 'import' : action.instruction ? 'instruct' : 'generate',
           instruction: action.instruction ?? null,
-          summary: action.notes ?? `${LAYER_META[action.layer].label} generated.`,
+          summary:
+            action.notes ??
+            `${LAYER_META[action.layer].label} ${action.imported ? 'imported.' : 'generated.'}`,
           decisions: action.decisions ?? [],
           model: action.model ?? null,
           warnings: action.warnings.length,
