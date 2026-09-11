@@ -27,6 +27,7 @@ export interface DecodeResult<T> {
 
 export const BASE_CHARS: Record<BaseGeo, string> = {
   Land: 'L',
+  'Coastal Land': 'C',
   Sea: '~',
   Lake: 'o',
   Ice: '#',

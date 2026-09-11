@@ -9,6 +9,7 @@ export const BASE_COLOURS: Record<BaseGeo, string> = {
   Sea: '#1d3b57',
   Lake: '#2f6f8f',
   Land: '#cbbd93',
+  'Coastal Land': '#d9c58f',
   Ice: '#e4eef3',
   Island: '#1d3b57', // sea substrate; the landmass is drawn as a dot on top
 };
