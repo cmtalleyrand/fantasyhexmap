@@ -91,6 +91,34 @@ const SCHEMAS = {
   population: PopulationResponse,
 } as const;
 
+export function isStructuredOutputParseError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  if (error instanceof SyntaxError) return true;
+  return /failed to parse structured output|structured output as json|json.*position/i.test(
+    error.message,
+  );
+}
+
+export async function withStructuredOutputRetry<T>(
+  operation: () => Promise<T>,
+  onRetry: () => void,
+): Promise<T> {
+  try {
+    return await operation();
+  } catch (error) {
+    if (!isStructuredOutputParseError(error)) throw error;
+    onRetry();
+    try {
+      return await operation();
+    } catch (retryError) {
+      if (!isStructuredOutputParseError(retryError)) throw retryError;
+      throw new Error('The model returned malformed data twice. Please try generating this layer again.', {
+        cause: retryError,
+      });
+    }
+  }
+}
+
 /** One structured, streamed call to the Messages API. */
 async function callModel<S extends z.ZodType>(
   config: GenerationConfig & { client: Anthropic },
@@ -100,72 +128,74 @@ async function callModel<S extends z.ZodType>(
   onProgress: ProgressFn,
   signal?: AbortSignal,
 ): Promise<{ parsed: z.infer<S>; usage: GenerateResult['usage'] }> {
-  const stream = config.client.messages.stream({
-    model: config.model,
-    max_tokens: MAX_TOKENS,
-    system: [{ type: 'text', text: system, cache_control: { type: 'ephemeral' } }],
-    messages: [{ role: 'user', content: user }],
-    output_config: {
-      effort: config.effort,
-      format: zodOutputFormat(schema),
-    },
-  }, { signal });
+  return withStructuredOutputRetry(async () => {
+    const stream = config.client.messages.stream({
+      model: config.model,
+      max_tokens: MAX_TOKENS,
+      system: [{ type: 'text', text: system, cache_control: { type: 'ephemeral' } }],
+      messages: [{ role: 'user', content: user }],
+      output_config: {
+        effort: config.effort,
+        format: zodOutputFormat(schema),
+      },
+    }, { signal });
 
-  let chars = 0;
-  let lastPing = 0;
-  let thinking = false;
-  stream.on('streamEvent', (event) => {
-    if (event.type === 'content_block_start' && event.content_block.type === 'thinking') {
-      thinking = true;
-      onProgress({ phase: 'thinking' });
-    }
-    if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') {
-      if (thinking) {
-        thinking = false;
-        onProgress({ phase: 'writing' });
+    let chars = 0;
+    let lastPing = 0;
+    let thinking = false;
+    stream.on('streamEvent', (event) => {
+      if (event.type === 'content_block_start' && event.content_block.type === 'thinking') {
+        thinking = true;
+        onProgress({ phase: 'thinking' });
       }
-      chars += event.delta.text.length;
-      const now = Date.now();
-      if (now - lastPing > 400) {
-        lastPing = now;
-        onProgress({ phase: 'writing', chars });
+      if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') {
+        if (thinking) {
+          thinking = false;
+          onProgress({ phase: 'writing' });
+        }
+        chars += event.delta.text.length;
+        const now = Date.now();
+        if (now - lastPing > 400) {
+          lastPing = now;
+          onProgress({ phase: 'writing', chars });
+        }
       }
+    });
+
+    const message = await stream.finalMessage();
+
+    if (message.stop_reason === 'refusal') {
+      throw new Error(
+        `The model declined this request${message.stop_details && 'category' in message.stop_details ? ` (${message.stop_details.category})` : ''}. Try rewording the description.`,
+      );
     }
-  });
+    if (message.stop_reason === 'max_tokens') {
+      throw new Error(
+        'The response hit the output token limit before it finished. Try a smaller grid, or split the instruction into smaller steps.',
+      );
+    }
 
-  const message = await stream.finalMessage();
+    const usage = {
+      input: message.usage.input_tokens,
+      output: message.usage.output_tokens,
+      cacheRead: message.usage.cache_read_input_tokens ?? 0,
+    };
 
-  if (message.stop_reason === 'refusal') {
-    throw new Error(
-      `The model declined this request${message.stop_details && 'category' in message.stop_details ? ` (${message.stop_details.category})` : ''}. Try rewording the description.`,
-    );
-  }
-  if (message.stop_reason === 'max_tokens') {
-    throw new Error(
-      'The response hit the output token limit before it finished. Try a smaller grid, or split the instruction into smaller steps.',
-    );
-  }
+    const parsed = (message as { parsed_output?: unknown }).parsed_output;
+    if (parsed != null) return { parsed: parsed as z.infer<S>, usage };
 
-  const usage = {
-    input: message.usage.input_tokens,
-    output: message.usage.output_tokens,
-    cacheRead: message.usage.cache_read_input_tokens ?? 0,
-  };
-
-  const parsed = (message as { parsed_output?: unknown }).parsed_output;
-  if (parsed != null) return { parsed: parsed as z.infer<S>, usage };
-
-  // The API constrains the output to the schema, so this is a belt-and-braces
-  // path for a response that arrived as plain text anyway.
-  const text = message.content
-    .filter((b): b is Anthropic.TextBlock => b.type === 'text')
-    .map((b) => b.text)
-    .join('')
-    .trim()
-    .replace(/^```(?:json)?\s*/i, '')
-    .replace(/```$/, '');
-  if (!text) throw new Error('The model returned an empty response.');
-  return { parsed: schema.parse(JSON.parse(text)) as z.infer<S>, usage };
+    // The API constrains the output to the schema, so this is a belt-and-braces
+    // path for a response that arrived as plain text anyway.
+    const text = message.content
+      .filter((b): b is Anthropic.TextBlock => b.type === 'text')
+      .map((b) => b.text)
+      .join('')
+      .trim()
+      .replace(/^```(?:json)?\s*/i, '')
+      .replace(/```$/, '');
+    if (!text) throw new Error('The model returned an empty response.');
+    return { parsed: schema.parse(JSON.parse(text)) as z.infer<S>, usage };
+  }, () => onProgress({ phase: 'retrying', detail: 'The model returned malformed JSON; retrying once.' }));
 }
 
 /* --------------------------------------------------------- id reuse helpers */

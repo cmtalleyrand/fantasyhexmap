@@ -13,18 +13,19 @@ export interface LayerPipelineProps {
   map: MapState;
   activeLayer: LayerId;
   visible: VisibleLayers;
+  selectedLayers: ReadonlySet<LayerId>;
   busyLayers: ReadonlySet<LayerId>;
   onSelect: (layer: LayerId) => void;
   onToggleVisible: (layer: LayerId) => void;
-  onGenerate: (layer: LayerId) => void;
+  onToggleSelected: (layer: LayerId) => void;
   concurrency: number;
   onConcurrencyChange: (value: number) => void;
-  onGenerateRemaining: () => void;
+  onGenerateSelected: () => void;
   onEditPlan: () => void;
 }
 
 export default function LayerPipeline(props: LayerPipelineProps) {
-  const { map, activeLayer, visible, busyLayers } = props;
+  const { map, activeLayer, visible, selectedLayers, busyLayers } = props;
   const planned = plannedLayers(map);
   const omitted = 8 - planned.length;
   return (
@@ -38,10 +39,10 @@ export default function LayerPipeline(props: LayerPipelineProps) {
       <div className="row layer-batch-controls">
         <button
           className="tiny grow"
-          disabled={busyLayers.size > 0 || planned.every((id) => map.layers[id].data)}
-          onClick={props.onGenerateRemaining}
+          disabled={busyLayers.size > 0 || selectedLayers.size === 0}
+          onClick={props.onGenerateSelected}
         >
-          generate empty layers
+          generate selected ({selectedLayers.size})
         </button>
         <label title="Maximum layer requests run at the same time">
           at once
@@ -87,6 +88,15 @@ export default function LayerPipeline(props: LayerPipelineProps) {
               onChange={() => props.onToggleVisible(id)}
               title="Show this layer on the map"
             />
+            <input
+              type="checkbox"
+              checked={selectedLayers.has(id)}
+              disabled={busyLayers.size > 0}
+              onClick={(e) => e.stopPropagation()}
+              onChange={() => props.onToggleSelected(id)}
+              title="Select this layer for generation"
+              aria-label={`Select ${meta.label} for generation`}
+            />
             <span className="name">
               <b>{meta.label}</b>
               <small>
@@ -108,17 +118,6 @@ export default function LayerPipeline(props: LayerPipelineProps) {
             ) : (
               <span className="badge empty">empty</span>
             )}
-            <button
-              className="tiny"
-              disabled={!unlocked || busyLayers.has(id)}
-              onClick={(e) => {
-                e.stopPropagation();
-                props.onGenerate(id);
-              }}
-              title={layer.data ? 'Regenerate this layer from scratch' : 'Generate this layer'}
-            >
-              {busyLayers.has(id) ? '…' : layer.data ? 'regen' : 'generate'}
-            </button>
           </div>
         );
       })}
