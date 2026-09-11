@@ -14,6 +14,7 @@ import {
   type River,
   type VegetationGroup,
 } from '../../shared/types.js';
+import { canSplit, passLabel, type PassSelection } from '../../core/rosters.js';
 import type { Action } from '../state/store.js';
 import Legend from './Legend.js';
 
@@ -32,6 +33,10 @@ export interface InspectorProps {
   instruction: string;
   setInstruction: (value: string) => void;
   onAiEdit: () => void;
+  /** Open the compile-a-prompt / paste-the-reply dialog for this layer. */
+  onWebchat: () => void;
+  /** Generate this layer, optionally only one half of a splittable one. */
+  onGeneratePass: (selection: PassSelection) => void;
   busy: boolean;
   riverDraft: number[] | null;
   setRiverDraft: (next: number[] | null) => void;
@@ -82,6 +87,7 @@ export default function Inspector(props: InspectorProps) {
   const meta = LAYER_META[activeLayer];
   const staleness = stalenessOf(map, activeLayer);
   const selected = useMemo(() => [...selection].sort((a, b) => a - b), [selection]);
+  const [passSelection, setPassSelection] = useState<PassSelection>('both');
 
   return (
     <div className="inspector">
@@ -139,6 +145,45 @@ export default function Inspector(props: InspectorProps) {
         )}
       </div>
 
+      {canSplit(activeLayer) && (
+        <div className="section">
+          <h2>Generate in passes</h2>
+          <p className="hint" style={{ marginTop: 0 }}>
+            This layer decides a cast and places it on the grid, and those two halves constrain each
+            other — which is most of why it is the expensive one. Running them separately gives the
+            model a closed set to work against instead of an open design problem.
+          </p>
+          <div className="row" style={{ marginTop: 6 }}>
+            <select
+              value={passSelection}
+              disabled={props.busy}
+              onChange={(e) => setPassSelection(e.target.value as PassSelection)}
+              style={{ flex: 1 }}
+            >
+              <option value="both">Both passes</option>
+              <option value="roster">{passLabel(activeLayer, 'roster')} only</option>
+              <option value="paint">
+                {passLabel(activeLayer, 'paint')} only — keep the current{' '}
+                {passLabel(activeLayer, 'roster')}
+              </option>
+            </select>
+            <button
+              className="primary"
+              disabled={props.busy || (passSelection === 'paint' && !layer.data)}
+              onClick={() => props.onGeneratePass(passSelection)}
+            >
+              Generate
+            </button>
+          </div>
+          {passSelection === 'paint' && !layer.data && (
+            <p className="hint" style={{ marginTop: 4 }}>
+              There is nothing to keep yet — generate the {passLabel(activeLayer, 'roster')} first,
+              or supply one through <em>Prompt for webchat</em>.
+            </p>
+          )}
+        </div>
+      )}
+
       <div className="section">
         <h2>Edit with an instruction</h2>
         <textarea
@@ -159,9 +204,17 @@ export default function Inspector(props: InspectorProps) {
         >
           Rewrite this layer with AI
         </button>
+        <button
+          style={{ marginTop: 6, width: '100%' }}
+          disabled={props.busy}
+          onClick={props.onWebchat}
+        >
+          Prompt for webchat…
+        </button>
         <p className="hint" style={{ marginTop: 4 }}>
           The whole layer is sent as context and comes back rewritten, so one instruction can change
-          the map anywhere. Undo is per layer.
+          the map anywhere. Undo is per layer. The second button builds the same prompt for you to
+          run in a chat window instead, and imports the reply.
         </p>
       </div>
 

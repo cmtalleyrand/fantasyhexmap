@@ -21,6 +21,7 @@
 
 import { excludedLayers } from '../../shared/layers.js';
 import type { Decision, LayerDataMap, LayerId, MapState } from '../../shared/types.js';
+import type { PassSelection, Roster } from '../../core/rosters.js';
 import type { DirectOptions } from './direct.js';
 
 /** Empty means "same origin", which is what the local dev proxy expects. */
@@ -46,7 +47,7 @@ export interface GenerateResult<K extends LayerId = LayerId> {
   notes: string | null;
   decisions: Decision[];
   model: string | null;
-  usage: { input: number; output: number; cacheRead: number } | null;
+  usage: { input: number; output: number; cacheRead: number; thinking: number } | null;
   elapsedMs: number;
 }
 
@@ -108,12 +109,14 @@ export async function generateLayer(
   direct: DirectOptions,
   onProgress: (event: ProgressEvent) => void,
   signal?: AbortSignal,
+  selection: PassSelection = 'both',
+  roster: Roster | null = null,
 ): Promise<GenerateResult> {
   if (transport === 'browser') {
     // Dynamic import: the Anthropic SDK is only needed when this page is the
     // one calling the API, so server and proxy deployments never download it.
     const { generateDirect } = await import('./direct.js');
-    return generateDirect(map, layer, instruction, direct, onProgress, signal);
+    return generateDirect(map, layer, instruction, direct, onProgress, signal, selection, roster);
   }
 
   const layers: Partial<Record<LayerId, unknown>> = {};
@@ -134,6 +137,8 @@ export async function generateLayer(
         instruction,
         layers,
         excluded: excludedLayers(map),
+        selection,
+        roster,
       }),
       signal: signal ?? null,
     });

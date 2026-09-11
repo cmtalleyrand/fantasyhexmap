@@ -10,7 +10,12 @@
 import { LAYER_ORDER, MAX_DIM, MIN_DIM, type LayerId } from '../shared/types.js';
 import { LAYER_META } from '../shared/layers.js';
 import type { GenerateRequest } from './pipeline.js';
+import type { PassSelection } from './passes.js';
+import { canSplit, rosterFromContext } from './passes.js';
+import { normaliseRoster, type Roster } from './rosters.js';
 import type { PromptContext } from './prompts.js';
+
+const SELECTIONS: PassSelection[] = ['both', 'roster', 'paint'];
 
 export interface GenerateBody {
   layer?: string;
@@ -21,6 +26,61 @@ export interface GenerateBody {
   layers?: Partial<Record<LayerId, unknown>>;
   /** Layers this map has chosen not to have; changes how absent context is described. */
   excluded?: string[];
+  /** Which half of a splittable layer to run; ignored by layers that do not split. */
+  selection?: string;
+  /** A roster supplied instead of generated, for a paint-only run. */
+  roster?: unknown;
+}
+
+/**
+ * Validate an untrusted roster.
+ *
+ * Keys are reassigned by position regardless of what arrived, because a roster
+ * with duplicate or skipped letters would silently drop hexes when the painted
+ * rows are decoded against it.
+ */
+function validateRoster(layer: LayerId, raw: unknown): { error: string } | { roster: Roster | null } {
+  if (raw == null) return { roster: null };
+  if (!canSplit(layer)) return { roster: null };
+  const entries = (raw as { entries?: unknown })?.entries;
+  if (!Array.isArray(entries)) return { error: 'roster.entries must be an array.' };
+  if (entries.length === 0) return { error: 'The roster has no entries.' };
+  if (entries.length > 64) return { error: 'That roster has more entries than a map can use.' };
+
+  for (const entry of entries) {
+    if (!entry || typeof entry !== 'object') return { error: 'Every roster entry must be an object.' };
+    if (typeof (entry as { name?: unknown }).name !== 'string' || !(entry as { name: string }).name.trim()) {
+      return { error: 'Every roster entry needs a name.' };
+    }
+  }
+
+  if (layer === 'polities') {
+    return {
+      roster: normaliseRoster({
+        kind: 'polities',
+        entries: entries.map((e) => {
+          const item = e as Record<string, unknown>;
+          return {
+            key: '',
+            name: String(item.name).trim(),
+            colour: typeof item.colour === 'string' ? item.colour.trim() : '',
+          };
+        }),
+      }),
+    };
+  }
+  return {
+    roster: {
+      kind: 'rivers',
+      entries: entries.map((e) => {
+        const item = e as Record<string, unknown>;
+        return {
+          name: String(item.name).trim(),
+          course: typeof item.course === 'string' ? item.course.trim() : '',
+        };
+      }),
+    },
+  };
 }
 
 export function validateGenerateBody(body: GenerateBody): { error: string } | { req: GenerateRequest } {
@@ -65,10 +125,27 @@ export function validateGenerateBody(body: GenerateBody): { error: string } | { 
     return { error: `Base geography has ${ctx.base.length} hexes but the grid is ${cols * rows}.` };
   }
 
+  const selection = SELECTIONS.includes(body.selection as PassSelection)
+    ? (body.selection as PassSelection)
+    : 'both';
+
+  const rosterResult = validateRoster(layer, body.roster);
+  if ('error' in rosterResult) return rosterResult;
+  // A paint-only run with no roster supplied falls back to the one the layer
+  // already has, which is what "redraw the borders, keep the countries" means.
+  const roster = rosterResult.roster ?? (selection === 'paint' ? rosterFromContext(layer, ctx) : null);
+  if (selection === 'paint' && !roster) {
+    return {
+      error: `Painting ${LAYER_META[layer].label} needs a roster: generate one first, or supply your own.`,
+    };
+  }
+
   return {
     req: {
       layer,
       ctx,
+      selection,
+      roster,
       existing: {
         rivers: ctx.rivers?.rivers,
         cities: ctx.cities?.cities,

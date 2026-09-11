@@ -12,58 +12,54 @@
  */
 
 import Anthropic from '@anthropic-ai/sdk';
-import { zodOutputFormat } from '@anthropic-ai/sdk/helpers/zod';
+import { betaZodOutputFormat } from '@anthropic-ai/sdk/helpers/beta/zod';
 import * as z from 'zod/v4';
 
-import {
-  decodeBase,
-  decodeClimate,
-  decodeElevation,
-  decodePopulation,
-  decodeVegetation,
-  POLITY_UNCLAIMED,
-} from '../shared/codec.js';
-import {
-  buildRiverFromPath,
-  validateCities,
-  validateClimate,
-  validateElevation,
-  validatePolities,
-  validatePopulation,
-  validateRivers,
-  validateVegetation,
-} from '../shared/validate.js';
-import type {
-  City,
-  Decision,
-  LayerDataMap,
-  LayerId,
-  MapState,
-  Polity,
-  River,
-} from '../shared/types.js';
-import { buildPrompt, type PromptContext } from './prompts.js';
-import {
-  BaseResponse,
-  CitiesResponse,
-  ClimateResponse,
-  ElevationResponse,
-  PolitiesResponse,
-  PopulationResponse,
-  RiversResponse,
-  VegetationResponse,
-} from './schemas.js';
+import type { Decision, LayerDataMap, LayerId } from '../shared/types.js';
+import type { PromptContext } from './prompts.js';
+import { decodeLayer, extractJsonObject, type ExistingFeatures } from './decode.js';
 import { mockLayer } from './mock.js';
-import { excludedLayers } from '../shared/layers.js';
-import { MAX_TOKENS, type Effort } from './config.js';
+import { LAYER_META } from '../shared/layers.js';
+import {
+  clampTaskBudget,
+  DEFAULT_TASK_BUDGET,
+  lowerEffort,
+  MAX_TOKENS,
+  TASK_BUDGET_BETA,
+  type Effort,
+} from './config.js';
+import {
+  canSplit,
+  combinePasses,
+  rosterFromContext,
+  passLabel,
+  passesFor,
+  promptForPass,
+  rosterFromResponse,
+  rosterOnlyResponse,
+  schemaForPass,
+  type PassId,
+  type PassSelection,
+} from './passes.js';
+import type { Roster } from './rosters.js';
 
 export { DEFAULT_EFFORT, DEFAULT_MODEL, type Effort } from './config.js';
+export type { PassSelection } from './passes.js';
+
+const LAYER_LABEL = Object.fromEntries(
+  Object.entries(LAYER_META).map(([id, meta]) => [id, meta.label]),
+) as Record<LayerId, string>;
 
 export interface GenerationConfig {
   /** null runs the offline procedural generator instead of calling the API. */
   client: Anthropic | null;
   model: string;
   effort: Effort;
+  /**
+   * Advisory token budget the model paces its reasoning against. Optional so
+   * existing callers keep working; omitted means the default.
+   */
+  taskBudget?: number;
 }
 
 export interface GenerateResult<K extends LayerId = LayerId> {
@@ -75,21 +71,22 @@ export interface GenerateResult<K extends LayerId = LayerId> {
   decisions: Decision[];
   /** Model that produced it, or null when the offline generator did. */
   model: string | null;
-  usage: { input: number; output: number; cacheRead: number } | null;
+  usage: Usage | null;
+}
+
+/**
+ * `thinking` is the part of `output` the model spent on reasoning rather than
+ * on the answer. It is the number that explains a truncated response, and the
+ * reason the error text below can stop guessing at the cause.
+ */
+export interface Usage {
+  input: number;
+  output: number;
+  cacheRead: number;
+  thinking: number;
 }
 
 export type ProgressFn = (event: { phase: string; detail?: string; chars?: number }) => void;
-
-const SCHEMAS = {
-  base: BaseResponse,
-  elevation: ElevationResponse,
-  climate: ClimateResponse,
-  vegetation: VegetationResponse,
-  rivers: RiversResponse,
-  cities: CitiesResponse,
-  polities: PolitiesResponse,
-  population: PopulationResponse,
-} as const;
 
 export function isStructuredOutputParseError(error: unknown): boolean {
   if (!(error instanceof Error)) return false;
@@ -119,6 +116,41 @@ export async function withStructuredOutputRetry<T>(
   }
 }
 
+/**
+ * Thrown when the model was cut off by `max_tokens`.
+ *
+ * Carries the token split because that is what says *why*: on a model that
+ * thinks by default, reasoning and answer draw on one budget, and a layer whose
+ * answer is two thousand tokens can still be truncated after sixty thousand of
+ * reasoning. The caller uses this to retry at lower effort rather than giving up.
+ */
+export class OutputTruncatedError extends Error {
+  readonly usage: Usage;
+  constructor(usage: Usage, message: string) {
+    super(message);
+    this.name = 'OutputTruncatedError';
+    this.usage = usage;
+  }
+}
+
+function describeTruncation(usage: Usage, budget: number): string {
+  const answer = Math.max(0, usage.output - usage.thinking);
+  if (usage.thinking > answer * 2) {
+    return (
+      `The model spent ${usage.thinking.toLocaleString()} of its ${usage.output.toLocaleString()} ` +
+      `output tokens on reasoning and was cut off with only ${answer.toLocaleString()} tokens of ` +
+      `answer written. Reasoning and answer share one budget, so this is a thinking-depth problem, ` +
+      `not a grid-size one: lower the effort or raise the token budget in Settings ` +
+      `(currently ${budget.toLocaleString()}).`
+    );
+  }
+  return (
+    `The response was cut off after ${usage.output.toLocaleString()} output tokens ` +
+    `(${usage.thinking.toLocaleString()} of them reasoning). Raise the token budget in Settings ` +
+    `(currently ${budget.toLocaleString()}), or split the instruction into smaller steps.`
+  );
+}
+
 /** One structured, streamed call to the Messages API. */
 async function callModel<S extends z.ZodType>(
   config: GenerationConfig & { client: Anthropic },
@@ -127,16 +159,22 @@ async function callModel<S extends z.ZodType>(
   user: string,
   onProgress: ProgressFn,
   signal?: AbortSignal,
-): Promise<{ parsed: z.infer<S>; usage: GenerateResult['usage'] }> {
+): Promise<{ parsed: z.infer<S>; usage: Usage }> {
+  const budget = clampTaskBudget(config.taskBudget ?? DEFAULT_TASK_BUDGET);
   return withStructuredOutputRetry(async () => {
-    const stream = config.client.messages.stream({
+    const stream = config.client.beta.messages.stream({
       model: config.model,
       max_tokens: MAX_TOKENS,
+      betas: [TASK_BUDGET_BETA],
       system: [{ type: 'text', text: system, cache_control: { type: 'ephemeral' } }],
       messages: [{ role: 'user', content: user }],
       output_config: {
         effort: config.effort,
-        format: zodOutputFormat(schema),
+        // Advisory, and visible to the model while it works - unlike max_tokens,
+        // which it cannot see and is simply cut off by. This is what makes a
+        // long think wind up and answer instead of running off the end.
+        task_budget: { type: 'tokens', total: budget },
+        format: betaZodOutputFormat(schema),
       },
     }, { signal });
 
@@ -169,17 +207,16 @@ async function callModel<S extends z.ZodType>(
         `The model declined this request${message.stop_details && 'category' in message.stop_details ? ` (${message.stop_details.category})` : ''}. Try rewording the description.`,
       );
     }
-    if (message.stop_reason === 'max_tokens') {
-      throw new Error(
-        'The response hit the output token limit before it finished. Try a smaller grid, or split the instruction into smaller steps.',
-      );
-    }
-
-    const usage = {
+    const usage: Usage = {
       input: message.usage.input_tokens,
       output: message.usage.output_tokens,
       cacheRead: message.usage.cache_read_input_tokens ?? 0,
+      thinking: message.usage.output_tokens_details?.thinking_tokens ?? 0,
     };
+
+    if (message.stop_reason === 'max_tokens') {
+      throw new OutputTruncatedError(usage, describeTruncation(usage, budget));
+    }
 
     const parsed = (message as { parsed_output?: unknown }).parsed_output;
     if (parsed != null) return { parsed: parsed as z.infer<S>, usage };
@@ -187,51 +224,13 @@ async function callModel<S extends z.ZodType>(
     // The API constrains the output to the schema, so this is a belt-and-braces
     // path for a response that arrived as plain text anyway.
     const text = message.content
-      .filter((b): b is Anthropic.TextBlock => b.type === 'text')
+      .filter((b): b is Anthropic.Beta.BetaTextBlock => b.type === 'text')
       .map((b) => b.text)
-      .join('')
-      .trim()
-      .replace(/^```(?:json)?\s*/i, '')
-      .replace(/```$/, '');
-    if (!text) throw new Error('The model returned an empty response.');
-    return { parsed: schema.parse(JSON.parse(text)) as z.infer<S>, usage };
+      .join('');
+    const json = extractJsonObject(text);
+    if (!json) throw new Error('The model returned an empty response.');
+    return { parsed: schema.parse(JSON.parse(json)) as z.infer<S>, usage };
   }, () => onProgress({ phase: 'retrying', detail: 'The model returned malformed JSON; retrying once.' }));
-}
-
-/* --------------------------------------------------------- id reuse helpers */
-
-function stableId(prefix: string, name: string, index: number): string {
-  const slug = name
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-|-$/g, '')
-    .slice(0, 24);
-  return `${prefix}_${slug || 'x'}_${index}`;
-}
-
-function reuseIdByName<T extends { id: string; name: string }>(
-  existing: T[] | undefined,
-  name: string,
-): string | null {
-  if (!existing) return null;
-  const match = existing.find((e) => e.name.trim().toLowerCase() === name.trim().toLowerCase());
-  return match ? match.id : null;
-}
-
-const FALLBACK_COLOURS = [
-  '#b5533c', '#3f7a8c', '#7a6cae', '#5c8a4a', '#c08a2e',
-  '#8c4f6d', '#4a6f9c', '#9c7b4a', '#5e8f7e', '#a2493f',
-  '#6d7f3c', '#8a5ba8',
-];
-
-function normaliseColour(input: string | undefined, index: number): string {
-  const value = (input ?? '').trim();
-  if (/^#[0-9a-f]{6}$/i.test(value)) return value.toLowerCase();
-  if (/^#[0-9a-f]{3}$/i.test(value)) {
-    const [r, g, b] = value.slice(1).split('');
-    return `#${r}${r}${g}${g}${b}${b}`.toLowerCase();
-  }
-  return FALLBACK_COLOURS[index % FALLBACK_COLOURS.length]!;
 }
 
 /* ------------------------------------------------------------ the pipeline */
@@ -240,251 +239,192 @@ export interface GenerateRequest {
   layer: LayerId;
   ctx: PromptContext;
   /** Existing feature lists, so ids survive a regeneration where names match. */
-  existing?: {
-    rivers?: River[];
-    cities?: City[];
-    polities?: Polity[];
-  };
+  existing?: ExistingFeatures;
+  /**
+   * Which half of a splittable layer to generate. Ignored by layers that do not
+   * split; defaults to running both halves in sequence.
+   */
+  selection?: PassSelection;
+  /**
+   * A roster supplied rather than generated - from a previous roster pass, from
+   * the layer as it stands, or typed out by hand. Lets the paint pass run alone.
+   */
+  roster?: Roster | null;
 }
 
+function sumUsage(parts: (Usage | null)[]): Usage | null {
+  const present = parts.filter((u): u is Usage => u != null);
+  if (present.length === 0) return null;
+  return present.reduce((a, b) => ({
+    input: a.input + b.input,
+    output: a.output + b.output,
+    cacheRead: a.cacheRead + b.cacheRead,
+    thinking: a.thinking + b.thinking,
+  }));
+}
+
+/**
+ * Run one layer, in as many passes as it takes.
+ *
+ * A truncated response is retried once at one effort level down, and a
+ * splittable layer that was asked for in one pass is retried as two. Both are
+ * the same move: the response ran out of room because of how much reasoning it
+ * did, so give it either less to think with or less to think about. Only when
+ * that also fails does the error reach the user, and it says which of the two
+ * knobs to turn.
+ */
 export async function generateLayer(
   config: GenerationConfig,
   req: GenerateRequest,
   onProgress: ProgressFn,
   signal?: AbortSignal,
 ): Promise<GenerateResult> {
+  try {
+    return await runPasses(config, req, onProgress, signal);
+  } catch (error) {
+    if (!(error instanceof OutputTruncatedError)) throw error;
+
+    const softer = lowerEffort(config.effort);
+    const splittable = canSplit(req.layer) && (req.selection ?? 'both') === 'both';
+    // Already at the bottom of the ladder with nothing left to split: the user
+    // has to raise the budget, and the message already says so.
+    if (!softer && !splittable) throw error;
+
+    onProgress({
+      phase: 'retrying',
+      detail: softer
+        ? `The response ran out of room after ${error.usage.thinking.toLocaleString()} reasoning tokens; retrying at ${softer} effort.`
+        : 'The response ran out of room; retrying as two smaller passes.',
+    });
+
+    try {
+      return await runPasses(
+        { ...config, effort: softer ?? config.effort },
+        req,
+        onProgress,
+        signal,
+      );
+    } catch (retryError) {
+      if (!(retryError instanceof OutputTruncatedError)) throw retryError;
+      throw new OutputTruncatedError(
+        retryError.usage,
+        `${retryError.message} This was already the second attempt${softer ? `, at ${softer} effort` : ''}. ` +
+          `You can also generate this layer in a webchat and import the result.`,
+      );
+    }
+  }
+}
+
+/**
+ * Fit a whole-layer offline response to the pass that was asked for.
+ *
+ * A roster pass folds onto the existing geometry; a paint pass keeps the roster
+ * it was given and takes the generator's geometry. Where the generator's keys
+ * do not all appear in a supplied roster, the surplus hexes fall unclaimed and
+ * the decode reports it - which is the same thing that happens when a real model
+ * uses a key it never declared.
+ */
+function projectMock(
+  layer: LayerId,
+  selection: PassSelection,
+  roster: Roster | null,
+  full: unknown,
+  ctx: PromptContext,
+): unknown {
+  if (!canSplit(layer)) return full;
+  if (selection === 'roster') {
+    return rosterOnlyResponse(layer, roster ?? rosterFromResponse(layer, full), full, ctx);
+  }
+  if (selection === 'paint') {
+    const against = roster ?? rosterFromContext(layer, ctx);
+    if (!against) {
+      throw new Error(
+        `Painting ${LAYER_LABEL[layer]} needs a roster. Generate one first, reuse the existing one, or supply your own.`,
+      );
+    }
+    return combinePasses(layer, against, null, full);
+  }
+  // Both passes, but with a roster supplied: honour it rather than the mock's.
+  return roster ? combinePasses(layer, roster, null, full) : full;
+}
+
+async function runPasses(
+  config: GenerationConfig,
+  req: GenerateRequest,
+  onProgress: ProgressFn,
+  signal?: AbortSignal,
+): Promise<GenerateResult> {
   const { layer, ctx } = req;
-  const { cols, rows } = ctx;
+  const selection = req.selection ?? 'both';
+  const passes = passesFor(layer, selection);
 
-  let parsed: unknown;
-  let usage: GenerateResult['usage'] = null;
-
+  // The offline generator produces a whole layer in one go, but it still has to
+  // respect the pass selection and any roster it was handed - silently ignoring
+  // those would make the offline mode useless for exercising the very paths it
+  // exists to exercise, and would look to the user like the feature is broken.
   if (!config.client) {
     onProgress({ phase: 'writing', detail: 'offline generator' });
-    parsed = mockLayer(layer, ctx);
-  } else {
-    onProgress({ phase: 'prompting' });
-    const { system, user } = buildPrompt(layer, ctx);
+    const full = mockLayer(layer, ctx);
+    const decoded = decodeLayer(layer, projectMock(layer, selection, req.roster ?? null, full, ctx), ctx, req.existing);
+    return { layer, ...decoded, model: null, usage: null };
+  }
+
+  const client = config.client;
+  const usages: (Usage | null)[] = [];
+  let roster: Roster | null = req.roster ?? null;
+  let rosterParsed: unknown = null;
+
+  const call = async (pass: PassId): Promise<unknown> => {
+    onProgress({ phase: 'prompting', detail: passes.length > 1 ? passLabel(layer, pass) : undefined });
+    const { system, user } = promptForPass(layer, pass, ctx, roster);
     const result = await callModel(
-      { ...config, client: config.client },
-      SCHEMAS[layer],
+      { ...config, client },
+      schemaForPass(layer, pass, ctx.cols, ctx.rows),
       system,
       user,
       onProgress,
       signal,
     );
-    parsed = result.parsed;
-    usage = result.usage;
+    usages.push(result.usage);
+    return result.parsed;
+  };
+
+  let combined: unknown;
+  if (passes.length === 1 && passes[0] === 'full') {
+    combined = await call('full');
+  } else {
+    if (passes.includes('roster')) {
+      rosterParsed = await call('roster');
+      roster = rosterFromResponse(layer, rosterParsed);
+    }
+    if (passes.includes('paint')) {
+      if (!roster) {
+        throw new Error(
+          `Painting ${LAYER_LABEL[layer]} needs a roster. Generate one first, reuse the existing one, or supply your own.`,
+        );
+      }
+      const painted = await call('paint');
+      combined = combinePasses(layer, roster, rosterParsed, painted);
+    } else {
+      combined = rosterOnlyResponse(layer, roster!, rosterParsed, ctx);
+    }
   }
 
   onProgress({ phase: 'validating' });
-  const warnings: string[] = [];
-  let data: LayerDataMap[LayerId];
-  let notes: string | null = null;
-
-  switch (layer) {
-    case 'base': {
-      const r = parsed as z.infer<typeof BaseResponse>;
-      notes = r.notes;
-      const decoded = decodeBase(r.rows, cols, rows);
-      warnings.push(...decoded.warnings);
-      data = decoded.data;
-      break;
-    }
-    case 'elevation': {
-      const r = parsed as z.infer<typeof ElevationResponse>;
-      notes = r.notes;
-      const decoded = decodeElevation(r.rows, cols, rows);
-      const checked = validateElevation(decoded.data, ctx.base!, cols, rows);
-      warnings.push(...decoded.warnings, ...checked.warnings);
-      data = checked.data;
-      break;
-    }
-    case 'climate': {
-      const r = parsed as z.infer<typeof ClimateResponse>;
-      notes = [r.latitudeBand ? `Latitude band: ${r.latitudeBand}.` : '', r.notes]
-        .filter(Boolean)
-        .join(' ');
-      const decoded = decodeClimate(r.rows, cols, rows);
-      const checked = validateClimate(decoded.data, ctx.base!, ctx.elevation, cols, rows);
-      warnings.push(...decoded.warnings, ...checked.warnings);
-      data = checked.data;
-      break;
-    }
-    case 'vegetation': {
-      const r = parsed as z.infer<typeof VegetationResponse>;
-      notes = r.notes;
-      const decoded = decodeVegetation(r.rows, cols, rows);
-      const checked = validateVegetation(
-        decoded.data,
-        ctx.base!,
-        ctx.climate,
-        ctx.elevation,
-        ctx.rivers?.rivers ?? null,
-        cols,
-        rows,
-      );
-      warnings.push(...decoded.warnings, ...checked.warnings);
-      data = checked.data;
-      break;
-    }
-    case 'rivers': {
-      const r = parsed as z.infer<typeof RiversResponse>;
-      notes = r.notes;
-      const built: River[] = [];
-      r.rivers.forEach((input, i) => {
-        const id = reuseIdByName(req.existing?.rivers, input.name) ?? stableId('riv', input.name, i);
-        const river = buildRiverFromPath(
-          { name: input.name, path: input.path, navigable: input.navigable },
-          id,
-          ctx.base!,
-          ctx.elevation,
-          cols,
-          rows,
-          warnings,
-        );
-        if (river) built.push(river);
-      });
-      const checked = validateRivers(built, ctx.base!, cols, rows);
-      warnings.push(...checked.warnings);
-      data = { rivers: checked.data };
-      break;
-    }
-    case 'cities': {
-      const r = parsed as z.infer<typeof CitiesResponse>;
-      notes = r.notes;
-      const cities: City[] = r.cities.map((c, i) => ({
-        id: reuseIdByName(req.existing?.cities, c.name) ?? stableId('city', c.name, i),
-        col: c.col,
-        row: c.row,
-        name: c.name,
-        population: c.population,
-        onRiver: false,
-        riverId: null,
-        coastal: false,
-        coastalEdges: [],
-      }));
-      const checked = validateCities(cities, ctx.base!, ctx.rivers?.rivers ?? null, cols, rows);
-      warnings.push(...checked.warnings);
-      data = { cities: checked.data };
-      break;
-    }
-    case 'polities': {
-      const r = parsed as z.infer<typeof PolitiesResponse>;
-      notes = r.notes;
-      const byKey = new Map<string, Polity>();
-      const polities: Polity[] = r.polities.map((p, i) => {
-        const polity: Polity = {
-          id: reuseIdByName(req.existing?.polities, p.name) ?? stableId('pol', p.name, i),
-          name: p.name,
-          colour: normaliseColour(p.colour, i),
-        };
-        const key = (p.key ?? '').trim().charAt(0);
-        if (key && key !== POLITY_UNCLAIMED) byKey.set(key, polity);
-        return polity;
-      });
-      const owner: (string | null)[] = new Array(cols * rows).fill(null);
-      let unknownKeys = 0;
-      for (let row = 0; row < rows; row++) {
-        const line = (r.rows[row] ?? '').replace(/\s+/g, '');
-        for (let col = 0; col < cols; col++) {
-          const ch = line[col];
-          if (!ch || ch === POLITY_UNCLAIMED) continue;
-          const polity = byKey.get(ch);
-          if (polity) owner[row * cols + col] = polity.id;
-          else unknownKeys++;
-        }
-      }
-      if (r.rows.length !== rows) {
-        warnings.push(`Expected ${rows} polity rows, model returned ${r.rows.length}.`);
-      }
-      if (unknownKeys > 0) {
-        warnings.push(`${unknownKeys} hexes used an undeclared polity key and were left unclaimed.`);
-      }
-      const checked = validatePolities(polities, owner, ctx.base!, cols, rows);
-      warnings.push(...checked.warnings);
-      data = checked.data;
-      break;
-    }
-    case 'population': {
-      const r = parsed as z.infer<typeof PopulationResponse>;
-      notes = r.notes;
-      const decoded = decodePopulation(r.rows, cols, rows);
-      const checked = validatePopulation(decoded.data, ctx.base!, cols, rows);
-      warnings.push(...decoded.warnings, ...checked.warnings);
-      data = checked.data;
-      break;
-    }
-    default: {
-      const exhaustive: never = layer;
-      throw new Error(`Unknown layer ${String(exhaustive)}`);
-    }
-  }
-
-  // Every response schema carries `decisions`, so it is lifted once here rather
-  // than repeated in all eight branches above.
-  const decisions = normaliseDecisions((parsed as { decisions?: unknown }).decisions);
+  const decoded = decodeLayer(layer, combined, ctx, req.existing);
 
   return {
     layer,
-    data,
-    warnings,
-    notes: notes || null,
-    decisions,
-    model: config.client ? config.model : null,
-    usage,
+    data: decoded.data,
+    warnings: decoded.warnings,
+    notes: decoded.notes,
+    decisions: decoded.decisions,
+    model: config.model,
+    usage: sumUsage(usages),
   };
 }
 
-/** Trust the schema for shape, but not for emptiness or stray whitespace. */
-function normaliseDecisions(raw: unknown): Decision[] {
-  if (!Array.isArray(raw)) return [];
-  const out: Decision[] = [];
-  for (const item of raw) {
-    if (!item || typeof item !== 'object') continue;
-    const { title, detail, hexes } = item as Partial<Decision>;
-    const cleanTitle = typeof title === 'string' ? title.trim() : '';
-    const cleanDetail = typeof detail === 'string' ? detail.trim() : '';
-    if (!cleanTitle && !cleanDetail) continue;
-    const cleanHexes = Array.isArray(hexes)
-      ? hexes.filter((h): h is string => typeof h === 'string' && /^\d+,\d+$/.test(h.trim())).map((h) => h.trim())
-      : [];
-    out.push({
-      title: cleanTitle || 'Untitled decision',
-      detail: cleanDetail,
-      ...(cleanHexes.length > 0 ? { hexes: cleanHexes } : {}),
-    });
-  }
-  return out;
-}
-
-/**
- * Build a prompt context straight from a map. The browser path uses this; the
- * server builds the same shape from its request body, where the input is
- * untrusted and has to be validated field by field first.
- */
-export function contextFromMap(map: MapState, instruction: string | null): PromptContext {
-  return {
-    description: map.description,
-    cols: map.cols,
-    rows: map.rows,
-    base: map.layers.base.data,
-    elevation: map.layers.elevation.data,
-    climate: map.layers.climate.data,
-    vegetation: map.layers.vegetation.data,
-    rivers: map.layers.rivers.data,
-    cities: map.layers.cities.data,
-    polities: map.layers.polities.data,
-    population: map.layers.population.data,
-    instruction,
-    excluded: excludedLayers(map),
-  };
-}
-
-export function existingFeatures(ctx: PromptContext): GenerateRequest['existing'] {
-  return {
-    rivers: ctx.rivers?.rivers,
-    cities: ctx.cities?.cities,
-    polities: ctx.polities?.polities,
-  };
-}
+// Re-exported so existing callers are unaffected by the move. They live in
+// `core/context.ts` because they are pure and this module is not: importing
+// them from here would pull the Anthropic SDK into the importing bundle.
+export { contextFromMap, existingFeatures } from './context.js';

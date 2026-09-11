@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { edgeBetween, indexToOffset } from '../shared/hex.js';
 import { LAYER_META, createMapState } from '../shared/layers.js';
 import { nextGenerationWave } from '../shared/generationQueue.js';
@@ -21,6 +21,15 @@ import {
   type Prefs,
 } from './api/settings.js';
 import { decryptKey, encryptKey } from './api/keyvault.js';
+import type { PassSelection, Roster } from '../core/rosters.js';
+import type { WebchatApplied } from './components/WebchatDialog.js';
+
+/**
+ * Loaded on demand. The dialog validates a pasted layer against the same Zod
+ * schemas the API is given, and that validator is a good fraction of a bundle -
+ * worth downloading when someone opens the dialog, not on every page load.
+ */
+const WebchatDialog = lazy(() => import('./components/WebchatDialog.js'));
 import UnlockDialog from './components/UnlockDialog.js';
 import SettingsDialog from './components/SettingsDialog.js';
 import DecisionLog from './components/DecisionLog.js';
@@ -54,6 +63,7 @@ export default function App() {
   const [showSettings, setShowSettings] = useState(false);
   const [showDecisions, setShowDecisions] = useState(false);
   const [showPlan, setShowPlan] = useState(false);
+  const [webchatLayer, setWebchatLayer] = useState<LayerId | null>(null);
   // A passphrase-protected key lives on disk as ciphertext; the plaintext only
   // ever exists in `apiKey`, for this page load.
   const [lockedKey, setLockedKey] = useState<ReturnType<typeof loadLockedKey>>(null);
@@ -120,7 +130,12 @@ export default function App() {
   }, []);
 
   const runGeneration = useCallback(
-    async (layer: LayerId, instructionText: string | null): Promise<boolean> => {
+    async (
+      layer: LayerId,
+      instructionText: string | null,
+      passSelection: PassSelection = 'both',
+      roster: Roster | null = null,
+    ): Promise<boolean> => {
       const requestMap = mapRef.current;
       if (!requestMap || abortRef.current.has(layer)) return false;
       setBusyLayers((current) => new Set(current).add(layer));
@@ -134,9 +149,17 @@ export default function App() {
           layer,
           instructionText,
           transport.mode,
-          { apiKey: apiKey || null, model: prefs.model, effort: prefs.effort, offline: prefs.offline },
+          {
+            apiKey: apiKey || null,
+            model: prefs.model,
+            effort: prefs.effort,
+            taskBudget: prefs.taskBudget,
+            offline: prefs.offline,
+          },
           (event) => setProgress((current) => ({ ...current, [layer]: event })),
           controller.signal,
+          passSelection,
+          roster,
         );
         const action: Action = {
           type: 'applyGeneration',
@@ -247,6 +270,34 @@ export default function App() {
     [map, riverDraft],
   );
 
+  /**
+   * Apply a layer produced in a chat window.
+   *
+   * It lands through the same action as any generation, so it gets the same
+   * undo entry, the same version bump and the same staleness bookkeeping - the
+   * only difference is that the journal records it as imported rather than
+   * crediting this app's model with the choices.
+   */
+  const applyWebchat = useCallback((layer: LayerId, result: WebchatApplied) => {
+    const action: Action = {
+      type: 'applyGeneration',
+      layer,
+      data: result.data,
+      warnings: result.warnings,
+      notes: result.notes,
+      decisions: result.decisions,
+      model: result.source || null,
+      imported: true,
+      instruction: null,
+    };
+    mapRef.current = reducer(mapRef.current!, action);
+    dispatch(action);
+    setVisible((v) => ({ ...v, [layer]: true }));
+    setActiveLayer(layer);
+    setWebchatLayer(null);
+    setError(null);
+  }, []);
+
   const handleImport = useCallback((file: File) => {
     file
       .text()
@@ -272,6 +323,19 @@ export default function App() {
       })
       .catch((e) => setError(`Import failed: ${e instanceof Error ? e.message : String(e)}`));
   }, []);
+
+  const webchat =
+    webchatLayer && map ? (
+      <Suspense fallback={null}>
+        <WebchatDialog
+          map={map}
+          layer={webchatLayer}
+          instruction={instruction.trim() || null}
+          onApply={(result) => applyWebchat(webchatLayer, result)}
+          onClose={() => setWebchatLayer(null)}
+        />
+      </Suspense>
+    ) : null;
 
   const settings = showSettings ? (
     <SettingsDialog
@@ -386,6 +450,7 @@ export default function App() {
       {unlock}
       {planDialog}
       {decisionLog}
+      {webchat}
       <div className="topbar">
         <h1>{map.name}</h1>
         <span className="meta">
@@ -592,6 +657,8 @@ export default function App() {
           instruction={instruction}
           setInstruction={setInstruction}
           onAiEdit={() => void runGeneration(activeLayer, instruction.trim())}
+          onWebchat={() => setWebchatLayer(activeLayer)}
+          onGeneratePass={(passSelection) => void runGeneration(activeLayer, null, passSelection)}
           busy={busyLayers.size > 0}
           riverDraft={riverDraft}
           setRiverDraft={setRiverDraft}

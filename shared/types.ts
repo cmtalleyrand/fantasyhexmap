@@ -225,7 +225,7 @@ export interface Decision {
   hexes?: string[];
 }
 
-export type JournalKind = 'generate' | 'instruct' | 'manual' | 'undo' | 'redo';
+export type JournalKind = 'generate' | 'instruct' | 'manual' | 'import' | 'undo' | 'redo';
 
 /**
  * A chronological account of how the map came to look the way it does. AI
@@ -242,7 +242,13 @@ export interface JournalEntry {
   /** One-line summary; for manual entries, what was changed. */
   summary: string;
   decisions: Decision[];
-  /** Model that produced this, or null for a manual edit or the offline generator. */
+  /**
+   * Model that produced this, or null for a manual edit or the offline
+   * generator. For an `import` entry this is whatever the user said produced it
+   * elsewhere, which is why the kind and not the model is what marks the
+   * distinction - the record must never imply this app's model made a choice
+   * that was actually made somewhere else.
+   */
   model: string | null;
   warnings: number;
 }

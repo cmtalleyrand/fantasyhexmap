@@ -45,7 +45,8 @@ layers say so in their notes.
 | `ANTHROPIC_API_KEY` | – | Required unless `HEXMAP_MOCK=1`. |
 | `PORT` | `8787` | Express port; the Vite proxy follows it. |
 | `HEXMAP_MODEL` | `claude-opus-5` | Model used for every layer. |
-| `HEXMAP_EFFORT` | `high` | `low` … `max`. Lower is cheaper and faster; spatial coherence suffers. |
+| `HEXMAP_EFFORT` | `medium` | `low` … `max`. Lower is cheaper and faster; spatial coherence suffers. |
+| `HEXMAP_TASK_BUDGET` | `40000` | Tokens the model paces its reasoning against. Minimum 20,000. |
 | `HEXMAP_MOCK` | – | `1` to use the offline generator. |
 
 Other scripts: `npm run typecheck` (client and server), `npm run build` (production client bundle),
@@ -215,6 +216,46 @@ what it invented because the brief was silent. Those choices are kept, not just 
 
 The record is part of the map: it is autosaved, exported in the JSON, and imported back with it.
 
+## Generating in two passes
+
+Polities and rivers each invent a cast and place it on the grid in the same breath — the roster of
+realms and the partition of the land, the names of the rivers and the hexes they run through. Those
+halves constrain each other, and doing both at once is most of why these are the expensive layers.
+The inspector lets you run them separately:
+
+| Pass | What it does |
+| --- | --- |
+| Both | Roster first, then geometry against it. The default. |
+| Roster only | Decides who or what exists. For polities this renames and recolours in place. |
+| Geometry only | Redraws borders or courses against a roster that is already fixed. |
+
+Because the geometry pass takes a roster as an input, that roster need not come from a model. You
+can reuse the one the map already has — which is how you redraw borders without renaming anything,
+and the polities keep their identity because they are matched back by name — or supply your own, as
+JSON or one entry per line:
+
+```
+The Ardhic League | #b5533c
+Brennmark        | #3f7a8c
+```
+
+## Generating somewhere else
+
+**Prompt for webchat…** in the inspector compiles exactly what the app would have sent — the same
+system and user prompts, plus the response schema and a worked example — into one block of text to
+paste into any chat window. Paste the reply back and it is validated and applied like any other
+generation: same checks, same warnings, same undo stack, same staleness bookkeeping.
+
+Useful when there is no key configured, when a layer is expensive enough to be worth a subscription
+rather than metered tokens, or when you would rather argue with the model about the borders before
+committing them. Surrounding prose and code fences in the reply are fine. If the JSON is wrong, the
+error names the field — `rows.7: expected string to have >=30 characters` — so you can relay it and
+ask for a correction.
+
+The decision record marks these as imported rather than generated. It already refuses to credit the
+AI with a choice you made by hand; crediting this app's model with a choice made somewhere else
+would be the same lie.
+
 ## Editing
 
 Every layer supports both edit paths the same way.
@@ -249,7 +290,8 @@ JSON export is the portable copy.
 
 ```
 shared/     types, hex geometry, wire codec, validation, derived facts
-core/       prompts, response schemas, generation pipeline, request validation, offline generator
+core/       prompts, response schemas, pass registry, rosters, decoding, generation
+            pipeline, webchat prompt/import, request validation, offline generator
 server/     Express app: reads the key from .env, calls core
 worker/     optional Cloudflare Worker: holds the key as a secret, calls core (same /api contract)
 src/        React app: render (scene/canvas/svg/export), state (reducer/persistence), api, components
@@ -262,11 +304,20 @@ afterwards are one implementation, whether it runs in Node, in a Worker, or in t
 
 **Row-string encoding.** Per-hex layers travel to and from the model as one string per grid row
 rather than as arrays of objects. A 50×50 layer costs a few hundred output tokens instead of tens of
-thousands, which keeps it well clear of the output limit — and it lets the model see the map as an
-ASCII picture while it reasons about coastlines, ranges and climate belts, which is worth more than
-the token saving. Requests use structured outputs, so the response shape is constrained at the API
-rather than parsed hopefully, and they are streamed so a long generation reports progress instead of
-sitting on an open request.
+thousands, and it lets the model see the map as an ASCII picture while it reasons about coastlines,
+ranges and climate belts, which is worth more than the token saving. Requests use structured
+outputs, so the response shape is constrained at the API rather than parsed hopefully — including
+the exact row count and width, so counting cells is not work the model has to do — and they are
+streamed so a long generation reports progress instead of sitting on an open request.
+
+**Reasoning and the answer share one budget.** This is the thing that is easy to get wrong, and was.
+Small answers do not make small responses: the model thinks by default, thinking is output, and on a
+hard layer it dwarfs the answer. A 30×30 polity map is about three thousand tokens of rows, roster,
+notes and decisions, and can still exhaust a sixty-thousand-token budget deciding where the borders
+run. So generations carry an advisory **task budget** the model paces itself against, rather than
+only the hard cap it cannot see and is simply cut off by; a truncated response is retried once at
+lower effort rather than discarded; and when it does fail, the error reports how much went on
+reasoning instead of blaming the grid.
 
 **Derive rather than trust.** Where a fact can be computed from the map, it is: river entry and exit
 edges come from consecutive hexes in the path, not from the model's own edge indices; a city's
@@ -295,6 +346,9 @@ decisions above.
 
 - Generation quality on a large grid depends heavily on the description. A vague brief gives a
   generic map; naming ranges, seas, prevailing winds and peoples gives a much better one.
+- A hard layer on a large grid can still exhaust its token budget in reasoning. The app retries once
+  at lower effort and tells you what it spent; beyond that, raise the budget in Settings, run the
+  layer in two passes, or use the webchat route.
 - Rivers are modelled as independent paths. A tributary is a separate river that happens to join a
   trunk and follow it; there is no explicit confluence object.
 - Undo is per layer by design, not one global stack across the whole map.

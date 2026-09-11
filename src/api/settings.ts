@@ -10,7 +10,13 @@
  * running on this origin, which is why the page loads no third-party code.
  */
 
-import { DEFAULT_EFFORT, DEFAULT_MODEL, type Effort } from '../../core/config.js';
+import {
+  clampTaskBudget,
+  DEFAULT_EFFORT,
+  DEFAULT_MODEL,
+  DEFAULT_TASK_BUDGET,
+  type Effort,
+} from '../../core/config.js';
 
 import type { EncryptedKey } from './keyvault.js';
 
@@ -21,6 +27,12 @@ const PREFS_NAME = 'fantasyhexmap.prefs';
 export interface Prefs {
   model: string;
   effort: Effort;
+  /**
+   * Advisory token budget the model paces its reasoning against. Reasoning and
+   * answer share one output budget, so this is the knob that decides whether a
+   * hard layer thinks its way past the end of the response.
+   */
+  taskBudget: number;
   /** Use the offline procedural generator instead of calling the API. */
   offline: boolean;
   remember: boolean;
@@ -29,6 +41,7 @@ export interface Prefs {
 export const DEFAULT_PREFS: Prefs = {
   model: DEFAULT_MODEL,
   effort: DEFAULT_EFFORT,
+  taskBudget: DEFAULT_TASK_BUDGET,
   offline: false,
   remember: true,
 };
@@ -103,7 +116,12 @@ export function loadPrefs(): Prefs {
   const raw = safeGet(window.localStorage, PREFS_NAME);
   if (!raw) return { ...DEFAULT_PREFS };
   try {
-    return { ...DEFAULT_PREFS, ...(JSON.parse(raw) as Partial<Prefs>) };
+    const stored = JSON.parse(raw) as Partial<Prefs>;
+    return {
+      ...DEFAULT_PREFS,
+      ...stored,
+      taskBudget: clampTaskBudget(stored.taskBudget),
+    };
   } catch {
     return { ...DEFAULT_PREFS };
   }

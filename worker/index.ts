@@ -22,6 +22,7 @@ import {
   type Effort,
 } from '../core/pipeline.js';
 import { validateGenerateBody, type GenerateBody } from '../core/request.js';
+import { clampTaskBudget, DEFAULT_TASK_BUDGET } from '../core/config.js';
 
 export interface Env {
   ANTHROPIC_API_KEY: string;
@@ -29,6 +30,8 @@ export interface Env {
   ALLOWED_ORIGINS?: string;
   HEXMAP_MODEL?: string;
   HEXMAP_EFFORT?: string;
+  /** Advisory token budget the model paces its reasoning against. */
+  HEXMAP_TASK_BUDGET?: string;
 }
 
 function corsHeaders(request: Request, env: Env): Record<string, string> {
@@ -63,6 +66,9 @@ export default {
 
     const model = env.HEXMAP_MODEL ?? DEFAULT_MODEL;
     const effort = (env.HEXMAP_EFFORT ?? DEFAULT_EFFORT) as Effort;
+    const taskBudget = clampTaskBudget(
+      env.HEXMAP_TASK_BUDGET ? Number(env.HEXMAP_TASK_BUDGET) : DEFAULT_TASK_BUDGET,
+    );
 
     if (url.pathname === '/api/health') {
       return json({ ok: true, model, mock: false, credentials: Boolean(env.ANTHROPIC_API_KEY) }, 200, cors);
@@ -105,6 +111,7 @@ export default {
             client: new Anthropic({ apiKey: env.ANTHROPIC_API_KEY }),
             model,
             effort,
+            taskBudget,
           };
           const result = await generateLayer(config, checked.req, (event) => send('progress', event), request.signal);
           send('result', { ...result, elapsedMs: Date.now() - started });

@@ -22,9 +22,13 @@ import {
   type Effort,
   type GenerationConfig,
 } from '../core/pipeline.js';
+import { clampTaskBudget, DEFAULT_TASK_BUDGET } from '../core/config.js';
 
 const MODEL = process.env.HEXMAP_MODEL ?? DEFAULT_MODEL;
 const EFFORT = (process.env.HEXMAP_EFFORT ?? DEFAULT_EFFORT) as Effort;
+const TASK_BUDGET = clampTaskBudget(
+  process.env.HEXMAP_TASK_BUDGET ? Number(process.env.HEXMAP_TASK_BUDGET) : DEFAULT_TASK_BUDGET,
+);
 
 const isMockMode = () => process.env.HEXMAP_MOCK === '1';
 const hasCredentials = () =>
@@ -37,9 +41,9 @@ let anthropic: Anthropic | null = null;
  * never leaves this process.
  */
 function generationConfig(): GenerationConfig {
-  if (isMockMode()) return { client: null, model: MODEL, effort: EFFORT };
+  if (isMockMode()) return { client: null, model: MODEL, effort: EFFORT, taskBudget: TASK_BUDGET };
   if (!anthropic) anthropic = new Anthropic();
-  return { client: anthropic, model: MODEL, effort: EFFORT };
+  return { client: anthropic, model: MODEL, effort: EFFORT, taskBudget: TASK_BUDGET };
 }
 
 const app = express();

@@ -22,6 +22,7 @@ import {
   encodeVegetation,
 } from '../shared/codec.js';
 import { LAYER_META } from '../shared/layers.js';
+import type { PassId, Roster } from './rosters.js';
 import { VEGETATION_GROUPS, type LayerId, type VegetationGroup } from '../shared/types.js';
 import type {
   BaseData,
@@ -459,8 +460,12 @@ function riverSummary(rivers: RiversData): string[] {
   );
 }
 
+function suggestedRiverCount(ctx: PromptContext): number {
+  return Math.max(2, Math.round((ctx.cols * ctx.rows) / 110));
+}
+
 function riversPrompt(ctx: PromptContext): BuiltPrompt {
-  const suggested = Math.max(2, Math.round((ctx.cols * ctx.rows) / 110));
+  const suggested = suggestedRiverCount(ctx);
   const system = [
     'You are a hydrologist laying out the river systems of a fantasy hex map.',
     '',
@@ -603,8 +608,13 @@ function citiesPrompt(ctx: PromptContext): BuiltPrompt {
 
 /* ---------------------------------------------------------------- polities */
 
+/** Shared by the single-request prompt and the roster pass, so they agree. */
+function suggestedPolityCount(ctx: PromptContext): number {
+  return Math.max(3, Math.min(12, Math.round((ctx.cols * ctx.rows) / 200) + 3));
+}
+
 function politiesPrompt(ctx: PromptContext): BuiltPrompt {
-  const suggested = Math.max(3, Math.min(12, Math.round((ctx.cols * ctx.rows) / 200) + 3));
+  const suggested = suggestedPolityCount(ctx);
   const system = [
     'You are a political geographer drawing the borders of a fantasy hex map.',
     '',
@@ -779,6 +789,222 @@ function populationPrompt(ctx: PromptContext): BuiltPrompt {
   return { system, user: parts.join('\n') };
 }
 
+/* ------------------------------------------------- two-pass prompt builders */
+
+/**
+ * Polities and rivers each invent a cast and place it on the grid at the same
+ * time. Those two halves constrain each other, which is why doing them in one
+ * request is expensive - the model has to hold an unsettled roster and an
+ * unsettled geography in mind together. These builders do one half at a time.
+ */
+
+function politiesRosterPrompt(ctx: PromptContext): BuiltPrompt {
+  const suggested = suggestedPolityCount(ctx);
+  const system = [
+    'You are a political geographer naming the powers of a fantasy hex map.',
+    '',
+    section('WHAT YOU ARE DOING', [
+      'This is the first of two passes. Decide WHO exists on this map - the roster of polities - and nothing else.',
+      'You are not drawing any borders yet and you must not return a grid. A later pass will partition the land',
+      'between the polities you name here, so name them with that in mind: give a sense of where each one sits and',
+      'how big it is in your decisions, and the border pass will follow it.',
+      `Aim for around ${suggested} polities, of clearly different sizes: one or two large powers, several middling`,
+      'realms, a few small ones. Leave room for unclaimed wilderness - a map where every hex is owned looks like a',
+      'modern state system, not a pre-modern one.',
+    ]),
+    '',
+    section('OUTPUT', [
+      'Declare each polity with a single-character key (A, B, C, ... in order), a name and a hex colour.',
+      'Choose colours that are clearly distinguishable from each other and readable against a map: mid-saturation,',
+      'not near-black and not near-white, and not two similar hues side by side.',
+    ]),
+    '',
+    HOUSE_STYLE,
+    '',
+    RECORD_YOUR_DECISIONS,
+  ].join('\n');
+
+  const parts = [descriptionBlock(ctx.description), '', ...geographyContext(ctx)];
+  if (ctx.instruction) {
+    parts.push('', editBlock(ctx.instruction, 'polities'));
+  }
+  parts.push('', 'Name the polities of this map.');
+  return { system, user: parts.join('\n') };
+}
+
+function politiesPaintPrompt(ctx: PromptContext, roster: Roster | null): BuiltPrompt {
+  const entries = roster?.kind === 'polities' ? roster.entries : [];
+  const system = [
+    'You are a political geographer drawing the borders of a fantasy hex map.',
+    '',
+    gridRules(ctx.cols, ctx.rows),
+    '',
+    section('WHAT YOU ARE DOING', [
+      'The polities are already decided and are listed below. Your only job is to partition the land between them.',
+      'Do not invent, rename, merge or drop a polity. Use exactly the keys given, and no others.',
+    ]),
+    '',
+    section('THE PARTITION RULE', [
+      'Every Land and Island hex belongs to exactly one polity, or to none (unclaimed wilderness). There are no',
+      'overlapping claims, no condominiums and no disputed hexes in this model - pick an owner or leave it unclaimed.',
+      `Sea, Lake and Ice hexes are always "${POLITY_UNCLAIMED}".`,
+    ]),
+    '',
+    section('DRAWING BORDERS', [
+      '- Territory is contiguous. A polity is a connected block of hexes, plus at most an exclave or two if the brief',
+      '  suggests one. Never a checkerboard, never scattered singletons.',
+      '- Borders follow features people can see and defend: rivers, mountain crests, the far side of a desert, a coast.',
+      '- Polities are shaped by their cities: a capital sits inside its own territory, usually well within it.',
+      '- Leave genuinely hostile or remote country unclaimed - deep desert, high mountains, ice, far wilderness.',
+      '- Respect the relative sizes implied by the roster: a great power should cover visibly more ground than a',
+      '  minor realm.',
+    ]),
+    '',
+    section('OUTPUT', [
+      `Return ${ctx.rows} row strings of exactly ${ctx.cols} characters, one polity key per hex,`,
+      `"${POLITY_UNCLAIMED}" for unclaimed. No spaces, no separators.`,
+    ]),
+    '',
+    HOUSE_STYLE,
+    '',
+    RECORD_YOUR_DECISIONS,
+  ].join('\n');
+
+  const parts = [
+    descriptionBlock(ctx.description),
+    '',
+    section(
+      'THE POLITIES (fixed - use exactly these keys)',
+      entries.length > 0
+        ? entries.map((e) => `${e.key} = ${e.name}${e.colour ? ` (${e.colour})` : ''}`)
+        : ['(none supplied)'],
+    ),
+    '',
+    ...geographyContext(ctx),
+  ];
+  if (ctx.instruction) {
+    parts.push('', editBlock(ctx.instruction, 'polities'));
+  }
+  parts.push('', 'Draw the borders for these polities.');
+  return { system, user: parts.join('\n') };
+}
+
+function riversRosterPrompt(ctx: PromptContext): BuiltPrompt {
+  const suggested = suggestedRiverCount(ctx);
+  const system = [
+    'You are a hydrologist planning the river systems of a fantasy hex map.',
+    '',
+    section('WHAT YOU ARE DOING', [
+      'This is the first of two passes. Decide WHAT rivers this map has - their names and roughly where each one',
+      'runs - and nothing else. Do not return any hex coordinates; a later pass traces the actual paths.',
+      `Aim for about ${suggested} named rivers on a map this size, of varied length. Quality over quantity.`,
+      'Every river must rise in high ground and end at a Sea, a Lake, or the edge of the map. Say which, for each.',
+      'Longer rivers gather in valleys and lowlands; short torrents run straight off coastal ranges.',
+      'Name rivers in a style consistent with the brief.',
+    ]),
+    '',
+    section('OUTPUT', [
+      'For each river give a name and a "course": one clause saying where it rises, roughly which way it runs, and',
+      'what it empties into. For example: "rises on the eastern Spine, runs south-east across the lowlands into the',
+      'Bay of Kelder". No hex coordinates.',
+    ]),
+    '',
+    HOUSE_STYLE,
+    '',
+    RECORD_YOUR_DECISIONS,
+  ].join('\n');
+
+  const parts = [descriptionBlock(ctx.description), '', ...geographyContext(ctx)];
+  if (ctx.instruction) {
+    parts.push('', editBlock(ctx.instruction, 'rivers'));
+  }
+  parts.push('', 'Plan the river systems for this map.');
+  return { system, user: parts.join('\n') };
+}
+
+function riversPathsPrompt(ctx: PromptContext, roster: Roster | null): BuiltPrompt {
+  const entries = roster?.kind === 'rivers' ? roster.entries : [];
+  const system = [
+    'You are a hydrologist tracing the courses of already-named rivers across a fantasy hex map.',
+    '',
+    gridRules(ctx.cols, ctx.rows),
+    '',
+    section('WHAT YOU ARE DOING', [
+      'The rivers are already decided and are listed below with the course each one is meant to take. Your only job',
+      'is to trace each one hex by hex. Return every river in the list, under exactly the name given, and no others.',
+    ]),
+    '',
+    section('HOW A RIVER IS DESCRIBED', [
+      'Each river is an ordered list of hexes from source to mouth. Every consecutive pair in the list MUST be',
+      'neighbours by the adjacency table above - a river cannot jump. Use the neighbour rules carefully; the',
+      'parity of the row changes which diagonals are adjacent.',
+      '',
+      'The list starts at the source hex (high ground) and ends either:',
+      '  - with the Sea or Lake hex the river empties into (include that water hex as the final entry), or',
+      '  - with the land hex on the map border through which the river leaves the map.',
+      'Apart from that final mouth hex, every hex in the path must be Land or Island.',
+      '',
+      'The "navigable" array has one entry per hex in the path, in the same order.',
+    ]),
+    '',
+    section('HYDROLOGY', [
+      '- Elevation must never increase along a path; where it must stay level, that is fine, but it must not climb.',
+      '- Every river ends at a Sea, a Lake, or the edge of the map. A river that just stops inland is wrong.',
+      '- Do not run two rivers along the same hexes for their whole length. A tributary may meet a trunk river and',
+      '  then follow it to the sea.',
+    ]),
+    '',
+    section('NAVIGABILITY', [
+      '- Navigability is per hex, not per river. The lower course of a large river is navigable; the upper course is not.',
+      '- A river is not navigable through Mountains or Highland hexes.',
+      '- Small or steep rivers may be navigable nowhere at all. Say so with all-false entries.',
+    ]),
+    '',
+    HOUSE_STYLE,
+    '',
+    RECORD_YOUR_DECISIONS,
+  ].join('\n');
+
+  const parts = [
+    descriptionBlock(ctx.description),
+    '',
+    section(
+      'THE RIVERS (fixed - trace exactly these)',
+      entries.length > 0
+        ? entries.map((e) => `${e.name}${e.course ? `: ${e.course}` : ''}`)
+        : ['(none supplied)'],
+    ),
+    '',
+    ...geographyContext(ctx),
+  ];
+  if (ctx.instruction) {
+    parts.push('', editBlock(ctx.instruction, 'rivers'));
+  }
+  parts.push('', 'Trace each of these rivers hex by hex.');
+  return { system, user: parts.join('\n') };
+}
+
+/** Base geography, plus whatever else the map has, as the pass prompts show it. */
+function geographyContext(ctx: PromptContext): string[] {
+  const parts = [section('BASE GEOGRAPHY', [BASE_LEGEND, ...encodeBase(ctx.base!, ctx.cols, ctx.rows)])];
+  if (ctx.elevation) {
+    parts.push('', section('ELEVATION', [ELEVATION_LEGEND, ...encodeElevation(ctx.elevation, ctx.cols, ctx.rows)]));
+  }
+  if (ctx.rivers && ctx.rivers.rivers.length > 0) {
+    parts.push('', section('RIVERS', riverSummary(ctx.rivers)));
+  }
+  if (ctx.cities && ctx.cities.cities.length > 0) {
+    parts.push(
+      '',
+      section(
+        'CITIES',
+        ctx.cities.cities.map((c) => `${c.name} at (${c.col},${c.row}) pop ${c.population}`),
+      ),
+    );
+  }
+  return parts;
+}
+
 /* ------------------------------------------------------------------ export */
 
 const BUILDERS: Record<LayerId, (ctx: PromptContext) => BuiltPrompt> = {
@@ -792,6 +1018,28 @@ const BUILDERS: Record<LayerId, (ctx: PromptContext) => BuiltPrompt> = {
   population: populationPrompt,
 };
 
-export function buildPrompt(layer: LayerId, ctx: PromptContext): BuiltPrompt {
+/**
+ * Build the prompt for one pass of one layer.
+ *
+ * `full` is the single-request form every layer supports. Polities and rivers
+ * additionally support `roster` and `paint`; `paint` needs the roster the first
+ * pass produced (or one the user supplied) to have something to work against.
+ */
+export function buildPrompt(
+  layer: LayerId,
+  ctx: PromptContext,
+  pass: PassId = 'full',
+  roster: Roster | null = null,
+): BuiltPrompt {
+  if (pass === 'roster') {
+    if (layer === 'polities') return politiesRosterPrompt(ctx);
+    if (layer === 'rivers') return riversRosterPrompt(ctx);
+    throw new Error(`Layer "${layer}" has no roster pass.`);
+  }
+  if (pass === 'paint') {
+    if (layer === 'polities') return politiesPaintPrompt(ctx, roster);
+    if (layer === 'rivers') return riversPathsPrompt(ctx, roster);
+    throw new Error(`Layer "${layer}" has no paint pass.`);
+  }
   return BUILDERS[layer](ctx);
 }
