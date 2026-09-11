@@ -50,6 +50,8 @@ export function buildWebchatPrompt(options: WebchatPromptOptions): string {
   const { layer, pass, ctx, roster = null } = options;
   const { system, user } = promptForPass(layer, pass, ctx, roster);
   const schema = schemaForPass(layer, pass, ctx.cols, ctx.rows);
+  const jsonSchema = z.toJSONSchema(schema) as { properties?: Record<string, unknown> };
+  const returnsRows = Object.hasOwn(jsonSchema.properties ?? {}, 'rows');
 
   return [
     system,
@@ -66,15 +68,21 @@ export function buildWebchatPrompt(options: WebchatPromptOptions): string {
     '"decisions", which are part of the object.',
     '',
     'Nothing is validating this as you write it, so check the shape yourself before you answer.',
-    `In particular every row string must have exactly ${ctx.cols} entries and there must be exactly`,
-    `${ctx.rows} of them; a row that is one short silently shifts a whole band of the map.`,
+    ...(returnsRows
+      ? [
+          `In particular every row string must have exactly ${ctx.cols} entries and there must be exactly`,
+          `${ctx.rows} of them; a row that is one short silently shifts a whole band of the map.`,
+        ]
+      : []),
     '',
     'JSON SCHEMA',
     '```json',
-    JSON.stringify(z.toJSONSchema(schema), null, 2),
+    JSON.stringify(jsonSchema, null, 2),
     '```',
     '',
-    'WORKED EXAMPLE (a 4x3 map, to show the shape only - not your answer)',
+    returnsRows
+      ? 'WORKED EXAMPLE (a 4x3 map, to show the shape only - not your answer)'
+      : 'WORKED EXAMPLE (to show the shape only - not your answer)',
     '```json',
     JSON.stringify(exampleFor(layer, pass), null, 2),
     '```',
