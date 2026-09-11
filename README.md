@@ -162,20 +162,24 @@ assumed — because nothing later will correct it.
 
 | Layer | Values | Applies to |
 | --- | --- | --- |
-| Base Geography | Land, Sea, Lake, Ice, Island | every hex |
-| Elevation / Ruggedness | Lowland, Rolling, Hills, Highland, Mountains, Plateau | Land, Island |
-| Climate | full Köppen (Af…EF, 21 codes) | Land, Island |
-| Vegetation | 19 leaf categories in four groups | Land, Island |
-| Rivers | edge-to-edge paths, navigability per segment | Land |
-| Cities | name, population, river and coastal-edge references | Land |
-| Polities | strict partition: one owner per land hex, or none | Land |
-| Population | one integer per hex (rural, excludes city populations) | Land, Island |
+| Base Geography | Land, Coastal Land, Sea, Lake, Ice, Island | every hex |
+| Elevation / Ruggedness | Lowland, Rolling, Hills, Highland, Mountains, Plateau | Land, Coastal Land, Island |
+| Climate | full Köppen (Af…EF, 21 codes) | Land, Coastal Land, Island |
+| Vegetation | 19 leaf categories in four groups | Land, Coastal Land, Island |
+| Rivers | edge-to-edge paths, navigability per segment | Land, Coastal Land, Island |
+| Cities | name, population, river and coastal-edge references | Land, Coastal Land, Island |
+| Polities | strict partition: one owner per land hex, or none | Land, Coastal Land, Island |
+| Population | one integer per hex (rural, excludes city populations) | Land, Coastal Land, Island |
 
 Two modelling points worth stating plainly, because they are easy to get wrong:
 
-**`Island` is the only mixed category.** It is a hex that is predominantly sea with a small landmass
-inside it — drawn as a land dot on a sea hex. There is no mixed land+lake value. Island hexes take
-land-only layer values, and their interior defaults to `Lowland` elevation.
+**`Island` is a predominantly sea hex with a small landmass inside it.** It is drawn as a land dot
+on a sea hex. There is no mixed land+lake value. Island hexes take land-only layer values, and their
+interior defaults to `Lowland` elevation.
+
+**`Coastal Land` marks a shoreline crossing a predominantly dry hex.** It behaves as land for
+elevation, climate, vegetation, settlement, polity and population data, while remaining visually
+distinct from ordinary inland `Land` in the base grid.
 
 **Elevation is not a single ordered scale.** Lowland → Rolling → Hills → Highland → Mountains rises
 in height and ruggedness together, but `Plateau` is high ground with *low* ruggedness and does not

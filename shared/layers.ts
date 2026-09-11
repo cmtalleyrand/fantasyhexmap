@@ -31,7 +31,7 @@ export const LAYER_META: Record<LayerId, LayerMeta> = {
   base: {
     id: 'base',
     label: 'Base Geography',
-    blurb: 'Land, Sea, Lake, Ice and Island - the foundation every other layer sits on.',
+    blurb: 'Land, Coastal Land, Sea, Lake, Ice and Island - the foundation every other layer sits on.',
     requires: [],
     uses: [],
     perHex: true,
@@ -39,7 +39,7 @@ export const LAYER_META: Record<LayerId, LayerMeta> = {
   elevation: {
     id: 'elevation',
     label: 'Elevation / Ruggedness',
-    blurb: 'Lowland through Mountains, plus Plateau. Land and Island hexes only.',
+    blurb: 'Lowland through Mountains, plus Plateau. Land-like hexes only.',
     requires: ['base'],
     uses: [],
     perHex: true,

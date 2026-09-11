@@ -166,10 +166,11 @@ function basePrompt(ctx: PromptContext): BuiltPrompt {
       BASE_LEGEND,
       '',
       'Land   - ordinary dry land.',
+      'Coastal Land - predominantly dry land containing a shoreline; use where the coast crosses a hex rather than following its edge.',
       'Sea    - open salt water, connected (directly or through other Sea hexes) to the edge of the map.',
       'Lake   - fresh water fully enclosed by land; a lake never touches a Sea hex.',
       'Ice    - permanent ice sheet or shelf. Use only where the brief implies polar or glacial conditions.',
-      'Island - a hex that is mostly sea but holds a small landmass. This is the only mixed category;',
+      'Island - a hex that is mostly sea but holds a small landmass;',
       '         there is no mixed land+lake value. Use it for archipelagos, skerries and lone islets,',
       '         not for large islands (a large island is Land hexes surrounded by Sea).',
     ]),
@@ -245,7 +246,7 @@ function elevationPrompt(ctx: PromptContext): BuiltPrompt {
     '',
     rowFormatRules(ctx.cols, ctx.rows, 'char'),
     '',
-    'A hex that is not Land or Island MUST be "." in your output.',
+    'A hex that is not Land, Coastal Land or Island MUST be "." in your output.',
     '',
     HOUSE_STYLE,
     '',
@@ -347,7 +348,7 @@ function climatePrompt(ctx: PromptContext): BuiltPrompt {
   return { system, user: parts.join('\n') };
 }
 
-const CLIMATE_EMPTY_NOTE = 'Use -- for any hex that is not Land or Island (Sea, Lake and Ice hexes get no climate).';
+const CLIMATE_EMPTY_NOTE = 'Use -- for any hex that is not Land, Coastal Land or Island (Sea, Lake and Ice hexes get no climate).';
 
 /* -------------------------------------------------------------- vegetation */
 
@@ -479,7 +480,7 @@ function riversPrompt(ctx: PromptContext): BuiltPrompt {
       'The list starts at the source hex (high ground) and ends either:',
       '  - with the Sea or Lake hex the river empties into (include that water hex as the final entry), or',
       '  - with the land hex on the map border through which the river leaves the map.',
-      'Apart from that final mouth hex, every hex in the path must be Land or Island.',
+      'Apart from that final mouth hex, every hex in the path must be Land, Coastal Land or Island.',
       '',
       'The "navigable" array has one entry per hex in the path, in the same order.',
     ]),
@@ -539,7 +540,7 @@ function citiesPrompt(ctx: PromptContext): BuiltPrompt {
     gridRules(ctx.cols, ctx.rows),
     '',
     section('WHERE CITIES GO', [
-      '- On Land or Island hexes only. Never on Sea, Lake or Ice.',
+      '- On Land, Coastal Land or Island hexes only. Never on Sea, Lake or Ice.',
       '- Cities want water and traffic: river mouths, the lowest bridging point of a river, confluences, sheltered',
       '  bays, the neck of a peninsula, the pass through a range, the edge of a fertile plain.',
       '- Cities want food: cultivated or fertile hexes nearby. A great city in the middle of a desert needs a reason',
@@ -621,7 +622,7 @@ function politiesPrompt(ctx: PromptContext): BuiltPrompt {
     gridRules(ctx.cols, ctx.rows),
     '',
     section('THE PARTITION RULE', [
-      'Every Land and Island hex belongs to exactly one polity, or to none (unclaimed wilderness). There are no',
+      'Every Land, Coastal Land and Island hex belongs to exactly one polity, or to none (unclaimed wilderness). There are no',
       'overlapping claims, no condominiums and no disputed hexes in this model - pick an owner or leave it unclaimed.',
       `Sea, Lake and Ice hexes are always "${POLITY_UNCLAIMED}".`,
     ]),
@@ -700,7 +701,7 @@ function populationPrompt(ctx: PromptContext): BuiltPrompt {
     gridRules(ctx.cols, ctx.rows),
     '',
     section('WHAT YOU ARE COUNTING', [
-      'One integer per Land or Island hex: the ordinary rural and small-village population living in that hex.',
+      'One integer per Land, Coastal Land or Island hex: the ordinary rural and small-village population living in that hex.',
       'This EXCLUDES the population of any city in the hex - those are counted separately. A hex containing a great',
       'city still gets a rural figure for the farms and villages around it (usually a high one, because a city feeds',
       'itself from its own hinterland).',
@@ -845,7 +846,7 @@ function politiesPaintPrompt(ctx: PromptContext, roster: Roster | null): BuiltPr
     ]),
     '',
     section('THE PARTITION RULE', [
-      'Every Land and Island hex belongs to exactly one polity, or to none (unclaimed wilderness). There are no',
+      'Every Land, Coastal Land and Island hex belongs to exactly one polity, or to none (unclaimed wilderness). There are no',
       'overlapping claims, no condominiums and no disputed hexes in this model - pick an owner or leave it unclaimed.',
       `Sea, Lake and Ice hexes are always "${POLITY_UNCLAIMED}".`,
     ]),
@@ -942,7 +943,7 @@ function riversPathsPrompt(ctx: PromptContext, roster: Roster | null): BuiltProm
       'The list starts at the source hex (high ground) and ends either:',
       '  - with the Sea or Lake hex the river empties into (include that water hex as the final entry), or',
       '  - with the land hex on the map border through which the river leaves the map.',
-      'Apart from that final mouth hex, every hex in the path must be Land or Island.',
+      'Apart from that final mouth hex, every hex in the path must be Land, Coastal Land or Island.',
       '',
       'The "navigable" array has one entry per hex in the path, in the same order.',
     ]),

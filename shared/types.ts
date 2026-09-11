@@ -39,11 +39,11 @@ export const LAYER_ORDER: LayerId[] = [
   'population',
 ];
 
-export type BaseGeo = 'Land' | 'Sea' | 'Lake' | 'Ice' | 'Island';
-export const BASE_GEO_VALUES: BaseGeo[] = ['Land', 'Sea', 'Lake', 'Ice', 'Island'];
+export type BaseGeo = 'Land' | 'Coastal Land' | 'Sea' | 'Lake' | 'Ice' | 'Island';
+export const BASE_GEO_VALUES: BaseGeo[] = ['Land', 'Coastal Land', 'Sea', 'Lake', 'Ice', 'Island'];
 
 /** Hex types that carry land-only layer values (elevation, climate, vegetation, population). */
-export const LAND_LIKE: BaseGeo[] = ['Land', 'Island'];
+export const LAND_LIKE: BaseGeo[] = ['Land', 'Coastal Land', 'Island'];
 
 export type Elevation =
   | 'Lowland'

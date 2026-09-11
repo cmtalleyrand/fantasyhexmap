@@ -21,7 +21,7 @@ export function isWater(v: BaseGeo | undefined): boolean {
 }
 
 export function isLandLike(v: BaseGeo | undefined): boolean {
-  return v === 'Land' || v === 'Island';
+  return v === 'Land' || v === 'Coastal Land' || v === 'Island';
 }
 
 /** Edges of (col,row) that border a Sea or Lake hex. Off-map edges do not count. */
