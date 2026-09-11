@@ -609,13 +609,7 @@ function citiesPrompt(ctx: PromptContext): BuiltPrompt {
 
 /* ---------------------------------------------------------------- polities */
 
-/** Shared by the single-request prompt and the roster pass, so they agree. */
-function suggestedPolityCount(ctx: PromptContext): number {
-  return Math.max(3, Math.min(12, Math.round((ctx.cols * ctx.rows) / 200) + 3));
-}
-
 function politiesPrompt(ctx: PromptContext): BuiltPrompt {
-  const suggested = suggestedPolityCount(ctx);
   const system = [
     'You are a political geographer drawing the borders of a fantasy hex map.',
     '',
@@ -634,8 +628,9 @@ function politiesPrompt(ctx: PromptContext): BuiltPrompt {
       '- Polities are shaped by their cities: a capital sits inside its own territory, usually well within it.',
       '- Leave genuinely hostile or remote country unclaimed - deep desert, high mountains, ice, far wilderness.',
       '  A map where every hex is owned looks like a modern state system, not a pre-modern one.',
-      `- Aim for around ${suggested} polities, of clearly different sizes: one or two large powers, several middling`,
-      '  realms, a few small ones.',
+      '- Let the brief, geography, settlement pattern and plausible political fragmentation determine how many',
+      '  polities exist. Do not default to eight or any other fixed target. Give them clearly different sizes, including',
+      '  major powers and smaller realms where the map supports them.',
     ]),
     '',
     section('OUTPUT', [
@@ -800,7 +795,6 @@ function populationPrompt(ctx: PromptContext): BuiltPrompt {
  */
 
 function politiesRosterPrompt(ctx: PromptContext): BuiltPrompt {
-  const suggested = suggestedPolityCount(ctx);
   const system = [
     'You are a political geographer naming the powers of a fantasy hex map.',
     '',
@@ -809,9 +803,10 @@ function politiesRosterPrompt(ctx: PromptContext): BuiltPrompt {
       'You are not drawing any borders yet and you must not return a grid. A later pass will partition the land',
       'between the polities you name here, so name them with that in mind: give a sense of where each one sits and',
       'how big it is in your decisions, and the border pass will follow it.',
-      `Aim for around ${suggested} polities, of clearly different sizes: one or two large powers, several middling`,
-      'realms, a few small ones. Leave room for unclaimed wilderness - a map where every hex is owned looks like a',
-      'modern state system, not a pre-modern one.',
+      'Let the brief, geography, settlement pattern and plausible political fragmentation determine how many',
+      'polities exist. Do not default to eight or any other fixed target. Give them clearly different sizes, including',
+      'major powers and smaller realms where the map supports them. Leave room for unclaimed wilderness - a map',
+      'where every hex is owned looks like a modern state system, not a pre-modern one.',
     ]),
     '',
     section('OUTPUT', [
