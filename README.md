@@ -246,6 +246,13 @@ system and user prompts, plus the response schema and a worked example — into 
 paste into any chat window. Paste the reply back and it is validated and applied like any other
 generation: same checks, same warnings, same undo stack, same staleness bookkeeping.
 
+The dialog lists what the prompt carries before you copy it — the brief, the grid, and each layer it
+includes or does not, with the reason. That matters because the map sits a few thousand characters
+down, behind the rules, so a scrolling box makes it look absent; and on base geography there is
+genuinely nothing upstream, which looks identical to a bug. The same list rides at the top of the
+copied text, so the content is evident on paste. It is derived from the same context the prompt is
+built from, so it cannot claim something the prompt does not carry.
+
 Useful when there is no key configured, when a layer is expensive enough to be worth a subscription
 rather than metered tokens, or when you would rather argue with the model about the borders before
 committing them. Surrounding prose and code fences in the reply are fine. If the JSON is wrong, the

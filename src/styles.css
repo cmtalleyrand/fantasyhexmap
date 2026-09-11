@@ -202,3 +202,22 @@ label { display: block; font-size: 11px; text-transform: uppercase; letter-spaci
 .list .entry.picker { align-items: flex-start; padding: 8px; }
 .list .entry.picker.off { opacity: 0.55; }
 .list .entry.picker .hint { margin-top: 2px; }
+
+/* What a webchat prompt carries. The map really is in the prompt, but it starts
+   a few thousand characters past the rules, so a scrolling box makes it look
+   absent - this is the at-a-glance answer. */
+.prompt-contents {
+  list-style: none; margin: 0; padding: 6px 8px; font-size: 12px;
+  border: 1px solid var(--line); border-radius: 7px; background: var(--panel-2);
+}
+.prompt-contents li {
+  display: flex; gap: 8px; align-items: baseline; padding: 2px 0 2px 16px; position: relative;
+}
+.prompt-contents li::before {
+  position: absolute; left: 0; font-size: 11px;
+}
+.prompt-contents li.in::before { content: '✓'; color: var(--ok); }
+.prompt-contents li.out::before { content: '–'; color: var(--ink-faint); }
+.prompt-contents li.out b { color: var(--ink-faint); }
+.prompt-contents li b { flex: 0 0 auto; font-weight: 600; }
+.prompt-contents li span { color: var(--ink-faint); }

@@ -36,6 +36,134 @@ import {
 } from './passes.js';
 import type { Roster } from './rosters.js';
 
+/* ----------------------------------------------------------- the manifest */
+
+export type ContextStatus = 'included' | 'pending' | 'excluded' | 'none';
+
+export interface ContextEntry {
+  label: string;
+  status: ContextStatus;
+  /** What is actually in the prompt, or why nothing is. */
+  detail: string;
+}
+
+/**
+ * What this prompt carries, and what it does not.
+ *
+ * The prompt does include the map - every layer a generation reads is in there.
+ * The trouble is that you cannot tell: three thousand characters of role, grid
+ * rules and house style come first, so on a 30x30 map the base geography starts
+ * around character 3,000 of 7,800. And on the base layer there is genuinely
+ * nothing upstream to include, which looks identical to the bug it is not.
+ *
+ * So this says plainly what went in. It is derived from the same PromptContext
+ * the prompt is built from and the same `uses` graph the pipeline reads, so it
+ * cannot claim something the prompt does not contain.
+ */
+export function describePromptContext(
+  layer: LayerId,
+  pass: PassId,
+  ctx: PromptContext,
+): ContextEntry[] {
+  const entries: ContextEntry[] = [
+    {
+      label: 'The brief',
+      status: ctx.description.trim() ? 'included' : 'none',
+      detail: ctx.description.trim()
+        ? `${ctx.description.trim().length} characters, verbatim`
+        : 'this map has no description, so the model is told to invent one',
+    },
+    {
+      label: 'The grid',
+      status: 'included',
+      detail: `${ctx.cols} x ${ctx.rows}, ${ctx.cols * ctx.rows} hexes, with the coordinate system`,
+    },
+  ];
+
+  const upstream = LAYER_META[layer].requires
+    .concat(LAYER_META[layer].uses)
+    .filter((id, i, all) => all.indexOf(id) === i);
+
+  if (upstream.length === 0) {
+    entries.push({
+      label: 'Earlier layers',
+      status: 'none',
+      detail: `${LAYER_META[layer].label} is the first layer - it reads no other, so the brief and the grid are the whole input`,
+    });
+  }
+
+  for (const id of upstream) {
+    entries.push({ label: LAYER_META[id].label, ...upstreamState(id, ctx) });
+  }
+
+  if (pass === 'paint') {
+    const named = layer === 'rivers' ? 'The river list' : 'The polity roster';
+    entries.push({
+      label: named,
+      status: 'included',
+      detail: 'the fixed cast this pass draws for',
+    });
+  }
+  if (ctx.instruction) {
+    entries.push({
+      label: 'Your instruction',
+      status: 'included',
+      detail: 'with the layer as it stands, so unchanged parts can come back unchanged',
+    });
+  }
+  return entries;
+}
+
+function upstreamState(id: LayerId, ctx: PromptContext): Omit<ContextEntry, 'label'> {
+  const data = ctx[id as keyof PromptContext] as unknown;
+  if ((ctx.excluded ?? []).includes(id)) {
+    return { status: 'excluded', detail: 'left out of this map\'s plan, so the model is told to settle it itself' };
+  }
+  if (data == null) return { status: 'pending', detail: 'not generated yet' };
+  if (id === 'rivers') {
+    const n = ctx.rivers?.rivers.length ?? 0;
+    return n > 0
+      ? { status: 'included', detail: `${n} river${n === 1 ? '' : 's'}, hex by hex` }
+      : { status: 'none', detail: 'generated, but this map has no rivers' };
+  }
+  if (id === 'cities') {
+    const n = ctx.cities?.cities.length ?? 0;
+    return n > 0
+      ? { status: 'included', detail: `${n} cit${n === 1 ? 'y' : 'ies'} with populations` }
+      : { status: 'none', detail: 'generated, but this map has no cities' };
+  }
+  if (id === 'polities') {
+    const n = ctx.polities?.polities.length ?? 0;
+    return n > 0
+      ? { status: 'included', detail: `${n} polit${n === 1 ? 'y' : 'ies'} and the hexes each owns` }
+      : { status: 'none', detail: 'generated, but this map has no polities' };
+  }
+  if (id === 'base') {
+    const land = (ctx.base ?? []).filter((v) => v === 'Land' || v === 'Island').length;
+    return { status: 'included', detail: `every hex, ${land} of them land` };
+  }
+  return { status: 'included', detail: 'every hex' };
+}
+
+/** Whether the prompt actually carries this, whatever the reason. */
+export function isPresent(status: ContextStatus): boolean {
+  return status === 'included';
+}
+
+/** The manifest as the block that rides at the top of the copied prompt. */
+function manifestBlock(entries: ContextEntry[]): string {
+  // Pad the marker as well as the label: "yes" is a character wider than "no",
+  // and a column that does not line up undermines the one block whose whole job
+  // is to be scannable at a glance.
+  const mark = (status: ContextStatus) => (isPresent(status) ? 'yes' : 'no').padEnd(3);
+  const width = Math.max(...entries.map((e) => e.label.length));
+  return [
+    'WHAT THIS PROMPT CONTAINS',
+    'Everything below is in this message; nothing is carried over from an earlier chat.',
+    ...entries.map((e) => `  [${mark(e.status)}] ${e.label.padEnd(width)}  ${e.detail}`),
+  ].join('\n');
+}
+
 /* ------------------------------------------------------------ the prompt */
 
 export interface WebchatPromptOptions {
@@ -52,6 +180,10 @@ export function buildWebchatPrompt(options: WebchatPromptOptions): string {
   const schema = schemaForPass(layer, pass, ctx.cols, ctx.rows);
 
   return [
+    manifestBlock(describePromptContext(layer, pass, ctx)),
+    '',
+    divider(),
+    '',
     system,
     '',
     divider(),

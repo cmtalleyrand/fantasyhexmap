@@ -5,7 +5,9 @@ import { contextFromMap, existingFeatures } from '../../core/context.js';
 import { canSplit, passLabel, rosterFromContext, type PassId } from '../../core/passes.js';
 import {
   buildWebchatPrompt,
+  describePromptContext,
   importWebchatResponse,
+  isPresent,
   webchatPromptTitle,
   WebchatImportError,
 } from '../../core/webchat.js';
@@ -90,6 +92,12 @@ export default function WebchatDialog({ map, layer, instruction, onApply, onClos
       return `Could not build a prompt: ${e instanceof Error ? e.message : String(e)}`;
     }
   }, [layer, pass, ctx, roster, rosterProblem]);
+
+  // The map is in the prompt, but it starts a few thousand characters down, past
+  // the rules - so in a scrolling box it looks absent. This says what went in
+  // without anyone having to read for it, and is built from the same context the
+  // prompt is, so it cannot claim something the prompt does not carry.
+  const contents = useMemo(() => describePromptContext(layer, pass, ctx), [layer, pass, ctx]);
 
   const copy = async () => {
     if (!prompt) return;
@@ -184,12 +192,27 @@ export default function WebchatDialog({ map, layer, instruction, onApply, onClos
         ) : (
           <div className="stack" style={{ gap: 4 }}>
             <div className="row">
-              <label style={{ flex: 1 }}>The prompt</label>
+              <label style={{ flex: 1 }}>What this prompt carries</label>
+              <span className="hint">
+                {(prompt?.length ?? 0).toLocaleString()} characters
+              </span>
+            </div>
+            <ul className="prompt-contents">
+              {contents.map((entry) => (
+                <li key={entry.label} className={isPresent(entry.status) ? 'in' : 'out'}>
+                  <b>{entry.label}</b>
+                  <span>{entry.detail}</span>
+                </li>
+              ))}
+            </ul>
+
+            <div className="row" style={{ marginTop: 4 }}>
+              <label style={{ flex: 1 }}>The prompt itself</label>
               <button className="tiny" onClick={copy} disabled={!prompt}>
                 {copied ? 'copied' : 'copy'}
               </button>
             </div>
-            <textarea readOnly rows={8} value={prompt ?? ''} spellCheck={false} />
+            <textarea readOnly rows={14} value={prompt ?? ''} spellCheck={false} />
           </div>
         )}
 

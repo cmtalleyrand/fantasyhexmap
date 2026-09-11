@@ -803,6 +803,12 @@ function politiesRosterPrompt(ctx: PromptContext): BuiltPrompt {
   const system = [
     'You are a political geographer naming the powers of a fantasy hex map.',
     '',
+    // The roster pass returns no grid, which is why this was left out at first.
+    // That was wrong: the prompt still shows the map as a picture and asks where
+    // each realm sits and how big it is, and HOUSE_STYLE still says to count
+    // cells - none of which means anything without the dimensions.
+    gridRules(ctx.cols, ctx.rows),
+    '',
     section('WHAT YOU ARE DOING', [
       'This is the first of two passes. Decide WHO exists on this map - the roster of polities - and nothing else.',
       'You are not drawing any borders yet and you must not return a grid. A later pass will partition the land',
@@ -826,7 +832,9 @@ function politiesRosterPrompt(ctx: PromptContext): BuiltPrompt {
 
   const parts = [descriptionBlock(ctx.description), '', ...geographyContext(ctx)];
   if (ctx.instruction) {
-    parts.push('', editBlock(ctx.instruction, 'polities'));
+    // editBlock says the layer "is shown above", so it has to be. A roster edit
+    // acts on the roster, so that is what this pass shows.
+    parts.push('', section('CURRENT POLITIES', currentPolityRoster(ctx)), '', editBlock(ctx.instruction, 'polities'));
   }
   parts.push('', 'Name the polities of this map.');
   return { system, user: parts.join('\n') };
@@ -883,7 +891,9 @@ function politiesPaintPrompt(ctx: PromptContext, roster: Roster | null): BuiltPr
     ...geographyContext(ctx),
   ];
   if (ctx.instruction) {
-    parts.push('', editBlock(ctx.instruction, 'polities'));
+    // A border edit has to keep everything the instruction does not touch, which
+    // means seeing the partition as it stands - not just the roster above.
+    parts.push('', section('CURRENT BORDERS', currentPolityRows(ctx)), '', editBlock(ctx.instruction, 'polities'));
   }
   parts.push('', 'Draw the borders for these polities.');
   return { system, user: parts.join('\n') };
@@ -893,6 +903,8 @@ function riversRosterPrompt(ctx: PromptContext): BuiltPrompt {
   const suggested = suggestedRiverCount(ctx);
   const system = [
     'You are a hydrologist planning the river systems of a fantasy hex map.',
+    '',
+    gridRules(ctx.cols, ctx.rows),
     '',
     section('WHAT YOU ARE DOING', [
       'This is the first of two passes. Decide WHAT rivers this map has - their names and roughly where each one',
@@ -916,7 +928,7 @@ function riversRosterPrompt(ctx: PromptContext): BuiltPrompt {
 
   const parts = [descriptionBlock(ctx.description), '', ...geographyContext(ctx)];
   if (ctx.instruction) {
-    parts.push('', editBlock(ctx.instruction, 'rivers'));
+    parts.push('', section('CURRENT RIVERS', currentRiverNames(ctx)), '', editBlock(ctx.instruction, 'rivers'));
   }
   parts.push('', 'Plan the river systems for this map.');
   return { system, user: parts.join('\n') };
@@ -978,10 +990,51 @@ function riversPathsPrompt(ctx: PromptContext, roster: Roster | null): BuiltProm
     ...geographyContext(ctx),
   ];
   if (ctx.instruction) {
-    parts.push('', editBlock(ctx.instruction, 'rivers'));
+    parts.push('', section('CURRENT COURSES', currentRiverCourses(ctx)), '', editBlock(ctx.instruction, 'rivers'));
   }
   parts.push('', 'Trace each of these rivers hex by hex.');
   return { system, user: parts.join('\n') };
+}
+
+/**
+ * The layer as it stands, for a pass prompt carrying an edit instruction.
+ *
+ * `editBlock` tells the model the layer "already exists and is shown above" and
+ * to return unchanged everything the instruction does not touch. Both halves of
+ * that are lies unless the prompt actually shows it, and each pass needs a
+ * different half: a roster edit acts on the cast, a geometry edit on the ground.
+ */
+function currentPolityRoster(ctx: PromptContext): string[] {
+  const polities = ctx.polities?.polities ?? [];
+  if (polities.length === 0) return ['(none yet - this map has no polities)'];
+  return polities.map((p, i) => `${keyFor(i)} = ${p.name} (${p.colour})`);
+}
+
+function currentPolityRows(ctx: PromptContext): string[] {
+  const data = ctx.polities;
+  if (!data || data.polities.length === 0) return ['(none yet - this map has no borders drawn)'];
+  const keyOf = new Map(data.polities.map((p, i) => [p.id, keyFor(i)]));
+  return [
+    ...data.polities.map((p, i) => `${keyFor(i)} = ${p.name}`),
+    ...encodePolityRows(data.owner, keyOf, ctx.cols, ctx.rows),
+  ];
+}
+
+function currentRiverNames(ctx: PromptContext): string[] {
+  const rivers = ctx.rivers?.rivers ?? [];
+  if (rivers.length === 0) return ['(none yet - this map has no rivers)'];
+  return rivers.map((r) => r.name);
+}
+
+function currentRiverCourses(ctx: PromptContext): string[] {
+  const rivers = ctx.rivers?.rivers ?? [];
+  if (rivers.length === 0) return ['(none yet - this map has no rivers)'];
+  return riverSummary(ctx.rivers!);
+}
+
+/** Keys are assigned by position, the same way the roster and the codec do. */
+function keyFor(index: number): string {
+  return 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'[index] ?? '?';
 }
 
 /** Base geography, plus whatever else the map has, as the pass prompts show it. */

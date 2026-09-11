@@ -1,11 +1,18 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
+import { createMapState, LAYER_META } from '../shared/layers.js';
+import { LAYER_ORDER, type LayerId, type MapState } from '../shared/types.js';
+import { reducer } from '../src/state/store.js';
+import { contextFromMap } from '../core/context.js';
+import { rosterFromContext } from '../core/passes.js';
 import { decodeLayer, extractJsonObject } from '../core/decode.js';
 import { mockLayer } from '../core/mock.js';
 import {
   buildWebchatPrompt,
+  describePromptContext,
   importWebchatResponse,
+  isPresent,
   WebchatImportError,
 } from '../core/webchat.js';
 import type { PromptContext } from '../core/prompts.js';
@@ -216,4 +223,115 @@ test('every layer and pass can compile a prompt', () => {
   for (const layer of ['polities', 'rivers'] as const) {
     assert.ok(buildWebchatPrompt({ layer, pass: 'roster', ctx }).length > 0, `${layer}/roster`);
   }
+});
+
+/* --------------------------------------------------- what the prompt carries */
+
+/**
+ * These exist because the prompt was reported as missing the existing layers and
+ * in fact contained them: on a 30x30 map the base geography starts around
+ * character 3,000 of 7,800, behind the rules, so nothing about reading the top
+ * of it tells you the map is there. Build the context the way the app does -
+ * through the reducer - rather than by hand, because a hand-made context is what
+ * made this look fine when it was not legible.
+ */
+function mapWithLayers(cols: number, rows: number, layers: LayerId[]): MapState {
+  let map = createMapState('A cold northern archipelago.', cols, rows, 'Test');
+  for (const id of layers) {
+    const ctx = contextFromMap(map, null);
+    const data = decodeLayer(id, mockLayer(id, ctx), ctx).data;
+    map = reducer(map, {
+      type: 'applyGeneration',
+      layer: id,
+      data,
+      warnings: [],
+      notes: null,
+      decisions: [],
+      model: 'test',
+      instruction: null,
+    });
+  }
+  return map;
+}
+
+test('every dependency that has data appears as a section in the prompt', () => {
+  const map = mapWithLayers(20, 20, [...LAYER_ORDER]);
+  const ctx = contextFromMap(map, null);
+  // The heading a layer is shown under is not always its bare name.
+  const heading: Record<LayerId, RegExp> = {
+    base: /\nBASE GEOGRAPHY/,
+    elevation: /\nELEVATION/,
+    climate: /\nCLIMATE/,
+    vegetation: /\nVEGETATION/,
+    rivers: /\nRIVERS/,
+    cities: /\nCITIES/,
+    polities: /\nPOLITIES/,
+    population: /\nPOPULATION/,
+  };
+  for (const layer of LAYER_ORDER) {
+    const prompt = buildWebchatPrompt({ layer, pass: 'full', ctx });
+    for (const dep of [...LAYER_META[layer].requires, ...LAYER_META[layer].uses]) {
+      assert.match(prompt, heading[dep], `${layer} prompt should show ${dep}`);
+    }
+  }
+});
+
+test('the manifest claims a layer only when the prompt really carries it', () => {
+  const map = mapWithLayers(16, 16, ['base', 'elevation']);
+  const ctx = contextFromMap(map, null);
+  const prompt = buildWebchatPrompt({ layer: 'polities', pass: 'roster', ctx });
+  const entries = describePromptContext('polities', 'roster', ctx);
+
+  const included = entries.filter((e) => isPresent(e.status)).map((e) => e.label);
+  assert.ok(included.includes('Base Geography'), 'base was generated, so it should be claimed');
+  assert.ok(included.includes('Elevation / Ruggedness'));
+  assert.match(prompt, /\nBASE GEOGRAPHY/);
+  assert.match(prompt, /\nELEVATION/);
+
+  // And the ones it does not claim really are absent.
+  const absent = entries.filter((e) => !isPresent(e.status)).map((e) => e.label);
+  assert.ok(absent.includes('Rivers'), 'rivers were never generated');
+  assert.doesNotMatch(prompt, /\nRIVERS\n/);
+});
+
+test('the base layer says outright that it has no upstream layers', () => {
+  const map = mapWithLayers(16, 16, []);
+  const ctx = contextFromMap(map, null);
+  const entries = describePromptContext('base', 'full', ctx);
+  const earlier = entries.find((e) => e.label === 'Earlier layers');
+  assert.ok(earlier, 'base should carry an explicit note about having no upstream layers');
+  assert.equal(isPresent(earlier.status), false);
+  assert.match(earlier.detail, /first layer/);
+  // The brief and grid are still carried, and the manifest rides on the prompt.
+  assert.match(buildWebchatPrompt({ layer: 'base', pass: 'full', ctx }), /WHAT THIS PROMPT CONTAINS/);
+});
+
+test('the roster pass states the grid it is reasoning over', () => {
+  const map = mapWithLayers(30, 30, ['base']);
+  const ctx = contextFromMap(map, null);
+  for (const layer of ['polities', 'rivers'] as const) {
+    const prompt = buildWebchatPrompt({ layer, pass: 'roster', ctx });
+    assert.match(prompt, /30 columns wide and 30 rows tall/, `${layer} roster needs the dimensions`);
+    assert.match(prompt, /odd {2}r:/, `${layer} roster needs the neighbour rule`);
+  }
+});
+
+test('an edit instruction ships the layer it claims is shown above', () => {
+  const map = mapWithLayers(16, 16, ['base', 'rivers', 'polities']);
+  const ctx = contextFromMap(map, 'make the northern realm bigger');
+
+  const roster = buildWebchatPrompt({ layer: 'polities', pass: 'roster', ctx });
+  assert.match(roster, /already exists and is shown above/);
+  assert.match(roster, /\nCURRENT POLITIES\n/, 'a roster edit must show the current roster');
+
+  const painted = buildWebchatPrompt({
+    layer: 'polities',
+    pass: 'paint',
+    ctx,
+    roster: rosterFromContext('polities', ctx),
+  });
+  assert.match(painted, /\nCURRENT BORDERS\n/, 'a border edit must show the current partition');
+
+  const rivers = buildWebchatPrompt({ layer: 'rivers', pass: 'roster', ctx });
+  assert.match(rivers, /\nCURRENT RIVERS\n/);
 });
