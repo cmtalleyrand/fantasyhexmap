@@ -18,6 +18,8 @@
 
 import * as z from 'zod/v4';
 
+import { MAX_POLITIES } from './rosters.js';
+
 const notes = z
   .string()
   .describe('One or two sentences summarising this layer as a whole. Shown to the user.');
@@ -188,7 +190,7 @@ const polityEntry = z.object({
 
 export const PolitiesResponse = (cols: number, rows: number) =>
   z.object({
-    polities: z.array(polityEntry),
+    polities: z.array(polityEntry).max(MAX_POLITIES),
     rows: charRows(cols, rows),
     notes,
     decisions,
@@ -204,7 +206,7 @@ export type PolitiesResponse = z.infer<ReturnType<typeof PolitiesResponse>>;
  */
 export const PolitiesRosterResponse = (_cols: number, _rows: number) =>
   z.object({
-    polities: z.array(polityEntry),
+    polities: z.array(polityEntry).max(MAX_POLITIES),
     notes,
     decisions,
   });

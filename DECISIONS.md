@@ -467,3 +467,49 @@ prose — and a validator that has to name the field that was wrong rather than 
 the fix is for the user to relay it. And the decision record has to record these as imported: it
 already refuses to credit the AI with a choice the user made, and crediting this app's model with a
 choice made somewhere else would be the same lie.
+
+## 28. The brief decides how many, not a formula
+
+**Chosen.** The polity and river counts are stated as fallbacks that apply only when the brief is
+silent, with that precedence written at the point where the number appears. Where a hard limit
+exists, the fallback range is clamped to it.
+
+**What went wrong.** The prompt said "Aim for around 8 polities" as a flat instruction in the
+`DRAWING BORDERS` section of the *system* prompt. The brief sat in the *user* turn, with its
+authority asserted only in a parenthetical on its own heading and one line of `HOUSE_STYLE` three
+sections away. A specific number in the authoritative position beats a general principle downstream,
+so a brief asking for three rival kingdoms got eight realms. The figure was not even wrong — it came
+from `max(3, min(12, round(cols*rows/200) + 3))`, a reasonable curve — it was simply answering a
+question the user had already answered.
+
+**Why the codebase already knew better.** Cities dictates no count at all: it gives siting principles
+(water and traffic, food, spread them out) and lets the geography decide how many emerge. Population
+dictates no totals and defers explicitly — "Infer absolute per-hex figures only from a physical scale
+supplied or clearly entailed by the brief." Polities and rivers were the only two layers handing the
+model a number, and they were exactly the two overriding the user. Those two need *a* scale anchor in
+a way cities does not, because their quantity is not implied by the geography the way a city's siting
+is — but an anchor is not an instruction.
+
+**What it costs.** A vague brief now gets a range rather than a figure, so two runs of the same vague
+brief will vary more. That is the correct trade: the alternative was consistency with something the
+user did not ask for.
+
+## 29. Twelve polities, and duplicate keys are an error rather than a silent loss
+
+**Chosen.** `MAX_POLITIES = 12`, enforced in the response schema, the roster parser and the wire
+validator. Duplicate keys produce a warning naming the polities that collided.
+
+**Why twelve.** Three constraints agree on it: it is the ceiling of `suggestedPolityCount`, so the
+prompt can never ask for more than the schema accepts; it is the length of `FALLBACK_COLOURS`, so
+colours never repeat; and it is well inside the 26-character key space, so keys never exhaust and
+collapse onto `keyAt`'s `'?'`.
+
+**What was broken.** The roster array was unbounded in both polity schemas. Past 26 entries `keyAt`
+returns `'?'` for every one, and the decoder's `byKey` is a plain Map, so duplicates overwrote: every
+hex painted with that key went to whichever polity was declared last and the rest owned nothing. The
+only visible trace was `validatePolities` reporting "N polities own no hexes" — a symptom with
+nothing naming the cause. The wire validator capped supplied rosters at 64, two and a half times the
+usable key space, so it waved through precisely the rosters that got mangled.
+
+**Rivers are not capped.** They are named features rather than a partition, and nothing about them is
+keyed to a single character, so the ceiling that applies to polities has no meaning for them.

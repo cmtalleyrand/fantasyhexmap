@@ -21,6 +21,20 @@ import type { PolitiesData, RiversData } from '../shared/types.js';
 /** Keys are assigned by position, which is also how the prompts encode them. */
 export const ROSTER_KEYS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
 
+/**
+ * The most polities a map can carry.
+ *
+ * Twelve, for three reasons that happen to agree: it is the ceiling of
+ * `suggestedPolityCount`, so the prompt can never ask for more than the schema
+ * accepts; it is the length of FALLBACK_COLOURS, so colours never repeat; and it
+ * is well inside the 26-character key space, so keys never run out and collapse
+ * onto `keyAt`'s '?' fallback.
+ *
+ * Rivers are not capped: they are named features, not a partition, and nothing
+ * about them is keyed to a single character.
+ */
+export const MAX_POLITIES = 12;
+
 export interface PolityRosterEntry {
   key: string;
   name: string;
@@ -131,6 +145,12 @@ export function parseRoster(kind: RosterKind, input: string): Roster {
     .map((line) => line.trim())
     .filter((line) => line && !line.startsWith('#'));
   if (entries.length === 0) throw new RosterParseError('The roster has no entries.');
+  if (kind === 'polities' && entries.length > MAX_POLITIES) {
+    throw new RosterParseError(
+      `${entries.length} polities is more than a map can show: the limit is ${MAX_POLITIES}, ` +
+        'above which colours repeat and single-character keys run out.',
+    );
+  }
 
   if (kind === 'polities') {
     return {
@@ -176,6 +196,11 @@ function tryParseJson(kind: RosterKind, text: string): Roster | null {
     );
   }
   if (kind === 'polities') {
+    if (list.length > MAX_POLITIES) {
+      throw new RosterParseError(
+        `${list.length} polities is more than a map can show: the limit is ${MAX_POLITIES}.`,
+      );
+    }
     return {
       kind,
       entries: list.map((raw, i) => {

@@ -22,7 +22,7 @@ import {
   encodeVegetation,
 } from '../shared/codec.js';
 import { LAYER_META } from '../shared/layers.js';
-import type { PassId, Roster } from './rosters.js';
+import { MAX_POLITIES, type PassId, type Roster } from './rosters.js';
 import { VEGETATION_GROUPS, type LayerId, type VegetationGroup } from '../shared/types.js';
 import type {
   BaseData,
@@ -127,6 +127,35 @@ Apply it to the whole layer and return the COMPLETE updated layer, not only the 
 Everything the instruction does not touch must come back unchanged. Where the instruction implies knock-on
 effects within this layer (a new mountain range changes the coastline around it, a new polity takes hexes from
 its neighbours), make them - but stay inside this layer.`;
+}
+
+/**
+ * How many of something to make.
+ *
+ * The count used to be handed over as a flat instruction in the system prompt -
+ * "Aim for around 8 polities" - while the brief sat in the user turn with its
+ * authority asserted only in a parenthetical and one line of HOUSE_STYLE three
+ * sections away. A specific number in the authoritative position beats a general
+ * principle downstream, so a brief asking for three kingdoms got eight.
+ *
+ * The brief decides. The figure is a fallback for a brief that does not say, and
+ * it says so at the point where the number appears.
+ */
+function countRule(what: string, suggested: number, examples: string, cap?: number): string {
+  const low = Math.max(1, Math.round(suggested * 0.7));
+  // Clamped to the cap where there is one: a range whose top the schema would
+  // reject is the same defect this rule exists to fix, one level up.
+  const high = Math.min(cap ?? Infinity, Math.round(suggested * 1.4));
+  return [
+    `HOW MANY ${what.toUpperCase()}`,
+    'The brief decides. If it names or implies them, follow it exactly, however many that is, and',
+    'ignore the figure below entirely. Do not round it up to look fuller or down to look tidier; a',
+    'brief asking for three means three.',
+    `  Named or implied looks like: ${examples}.`,
+    `Only if the brief says nothing on the subject: ${low} to ${high} suits a map this size. That is a`,
+    'starting point for your own judgement, not a target to hit.',
+    ...(cap ? [`Never more than ${cap} in total, whatever the brief implies; say so in your notes if it wants more.`] : []),
+  ].join('\n');
 }
 
 function section(title: string, lines: string[]): string {
@@ -460,6 +489,15 @@ function riverSummary(rivers: RiversData): string[] {
   );
 }
 
+/**
+ * A fallback count for a brief that says nothing about rivers.
+ *
+ * Roughly one river per 110 hexes. It is a starting point for a silent brief and
+ * nothing more - see `countRule`. Cities and population dictate no counts at all
+ * and are the better pattern; rivers and polities need a scale anchor only
+ * because their quantity is not implied by the geography the way a city's siting
+ * is.
+ */
 function suggestedRiverCount(ctx: PromptContext): number {
   return Math.max(2, Math.round((ctx.cols * ctx.rows) / 110));
 }
@@ -491,8 +529,10 @@ function riversPrompt(ctx: PromptContext): BuiltPrompt {
       '- Longer rivers gather in valleys and lowlands; short torrents run straight off coastal ranges.',
       '- Do not run two rivers along the same hexes for their whole length. Tributaries may join a trunk river:',
       '  model a tributary as its own river whose path meets the trunk and then follows it to the sea.',
-      `- Aim for about ${suggested} named rivers on a map this size, of varied length. Quality over quantity.`,
+      '- Vary their length. Quality over quantity.',
     ]),
+    '',
+    countRule('rivers', suggested, 'a great river the brief is named for, two rivers meeting at a capital, a land of a thousand streams'),
     '',
     section('NAVIGABILITY', [
       '- Navigability is per hex, not per river. The lower course of a large river is navigable; the upper course is not.',
@@ -608,7 +648,17 @@ function citiesPrompt(ctx: PromptContext): BuiltPrompt {
 
 /* ---------------------------------------------------------------- polities */
 
-/** Shared by the single-request prompt and the roster pass, so they agree. */
+/**
+ * A fallback count for a brief that says nothing about who holds the land.
+ *
+ * One polity per 200 hexes plus a baseline of three, clamped to 3..12 - so
+ * territory grows with the map rather than staying a fixed size, and a large map
+ * reads as empires rather than a patchwork. The upper clamp is also the number of
+ * distinct colours available (FALLBACK_COLOURS) and the roster cap.
+ *
+ * Shared by the single-request prompt and the roster pass so they agree. Like the
+ * river count it applies only when the brief is silent - see `countRule`.
+ */
 function suggestedPolityCount(ctx: PromptContext): number {
   return Math.max(3, Math.min(12, Math.round((ctx.cols * ctx.rows) / 200) + 3));
 }
@@ -633,9 +683,10 @@ function politiesPrompt(ctx: PromptContext): BuiltPrompt {
       '- Polities are shaped by their cities: a capital sits inside its own territory, usually well within it.',
       '- Leave genuinely hostile or remote country unclaimed - deep desert, high mountains, ice, far wilderness.',
       '  A map where every hex is owned looks like a modern state system, not a pre-modern one.',
-      `- Aim for around ${suggested} polities, of clearly different sizes: one or two large powers, several middling`,
-      '  realms, a few small ones.',
+      '- Give them clearly different sizes: one or two large powers, several middling realms, a few small ones.',
     ]),
+    '',
+    countRule('polities', suggested, 'three rival kingdoms, a dozen squabbling city-states, one empire and the realms it has not yet swallowed', MAX_POLITIES),
     '',
     section('OUTPUT', [
       'Declare each polity with a single-character key (A, B, C, ...), a name and a hex colour.',
@@ -814,10 +865,12 @@ function politiesRosterPrompt(ctx: PromptContext): BuiltPrompt {
       'You are not drawing any borders yet and you must not return a grid. A later pass will partition the land',
       'between the polities you name here, so name them with that in mind: give a sense of where each one sits and',
       'how big it is in your decisions, and the border pass will follow it.',
-      `Aim for around ${suggested} polities, of clearly different sizes: one or two large powers, several middling`,
-      'realms, a few small ones. Leave room for unclaimed wilderness - a map where every hex is owned looks like a',
-      'modern state system, not a pre-modern one.',
+      'Give them clearly different sizes: one or two large powers, several middling realms, a few small ones.',
+      'Leave room for unclaimed wilderness - a map where every hex is owned looks like a modern state system,',
+      'not a pre-modern one.',
     ]),
+    '',
+    countRule('polities', suggested, 'three rival kingdoms, a dozen squabbling city-states, one empire and the realms it has not yet swallowed', MAX_POLITIES),
     '',
     section('OUTPUT', [
       'Declare each polity with a single-character key (A, B, C, ... in order), a name and a hex colour.',
@@ -909,11 +962,13 @@ function riversRosterPrompt(ctx: PromptContext): BuiltPrompt {
     section('WHAT YOU ARE DOING', [
       'This is the first of two passes. Decide WHAT rivers this map has - their names and roughly where each one',
       'runs - and nothing else. Do not return any hex coordinates; a later pass traces the actual paths.',
-      `Aim for about ${suggested} named rivers on a map this size, of varied length. Quality over quantity.`,
+      'Vary their length. Quality over quantity.',
       'Every river must rise in high ground and end at a Sea, a Lake, or the edge of the map. Say which, for each.',
       'Longer rivers gather in valleys and lowlands; short torrents run straight off coastal ranges.',
       'Name rivers in a style consistent with the brief.',
     ]),
+    '',
+    countRule('rivers', suggested, 'a great river the brief is named for, two rivers meeting at a capital, a land of a thousand streams'),
     '',
     section('OUTPUT', [
       'For each river give a name and a "course": one clause saying where it rises, roughly which way it runs, and',

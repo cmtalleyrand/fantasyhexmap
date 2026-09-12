@@ -168,8 +168,14 @@ assumed — because nothing later will correct it.
 | Vegetation | 19 leaf categories in four groups | Land, Island |
 | Rivers | edge-to-edge paths, navigability per segment | Land |
 | Cities | name, population, river and coastal-edge references | Land |
-| Polities | strict partition: one owner per land hex, or none | Land |
+| Polities | strict partition: one owner per land hex, or none (at most 12) | Land |
 | Population | one integer per hex (rural, excludes city populations) | Land, Island |
+
+**The brief decides how many.** Where a layer has a natural count — polities, rivers — the prompt
+treats your description as authoritative: name or imply the powers and it follows you exactly,
+however many that is. Only when the description says nothing on the subject does it fall back to a
+range suited to the grid size, and it says so at the point where the number appears. Cities and
+population never carry a count at all; how many emerge follows from the geography and the brief.
 
 Two modelling points worth stating plainly, because they are easy to get wrong:
 

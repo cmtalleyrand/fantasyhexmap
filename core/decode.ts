@@ -254,6 +254,10 @@ export function decodeLayer(
       const r = parsed as PolitiesResponse;
       notes = r.notes;
       const byKey = new Map<string, Polity>();
+      // Two polities on one key used to be swallowed silently: the Map kept the
+      // last one, every hex painted with that key went to it, and the others
+      // surfaced only as "owns no hexes" with nothing naming the cause.
+      const collisions: string[] = [];
       const polities: Polity[] = r.polities.map((p, i) => {
         const polity: Polity = {
           id: reuseIdByName(existing?.polities, p.name) ?? stableId('pol', p.name, i),
@@ -261,9 +265,18 @@ export function decodeLayer(
           colour: normaliseColour(p.colour, i),
         };
         const key = (p.key ?? '').trim().charAt(0);
-        if (key && key !== POLITY_UNCLAIMED) byKey.set(key, polity);
+        if (key && key !== POLITY_UNCLAIMED) {
+          const clash = byKey.get(key);
+          if (clash) collisions.push(`"${key}" claimed by both ${clash.name} and ${p.name}`);
+          byKey.set(key, polity);
+        }
         return polity;
       });
+      if (collisions.length > 0) {
+        warnings.push(
+          `Duplicate polity keys, so only the last of each holds any territory: ${collisions.join('; ')}.`,
+        );
+      }
       const owner: (string | null)[] = new Array(cols * rows).fill(null);
       let unknownKeys = 0;
       for (let row = 0; row < rows; row++) {

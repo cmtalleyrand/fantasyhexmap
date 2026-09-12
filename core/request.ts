@@ -12,7 +12,7 @@ import { LAYER_META } from '../shared/layers.js';
 import type { GenerateRequest } from './pipeline.js';
 import type { PassSelection } from './passes.js';
 import { canSplit, rosterFromContext } from './passes.js';
-import { normaliseRoster, type Roster } from './rosters.js';
+import { MAX_POLITIES, normaliseRoster, type Roster } from './rosters.js';
 import type { PromptContext } from './prompts.js';
 
 const SELECTIONS: PassSelection[] = ['both', 'roster', 'paint'];
@@ -45,6 +45,13 @@ function validateRoster(layer: LayerId, raw: unknown): { error: string } | { ros
   const entries = (raw as { entries?: unknown })?.entries;
   if (!Array.isArray(entries)) return { error: 'roster.entries must be an array.' };
   if (entries.length === 0) return { error: 'The roster has no entries.' };
+  // 64 was a made-up number sitting well above the usable key space, so it waved
+  // through exactly the rosters that then collapsed onto duplicate keys.
+  if (layer === 'polities' && entries.length > MAX_POLITIES) {
+    return {
+      error: `That roster has ${entries.length} polities; a map can show at most ${MAX_POLITIES}.`,
+    };
+  }
   if (entries.length > 64) return { error: 'That roster has more entries than a map can use.' };
 
   for (const entry of entries) {

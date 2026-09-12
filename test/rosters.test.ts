@@ -11,6 +11,8 @@ import {
   RosterParseError,
 } from '../core/rosters.js';
 import { combinePasses, rosterFromResponse, rosterOnlyResponse } from '../core/passes.js';
+import { MAX_POLITIES } from '../core/rosters.js';
+import { buildPrompt } from '../core/prompts.js';
 import { decodeLayer } from '../core/decode.js';
 import { mockLayer } from '../core/mock.js';
 import type { PromptContext } from '../core/prompts.js';
@@ -209,4 +211,113 @@ test('a roster pass alone renames in place, keeping the existing partition', () 
     result.owner.filter((o) => o !== null).length,
     original.owner.filter((o) => o !== null).length,
   );
+});
+
+/* -------------------------------------------------- the brief decides how many */
+
+/**
+ * The count used to be a flat instruction in the system prompt ("Aim for around
+ * 8 polities") while the brief sat in the user turn with its authority asserted
+ * only in a parenthetical and one line of HOUSE_STYLE three sections away. A
+ * specific number in the authoritative position beats a general principle
+ * downstream, so a brief asking for three kingdoms got eight.
+ */
+function baseContext(cols: number, rows: number): PromptContext {
+  const empty: PromptContext = {
+    description: 'Three rival kingdoms contest a cold archipelago.',
+    cols,
+    rows,
+    base: null,
+    elevation: null,
+    climate: null,
+    vegetation: null,
+    rivers: null,
+    cities: null,
+    polities: null,
+    population: null,
+    instruction: null,
+    excluded: [],
+  };
+  return { ...empty, base: decodeLayer('base', mockLayer('base', empty), empty).data };
+}
+
+test('the brief is given precedence before any number is mentioned', () => {
+  for (const layer of ['polities', 'rivers'] as const) {
+    for (const pass of ['full', 'roster'] as const) {
+      const { system } = buildPrompt(layer, baseContext(30, 30), pass);
+      const rule = system.indexOf('The brief decides.');
+      const figure = system.indexOf('Only if the brief says nothing');
+      assert.ok(rule >= 0, `${layer}/${pass} should state that the brief decides`);
+      assert.ok(figure > rule, `${layer}/${pass} must put the brief before the fallback figure`);
+      assert.match(system, /follow it exactly, however many that is/);
+    }
+  }
+});
+
+test('no prompt dictates a count unconditionally any more', () => {
+  for (const layer of ['polities', 'rivers'] as const) {
+    for (const pass of ['full', 'roster'] as const) {
+      const { system } = buildPrompt(layer, baseContext(30, 30), pass);
+      assert.doesNotMatch(system, /Aim for a(round|bout) \d+/, `${layer}/${pass} still dictates a count`);
+    }
+  }
+});
+
+test('the fallback range never exceeds the polity cap', () => {
+  for (const [cols, rows] of [[10, 10], [30, 30], [40, 40], [50, 50]] as const) {
+    const { system } = buildPrompt('polities', baseContext(cols, rows), 'full');
+    const match = /nothing on the subject: (\d+) to (\d+)/.exec(system);
+    assert.ok(match, `${cols}x${rows} should state a fallback range`);
+    assert.ok(
+      Number(match[2]) <= MAX_POLITIES,
+      `${cols}x${rows} suggested up to ${match[2]}, above the cap of ${MAX_POLITIES}`,
+    );
+  }
+});
+
+test('rivers are not capped - they are named features, not a partition', () => {
+  const { system } = buildPrompt('rivers', baseContext(50, 50), 'full');
+  assert.doesNotMatch(system, /Never more than \d+ in total/);
+});
+
+/* ------------------------------------------------------------------ the cap */
+
+test('a roster above the cap is refused rather than silently mangled', () => {
+  const tooMany = Array.from({ length: MAX_POLITIES + 1 }, (_, i) => `Realm ${i}`).join('\n');
+  assert.throws(
+    () => parseRoster('polities', tooMany),
+    (error: unknown) => {
+      assert.ok(error instanceof RosterParseError);
+      assert.match(error.message, new RegExp(String(MAX_POLITIES)));
+      return true;
+    },
+  );
+  // Exactly at the cap is fine.
+  const atCap = Array.from({ length: MAX_POLITIES }, (_, i) => `Realm ${i}`).join('\n');
+  assert.equal(parseRoster('polities', atCap).entries.length, MAX_POLITIES);
+});
+
+test('rivers have no cap', () => {
+  const many = Array.from({ length: 40 }, (_, i) => `River ${i}`).join('\n');
+  assert.equal(parseRoster('rivers', many).entries.length, 40);
+});
+
+test('duplicate polity keys are reported, not swallowed', () => {
+  const ctx = baseContext(8, 8);
+  // Both declared as "A": the Map used to keep the last and lose the first
+  // silently, surfacing only as "owns no hexes" with nothing naming the cause.
+  const response = {
+    polities: [
+      { key: 'A', name: 'Ardh', colour: '#b5533c' },
+      { key: 'A', name: 'Brenn', colour: '#3f7a8c' },
+    ],
+    rows: Array.from({ length: 8 }, () => 'A'.repeat(8)),
+    notes: 'x',
+    decisions: [],
+  };
+  const { warnings } = decodeLayer('polities', response, ctx);
+  const collision = warnings.find((w) => /Duplicate polity keys/.test(w));
+  assert.ok(collision, `expected a duplicate-key warning, got: ${warnings.join(' | ')}`);
+  assert.match(collision, /Ardh/);
+  assert.match(collision, /Brenn/);
 });
