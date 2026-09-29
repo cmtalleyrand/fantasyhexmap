@@ -131,6 +131,9 @@ export function decodeElevation(
   let bad = 0;
   for (let r = 0; r < rows; r++) {
     const line = (lines[r] ?? '').replace(/\s+/g, '');
+    if (lines[r] !== undefined && line.length !== cols) {
+      warnings.push(`Row ${r} had ${line.length} cells, expected ${cols}; padded or truncated.`);
+    }
     for (let c = 0; c < cols; c++) {
       const ch = line[c];
       if (ch === undefined || ch === '.') continue;

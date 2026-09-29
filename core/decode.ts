@@ -266,8 +266,10 @@ export function decodeLayer(
       });
       const owner: (string | null)[] = new Array(cols * rows).fill(null);
       let unknownKeys = 0;
+      let misSized = 0;
       for (let row = 0; row < rows; row++) {
         const line = (r.rows[row] ?? '').replace(/\s+/g, '');
+        if (r.rows[row] !== undefined && line.length !== cols) misSized++;
         for (let col = 0; col < cols; col++) {
           const ch = line[col];
           if (!ch || ch === POLITY_UNCLAIMED) continue;
@@ -278,6 +280,9 @@ export function decodeLayer(
       }
       if (r.rows.length !== rows) {
         warnings.push(`Expected ${rows} polity rows, model returned ${r.rows.length}.`);
+      }
+      if (misSized > 0) {
+        warnings.push(`${misSized} polity rows were not ${cols} characters long; padded as unclaimed or truncated.`);
       }
       if (unknownKeys > 0) {
         warnings.push(`${unknownKeys} hexes used an undeclared polity key and were left unclaimed.`);
