@@ -42,6 +42,7 @@ import {
   type PassSelection,
 } from './passes.js';
 import type { Roster } from './rosters.js';
+import { checkResponse } from './schemas.js';
 
 export { DEFAULT_EFFORT, DEFAULT_MODEL, type Effort } from './config.js';
 export type { PassSelection } from './passes.js';
@@ -88,9 +89,24 @@ export interface Usage {
 
 export type ProgressFn = (event: { phase: string; detail?: string; chars?: number }) => void;
 
+/**
+ * A response that arrived complete but could not be used: not JSON at all, or
+ * JSON with a field of the wrong type or missing. Distinct from truncation,
+ * which has its own error and its own recovery, and from a response that
+ * merely miscounted, which is accepted with warnings (see `checkResponse`).
+ */
+export class MalformedResponseError extends Error {
+  readonly details: string[];
+  constructor(message: string, details: string[] = []) {
+    super(message);
+    this.name = 'MalformedResponseError';
+    this.details = details;
+  }
+}
+
 export function isStructuredOutputParseError(error: unknown): boolean {
   if (!(error instanceof Error)) return false;
-  if (error instanceof SyntaxError) return true;
+  if (error instanceof MalformedResponseError || error instanceof SyntaxError) return true;
   return /failed to parse structured output|structured output as json|json.*position/i.test(
     error.message,
   );
@@ -109,9 +125,11 @@ export async function withStructuredOutputRetry<T>(
       return await operation();
     } catch (retryError) {
       if (!isStructuredOutputParseError(retryError)) throw retryError;
-      throw new Error('The model returned malformed data twice. Please try generating this layer again.', {
-        cause: retryError,
-      });
+      const reason = retryError instanceof Error ? retryError.message : String(retryError);
+      throw new Error(
+        `The model returned malformed data twice. Please try generating this layer again. Last problem: ${reason}`,
+        { cause: retryError },
+      );
     }
   }
 }
@@ -151,6 +169,37 @@ function describeTruncation(usage: Usage, budget: number): string {
   );
 }
 
+/**
+ * The output format sent to the API, without the SDK's own parser.
+ *
+ * `betaZodOutputFormat` attaches a `parse` that the stream runs inside
+ * `finalMessage()`, against the full strict schema. That had two effects that
+ * between them made every layer after the base one fail as "malformed":
+ *
+ *  - The length constraints in our schemas are never sent to the API (the SDK
+ *    strips them into descriptions), so a model that wrote 29 characters in a
+ *    30-column row got a response the API accepted and the SDK then rejected.
+ *    Retrying asked for the same miscount-prone grid again.
+ *  - It parsed before we could look at `stop_reason`, so a response cut off by
+ *    `max_tokens` surfaced as a JSON syntax error and the truncation recovery
+ *    below - lower effort, or split into two passes - never ran.
+ *
+ * It also parsed each text block on its own, so an answer that arrived in two
+ * blocks failed even though the two together were valid.
+ *
+ * So the schema still constrains decoding, and the parsing happens here, after
+ * the stop reason has been read, against a check that tolerates miscounts.
+ */
+function outputFormat(schema: z.ZodType): { type: 'json_schema'; schema: Record<string, unknown> } {
+  const { type, schema: jsonSchema } = betaZodOutputFormat(schema);
+  return { type, schema: jsonSchema };
+}
+
+/** Warnings the decoders already report in their own words. */
+function decoderReportsIt(warning: string): boolean {
+  return /^rows(\.|:)/.test(warning);
+}
+
 /** One structured, streamed call to the Messages API. */
 async function callModel<S extends z.ZodType>(
   config: GenerationConfig & { client: Anthropic },
@@ -159,8 +208,9 @@ async function callModel<S extends z.ZodType>(
   user: string,
   onProgress: ProgressFn,
   signal?: AbortSignal,
-): Promise<{ parsed: z.infer<S>; usage: Usage }> {
+): Promise<{ parsed: z.infer<S>; usage: Usage; warnings: string[] }> {
   const budget = clampTaskBudget(config.taskBudget ?? DEFAULT_TASK_BUDGET);
+  const format = outputFormat(schema);
   return withStructuredOutputRetry(async () => {
     const stream = config.client.beta.messages.stream({
       model: config.model,
@@ -174,7 +224,7 @@ async function callModel<S extends z.ZodType>(
         // which it cannot see and is simply cut off by. This is what makes a
         // long think wind up and answer instead of running off the end.
         task_budget: { type: 'tokens', total: budget },
-        format: betaZodOutputFormat(schema),
+        format,
       },
     }, { signal });
 
@@ -218,19 +268,49 @@ async function callModel<S extends z.ZodType>(
       throw new OutputTruncatedError(usage, describeTruncation(usage, budget));
     }
 
-    const parsed = (message as { parsed_output?: unknown }).parsed_output;
-    if (parsed != null) return { parsed: parsed as z.infer<S>, usage };
-
-    // The API constrains the output to the schema, so this is a belt-and-braces
-    // path for a response that arrived as plain text anyway.
     const text = message.content
       .filter((b): b is Anthropic.Beta.BetaTextBlock => b.type === 'text')
       .map((b) => b.text)
       .join('');
-    const json = extractJsonObject(text);
-    if (!json) throw new Error('The model returned an empty response.');
-    return { parsed: schema.parse(JSON.parse(json)) as z.infer<S>, usage };
-  }, () => onProgress({ phase: 'retrying', detail: 'The model returned malformed JSON; retrying once.' }));
+    return { ...parseResponse(schema, text), usage };
+  }, () => onProgress({ phase: 'retrying', detail: 'The model returned unusable JSON; retrying once.' }));
+}
+
+/**
+ * Turn the text of a complete response into a checked value.
+ *
+ * Exported for tests: this is the whole of what decides whether a response is
+ * "malformed", and it needs no network to exercise.
+ */
+export function parseResponse<S extends z.ZodType>(
+  schema: S,
+  text: string,
+): { parsed: z.infer<S>; warnings: string[] } {
+  const json = extractJsonObject(text) ?? (text.trim() ? text : null);
+  if (!json) throw new MalformedResponseError('The model returned an empty response.');
+
+  let raw: unknown;
+  try {
+    raw = JSON.parse(json);
+  } catch (error) {
+    throw new MalformedResponseError(
+      `The response was not valid JSON (${error instanceof Error ? error.message : String(error)}).`,
+    );
+  }
+
+  const checked = checkResponse(schema, raw);
+  if (!checked.ok) {
+    throw new MalformedResponseError(
+      `The response did not match the expected shape: ${checked.issues.slice(0, 5).join('; ')}.`,
+      checked.issues,
+    );
+  }
+  return {
+    parsed: checked.value as z.infer<S>,
+    warnings: checked.warnings
+      .filter((w) => !decoderReportsIt(w))
+      .map((w) => `Response did not match the requested size (${w}); used as returned.`),
+  };
 }
 
 /* ------------------------------------------------------------ the pipeline */
@@ -371,6 +451,7 @@ async function runPasses(
 
   const client = config.client;
   const usages: (Usage | null)[] = [];
+  const responseWarnings: string[] = [];
   let roster: Roster | null = req.roster ?? null;
   let rosterParsed: unknown = null;
 
@@ -386,6 +467,7 @@ async function runPasses(
       signal,
     );
     usages.push(result.usage);
+    responseWarnings.push(...result.warnings);
     return result.parsed;
   };
 
@@ -416,7 +498,7 @@ async function runPasses(
   return {
     layer,
     data: decoded.data,
-    warnings: decoded.warnings,
+    warnings: [...responseWarnings, ...decoded.warnings],
     notes: decoded.notes,
     decisions: decoded.decisions,
     model: config.model,

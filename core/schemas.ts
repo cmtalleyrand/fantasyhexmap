@@ -4,13 +4,13 @@
  * constrained to the shape at generation time, and re-validated here before we
  * trust it.
  *
- * The per-hex schemas are built from the grid dimensions rather than being
- * constants, so "exactly `rows` strings of exactly `cols` characters" is a
- * property the API enforces during decoding instead of an instruction the model
- * has to verify by hand. That matters for more than tidiness: counting cells is
- * reasoning, reasoning is output tokens, and output tokens are the budget that
- * ran out. The prompts still say to count, because a webchat model pasting into
- * the import path has no constrained decoding to lean on.
+ * The per-hex schemas are built from the grid dimensions, so "exactly `rows`
+ * strings of exactly `cols` characters" is stated in the schema the model sees.
+ * It is stated, not enforced: the API's constrained decoding does not support
+ * string lengths or item counts above one, and the SDK moves those constraints
+ * into the field descriptions before sending. A model can therefore still
+ * miscount, and `checkResponse` below treats a miscount as a warning for the
+ * decoders to repair rather than a reason to discard the layer.
  *
  * Everything here depends on zod and nothing else, so the browser can validate
  * a pasted response without downloading the Anthropic SDK.
@@ -218,3 +218,42 @@ export const PolitiesPaintResponse = (cols: number, rows: number) =>
     decisions,
   });
 export type PolitiesPaintResponse = z.infer<ReturnType<typeof PolitiesPaintResponse>>;
+
+/* ------------------------------------------------------ checking a response */
+
+/**
+ * Zod issue codes that are about how many of something there are, not what it
+ * is: a row one character short, 29 rows instead of 30, nine decisions instead
+ * of eight. The decoders already pad, truncate and report exactly these, so
+ * they are warnings about a usable layer, not reasons to throw it away.
+ */
+const COUNT_ISSUES = new Set(['too_small', 'too_big']);
+
+export type ResponseCheck =
+  | { ok: true; value: unknown; warnings: string[] }
+  | { ok: false; issues: string[] };
+
+/**
+ * Check a parsed response against its schema, tolerating miscounts.
+ *
+ * The API does not enforce the length constraints in these schemas - the SDK
+ * strips `minLength`, `maxLength`, `maxItems` and any `minItems` above 1 before
+ * sending, and only writes them into the field descriptions - so a model
+ * that miscounts one row of a 30x30 grid produces a response the API accepted
+ * but a strict parse rejects. Rejecting it discarded an otherwise complete
+ * layer; only a wrong type or a missing field is fatal here.
+ */
+export function checkResponse(schema: z.ZodType, raw: unknown): ResponseCheck {
+  const result = schema.safeParse(raw);
+  if (result.success) return { ok: true, value: result.data, warnings: [] };
+
+  const fatal = result.error.issues.filter((issue) => !COUNT_ISSUES.has(issue.code));
+  if (fatal.length > 0) return { ok: false, issues: fatal.map(describeIssue) };
+  // Nothing transforms in these schemas, so the input is already the output shape.
+  return { ok: true, value: raw, warnings: result.error.issues.map(describeIssue) };
+}
+
+export function describeIssue(issue: z.core.$ZodIssue): string {
+  const path = issue.path.length > 0 ? issue.path.join('.') : '(root)';
+  return `${path}: ${issue.message}`;
+}
