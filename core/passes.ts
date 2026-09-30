@@ -19,6 +19,7 @@ import { buildPrompt, type BuiltPrompt, type PromptContext } from './prompts.js'
 import {
   keyAt,
   rosterFromPolities,
+  targetHexes,
   rosterFromRivers,
   type PassId,
   type Roster,
@@ -36,12 +37,13 @@ import {
   RiversResponse,
   RiversRosterResponse,
   VegetationResponse,
+  type SchemaOptions,
 } from './schemas.js';
 
 export type { PassId, PassSelection } from './rosters.js';
 export { canSplit, passesFor, passLabel } from './rosters.js';
 
-type SchemaFactory = (cols: number, rows: number) => z.ZodType;
+type SchemaFactory = (cols: number, rows: number, opts?: SchemaOptions) => z.ZodType;
 
 const FULL_SCHEMAS: Record<LayerId, SchemaFactory> = {
   base: BaseResponse,
@@ -69,11 +71,12 @@ export function schemaForPass(
   pass: PassId,
   cols: number,
   rows: number,
+  opts: SchemaOptions = {},
 ): z.ZodType {
   const table = pass === 'roster' ? ROSTER_SCHEMAS : pass === 'paint' ? PAINT_SCHEMAS : FULL_SCHEMAS;
   const factory = table[layer];
   if (!factory) throw new Error(`Layer "${layer}" has no "${pass}" pass.`);
-  return factory(cols, rows);
+  return factory(cols, rows, opts);
 }
 
 export function promptForPass(
@@ -114,6 +117,7 @@ export function rosterFromResponse(layer: LayerId, parsed: unknown): Roster {
         key: (p.key ?? '').trim().charAt(0) || keyAt(i),
         name: p.name,
         colour: p.colour,
+        ...targetHexes(p.hexes),
       })),
     };
   }
@@ -148,7 +152,7 @@ export function combinePasses(
     const paint = paintParsed as z.infer<ReturnType<typeof PolitiesPaintResponse>>;
     const entries = roster?.kind === 'polities' ? roster.entries : [];
     return {
-      polities: entries.map((e) => ({ key: e.key, name: e.name, colour: e.colour })),
+      polities: entries.map((e) => ({ key: e.key, name: e.name, colour: e.colour, hexes: e.hexes })),
       rows: paint.rows ?? [],
       notes,
       decisions,
@@ -193,7 +197,7 @@ export function rosterOnlyResponse(
       rows.push(line);
     }
     return {
-      polities: entries.map((e) => ({ key: e.key, name: e.name, colour: e.colour })),
+      polities: entries.map((e) => ({ key: e.key, name: e.name, colour: e.colour, hexes: e.hexes })),
       rows,
       notes,
       decisions,

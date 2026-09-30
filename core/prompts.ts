@@ -1,10 +1,16 @@
 /**
  * Prompt construction, one builder per layer.
  *
- * Two conventions run through all of them:
- *  - Grid state travels as one string per row, so the model reads the map as a
- *    picture instead of a wall of JSON objects, and a 50x50 layer costs a few
- *    hundred output tokens instead of tens of thousands.
+ * Conventions that run through all of them:
+ *  - Context grids travel as one line per row, so the model reads the map as a
+ *    picture, with row labels and a column anchor every five cells so that
+ *    position is read rather than counted (see `gridView` in core/grid.ts), and
+ *    with the hex counts measured by code rather than left to the model.
+ *  - Output grids are described in whichever form the caller asked for: keyed
+ *    cell by cell for the API, which enforces it, or row strings for webchat.
+ *  - The brief outranks every default in the prompt, and every response opens
+ *    with the model's reading of it - the scale, and each requirement as a
+ *    concrete target - before any of the layer is written.
  *  - The stable rules (grid geometry, scale, house style) live in the system
  *    prompt so they cache; only the varying map state goes in the user turn.
  */
@@ -22,8 +28,18 @@ import {
   encodeVegetation,
 } from '../shared/codec.js';
 import { LAYER_META } from '../shared/layers.js';
-import type { PassId, Roster } from './rosters.js';
-import { VEGETATION_GROUPS, type LayerId, type VegetationGroup } from '../shared/types.js';
+import { keyAt, type PassId, type Roster } from './rosters.js';
+import { gridView, tally } from './grid.js';
+import {
+  BASE_GEO_VALUES,
+  CLIMATE_VALUES,
+  ELEVATION_VALUES,
+  VEGETATION_GROUPS,
+  VEGETATION_VALUES,
+  type BaseGeo,
+  type LayerId,
+  type VegetationGroup,
+} from '../shared/types.js';
 import type {
   BaseData,
   CitiesData,
@@ -56,6 +72,12 @@ export interface PromptContext {
    * would have depended on it has to be settled now.
    */
   excluded?: LayerId[];
+  /**
+   * How grids are to be returned: 'keyed' (cell by cell, enforced by the API's
+   * grammar) or 'rows' (one string per row, for the webchat path). Only changes
+   * the output instructions; context grids are shown the same way either way.
+   */
+  gridFormat?: 'rows' | 'keyed';
 }
 
 const isExcluded = (ctx: PromptContext, layer: LayerId) =>
@@ -93,20 +115,65 @@ The map is a rectangular grid of pointy-top hexes, ${cols} columns wide and ${ro
     odd  r:  E=(c+1,r)  SE=(c+1,r+1)  SW=(c,r+1)    W=(c-1,r)  NW=(c,r-1)    NE=(c+1,r-1)
 - Nothing exists beyond the grid: the map edge is either open ocean continuing off-map, or land continuing off-map. Do not treat it as a wall.
 
-SPATIAL SCALE
-Use a physical scale only when the map description states or clearly entails one. Otherwise, do not assume a distance, area, or kilometres-per-hex value; reason from relative positions and terrain patterns. A hex represents one map region, at the description’s scale.`;
+${scaleRules(cols, rows)}`;
 }
 
-function rowFormatRules(cols: number, rows: number, kind: 'char' | 'token'): string {
+/**
+ * How to turn the brief's sizes into hexes.
+ *
+ * This used to tell the model not to assume a scale unless the brief "states or
+ * clearly entails one" - and gave it no way to act on one when it did. A brief
+ * that gave areas got maps that ignored them, because nothing converted
+ * "100,000 km2" into a number of hexes. The arithmetic is spelled out here so it
+ * is done, and done the same way in every layer.
+ */
+function scaleRules(cols: number, rows: number): string {
+  return `SPATIAL SCALE - work it out first, then use it
+- If the brief gives ANY size - the extent of the world, a continent, a sea or a realm; an area; a distance; a length;
+  a travel time - derive the hex width w (km between the centres of neighbouring hexes) from it and state it in
+  "brief.scale". At width w the map spans about ${cols}w km west to east and ${(rows * 0.866).toFixed(1)}w km north to south.
+- One hex covers about 0.866 x w^2 km^2 (w = 50 km: ~2,165 km^2 per hex; w = 100 km: ~8,660 km^2).
+- Convert every stated area into a hex count with that figure, and build to it: a realm the brief puts at 100,000 km^2
+  is ~46 hexes at w = 50 km - not 20, not 90. Convert lengths and distances the same way (600 km at w = 50 km is ~12 hexes).
+- If a base geography already exists, the scale is already fixed by it: use its measured hex counts to find the w
+  that makes the brief's stated sizes match what is drawn, rather than choosing a new one.
+- If the brief's sizes cannot all be met at one scale, honour the most specific and important ones and say in
+  "brief" which you bent and by how much.
+- If the brief gives no size of any kind, do not invent one: reason from proportions and relative positions, and
+  write "No scale given".`;
+}
+
+function rowFormatRules(cols: number, rows: number, kind: 'char' | 'token', format: PromptContext['gridFormat']): string {
+  if (format === 'keyed') {
+    return `OUTPUT FORMAT
+"rows" is an object with one key per grid row: "r0" (northern edge) to "r${rows - 1}" (southern edge). Each row is an
+object with one key per hex: "c0" (western edge) to "c${cols - 1}" (eastern edge), holding that hex's ${kind === 'char' ? 'single character' : 'single code'}.
+Cell cN of row rM is the hex at column N, row M - the same hex that sits at column N of row M in every context
+grid, where the "[n]" anchors show you the column. Keep every feature at its true position.`;
+  }
   return kind === 'char'
     ? `OUTPUT FORMAT
 Return exactly ${rows} strings in "rows", one per grid row from north (row 0) to south (row ${rows - 1}).
 Each string is exactly ${cols} characters long, one character per hex from west (col 0) to east (col ${cols - 1}).
-No spaces, no separators, no row numbers, no commentary inside the strings.`
+No spaces, no separators, no row labels, no "[n]" anchors, no commentary inside the strings.`
     : `OUTPUT FORMAT
 Return exactly ${rows} strings in "rows", one per grid row from north (row 0) to south (row ${rows - 1}).
 Each string holds exactly ${cols} space-separated tokens, one per hex from west (col 0) to east (col ${cols - 1}).
-No row numbers and no commentary inside the strings.`;
+No row labels, no "[n]" anchors and no commentary inside the strings.`;
+}
+
+function polityGridOutput(ctx: PromptContext): string {
+  if (ctx.gridFormat === 'keyed') {
+    return [
+      `"rows" is an object with keys "r0" (north) to "r${ctx.rows - 1}" (south); each row has keys "c0" (west) to "c${ctx.cols - 1}" (east),`,
+      `holding the polity key that owns that hex, or "${POLITY_UNCLAIMED}" for unclaimed. Cell cN of row rM is the hex at`,
+      'column N, row M in the context grids - use their "[n]" anchors to keep every border at its true position.',
+    ].join('\n');
+  }
+  return [
+    `Return ${ctx.rows} row strings of exactly ${ctx.cols} characters, one polity key per hex, "${POLITY_UNCLAIMED}" for unclaimed.`,
+    'No spaces, no separators, no row labels, no "[n]" anchors.',
+  ].join('\n');
 }
 
 function descriptionBlock(description: string): string {
@@ -133,6 +200,77 @@ function section(title: string, lines: string[]): string {
   return `${title}\n${lines.join('\n')}`;
 }
 
+/* ------------------------------------------------------------ context grids */
+
+/**
+ * Context grids are shown with row labels and column anchors (see `gridView`),
+ * plus the totals measured from the data. Counting a grid is exactly what a
+ * model is bad at and code is perfect at, and those totals are what a stated
+ * area has to be checked against - "the brief says a third of the continent is
+ * desert" means nothing without knowing how many land hexes there are.
+ */
+function measured<T extends string>(values: (T | null | undefined)[], order: readonly T[], label = (v: T) => v as string): string {
+  const counts = tally(values);
+  const parts = order.filter((v) => counts.has(v)).map((v) => `${label(v)} ${counts.get(v)}`);
+  return `Measured hex counts: ${parts.join(', ') || 'none'}.`;
+}
+
+const LAND_VALUES: BaseGeo[] = ['Land', 'Coastal Land', 'Island'];
+
+function baseGrid(ctx: PromptContext, title = 'BASE GEOGRAPHY'): string {
+  const base = ctx.base!;
+  const land = base.filter((v) => LAND_VALUES.includes(v)).length;
+  return section(title, [
+    BASE_LEGEND,
+    `${measured(base, BASE_GEO_VALUES)} Land-type hexes (Land + Coastal Land + Island): ${land} of ${base.length}.`,
+    ...gridView(encodeBase(base, ctx.cols, ctx.rows), 'char'),
+  ]);
+}
+
+function elevationGrid(ctx: PromptContext, title = 'ELEVATION'): string {
+  return section(title, [
+    ELEVATION_LEGEND,
+    measured(ctx.elevation!, ELEVATION_VALUES),
+    ...gridView(encodeElevation(ctx.elevation!, ctx.cols, ctx.rows), 'char'),
+  ]);
+}
+
+function climateGrid(ctx: PromptContext, title = 'CLIMATE'): string {
+  return section(title, [
+    measured(ctx.climate!, CLIMATE_VALUES),
+    ...gridView(encodeClimate(ctx.climate!, ctx.cols, ctx.rows), 'token'),
+  ]);
+}
+
+function vegetationGrid(ctx: PromptContext, title = 'VEGETATION (two-letter codes)'): string {
+  return section(title, [
+    measured(ctx.vegetation!, VEGETATION_VALUES, (v) => `${VEGETATION_CODES[v]} (${v})`),
+    ...gridView(encodeVegetation(ctx.vegetation!, ctx.cols, ctx.rows), 'token'),
+  ]);
+}
+
+function populationGrid(ctx: PromptContext, title = 'POPULATION'): string {
+  const total = ctx.population!.reduce<number>((sum, v) => sum + (v ?? 0), 0);
+  return section(title, [
+    `Measured rural total: ${total.toLocaleString('en-US')}.`,
+    ...gridView(encodePopulation(ctx.population!, ctx.cols, ctx.rows), 'token'),
+  ]);
+}
+
+function polityGrid(ctx: PromptContext, title: string, withColours: boolean): string {
+  const polities = ctx.polities!;
+  const keyOf = new Map(polities.polities.map((p, i) => [p.id, keyAt(i)]));
+  const counts = tally(polities.owner);
+  return section(title, [
+    ...polities.polities.map(
+      (p, i) =>
+        `${keyAt(i)} = ${p.name}${withColours ? ` (${p.colour})` : ''} - ${counts.get(p.id) ?? 0} hexes`,
+    ),
+    `${POLITY_UNCLAIMED} = unclaimed`,
+    ...gridView(encodePolityRows(polities.owner, keyOf, ctx.cols, ctx.rows), 'char'),
+  ]);
+}
+
 const RECORD_YOUR_DECISIONS = `RECORD YOUR DECISIONS
 Along with the layer, return the 3 to 8 decisions that most shaped it, in "decisions". This is read
 by the person whose world this is, and it is the only record of why the map looks the way it does.
@@ -148,11 +286,22 @@ by the person whose world this is, and it is the only record of why the map look
   decision is actually about; leave it empty for decisions about the map as a whole.
 - Be specific and be brief. Three good sentences beat a paragraph of hedging.`;
 
-const HOUSE_STYLE = `HOW TO WORK
-- Think about the map as a whole before writing any row. Geography is continuous: coastlines, ranges, climate belts and borders are large connected shapes, not per-hex noise.
+const HOUSE_STYLE = `THE BRIEF COMES FIRST
+The brief is the user's specification, not a source of inspiration. Everything else in this prompt - typical sizes,
+usual placements, suggested counts, default proportions, "usually" and "rarely" - is a default for where the brief is
+silent. Where the brief is specific (a size, an area, a distance, a position, a count, a named feature, something
+that must not exist), it overrides those defaults every time. A layer that contradicts a specific statement in the
+brief is wrong, however plausible it looks.
+
+Before writing any of the layer, fill in "brief": the scale, and every statement in the brief that bears on this
+layer, each turned into a concrete target on this grid - a hex count, a place given by rows and columns, a relative
+size. Then build the layer to meet those targets, and check it against them before you finish.
+
+HOW TO WORK
+- Think about the map as a whole before writing any of it. Geography is continuous: coastlines, ranges, climate belts and borders are large connected shapes, not per-hex noise.
 - Never produce speckle - isolated single hexes of one value scattered through a field of another - unless the brief explicitly calls for it (an archipelago, an oasis chain).
-- Count your cells. Every row must have exactly the required number of entries; a row that is one cell short silently shifts an entire band of the map.
-- Follow the brief where it is specific; where it is silent, make a decision that is plausible and interesting rather than uniform.`;
+- Keep positions exact. Read where things are from the row labels and "[n]" column anchors in the context grids, not by counting characters, and put each value at the same row and column as the hex it describes.
+- Where the brief is silent, make a decision that is plausible and interesting rather than uniform.`;
 
 /* -------------------------------------------------------------------- base */
 
@@ -178,13 +327,13 @@ function basePrompt(ctx: PromptContext): BuiltPrompt {
     section('GEOGRAPHIC SENSE', [
       '- Coastlines are continuous and irregular: bays, peninsulas, headlands. Not a rectangle of land in a rectangle of sea.',
       '- Seas connect to the map edge. An enclosed body of water surrounded by land is a Lake, however large.',
-      '- Lakes sit inland, usually in lowlands or between highlands, and are small - one to a few hexes.',
+      '- Lakes sit inland, usually in lowlands or between highlands, and are small - one to a few hexes - unless the brief makes one larger.',
       '- Ice belongs at the northern or southern edge of the map, or on high ground if the brief says so.',
       '- Islands cluster: chains, arcs off a coast, scatterings in a strait. A lone Island hex in mid-ocean is rare.',
       '- If the brief gives no land/water balance, aim for roughly half the map as land.',
     ]),
     '',
-    rowFormatRules(ctx.cols, ctx.rows, 'char'),
+    rowFormatRules(ctx.cols, ctx.rows, 'char', ctx.gridFormat),
     '',
     HOUSE_STYLE,
     '',
@@ -195,7 +344,7 @@ function basePrompt(ctx: PromptContext): BuiltPrompt {
   if (ctx.instruction && ctx.base) {
     parts.push(
       '',
-      section('CURRENT BASE GEOGRAPHY', encodeBase(ctx.base, ctx.cols, ctx.rows)),
+      baseGrid(ctx, 'CURRENT BASE GEOGRAPHY'),
       '',
       editBlock(ctx.instruction, 'base'),
     );
@@ -244,7 +393,7 @@ function elevationPrompt(ctx: PromptContext): BuiltPrompt {
       '- Island hexes: use Lowland unless the brief describes those islands as mountainous.',
     ]),
     '',
-    rowFormatRules(ctx.cols, ctx.rows, 'char'),
+    rowFormatRules(ctx.cols, ctx.rows, 'char', ctx.gridFormat),
     '',
     'A hex that is not Land, Coastal Land or Island MUST be "." in your output.',
     '',
@@ -256,15 +405,12 @@ function elevationPrompt(ctx: PromptContext): BuiltPrompt {
   const parts = [
     descriptionBlock(ctx.description),
     '',
-    section('BASE GEOGRAPHY (one character per hex)', [
-      BASE_LEGEND,
-      ...encodeBase(ctx.base!, ctx.cols, ctx.rows),
-    ]),
+    baseGrid(ctx),
   ];
   if (ctx.instruction && ctx.elevation) {
     parts.push(
       '',
-      section('CURRENT ELEVATION', encodeElevation(ctx.elevation, ctx.cols, ctx.rows)),
+      elevationGrid(ctx, 'CURRENT ELEVATION'),
       '',
       editBlock(ctx.instruction, 'elevation'),
     );
@@ -317,7 +463,7 @@ function climatePrompt(ctx: PromptContext): BuiltPrompt {
       '- Sea, Lake and Ice hexes get no value.',
     ]),
     '',
-    rowFormatRules(ctx.cols, ctx.rows, 'token'),
+    rowFormatRules(ctx.cols, ctx.rows, 'token', ctx.gridFormat),
     '',
     HOUSE_STYLE,
     '',
@@ -327,18 +473,18 @@ function climatePrompt(ctx: PromptContext): BuiltPrompt {
   const parts = [
     descriptionBlock(ctx.description),
     '',
-    section('BASE GEOGRAPHY', [BASE_LEGEND, ...encodeBase(ctx.base!, ctx.cols, ctx.rows)]),
+    baseGrid(ctx),
   ];
   if (ctx.elevation) {
     parts.push(
       '',
-      section('ELEVATION', [ELEVATION_LEGEND, ...encodeElevation(ctx.elevation, ctx.cols, ctx.rows)]),
+      elevationGrid(ctx),
     );
   }
   if (ctx.instruction && ctx.climate) {
     parts.push(
       '',
-      section('CURRENT CLIMATE', encodeClimate(ctx.climate, ctx.cols, ctx.rows)),
+      climateGrid(ctx, 'CURRENT CLIMATE'),
       '',
       editBlock(ctx.instruction, 'climate'),
     );
@@ -396,7 +542,7 @@ function vegetationPrompt(ctx: PromptContext): BuiltPrompt {
       '- Mountains carry little: Tundra, Scrubland, Coniferous Forest on the flanks. Never a Breadbasket.',
     ]),
     '',
-    rowFormatRules(ctx.cols, ctx.rows, 'token'),
+    rowFormatRules(ctx.cols, ctx.rows, 'token', ctx.gridFormat),
     '',
     HOUSE_STYLE,
     '',
@@ -406,13 +552,13 @@ function vegetationPrompt(ctx: PromptContext): BuiltPrompt {
   const parts = [
     descriptionBlock(ctx.description),
     '',
-    section('BASE GEOGRAPHY', [BASE_LEGEND, ...encodeBase(ctx.base!, ctx.cols, ctx.rows)]),
+    baseGrid(ctx),
   ];
   if (ctx.elevation) {
-    parts.push('', section('ELEVATION', [ELEVATION_LEGEND, ...encodeElevation(ctx.elevation, ctx.cols, ctx.rows)]));
+    parts.push('', elevationGrid(ctx));
   }
   if (ctx.climate) {
-    parts.push('', section('CLIMATE', encodeClimate(ctx.climate, ctx.cols, ctx.rows)));
+    parts.push('', climateGrid(ctx));
   } else {
     parts.push(
       '',
@@ -441,7 +587,7 @@ function vegetationPrompt(ctx: PromptContext): BuiltPrompt {
   if (ctx.instruction && ctx.vegetation) {
     parts.push(
       '',
-      section('CURRENT VEGETATION', encodeVegetation(ctx.vegetation, ctx.cols, ctx.rows)),
+      vegetationGrid(ctx, 'CURRENT VEGETATION'),
       '',
       editBlock(ctx.instruction, 'vegetation'),
     );
@@ -492,7 +638,8 @@ function riversPrompt(ctx: PromptContext): BuiltPrompt {
       '- Longer rivers gather in valleys and lowlands; short torrents run straight off coastal ranges.',
       '- Do not run two rivers along the same hexes for their whole length. Tributaries may join a trunk river:',
       '  model a tributary as its own river whose path meets the trunk and then follows it to the sea.',
-      `- Aim for about ${suggested} named rivers on a map this size, of varied length. Quality over quantity.`,
+      `- Unless the brief says how many rivers there are, aim for about ${suggested} named rivers on a map this size, of varied`,
+      '  length. Every river the brief names must appear, running where the brief says and at the length it gives.',
     ]),
     '',
     section('NAVIGABILITY', [
@@ -511,10 +658,10 @@ function riversPrompt(ctx: PromptContext): BuiltPrompt {
   const parts = [
     descriptionBlock(ctx.description),
     '',
-    section('BASE GEOGRAPHY', [BASE_LEGEND, ...encodeBase(ctx.base!, ctx.cols, ctx.rows)]),
+    baseGrid(ctx),
   ];
   if (ctx.elevation) {
-    parts.push('', section('ELEVATION', [ELEVATION_LEGEND, ...encodeElevation(ctx.elevation, ctx.cols, ctx.rows)]));
+    parts.push('', elevationGrid(ctx));
   }
   if (ctx.instruction && ctx.rivers) {
     parts.push(
@@ -554,12 +701,13 @@ function citiesPrompt(ctx: PromptContext): BuiltPrompt {
       '  of regional centres, and a larger number of small towns.',
       '- Typical ranges: great capital 60,000-250,000; regional centre 15,000-60,000; market town 3,000-15,000;',
       '  frontier or mining town 800-3,000. Shift the whole scale if the brief describes an unusually rich or',
-      '  sparse world, and say so in your notes.',
+      '  sparse world, and say so in your notes. A population the brief states is used as given.',
       '- This is the city population only. The surrounding rural population is a separate layer.',
     ]),
     '',
-    `Place between ${lo} and ${hi} settlements on a map this size. Name them in a style consistent with the brief,`,
-    'and keep the naming of nearby cities culturally consistent with each other.',
+    `Unless the brief says how many settlements there are, place between ${lo} and ${hi} on a map this size. Every city`,
+    'the brief names must appear, where the brief puts it and at any population it gives. Name the rest in a style',
+    'consistent with the brief, and keep the naming of nearby cities culturally consistent with each other.',
     '',
     'Do not report whether a city is coastal or on a river: that is derived from the map itself.',
     '',
@@ -571,14 +719,14 @@ function citiesPrompt(ctx: PromptContext): BuiltPrompt {
   const parts = [
     descriptionBlock(ctx.description),
     '',
-    section('BASE GEOGRAPHY', [BASE_LEGEND, ...encodeBase(ctx.base!, ctx.cols, ctx.rows)]),
+    baseGrid(ctx),
   ];
   if (ctx.elevation) {
-    parts.push('', section('ELEVATION', [ELEVATION_LEGEND, ...encodeElevation(ctx.elevation, ctx.cols, ctx.rows)]));
+    parts.push('', elevationGrid(ctx));
   }
-  if (ctx.climate) parts.push('', section('CLIMATE', encodeClimate(ctx.climate, ctx.cols, ctx.rows)));
+  if (ctx.climate) parts.push('', climateGrid(ctx));
   if (ctx.vegetation) {
-    parts.push('', section('VEGETATION (two-letter codes)', encodeVegetation(ctx.vegetation, ctx.cols, ctx.rows)));
+    parts.push('', vegetationGrid(ctx));
   }
   if (ctx.rivers && ctx.rivers.rivers.length > 0) {
     parts.push('', section('RIVERS', riverSummary(ctx.rivers)));
@@ -637,8 +785,10 @@ function politiesPrompt(ctx: PromptContext): BuiltPrompt {
       'Declare each polity with a single-character key (A, B, C, ...), a name and a hex colour.',
       'Choose colours that are clearly distinguishable from each other and readable against a map: mid-saturation,',
       'not near-black and not near-white, and not two similar hues side by side on the map.',
-      `Then return ${ctx.rows} row strings of exactly ${ctx.cols} characters, one key per hex, "${POLITY_UNCLAIMED}" for unclaimed.`,
-      'No spaces, no separators.',
+      'Give each polity "hexes": how many land hexes it should hold - converted from its area with the scale where the',
+      'brief gives one, otherwise your judgement of its size against the measured land total. Then draw it to that size.',
+      '',
+      polityGridOutput(ctx),
     ]),
     '',
     HOUSE_STYLE,
@@ -649,10 +799,10 @@ function politiesPrompt(ctx: PromptContext): BuiltPrompt {
   const parts = [
     descriptionBlock(ctx.description),
     '',
-    section('BASE GEOGRAPHY', [BASE_LEGEND, ...encodeBase(ctx.base!, ctx.cols, ctx.rows)]),
+    baseGrid(ctx),
   ];
   if (ctx.elevation) {
-    parts.push('', section('ELEVATION', [ELEVATION_LEGEND, ...encodeElevation(ctx.elevation, ctx.cols, ctx.rows)]));
+    parts.push('', elevationGrid(ctx));
   }
   if (ctx.rivers && ctx.rivers.rivers.length > 0) {
     parts.push('', section('RIVERS', riverSummary(ctx.rivers)));
@@ -667,17 +817,9 @@ function politiesPrompt(ctx: PromptContext): BuiltPrompt {
     );
   }
   if (ctx.instruction && ctx.polities) {
-    const keyOf = new Map(
-      ctx.polities.polities.map((p, i) => [p.id, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'[i] ?? '?']),
-    );
     parts.push(
       '',
-      section('CURRENT POLITIES', [
-        ...ctx.polities.polities.map(
-          (p, i) => `${'ABCDEFGHIJKLMNOPQRSTUVWXYZ'[i] ?? '?'} = ${p.name} (${p.colour})`,
-        ),
-        ...encodePolityRows(ctx.polities.owner, keyOf, ctx.cols, ctx.rows),
-      ]),
+      polityGrid(ctx, 'CURRENT POLITIES', true),
       '',
       editBlock(ctx.instruction, 'polities'),
     );
@@ -700,7 +842,7 @@ function populationPrompt(ctx: PromptContext): BuiltPrompt {
       'This EXCLUDES the population of any city in the hex - those are counted separately. A hex containing a great',
       'city still gets a rural figure for the farms and villages around it (usually a high one, because a city feeds',
       'itself from its own hinterland).',
-      'Sea, Lake and Ice hexes get "-".',
+      ctx.gridFormat === 'keyed' ? 'Sea, Lake and Ice hexes get 0.' : 'Sea, Lake and Ice hexes get "-".',
     ]),
     '',
     section('WHAT DRIVES IT', [
@@ -711,16 +853,16 @@ function populationPrompt(ctx: PromptContext): BuiltPrompt {
       '- Then climate: temperate and subtropical hexes support more than arid or polar ones.',
       '- Then rule: settled polities are more densely populated than unclaimed wilderness.',
       '',
-      'Infer absolute per-hex figures only from a physical scale supplied or clearly entailed by the brief.',
-      'If no physical scale is available, keep figures internally consistent with the relative carrying capacity',
-      'of the terrain and state in your notes that the totals use an unspecified regional scale; do not invent a',
-      'distance or area for each hex.',
+      'Size the figures to the scale: a hex of ~2,000 km^2 of good farmland holds far more people than one of',
+      '~200 km^2. If the brief states a population (for the world, a region or a realm), the hexes it covers must add',
+      'up to it, less the city populations listed. If there is no scale, keep figures consistent with the relative',
+      'carrying capacity of the terrain and say in your notes that the totals use an unspecified regional scale.',
     ]),
     '',
     '- Population is a smooth field: neighbouring hexes of similar land should hold similar numbers. Do not produce',
     '  wild hex-to-hex swings, and do not repeat one round number across a whole region.',
     '',
-    rowFormatRules(ctx.cols, ctx.rows, 'token'),
+    rowFormatRules(ctx.cols, ctx.rows, 'token', ctx.gridFormat),
     '',
     HOUSE_STYLE,
     '',
@@ -730,14 +872,14 @@ function populationPrompt(ctx: PromptContext): BuiltPrompt {
   const parts = [
     descriptionBlock(ctx.description),
     '',
-    section('BASE GEOGRAPHY', [BASE_LEGEND, ...encodeBase(ctx.base!, ctx.cols, ctx.rows)]),
+    baseGrid(ctx),
   ];
   if (ctx.elevation) {
-    parts.push('', section('ELEVATION', [ELEVATION_LEGEND, ...encodeElevation(ctx.elevation, ctx.cols, ctx.rows)]));
+    parts.push('', elevationGrid(ctx));
   }
-  if (ctx.climate) parts.push('', section('CLIMATE', encodeClimate(ctx.climate, ctx.cols, ctx.rows)));
+  if (ctx.climate) parts.push('', climateGrid(ctx));
   if (ctx.vegetation) {
-    parts.push('', section('VEGETATION', encodeVegetation(ctx.vegetation, ctx.cols, ctx.rows)));
+    parts.push('', vegetationGrid(ctx));
   }
   if (ctx.rivers && ctx.rivers.rivers.length > 0) {
     parts.push('', section('RIVERS', riverSummary(ctx.rivers)));
@@ -761,21 +903,12 @@ function populationPrompt(ctx: PromptContext): BuiltPrompt {
     );
   }
   if (ctx.polities && ctx.polities.polities.length > 0) {
-    const keyOf = new Map(
-      ctx.polities.polities.map((p, i) => [p.id, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'[i] ?? '?']),
-    );
-    parts.push(
-      '',
-      section('POLITIES', [
-        ...ctx.polities.polities.map((p, i) => `${'ABCDEFGHIJKLMNOPQRSTUVWXYZ'[i] ?? '?'} = ${p.name}`),
-        ...encodePolityRows(ctx.polities.owner, keyOf, ctx.cols, ctx.rows),
-      ]),
-    );
+    parts.push('', polityGrid(ctx, 'POLITIES', false));
   }
   if (ctx.instruction && ctx.population) {
     parts.push(
       '',
-      section('CURRENT POPULATION', encodePopulation(ctx.population, ctx.cols, ctx.rows)),
+      populationGrid(ctx, 'CURRENT POPULATION'),
       '',
       editBlock(ctx.instruction, 'population'),
     );
@@ -804,13 +937,19 @@ function politiesRosterPrompt(ctx: PromptContext): BuiltPrompt {
       'between the polities you name here, so name them with that in mind: give a sense of where each one sits and',
       'how big it is in your decisions, and the border pass will follow it.',
       'Let the brief, geography, settlement pattern and plausible political fragmentation determine how many',
-      'polities exist. Do not default to eight or any other fixed target. Give them clearly different sizes, including',
-      'major powers and smaller realms where the map supports them. Leave room for unclaimed wilderness - a map',
-      'where every hex is owned looks like a modern state system, not a pre-modern one.',
+      'polities exist. Do not default to eight or any other fixed target. Every polity the brief names must be on the',
+      'roster. Give them clearly different sizes, including major powers and smaller realms where the map supports',
+      'them. Leave room for unclaimed wilderness - a map where every hex is owned looks like a modern state system,',
+      'not a pre-modern one.',
     ]),
     '',
+    scaleRules(ctx.cols, ctx.rows),
+    '',
     section('OUTPUT', [
-      'Declare each polity with a single-character key (A, B, C, ... in order), a name and a hex colour.',
+      'Declare each polity with a single-character key (A, B, C, ... in order), a name, a hex colour, and "hexes": the',
+      'number of land hexes it should hold. Where the brief gives its area, convert it with the scale; where the brief',
+      'gives a relative size ("the largest kingdom", "a third of the continent"), work it out from the measured land',
+      'total. The border pass draws each polity to this number, and the map is checked against it, so it is binding.',
       'Choose colours that are clearly distinguishable from each other and readable against a map: mid-saturation,',
       'not near-black and not near-white, and not two similar hues side by side.',
     ]),
@@ -852,14 +991,13 @@ function politiesPaintPrompt(ctx: PromptContext, roster: Roster | null): BuiltPr
       '- Borders follow features people can see and defend: rivers, mountain crests, the far side of a desert, a coast.',
       '- Polities are shaped by their cities: a capital sits inside its own territory, usually well within it.',
       '- Leave genuinely hostile or remote country unclaimed - deep desert, high mountains, ice, far wilderness.',
-      '- Respect the relative sizes implied by the roster: a great power should cover visibly more ground than a',
-      '  minor realm.',
+      '- Draw each polity to the number of hexes the roster gives it, within about a fifth, unless an edit instruction',
+      '  below asks for a change of size. The result is measured against those numbers and every polity that misses is',
+      '  reported to the user. Where the roster gives no number,',
+      '  respect the relative sizes it implies: a great power covers visibly more ground than a minor realm.',
     ]),
     '',
-    section('OUTPUT', [
-      `Return ${ctx.rows} row strings of exactly ${ctx.cols} characters, one polity key per hex,`,
-      `"${POLITY_UNCLAIMED}" for unclaimed. No spaces, no separators.`,
-    ]),
+    section('OUTPUT', [polityGridOutput(ctx)]),
     '',
     HOUSE_STYLE,
     '',
@@ -872,7 +1010,10 @@ function politiesPaintPrompt(ctx: PromptContext, roster: Roster | null): BuiltPr
     section(
       'THE POLITIES (fixed - use exactly these keys)',
       entries.length > 0
-        ? entries.map((e) => `${e.key} = ${e.name}${e.colour ? ` (${e.colour})` : ''}`)
+        ? entries.map(
+            (e) =>
+              `${e.key} = ${e.name}${e.colour ? ` (${e.colour})` : ''}${e.hexes ? ` - draw to about ${e.hexes} hexes` : ''}`,
+          )
         : ['(none supplied)'],
     ),
     '',
@@ -893,11 +1034,14 @@ function riversRosterPrompt(ctx: PromptContext): BuiltPrompt {
     section('WHAT YOU ARE DOING', [
       'This is the first of two passes. Decide WHAT rivers this map has - their names and roughly where each one',
       'runs - and nothing else. Do not return any hex coordinates; a later pass traces the actual paths.',
-      `Aim for about ${suggested} named rivers on a map this size, of varied length. Quality over quantity.`,
+      `Unless the brief says how many rivers there are, aim for about ${suggested} named rivers on a map this size, of varied`,
+      'length. Every river the brief names must appear, running where the brief says and at the length it gives.',
       'Every river must rise in high ground and end at a Sea, a Lake, or the edge of the map. Say which, for each.',
       'Longer rivers gather in valleys and lowlands; short torrents run straight off coastal ranges.',
       'Name rivers in a style consistent with the brief.',
     ]),
+    '',
+    scaleRules(ctx.cols, ctx.rows),
     '',
     section('OUTPUT', [
       'For each river give a name and a "course": one clause saying where it rises, roughly which way it runs, and',
@@ -982,9 +1126,9 @@ function riversPathsPrompt(ctx: PromptContext, roster: Roster | null): BuiltProm
 
 /** Base geography, plus whatever else the map has, as the pass prompts show it. */
 function geographyContext(ctx: PromptContext): string[] {
-  const parts = [section('BASE GEOGRAPHY', [BASE_LEGEND, ...encodeBase(ctx.base!, ctx.cols, ctx.rows)])];
+  const parts = [baseGrid(ctx)];
   if (ctx.elevation) {
-    parts.push('', section('ELEVATION', [ELEVATION_LEGEND, ...encodeElevation(ctx.elevation, ctx.cols, ctx.rows)]));
+    parts.push('', elevationGrid(ctx));
   }
   if (ctx.rivers && ctx.rivers.rivers.length > 0) {
     parts.push('', section('RIVERS', riverSummary(ctx.rivers)));

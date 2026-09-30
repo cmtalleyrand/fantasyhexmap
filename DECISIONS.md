@@ -467,3 +467,73 @@ prose — and a validator that has to name the field that was wrong rather than 
 the fix is for the user to relay it. And the decision record has to record these as imported: it
 already refuses to credit the AI with a choice the user made, and crediting this app's model with a
 choice made somewhere else would be the same lie.
+
+---
+
+# Holding the model to the grid and to the brief
+
+Added after every layer past the base one failed as "malformed data", and then, once that was fixed,
+after the layers that did arrive came back with rows a cell or two short and with sizes the brief
+stated plainly ignored.
+
+## 28. A grid is returned cell by cell, because a model cannot count characters
+
+**Chosen.** Over the API, every grid is a keyed object - `{"r0": {"c0": ..., "c1": ...}, ...}` - in
+which every row and every cell is a required property with an enumerated value. The pipeline flattens
+it back into row strings straight after parsing, so the decoders are unchanged. The webchat path keeps
+row strings.
+
+**Why.** §2's row strings were chosen to keep output small, and they did, but nothing enforced their
+length: the API's constrained decoding does not support string lengths or item counts above one, and
+the SDK silently moves those constraints into the field descriptions. The model was therefore relying
+on counting, and it cannot count characters it does not see: "LLLL" and "~~~~~~" arrive as single
+tokens of lengths it has to infer. Rows came back short in bands wherever the terrain had long uniform
+runs, and every short row shifted a band of the map sideways. Required properties are something the
+grammar does enforce, so the size is now guaranteed rather than requested. Naming each cell also tells
+the model which column it is writing.
+
+**What it costs.** Output tokens: about five per cell, so roughly 6,500 for a 36×36 layer and 12,500
+for a 50×50 one, against a few hundred before. The row definition is shared through `$ref`, so the
+schema itself stays a few kilobytes whatever the grid size. If the API ever refuses the schema, the
+layer is generated as row strings instead and the user is told the size was not enforced.
+
+## 29. Context grids carry anchors and measured totals
+
+**Chosen.** Every grid shown to the model has row labels, a `[n]` column anchor every five cells, and
+the hex counts per value computed by code.
+
+**Why.** The same tokenisation problem applies on the way in: working out what sits at column 23 of a
+36-character string is a count. With anchors it is a lookup. The totals matter for the brief: "a third
+of the continent is desert" or "the kingdom covers 250,000 km²" can only be honoured against a known
+number of land hexes, and that is a number code gets right and a model does not.
+
+## 30. The brief outranks the prompt, and its sizes are converted, not admired
+
+**Chosen.** Every prompt says that the brief overrides every default in it (typical counts, sizes and
+placements), and spells out the arithmetic for turning stated sizes into hexes. Every response opens
+with a `brief` object - the scale, and each requirement bearing on the layer as a concrete target -
+which constrained decoding writes before the grid and which is shown to the user in the decision
+record. Polity rosters carry a target hex count to the paint pass, and a polity drawn more than a fifth
+off its target is reported.
+
+**What went wrong.** The scale rule told the model not to assume a scale unless the brief "states or
+clearly entails one", and gave it no method when it did, so stated areas had nowhere to go. The
+defaults ("aim for about 8 rivers", "place between 10 and 30 settlements", "lakes are one to a few
+hexes") were stated as flatly as the brief and read as equally binding. And the roster pass was asked
+to "give a sense of how big each polity is" in its decisions, which the paint pass never received.
+
+## 31. Effort back to high
+
+**Chosen.** Default effort `high` and a 96,000-token task budget, reversing the cut in §24. Saved
+settings that still hold the old defaults exactly are refreshed; anything else a user set is kept.
+
+**Why.** §24 was right that a long think could run off the end of the response, and §25's retry at
+lower effort was the safety net. That net never caught anything: the SDK's structured-output parser
+turned every truncated response into a JSON syntax error before the truncation check could see it.
+With that fixed, a `high` run that overruns is retried at `medium` automatically, and the depth a
+whole-map spatial problem needs no longer has to be given up to avoid a failure that is now recovered.
+The keyed grids of §28 also make the answer itself far larger, which the old 40,000 budget could not
+absorb.
+
+**What it costs.** More tokens per layer, and a slower first attempt. `medium` is one setting away.
+

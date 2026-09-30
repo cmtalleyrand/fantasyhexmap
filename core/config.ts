@@ -15,13 +15,17 @@ export const DEFAULT_MODEL = 'claude-opus-5';
 /**
  * Default reasoning depth.
  *
- * This was `high`, which is what made a 30x30 polity generation fail: thinking
- * is on by default on this model and reasoning tokens are output tokens, so a
- * high-effort think on a 900-hex partition could spend the entire output budget
- * before writing any of the answer. `medium` plus an explicit task budget lands
- * the answer; anyone who wants the old behaviour can raise it in Settings.
+ * This was cut from `high` to `medium` when a 30x30 polity generation ran out
+ * of output tokens mid-thought. That diagnosis was right, but the cut was paid
+ * for in exactly what users then complained about - areas the brief stated
+ * ignored, explicit constraints missed - and the safety net meant to catch a
+ * too-long think never actually ran: the SDK's structured-output parser turned
+ * every truncated response into a "malformed JSON" error before the truncation
+ * retry could see it. With that fixed, a `high` run that does overrun is retried
+ * automatically one level down, so the default can go back to the depth a
+ * whole-map spatial problem needs.
  */
-export const DEFAULT_EFFORT: Effort = 'medium';
+export const DEFAULT_EFFORT: Effort = 'high';
 
 /**
  * Hard output cap per generation, covering reasoning and answer together.
@@ -41,10 +45,16 @@ export const MAX_TOKENS = 128000;
  *
  * Unlike MAX_TOKENS, the model is told how much of this is left while it works,
  * so it winds up its reasoning and produces a complete answer instead of being
- * truncated. This is the actual fix for "hit the output token limit"; the cap
- * above is just headroom behind it.
+ * truncated. It covers reasoning and answer together, and the answer is no
+ * longer small: a grid now comes back cell by cell (see core/grid.ts), which is
+ * roughly 12,000 tokens for a 50x50 layer. 40,000 left too little room to think
+ * about a detailed brief on a large map; 96,000 leaves ample reasoning room and
+ * still sits well inside the hard cap.
  */
-export const DEFAULT_TASK_BUDGET = 40000;
+export const DEFAULT_TASK_BUDGET = 96000;
+
+/** The defaults before this version, for recognising prefs nobody chose. */
+export const PREVIOUS_DEFAULTS = { effort: 'medium' as Effort, taskBudget: 40000 };
 
 /** The API rejects a task budget below this. */
 export const MIN_TASK_BUDGET = 20000;

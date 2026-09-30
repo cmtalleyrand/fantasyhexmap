@@ -23,6 +23,15 @@ export interface DecodeResult<T> {
   warnings: string[];
 }
 
+/**
+ * Drop the row label and "[n]" column anchors the prompts put on context grids
+ * (see `gridView` in core/grid.ts). A reply that imitates that layout instead of
+ * the plain rows it was asked for is still unambiguous, so accept it.
+ */
+export function stripGridView(line: string): string {
+  return line.replace(/^\s*r\d+\s*:/, '').replace(/\[\d+\]/g, ' ').replace(/\|/g, ' ');
+}
+
 /* ------------------------------------------------------------------ base */
 
 export const BASE_CHARS: Record<BaseGeo, string> = {
@@ -65,7 +74,7 @@ export function decodeBase(
   }
   let badChars = 0;
   for (let r = 0; r < rows; r++) {
-    const line = (lines[r] ?? '').replace(/\s+/g, '');
+    const line = stripGridView(lines[r] ?? '').replace(/\s+/g, '');
     if (lines[r] !== undefined && line.length !== cols) {
       warnings.push(
         `Row ${r} had ${line.length} cells, expected ${cols}; padded or truncated.`,
@@ -130,7 +139,7 @@ export function decodeElevation(
   }
   let bad = 0;
   for (let r = 0; r < rows; r++) {
-    const line = (lines[r] ?? '').replace(/\s+/g, '');
+    const line = stripGridView(lines[r] ?? '').replace(/\s+/g, '');
     if (lines[r] !== undefined && line.length !== cols) {
       warnings.push(`Row ${r} had ${line.length} cells, expected ${cols}; padded or truncated.`);
     }
@@ -180,7 +189,7 @@ function decodeTokens<T extends string>(
   for (let r = 0; r < rows; r++) {
     const raw = lines[r];
     if (raw === undefined) continue;
-    const cells = raw.trim().split(/\s+/).filter((s) => s.length > 0);
+    const cells = stripGridView(raw).trim().split(/\s+/).filter((s) => s.length > 0);
     if (cells.length !== cols) {
       warnings.push(
         `Row ${r} of ${label} had ${cells.length} cells, expected ${cols}.`,
@@ -300,7 +309,7 @@ export function decodePopulation(
   for (let r = 0; r < rows; r++) {
     const raw = lines[r];
     if (raw === undefined) continue;
-    const cells = raw.trim().split(/\s+/).filter((s) => s.length > 0);
+    const cells = stripGridView(raw).trim().split(/\s+/).filter((s) => s.length > 0);
     if (cells.length !== cols) {
       warnings.push(`Row ${r} of population had ${cells.length} cells, expected ${cols}.`);
     }
