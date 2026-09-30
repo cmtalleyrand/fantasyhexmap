@@ -15,6 +15,7 @@ import {
   DEFAULT_EFFORT,
   DEFAULT_MODEL,
   DEFAULT_TASK_BUDGET,
+  PREVIOUS_DEFAULTS,
   type Effort,
 } from '../../core/config.js';
 
@@ -36,7 +37,16 @@ export interface Prefs {
   /** Use the offline procedural generator instead of calling the API. */
   offline: boolean;
   remember: boolean;
+  /**
+   * Which generation of defaults these prefs were saved under. Prefs saved
+   * before this existed carry the old effort and budget whether or not anyone
+   * chose them, so those two values are refreshed when they still equal the old
+   * defaults exactly.
+   */
+  defaultsVersion?: number;
 }
+
+const DEFAULTS_VERSION = 2;
 
 export const DEFAULT_PREFS: Prefs = {
   model: DEFAULT_MODEL,
@@ -44,6 +54,7 @@ export const DEFAULT_PREFS: Prefs = {
   taskBudget: DEFAULT_TASK_BUDGET,
   offline: false,
   remember: true,
+  defaultsVersion: DEFAULTS_VERSION,
 };
 
 function safeGet(store: Storage | undefined, name: string): string | null {
@@ -117,10 +128,19 @@ export function loadPrefs(): Prefs {
   if (!raw) return { ...DEFAULT_PREFS };
   try {
     const stored = JSON.parse(raw) as Partial<Prefs>;
+    if (
+      (stored.defaultsVersion ?? 1) < DEFAULTS_VERSION &&
+      stored.effort === PREVIOUS_DEFAULTS.effort &&
+      stored.taskBudget === PREVIOUS_DEFAULTS.taskBudget
+    ) {
+      delete stored.effort;
+      delete stored.taskBudget;
+    }
     return {
       ...DEFAULT_PREFS,
       ...stored,
-      taskBudget: clampTaskBudget(stored.taskBudget),
+      taskBudget: clampTaskBudget(stored.taskBudget ?? DEFAULT_PREFS.taskBudget),
+      defaultsVersion: DEFAULTS_VERSION,
     };
   } catch {
     return { ...DEFAULT_PREFS };

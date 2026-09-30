@@ -12,7 +12,7 @@ import { LAYER_META } from '../shared/layers.js';
 import type { GenerateRequest } from './pipeline.js';
 import type { PassSelection } from './passes.js';
 import { canSplit, rosterFromContext } from './passes.js';
-import { normaliseRoster, type Roster } from './rosters.js';
+import { normaliseRoster, targetHexes, type Roster } from './rosters.js';
 import type { PromptContext } from './prompts.js';
 
 const SELECTIONS: PassSelection[] = ['both', 'roster', 'paint'];
@@ -64,6 +64,7 @@ function validateRoster(layer: LayerId, raw: unknown): { error: string } | { ros
             key: '',
             name: String(item.name).trim(),
             colour: typeof item.colour === 'string' ? item.colour.trim() : '',
+            ...targetHexes(item.hexes),
           };
         }),
       }),

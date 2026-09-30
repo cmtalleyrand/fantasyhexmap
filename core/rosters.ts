@@ -25,6 +25,12 @@ export interface PolityRosterEntry {
   key: string;
   name: string;
   colour: string;
+  /**
+   * How many land hexes the polity is meant to hold, when that is known. Set by
+   * the roster pass from the brief, or read off an existing layer; the paint
+   * pass draws to it and the result is checked against it.
+   */
+  hexes?: number;
 }
 
 export interface RiverRosterEntry {
@@ -97,7 +103,12 @@ export function keyAt(index: number): string {
 export function rosterFromPolities(data: PolitiesData): Roster {
   return {
     kind: 'polities',
-    entries: data.polities.map((p, i) => ({ key: keyAt(i), name: p.name, colour: p.colour })),
+    entries: data.polities.map((p, i) => ({
+      key: keyAt(i),
+      name: p.name,
+      colour: p.colour,
+      hexes: data.owner.filter((id) => id === p.id).length,
+    })),
   };
 }
 
@@ -152,6 +163,12 @@ export function parseRoster(kind: RosterKind, input: string): Roster {
   };
 }
 
+/** A usable target size, or nothing: zero, negative and non-numeric all mean "unspecified". */
+export function targetHexes(raw: unknown): { hexes?: number } {
+  const n = typeof raw === 'number' ? raw : Number(raw);
+  return Number.isFinite(n) && n > 0 ? { hexes: Math.round(n) } : {};
+}
+
 function splitOnce(line: string): [string, string] {
   const at = line.indexOf('|');
   if (at === -1) return [line.trim(), ''];
@@ -183,7 +200,7 @@ function tryParseJson(kind: RosterKind, text: string): Roster | null {
         const name = String(item.name ?? '').trim();
         if (!name) throw new RosterParseError(`Entry ${i + 1} has no name.`);
         const key = String(item.key ?? '').trim().charAt(0) || keyAt(i);
-        return { key, name, colour: String(item.colour ?? '').trim() };
+        return { key, name, colour: String(item.colour ?? '').trim(), ...targetHexes(item.hexes) };
       }),
     };
   }

@@ -22,7 +22,7 @@ test('JSON export is parseable and omits history only when requested', () => {
   assert.equal(withHistory.map.layers.base.past.length, 1);
 });
 
-test('generation prompts do not invent a physical hex scale', () => {
+test('generation prompts derive a scale from the brief and never invent one', () => {
   const map = createMapState('A temperate island realm.', 3, 3);
   map.layers.base.data = Array(9).fill('Land');
   const context = {
@@ -42,6 +42,7 @@ test('generation prompts do not invent a physical hex scale', () => {
   for (const layer of ['base', 'population'] as const) {
     const prompt = buildPrompt(layer, context).system;
     assert.doesNotMatch(prompt, /40 km|1,400 km/i);
-    assert.match(prompt, /do not assume a distance, area, or kilometres-per-hex value/i);
+    assert.match(prompt, /If the brief gives no size of any kind, do not invent one/);
+    assert.match(prompt, /Convert every stated area into a hex count/);
   }
 });

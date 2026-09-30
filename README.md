@@ -45,8 +45,8 @@ layers say so in their notes.
 | `ANTHROPIC_API_KEY` | – | Required unless `HEXMAP_MOCK=1`. |
 | `PORT` | `8787` | Express port; the Vite proxy follows it. |
 | `HEXMAP_MODEL` | `claude-opus-5` | Model used for every layer. |
-| `HEXMAP_EFFORT` | `medium` | `low` … `max`. Lower is cheaper and faster; spatial coherence suffers. |
-| `HEXMAP_TASK_BUDGET` | `40000` | Tokens the model paces its reasoning against. Minimum 20,000. |
+| `HEXMAP_EFFORT` | `high` | `low` … `max`. Lower is cheaper and faster; spatial coherence suffers. |
+| `HEXMAP_TASK_BUDGET` | `96000` | Tokens the model paces its reasoning against. Minimum 20,000. |
 | `HEXMAP_MOCK` | – | `1` to use the offline generator. |
 
 Other scripts: `npm run typecheck` (client and server), `npm run build` (production client bundle),

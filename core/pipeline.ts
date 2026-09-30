@@ -17,7 +17,15 @@ import * as z from 'zod/v4';
 
 import type { Decision, LayerDataMap, LayerId } from '../shared/types.js';
 import type { PromptContext } from './prompts.js';
-import { decodeLayer, extractJsonObject, type ExistingFeatures } from './decode.js';
+import {
+  decodeLayer,
+  extractJsonObject,
+  flattenGrid,
+  withBriefRecorded,
+  type ExistingFeatures,
+} from './decode.js';
+
+export { flattenGrid, withBriefRecorded } from './decode.js';
 import { mockLayer } from './mock.js';
 import { LAYER_META } from '../shared/layers.js';
 import {
@@ -313,6 +321,17 @@ export function parseResponse<S extends z.ZodType>(
   };
 }
 
+/* ------------------------------------------------------ response shaping */
+
+/**
+ * A 400 that is about the output schema rather than the request as a whole.
+ * Anything else - an unknown model, a bad key - fails exactly as before.
+ */
+function isSchemaRejection(error: unknown): boolean {
+  if (!(error instanceof Anthropic.BadRequestError)) return false;
+  return /schema|grammar|output_config|output format|too (large|complex)/i.test(error.message);
+}
+
 /* ------------------------------------------------------------ the pipeline */
 
 export interface GenerateRequest {
@@ -455,20 +474,38 @@ async function runPasses(
   let roster: Roster | null = req.roster ?? null;
   let rosterParsed: unknown = null;
 
+  // Grids come back keyed cell by cell, which the grammar holds to the exact
+  // size (see core/grid.ts). If the API ever refuses that schema, the layer is
+  // still generated, as row strings, and the user is told what that costs.
+  let grid: 'keyed' | 'rows' = 'keyed';
+
   const call = async (pass: PassId): Promise<unknown> => {
     onProgress({ phase: 'prompting', detail: passes.length > 1 ? passLabel(layer, pass) : undefined });
-    const { system, user } = promptForPass(layer, pass, ctx, roster);
-    const result = await callModel(
-      { ...config, client },
-      schemaForPass(layer, pass, ctx.cols, ctx.rows),
-      system,
-      user,
-      onProgress,
-      signal,
-    );
+    const attempt = async () => {
+      const { system, user } = promptForPass(layer, pass, { ...ctx, gridFormat: grid }, roster);
+      const schema = schemaForPass(layer, pass, ctx.cols, ctx.rows, {
+        grid,
+        polityKeys:
+          pass === 'paint' && roster?.kind === 'polities' ? roster.entries.map((e) => e.key) : undefined,
+      });
+      return callModel({ ...config, client }, schema, system, user, onProgress, signal);
+    };
+
+    let result: Awaited<ReturnType<typeof attempt>>;
+    try {
+      result = await attempt();
+    } catch (error) {
+      if (grid !== 'keyed' || !isSchemaRejection(error)) throw error;
+      grid = 'rows';
+      responseWarnings.push(
+        'The API would not accept the cell-by-cell grid format for this request, so this layer was generated as row strings; row lengths were not enforced and may have been repaired.',
+      );
+      onProgress({ phase: 'retrying', detail: 'Grid format rejected by the API; retrying with row strings.' });
+      result = await attempt();
+    }
     usages.push(result.usage);
     responseWarnings.push(...result.warnings);
-    return result.parsed;
+    return withBriefRecorded(flattenGrid(layer, result.parsed, ctx.cols, ctx.rows));
   };
 
   let combined: unknown;

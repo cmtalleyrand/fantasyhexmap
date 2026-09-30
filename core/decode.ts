@@ -22,6 +22,7 @@ import {
   decodePopulation,
   decodeVegetation,
   POLITY_UNCLAIMED,
+  stripGridView,
 } from '../shared/codec.js';
 import {
   buildRiverFromPath,
@@ -42,6 +43,7 @@ import type {
   River,
 } from '../shared/types.js';
 import type { PromptContext } from './prompts.js';
+import { keyedToRows, type CellKind } from './grid.js';
 import type {
   BaseResponse,
   CitiesResponse,
@@ -106,6 +108,50 @@ export function extractJsonObject(text: string): string | null {
     }
   }
   return null;
+}
+
+/* ------------------------------------------------------ response shaping */
+
+const GRID_KIND: Partial<Record<LayerId, CellKind>> = {
+  base: 'char',
+  elevation: 'char',
+  polities: 'char',
+  climate: 'token',
+  vegetation: 'token',
+  population: 'token',
+};
+
+/** Turn a keyed grid back into the row strings every decoder reads. */
+export function flattenGrid(layer: LayerId, parsed: unknown, cols: number, rows: number): unknown {
+  const kind = GRID_KIND[layer];
+  const response = parsed as { rows?: unknown } | null;
+  if (!kind || !response || response.rows == null || Array.isArray(response.rows)) return parsed;
+  return { ...response, rows: keyedToRows(response.rows, cols, rows, kind) };
+}
+
+/**
+ * Carry the model's reading of the brief into the decision record, where the
+ * user sees it and it is exported with the map. A requirement the model got
+ * wrong is then visible as a stated target the map can be checked against,
+ * rather than something that silently did not happen.
+ */
+export function withBriefRecorded(parsed: unknown): unknown {
+  const response = parsed as { brief?: unknown; decisions?: unknown } | null;
+  const brief = response?.brief as
+    | { scale?: unknown; requirements?: { requirement?: unknown; target?: unknown }[] }
+    | undefined;
+  if (!response || !brief) return parsed;
+
+  const fromBrief: Decision[] = [];
+  const scale = typeof brief.scale === 'string' ? brief.scale.trim() : '';
+  if (scale) fromBrief.push({ title: 'Scale', detail: scale });
+  for (const item of Array.isArray(brief.requirements) ? brief.requirements : []) {
+    const requirement = typeof item?.requirement === 'string' ? item.requirement.trim() : '';
+    const target = typeof item?.target === 'string' ? item.target.trim() : '';
+    if (requirement) fromBrief.push({ title: `Brief: ${requirement}`, detail: target });
+  }
+  const existing = Array.isArray(response.decisions) ? response.decisions : [];
+  return { ...response, decisions: [...fromBrief, ...existing] };
 }
 
 /* --------------------------------------------------------- id reuse helpers */
@@ -268,7 +314,7 @@ export function decodeLayer(
       let unknownKeys = 0;
       let misSized = 0;
       for (let row = 0; row < rows; row++) {
-        const line = (r.rows[row] ?? '').replace(/\s+/g, '');
+        const line = stripGridView(r.rows[row] ?? '').replace(/\s+/g, '');
         if (r.rows[row] !== undefined && line.length !== cols) misSized++;
         for (let col = 0; col < cols; col++) {
           const ch = line[col];
@@ -289,6 +335,7 @@ export function decodeLayer(
       }
       const checked = validatePolities(polities, owner, ctx.base!, cols, rows);
       warnings.push(...checked.warnings);
+      warnings.push(...sizeWarnings(r.polities, polities, checked.data.owner));
       data = checked.data;
       break;
     }
@@ -312,6 +359,33 @@ export function decodeLayer(
   const decisions = normaliseDecisions((parsed as { decisions?: unknown }).decisions);
 
   return { data, warnings, notes: notes || null, decisions };
+}
+
+/**
+ * Compare each polity's drawn size with the size it was declared to have.
+ *
+ * The declared size is where a brief's stated area ends up (the roster pass
+ * converts it to hexes), so this is the check that says "the brief asked for
+ * this and the map does not have it" instead of leaving the user to count.
+ */
+function sizeWarnings(
+  declared: { hexes?: number }[],
+  polities: Polity[],
+  owner: (string | null)[],
+): string[] {
+  const out: string[] = [];
+  polities.forEach((polity, i) => {
+    const target = declared[i]?.hexes;
+    if (!target || target <= 0) return;
+    const actual = owner.filter((id) => id === polity.id).length;
+    const tolerance = Math.max(2, Math.round(target * 0.2));
+    if (Math.abs(actual - target) > tolerance) {
+      out.push(
+        `${polity.name} holds ${actual} hexes but was planned at ${target} (${actual > target ? '+' : ''}${Math.round(((actual - target) / target) * 100)}%).`,
+      );
+    }
+  });
+  return out;
 }
 
 /** Trust the schema for shape, but not for emptiness or stray whitespace. */

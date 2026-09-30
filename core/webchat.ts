@@ -23,7 +23,13 @@ import * as z from 'zod/v4';
 import type { LayerId } from '../shared/types.js';
 import { LAYER_META } from '../shared/layers.js';
 import type { PromptContext } from './prompts.js';
-import { decodeLayer, extractJsonObject, type DecodedLayer, type ExistingFeatures } from './decode.js';
+import {
+  decodeLayer,
+  extractJsonObject,
+  withBriefRecorded,
+  type DecodedLayer,
+  type ExistingFeatures,
+} from './decode.js';
 import { mockLayer } from './mock.js';
 import {
   combinePasses,
@@ -112,18 +118,20 @@ function exampleFor(layer: LayerId, pass: PassId): unknown {
   const full = mockLayer(layer, ctx) as Record<string, unknown>;
   const notes = 'One or two sentences about the layer as a whole.';
   const decisions = EXAMPLE_DECISIONS;
+  const brief = EXAMPLE_BRIEF;
 
-  if (pass === 'full') return { ...full, notes, decisions };
+  if (pass === 'full') return { brief, ...full, notes, decisions };
 
   if (layer === 'polities') {
     return pass === 'roster'
-      ? { polities: full.polities, notes, decisions }
-      : { rows: full.rows, notes, decisions };
+      ? { brief, polities: full.polities, notes, decisions }
+      : { brief, rows: full.rows, notes, decisions };
   }
   if (layer === 'rivers') {
     const rivers = (full.rivers ?? []) as { name: string; path: unknown; navigable: unknown }[];
     return pass === 'roster'
       ? {
+          brief,
           rivers: rivers.map((r) => ({
             name: r.name,
             course: 'rises in the northern hills, runs south-west into the sea',
@@ -131,10 +139,20 @@ function exampleFor(layer: LayerId, pass: PassId): unknown {
           notes,
           decisions,
         }
-      : { rivers, notes, decisions };
+      : { brief, rivers, notes, decisions };
   }
-  return { ...full, notes, decisions };
+  return { brief, ...full, notes, decisions };
 }
+
+const EXAMPLE_BRIEF = {
+  scale: '~50 km per hex (~2,165 km^2 each), from the 1,500 km width the brief gives the continent',
+  requirements: [
+    {
+      requirement: 'The inland sea covers about 90,000 km^2',
+      target: 'about 42 Lake hexes, centred near column 20, row 14',
+    },
+  ],
+};
 
 const EXAMPLE_DECISIONS = [
   {
@@ -236,7 +254,7 @@ export function importWebchatResponse(options: WebchatImportOptions): WebchatImp
         'Paste that back to the model and ask it to correct those fields.',
     );
   }
-  const parsed = result.data;
+  const parsed = withBriefRecorded(result.data);
 
   if (pass === 'roster') {
     const produced = rosterFromResponse(layer, parsed);

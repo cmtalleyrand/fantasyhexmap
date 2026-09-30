@@ -4,6 +4,7 @@ import test from 'node:test';
 import {
   clampTaskBudget,
   DEFAULT_EFFORT,
+  DEFAULT_TASK_BUDGET,
   lowerEffort,
   MAX_TOKENS,
   MIN_TASK_BUDGET,
@@ -24,10 +25,16 @@ test('the output cap leaves room for reasoning as well as the answer', () => {
   assert.ok(MAX_TOKENS >= 128_000, `cap was ${MAX_TOKENS}`);
 });
 
-test('the default effort is not the one that exhausted the budget', () => {
-  assert.notEqual(DEFAULT_EFFORT, 'high');
+test('the default effort leaves a step down for the truncation retry', () => {
+  // High, not max: a run that overruns is retried one level down automatically.
+  assert.notEqual(lowerEffort(DEFAULT_EFFORT), null);
   assert.notEqual(DEFAULT_EFFORT, 'xhigh');
   assert.notEqual(DEFAULT_EFFORT, 'max');
+});
+
+test('the default task budget leaves headroom under the hard cap', () => {
+  assert.ok(DEFAULT_TASK_BUDGET >= MIN_TASK_BUDGET);
+  assert.ok(DEFAULT_TASK_BUDGET <= MAX_TOKENS * 0.8, `budget ${DEFAULT_TASK_BUDGET} vs cap ${MAX_TOKENS}`);
 });
 
 test('a task budget is clamped into the range the API accepts', () => {
