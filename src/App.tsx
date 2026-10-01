@@ -34,7 +34,7 @@ import type { MultiWebchatImportResult } from '../core/webchat.js';
  */
 const WebchatDialog = lazy(() => import('./components/WebchatDialog.js'));
 import UnlockDialog from './components/UnlockDialog.js';
-import SettingsDialog from './components/SettingsDialog.js';
+import SettingsDialog, { type SettingsTab } from './components/SettingsDialog.js';
 import DecisionLog from './components/DecisionLog.js';
 import PlanDialog from './components/PlanDialog.js';
 import ExportPanel from './components/ExportPanel.js';
@@ -68,6 +68,7 @@ export default function App() {
   const [apiKey, setApiKey] = useState('');
   const [prefs, setPrefs] = useState<Prefs>(DEFAULT_PREFS);
   const [showSettings, setShowSettings] = useState(false);
+  const [settingsTab, setSettingsTab] = useState<SettingsTab | undefined>(undefined);
   const [showDecisions, setShowDecisions] = useState(false);
   const [showPlan, setShowPlan] = useState(false);
   const [showSaves, setShowSaves] = useState(false);
@@ -78,8 +79,7 @@ export default function App() {
   const [showUnlock, setShowUnlock] = useState(false);
   const [activeLayer, setActiveLayer] = useState<LayerId>('base');
   const [visible, setVisible] = useState<VisibleLayers>(defaultVisibility);
-  const [labels, setLabels] = useState(true);
-  const [elevationStyle, setElevationStyle] = useState<'colour' | 'contours'>('colour');
+  const { labels, elevationStyle } = prefs;
   const [selection, setSelection] = useState<Set<number>>(new Set());
   const [brush, setBrushState] = useState<Record<string, string>>({});
   const [brushMode, setBrushMode] = useState(false);
@@ -430,6 +430,9 @@ export default function App() {
       prefs={prefs}
       onClose={() => setShowSettings(false)}
       locked={lockedKey !== null}
+      initialTab={settingsTab}
+      hexDimensions={map ? normaliseHexDimensions(map.hexDimensions) : null}
+      onSaveHexDimensions={(hexDimensions) => dispatch({ type: 'setHexDimensions', hexDimensions })}
       onForget={() => {
         forgetKey();
         setApiKey('');
@@ -548,6 +551,7 @@ export default function App() {
       {decisionLog}
       {webchat}
       <div className="topbar">
+        <span className="brand" aria-hidden="true">⬡</span>
         <h1>{map.name}</h1>
         <span className="meta">
           {map.cols}×{map.rows} · {(map.cols * map.rows).toLocaleString()} hexes
@@ -573,31 +577,6 @@ export default function App() {
                   : 'your browser · no key set'}
         </span>
         <span className="spacer" />
-        <label style={{ display: 'flex', alignItems: 'center', gap: 6, textTransform: 'none', fontSize: 12, margin: 0 }}>
-          elevation
-          <select style={{ width: 'auto' }} value={elevationStyle} onChange={(e) => setElevationStyle(e.target.value as 'colour' | 'contours')}>
-            <option value="colour">colour</option>
-            <option value="contours">terrain marks</option>
-          </select>
-        </label>
-        <label
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 6,
-            textTransform: 'none',
-            fontSize: 12,
-            margin: 0,
-          }}
-        >
-          <input
-            type="checkbox"
-            style={{ width: 'auto' }}
-            checked={labels}
-            onChange={(e) => setLabels(e.target.checked)}
-          />
-          labels on map
-        </label>
         {lockedKey && !apiKey && (
           <button className="tiny" onClick={() => setShowUnlock(true)}>
             unlock key
@@ -610,8 +589,15 @@ export default function App() {
         >
           decisions ({(map.journal ?? []).reduce((n, e) => n + e.decisions.length, 0)})
         </button>
-        <button className="tiny" onClick={() => setShowSettings(true)}>
-          settings
+        <button
+          className="tiny settings-btn"
+          onClick={() => {
+            setSettingsTab(undefined);
+            setShowSettings(true);
+          }}
+          title="Hex size, display, generation and API key"
+        >
+          ⚙ settings
         </button>
         <button className="tiny" onClick={() => setShowSaves(true)} title="Named saves kept in this browser">
           saves
