@@ -21,10 +21,12 @@ import {
 } from '../../shared/hex.js';
 import {
   LAYER_ORDER,
+  type CitiesData,
   type Climate,
   type Elevation,
   type LayerId,
   type MapState,
+  type PolitiesData,
   type Vegetation,
 } from '../../shared/types.js';
 import {
@@ -37,6 +39,7 @@ import {
   populationColour,
   withAlpha,
 } from './palette.js';
+import { placePolityLabels, type LabelObstacle, type PolityLabel } from './labels.js';
 
 export type Prim =
   | {
@@ -123,28 +126,37 @@ export function defaultVisibility(): VisibleLayers {
 /** Precedence for the single per-hex fill: the most derived visible layer wins. */
 const FILL_PRECEDENCE: LayerId[] = ['vegetation', 'climate', 'elevation'];
 
-interface LabelBox {
-  left: number;
-  right: number;
-  top: number;
-  bottom: number;
-}
+/**
+ * Placement is a search over the territory, and the scene is rebuilt on every
+ * hover and selection change, so the result is remembered per data identity.
+ * Layer edits are immutable (a new `owner` array / cities object each time).
+ */
+const labelCache = new WeakMap<
+  object,
+  { cities: object | null; polities: object; key: string; labels: PolityLabel[] }
+>();
 
-function overlaps(a: LabelBox, b: LabelBox): boolean {
-  return a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
-}
-
-function labelBox(at: Point, width: number, height: number, rotation: number): LabelBox {
-  const c = Math.abs(Math.cos(rotation));
-  const s = Math.abs(Math.sin(rotation));
-  const halfWidth = (width * c + height * s) / 2;
-  const halfHeight = (width * s + height * c) / 2;
-  return {
-    left: at.x - halfWidth,
-    right: at.x + halfWidth,
-    top: at.y - halfHeight,
-    bottom: at.y + halfHeight,
-  };
+function cachedPolityLabels(
+  data: PolitiesData,
+  cities: CitiesData | null,
+  cols: number,
+  rows: number,
+  size: number,
+  obstacles: LabelObstacle[],
+): PolityLabel[] {
+  const key = `${cols}x${rows}@${size}`;
+  const hit = labelCache.get(data.owner);
+  if (hit && hit.key === key && hit.cities === cities && hit.polities === data.polities) return hit.labels;
+  const labels = placePolityLabels({
+    cols,
+    rows,
+    size,
+    owner: data.owner,
+    polities: data.polities,
+    obstacles,
+  });
+  labelCache.set(data.owner, { cities, polities: data.polities, key, labels });
+  return labels;
 }
 
 export function buildScene(map: MapState, opts: SceneOptions): Scene {
@@ -371,83 +383,29 @@ export function buildScene(map: MapState, opts: SceneOptions): Scene {
   // --- labels --------------------------------------------------------------
   if (opts.labels) {
     if (polities) {
-      const occupied: LabelBox[] = [];
-      const territorySize = new Map<string, number>();
-      for (const owner of polities.owner) {
-        if (owner) territorySize.set(owner, (territorySize.get(owner) ?? 0) + 1);
+      // City symbols and their names are drawn over the polity layer, so a
+      // realm's name is steered away from them where it can be.
+      const obstacles: LabelObstacle[] = [];
+      for (const city of cities?.cities ?? []) {
+        const c = hexCenter(city.col, city.row, size);
+        const r = Math.max(size * 0.16, Math.min(size * 0.46, size * 0.1 * Math.log10(Math.max(10, city.population))));
+        obstacles.push({ left: c.x - r, right: c.x + r, top: c.y - r, bottom: c.y + r });
+        const fontSize = Math.max(8, size * 0.36);
+        const halfWidth = (city.name.length * fontSize * 0.6) / 2;
+        const y = c.y + size * 0.95;
+        obstacles.push({ left: c.x - halfWidth, right: c.x + halfWidth, top: y - fontSize * 0.6, bottom: y + fontSize * 0.6 });
       }
-      const bySize = [...polities.polities].sort(
-        (a, b) => (territorySize.get(b.id) ?? 0) - (territorySize.get(a.id) ?? 0),
-      );
-      for (const polity of bySize) {
-        const owned: number[] = [];
-        polities.owner.forEach((id, i) => {
-          if (id === polity.id) owned.push(i);
-        });
-        // Tiny territories are keyed by colour in the legend instead. A name
-        // cannot fit legibly inside one to three hexes at any useful zoom.
-        if (owned.length <= 3) continue;
-        const centres = owned.map((i) => hexCenter(i % cols, Math.floor(i / cols), size));
-        const mean = centres.reduce((sum, c) => ({ x: sum.x + c.x, y: sum.y + c.y }), { x: 0, y: 0 });
-        mean.x /= centres.length;
-        mean.y /= centres.length;
-        let xx = 0;
-        let yy = 0;
-        let xy = 0;
-        for (const c of centres) {
-          const dx = c.x - mean.x;
-          const dy = c.y - mean.y;
-          xx += dx * dx;
-          yy += dy * dy;
-          xy += dx * dy;
-        }
-        let rotation = Math.atan2(2 * xy, xx - yy) / 2;
-        if (Math.cos(rotation) < 0) rotation += Math.PI;
-        // Cartographic names should read primarily left-to-right. Retain a
-        // territory's broad direction, but never rotate beyond 30 degrees and
-        // avoid small, visually accidental variations by snapping to 15 degrees.
-        rotation = Math.max(-Math.PI / 6, Math.min(Math.PI / 6, rotation));
-        rotation = Math.round(rotation / (Math.PI / 12)) * (Math.PI / 12);
-        const along = centres.map((c) => (c.x - mean.x) * Math.cos(rotation) + (c.y - mean.y) * Math.sin(rotation));
-        const across = centres.map((c) => -(c.x - mean.x) * Math.sin(rotation) + (c.y - mean.y) * Math.cos(rotation));
-        const spanAlong = Math.max(...along) - Math.min(...along) + size * 1.5;
-        const spanAcross = Math.max(...across) - Math.min(...across) + size * 1.5;
-        const text = (polity.shortName?.trim() || polity.name).toUpperCase();
-        // Hex area is proportional to size², so a linear dimension such as
-        // type size grows with sqrt(hex count). The projected spans below then
-        // cap that area-derived target for long or unusually narrow realms.
-        const idealSize = size * 0.28 * Math.sqrt(owned.length);
-        let fittedSize = Math.min(idealSize, spanAcross * 0.48, spanAlong / Math.max(1, text.length * 0.58));
-        const candidates = [...centres].sort((a, b) =>
-          ((a.x - mean.x) ** 2 + (a.y - mean.y) ** 2) - ((b.x - mean.x) ** 2 + (b.y - mean.y) ** 2),
-        );
-        let placement: { at: Point; box: LabelBox; size: number } | null = null;
-        // Try progressively smaller type at central owned hexes. This is a
-        // logarithmic number of font sizes times the territory area.
-        while (fittedSize >= 6 && !placement) {
-          const width = text.length * fittedSize * 0.58;
-          const height = fittedSize * 1.12;
-          for (const at of candidates) {
-            const box = labelBox(at, width, height, rotation);
-            if (!occupied.some((other) => overlaps(box, other))) {
-              placement = { at, box, size: fittedSize };
-              break;
-            }
-          }
-          fittedSize *= 0.88;
-        }
-        if (!placement) continue;
-        occupied.push(placement.box);
+      for (const label of cachedPolityLabels(polities, cities, cols, rows, size, obstacles)) {
         prims.push({
           kind: 'text',
-          at: placement.at,
-          text,
-          size: placement.size,
+          at: label.at,
+          text: label.text,
+          size: label.size,
           fill: MAP_COLOURS.label,
           weight: 600,
           anchor: 'middle',
           fantasy: true,
-          rotation,
+          rotation: label.rotation,
         });
       }
     }
