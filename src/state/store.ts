@@ -55,6 +55,7 @@ export type Action =
   | { type: 'setHexValues'; layer: 'base' | 'elevation' | 'climate' | 'vegetation' | 'population'; indices: number[]; value: unknown }
   | { type: 'setPolityOwner'; indices: number[]; polityId: string | null }
   | { type: 'upsertPolity'; polity: Polity }
+  | { type: 'setPolityColours'; colours: Record<string, string> }
   | { type: 'removePolity'; id: string }
   | { type: 'upsertCity'; city: City }
   | { type: 'removeCity'; id: string }
@@ -320,6 +321,16 @@ export function reducer(map: MapState, action: Action): MapState {
           }),
         ),
         manualEntry('polities', `Removed the polity "${removed}" by hand.`),
+      );
+    }
+
+    case 'setPolityColours': {
+      const layer = map.layers.polities;
+      if (!layer.data) return map;
+      const polities = layer.data.polities.map((p) => ({ ...p, colour: action.colours[p.id] ?? p.colour }));
+      return journal(
+        withLayer(map, 'polities', commit(layer, { data: { ...layer.data, polities } })),
+        manualEntry('polities', 'Assigned a contrasting colour set to polities.'),
       );
     }
 

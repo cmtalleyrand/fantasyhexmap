@@ -54,6 +54,7 @@ export type Prim =
       strokeWidth: number;
       dash?: number[];
       round?: boolean;
+      smooth?: boolean;
     }
   | {
       kind: 'circle';
@@ -72,6 +73,14 @@ export type Prim =
       halo?: string;
       weight?: number;
       anchor?: 'start' | 'middle' | 'end';
+      maxWidth?: number;
+      fantasy?: boolean;
+    }
+  | {
+      kind: 'city';
+      c: Point;
+      r: number;
+      onRiver: boolean;
     };
 
 export interface Scene {
@@ -232,8 +241,9 @@ export function buildScene(map: MapState, opts: SceneOptions): Scene {
             kind: 'polyline',
             points: run,
             stroke: runNavigable ? MAP_COLOURS.river : MAP_COLOURS.riverNonNavigable,
-            strokeWidth: runNavigable ? Math.max(2, size * 0.17) : Math.max(1, size * 0.09),
+            strokeWidth: runNavigable ? Math.max(2.5, size * 0.2125) : Math.max(1.25, size * 0.1125),
             round: true,
+            smooth: true,
           });
         }
         run = [];
@@ -283,17 +293,7 @@ export function buildScene(map: MapState, opts: SceneOptions): Scene {
           dash: [size * 0.18, size * 0.14],
         });
       }
-      prims.push({
-        kind: 'circle',
-        c,
-        r,
-        fill: MAP_COLOURS.city,
-        stroke: MAP_COLOURS.cityRing,
-        strokeWidth: Math.max(1, size * 0.06),
-      });
-      if (city.onRiver) {
-        prims.push({ kind: 'circle', c, r: r * 0.4, fill: MAP_COLOURS.river });
-      }
+      prims.push({ kind: 'city', c, r, onRiver: city.onRiver });
     }
   }
 
@@ -305,7 +305,9 @@ export function buildScene(map: MapState, opts: SceneOptions): Scene {
         polities.owner.forEach((id, i) => {
           if (id === polity.id) owned.push(i);
         });
-        if (owned.length === 0) continue;
+        // Tiny territories are keyed by colour in the legend instead. A name
+        // cannot fit legibly inside one to three hexes at any useful zoom.
+        if (owned.length <= 3) continue;
         let sx = 0;
         let sy = 0;
         for (const i of owned) {
@@ -313,15 +315,22 @@ export function buildScene(map: MapState, opts: SceneOptions): Scene {
           sx += c.x;
           sy += c.y;
         }
+        const centres = owned.map((i) => hexCenter(i % cols, Math.floor(i / cols), size));
+        const spanX = Math.max(...centres.map((c) => c.x)) - Math.min(...centres.map((c) => c.x)) + size * 1.5;
+        const spanY = Math.max(...centres.map((c) => c.y)) - Math.min(...centres.map((c) => c.y)) + size * 1.5;
+        const idealSize = Math.max(9, size * 0.42);
+        const fittedSize = Math.max(7, Math.min(idealSize, spanY * 0.42, spanX / Math.max(1, polity.name.length * 0.62)));
         prims.push({
           kind: 'text',
           at: { x: sx / owned.length, y: sy / owned.length },
           text: polity.name.toUpperCase(),
-          size: Math.max(9, size * 0.42),
+          size: fittedSize,
           fill: contrastInk(polity.colour) === '#14100c' ? '#1b1409' : '#f7f3e7',
           halo: withAlpha(polity.colour, 0.85),
           weight: 700,
           anchor: 'middle',
+          maxWidth: spanX * 0.94,
+          fantasy: true,
         });
       }
     }

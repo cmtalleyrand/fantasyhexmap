@@ -16,6 +16,7 @@ import {
 } from '../../shared/types.js';
 import { canSplit, passLabel, type PassSelection } from '../../core/rosters.js';
 import type { Action } from '../state/store.js';
+import { contrastingPolityColours } from '../render/palette.js';
 import Legend from './Legend.js';
 
 const PER_HEX: LayerId[] = ['base', 'elevation', 'climate', 'vegetation', 'population'];
@@ -354,6 +355,11 @@ function PolityEditor(props: SubProps) {
   const [colour, setColour] = useState('#b5533c');
   const [target, setTarget] = useState<string>('');
 
+  const assignContrastingColours = () => {
+    const colours = contrastingPolityColours(data.polities.map((p) => p.id), data.owner, map.cols, map.rows);
+    dispatch({ type: 'setPolityColours', colours: Object.fromEntries(colours) });
+  };
+
   const add = () => {
     const trimmed = name.trim();
     if (!trimmed) return;
@@ -428,6 +434,10 @@ function PolityEditor(props: SubProps) {
           );
         })}
       </div>
+
+      <button onClick={assignContrastingColours} disabled={data.polities.length === 0}>
+        Assign contrasting colours
+      </button>
 
       <div className="row">
         <input placeholder="New polity name" value={name} onChange={(e) => setName(e.target.value)} />
