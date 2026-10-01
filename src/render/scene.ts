@@ -413,7 +413,10 @@ export function buildScene(map: MapState, opts: SceneOptions): Scene {
         const spanAlong = Math.max(...along) - Math.min(...along) + size * 1.5;
         const spanAcross = Math.max(...across) - Math.min(...across) + size * 1.5;
         const text = (polity.shortName?.trim() || polity.name).toUpperCase();
-        const idealSize = Math.max(9, size * 0.58);
+        // Hex area is proportional to size², so a linear dimension such as
+        // type size grows with sqrt(hex count). The projected spans below then
+        // cap that area-derived target for long or unusually narrow realms.
+        const idealSize = size * 0.28 * Math.sqrt(owned.length);
         let fittedSize = Math.min(idealSize, spanAcross * 0.48, spanAlong / Math.max(1, text.length * 0.58));
         const candidates = [...centres].sort((a, b) =>
           ((a.x - mean.x) ** 2 + (a.y - mean.y) ** 2) - ((b.x - mean.x) ** 2 + (b.y - mean.y) ** 2),

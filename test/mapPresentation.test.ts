@@ -146,3 +146,27 @@ test('polity fills are opaque and independent of underlying thematic colours', (
   assert.equal(polityFill(baseScene), '#2f6fbb');
   assert.equal(polityFill(elevationScene), '#2f6fbb');
 });
+
+test('polity type size grows with territory area for the same label', () => {
+  const sizeFor = (cols: number, rows: number): number => {
+    const map = createMapState('Label area test', cols, rows);
+    map.layers.base.data = Array(cols * rows).fill('Land');
+    map.layers.polities.data = {
+      polities: [{ id: 'realm', name: 'Aster', colour: '#2f6fbb' }],
+      owner: Array(cols * rows).fill('realm'),
+    };
+    const visible = defaultVisibility();
+    visible.polities = true;
+    const label = buildScene(map, { size: 20, visible, labels: true }).prims.find(
+      (prim) => prim.kind === 'text',
+    );
+    assert.ok(label?.kind === 'text');
+    return label.size;
+  };
+
+  const fourHexes = sizeFor(2, 2);
+  const sixteenHexes = sizeFor(4, 4);
+
+  assert.ok(sixteenHexes > fourHexes);
+  assert.equal(sixteenHexes / fourHexes, 2);
+});
