@@ -43,6 +43,7 @@ import SetupScreen from './components/SetupScreen.js';
 import { exportJson } from './render/export.js';
 import { defaultVisibility, type VisibleLayers } from './render/scene.js';
 import { clearMap, loadMap, makeAutosaver } from './state/persistence.js';
+import { parseMapImport } from './state/import.js';
 import { reducer, type Action } from './state/store.js';
 
 const PER_HEX: LayerId[] = ['base', 'elevation', 'climate', 'vegetation', 'population'];
@@ -327,11 +328,7 @@ export default function App() {
     file
       .text()
       .then((text) => {
-        const parsed = JSON.parse(text) as { format?: string; map?: MapState };
-        const imported = parsed.map ?? (parsed as unknown as MapState);
-        if (!imported?.layers || !imported.cols || !imported.rows) {
-          throw new Error('That file does not look like a fantasyhexmap export.');
-        }
+        const imported = parseMapImport(text);
         // Older exports may omit the undo stacks; give every layer empty ones.
         imported.journal ??= [];
         imported.enabledLayers ??= [...LAYER_ORDER];
