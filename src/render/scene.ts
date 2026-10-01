@@ -34,7 +34,6 @@ import {
   ISLAND_DOT,
   MAP_COLOURS,
   VEGETATION_COLOURS,
-  contrastInk,
   populationColour,
   withAlpha,
 } from './palette.js';
@@ -113,6 +112,30 @@ export function defaultVisibility(): VisibleLayers {
 
 /** Precedence for the single per-hex fill: the most derived visible layer wins. */
 const FILL_PRECEDENCE: LayerId[] = ['vegetation', 'climate', 'elevation'];
+
+interface LabelBox {
+  left: number;
+  right: number;
+  top: number;
+  bottom: number;
+}
+
+function overlaps(a: LabelBox, b: LabelBox): boolean {
+  return a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
+}
+
+function labelBox(at: Point, width: number, height: number, rotation: number): LabelBox {
+  const c = Math.abs(Math.cos(rotation));
+  const s = Math.abs(Math.sin(rotation));
+  const halfWidth = (width * c + height * s) / 2;
+  const halfHeight = (width * s + height * c) / 2;
+  return {
+    left: at.x - halfWidth,
+    right: at.x + halfWidth,
+    top: at.y - halfHeight,
+    bottom: at.y + halfHeight,
+  };
+}
 
 export function buildScene(map: MapState, opts: SceneOptions): Scene {
   const { cols, rows, layers } = map;
@@ -332,7 +355,15 @@ export function buildScene(map: MapState, opts: SceneOptions): Scene {
   // --- labels --------------------------------------------------------------
   if (opts.labels) {
     if (polities) {
-      for (const polity of polities.polities) {
+      const occupied: LabelBox[] = [];
+      const territorySize = new Map<string, number>();
+      for (const owner of polities.owner) {
+        if (owner) territorySize.set(owner, (territorySize.get(owner) ?? 0) + 1);
+      }
+      const bySize = [...polities.polities].sort(
+        (a, b) => (territorySize.get(b.id) ?? 0) - (territorySize.get(a.id) ?? 0),
+      );
+      for (const polity of bySize) {
         const owned: number[] = [];
         polities.owner.forEach((id, i) => {
           if (id === polity.id) owned.push(i);
@@ -355,26 +386,45 @@ export function buildScene(map: MapState, opts: SceneOptions): Scene {
           xy += dx * dy;
         }
         let rotation = Math.atan2(2 * xy, xx - yy) / 2;
-        if (rotation > Math.PI / 2) rotation -= Math.PI;
-        if (rotation < -Math.PI / 2) rotation += Math.PI;
+        if (Math.cos(rotation) < 0) rotation += Math.PI;
+        // Cartographic names should read primarily left-to-right. Retain a
+        // territory's broad direction, but never rotate beyond 30 degrees and
+        // avoid small, visually accidental variations by snapping to 15 degrees.
+        rotation = Math.max(-Math.PI / 6, Math.min(Math.PI / 6, rotation));
+        rotation = Math.round(rotation / (Math.PI / 12)) * (Math.PI / 12);
         const along = centres.map((c) => (c.x - mean.x) * Math.cos(rotation) + (c.y - mean.y) * Math.sin(rotation));
         const across = centres.map((c) => -(c.x - mean.x) * Math.sin(rotation) + (c.y - mean.y) * Math.cos(rotation));
         const spanAlong = Math.max(...along) - Math.min(...along) + size * 1.5;
         const spanAcross = Math.max(...across) - Math.min(...across) + size * 1.5;
-        const idealSize = Math.max(9, size * 0.42);
-        const fittedSize = Math.min(idealSize, spanAcross * 0.42, spanAlong / Math.max(1, polity.name.length * 0.62));
-        if (fittedSize < 6) continue;
-        const labelCentre = centres.reduce((best, c) =>
-          (c.x - mean.x) ** 2 + (c.y - mean.y) ** 2 < (best.x - mean.x) ** 2 + (best.y - mean.y) ** 2 ? c : best,
+        const text = (polity.shortName?.trim() || polity.name).toUpperCase();
+        const idealSize = Math.max(9, size * 0.58);
+        let fittedSize = Math.min(idealSize, spanAcross * 0.48, spanAlong / Math.max(1, text.length * 0.58));
+        const candidates = [...centres].sort((a, b) =>
+          ((a.x - mean.x) ** 2 + (a.y - mean.y) ** 2) - ((b.x - mean.x) ** 2 + (b.y - mean.y) ** 2),
         );
-        const ink = contrastInk(polity.colour);
+        let placement: { at: Point; box: LabelBox; size: number } | null = null;
+        // Try progressively smaller type at central owned hexes. This is a
+        // logarithmic number of font sizes times the territory area.
+        while (fittedSize >= 6 && !placement) {
+          const width = text.length * fittedSize * 0.58;
+          const height = fittedSize * 1.12;
+          for (const at of candidates) {
+            const box = labelBox(at, width, height, rotation);
+            if (!occupied.some((other) => overlaps(box, other))) {
+              placement = { at, box, size: fittedSize };
+              break;
+            }
+          }
+          fittedSize *= 0.88;
+        }
+        if (!placement) continue;
+        occupied.push(placement.box);
         prims.push({
           kind: 'text',
-          at: labelCentre,
-          text: polity.name.toUpperCase(),
-          size: fittedSize,
-          fill: ink,
-          halo: ink === '#14100c' ? 'rgba(247,243,231,0.9)' : 'rgba(20,16,12,0.88)',
+          at: placement.at,
+          text,
+          size: placement.size,
+          fill: MAP_COLOURS.label,
           weight: 600,
           anchor: 'middle',
           fantasy: true,

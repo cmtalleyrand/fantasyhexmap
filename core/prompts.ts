@@ -808,7 +808,10 @@ function politiesPrompt(ctx: PromptContext): BuiltPrompt {
     ]),
     '',
     section('OUTPUT', [
-      'Declare each polity with a single-character key (A, B, C, ...), a name and a hex colour.',
+      'Declare each polity with a single-character key (A, B, C, ...), a name, a shortName and a hex colour.',
+      'shortName is the compact label printed on the map. Remove generic polity types when the proper name identifies it',
+      '("the Republic of Fantasia" becomes "Fantasia"). Keep a distinctive type by itself when it uniquely identifies',
+      'the polity ("the Commonwealth of the Free Peoples" can become "Commonwealth").',
       'Choose colours that are clearly distinguishable from each other and readable against a map: mid-saturation,',
       'not near-black and not near-white, and not two similar hues side by side on the map.',
       'Give each polity "hexes": how many land hexes it should hold - converted from its area with the scale where the',
@@ -972,7 +975,9 @@ function politiesRosterPrompt(ctx: PromptContext): BuiltPrompt {
     scaleRules(ctx.cols, ctx.rows),
     '',
     section('OUTPUT', [
-      'Declare each polity with a single-character key (A, B, C, ... in order), a name, a hex colour, and "hexes": the',
+      'Declare each polity with a single-character key (A, B, C, ... in order), a name, a shortName, a hex colour, and "hexes": the',
+      'shortName is its compact map label: remove generic polity types when the proper name identifies it, but retain a',
+      'distinctive type alone when that word uniquely identifies the polity (for example, "Commonwealth").',
       'number of land hexes it should hold. Where the brief gives its area, convert it with the scale; where the brief',
       'gives a relative size ("the largest kingdom", "a third of the continent"), work it out from the measured land',
       'total. The border pass draws each polity to this number, and the map is checked against it, so it is binding.',

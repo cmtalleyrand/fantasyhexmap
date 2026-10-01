@@ -116,6 +116,7 @@ export function rosterFromResponse(layer: LayerId, parsed: unknown): Roster {
       entries: (r.polities ?? []).map((p, i) => ({
         key: (p.key ?? '').trim().charAt(0) || keyAt(i),
         name: p.name,
+        shortName: p.shortName,
         colour: p.colour,
         ...targetHexes(p.hexes),
       })),
@@ -152,7 +153,13 @@ export function combinePasses(
     const paint = paintParsed as z.infer<ReturnType<typeof PolitiesPaintResponse>>;
     const entries = roster?.kind === 'polities' ? roster.entries : [];
     return {
-      polities: entries.map((e) => ({ key: e.key, name: e.name, colour: e.colour, hexes: e.hexes })),
+      polities: entries.map((e) => ({
+        key: e.key,
+        name: e.name,
+        shortName: e.shortName,
+        colour: e.colour,
+        hexes: e.hexes,
+      })),
       rows: paint.rows ?? [],
       notes,
       decisions,
@@ -197,7 +204,13 @@ export function rosterOnlyResponse(
       rows.push(line);
     }
     return {
-      polities: entries.map((e) => ({ key: e.key, name: e.name, colour: e.colour, hexes: e.hexes })),
+      polities: entries.map((e) => ({
+        key: e.key,
+        name: e.name,
+        shortName: e.shortName,
+        colour: e.colour,
+        hexes: e.hexes,
+      })),
       rows,
       notes,
       decisions,
