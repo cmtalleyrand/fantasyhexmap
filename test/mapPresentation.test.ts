@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createMapState } from '../shared/layers.ts';
+import { hexCenter, pixelToOffset } from '../shared/hex.ts';
 import { contrastingPolityColours } from '../src/render/palette.ts';
 import { buildScene, citySymbolForPopulation, defaultVisibility } from '../src/render/scene.ts';
 
@@ -77,7 +78,7 @@ test('map presentation hides tiny polity labels and smooths thicker rivers', () 
   delete withoutShortName.layers.polities.data!.polities[1]!.shortName;
   const longLabel = buildScene(withoutShortName, { size: 20, visible, labels: true })
     .prims.find((p) => p.kind === 'text');
-  assert.ok((longLabel?.size ?? 0) < (polityLabel?.size ?? 0), 'longer text should shrink to the same available territory');
+  assert.ok((longLabel?.size ?? 0) <= (polityLabel?.size ?? 0), 'a longer name never gets bigger type in the same territory');
   assert.ok(river && river.strokeWidth === 4.25);
 });
 
@@ -169,4 +170,92 @@ test('polity type size grows with territory area for the same label', () => {
 
   assert.ok(sixteenHexes > fourHexes);
   assert.equal(sixteenHexes / fourHexes, 2);
+});
+
+test('a polity label lies inside its territory, even for a crescent-shaped realm', () => {
+  const cols = 12;
+  const rows = 9;
+  const map = createMapState('Crescent', cols, rows);
+  map.layers.base.data = Array(cols * rows).fill('Land');
+  const owner: (string | null)[] = Array(cols * rows).fill(null);
+  // A "U": two tall arms joined by a base. The centroid falls in the hole.
+  for (let row = 0; row < rows; row++) {
+    for (let col = 0; col < cols; col++) {
+      const arm = col <= 1 || col >= cols - 2;
+      const base = row >= rows - 2;
+      if (arm || base) owner[row * cols + col] = 'u';
+    }
+  }
+  map.layers.polities.data = { polities: [{ id: 'u', name: 'Valdoria', colour: '#aa3333' }], owner };
+  const visible = defaultVisibility();
+  visible.polities = true;
+  const size = 20;
+  const label = buildScene(map, { size, visible, labels: true }).prims.find((p) => p.kind === 'text');
+  assert.ok(label?.kind === 'text');
+  const half = (label.text.length * label.size * 0.66) / 2;
+  const cos = Math.cos(label.rotation ?? 0);
+  const sin = Math.sin(label.rotation ?? 0);
+  for (const t of [-1, -0.5, 0, 0.5, 1]) {
+    const x = label.at.x + t * half * cos;
+    const y = label.at.y + t * half * sin;
+    const { col, row } = pixelToOffset(x, y, size);
+    assert.equal(owner[row * cols + col], 'u', `label sample ${t} must sit on owned land`);
+  }
+});
+
+test('a polity label steers clear of a city marker inside the territory', () => {
+  const cols = 8;
+  const rows = 5;
+  const map = createMapState('Obstacle', cols, rows);
+  map.layers.base.data = Array(cols * rows).fill('Land');
+  map.layers.polities.data = {
+    polities: [{ id: 'r', name: 'Realm', colour: '#3355aa' }],
+    owner: Array(cols * rows).fill('r'),
+  };
+  const centre = { col: 4, row: 2 };
+  map.layers.cities.data = {
+    cities: [{
+      id: 'c', col: centre.col, row: centre.row, name: 'Capital', population: 100_000,
+      onRiver: false, riverId: null, coastal: false, coastalEdges: [],
+    }],
+  };
+  const visible = defaultVisibility();
+  visible.polities = true;
+  visible.cities = true;
+  const size = 20;
+  const prims = buildScene(map, { size, visible, labels: true }).prims;
+  const label = prims.find((p) => p.kind === 'text' && p.fantasy);
+  assert.ok(label?.kind === 'text');
+  const city = hexCenter(centre.col, centre.row, size);
+  const half = (label.text.length * label.size * 0.66) / 2;
+  assert.ok(
+    Math.abs(label.at.y - city.y) > label.size * 0.55 || Math.abs(label.at.x - city.x) > half + size * 0.4,
+    'polity name must not sit on the city marker',
+  );
+});
+
+test('a long unbreakable name shrinks, but a multi-word name wraps to keep larger type', () => {
+  const label = (name: string) => {
+    const map = createMapState('Wrap', 4, 4);
+    map.layers.base.data = Array(16).fill('Land');
+    map.layers.polities.data = {
+      polities: [{ id: 'r', name, colour: '#3355aa' }],
+      owner: Array(16).fill('r'),
+    };
+    const visible = defaultVisibility();
+    visible.polities = true;
+    return buildScene(map, { size: 20, visible, labels: true }).prims.filter(
+      (p) => p.kind === 'text' && p.fantasy,
+    ) as Extract<ReturnType<typeof buildScene>['prims'][number], { kind: 'text' }>[];
+  };
+  const short = label('Aster');
+  const unbreakable = label('Asterhaventhorpeshire');
+  const wrapped = label('Aster Haven Thorpe Shire');
+  assert.equal(short.length, 1);
+  assert.equal(unbreakable.length, 1);
+  assert.ok(unbreakable[0]!.size < short[0]!.size, 'one long word has nowhere to wrap, so it shrinks');
+  assert.equal(wrapped.length, 2, 'a long multi-word name is split over two lines');
+  assert.deepEqual(wrapped.map((l) => l.text), ['ASTER HAVEN', 'THORPE SHIRE']);
+  assert.ok(wrapped[0]!.size > unbreakable[0]!.size, 'wrapping keeps type larger than the unbroken equivalent');
+  assert.ok(wrapped[0]!.at.y < wrapped[1]!.at.y, 'lines stack top to bottom');
 });
