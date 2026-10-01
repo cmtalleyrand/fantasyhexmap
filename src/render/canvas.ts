@@ -1,7 +1,9 @@
 import type { Prim, Scene } from './scene.js';
+import { MAP_COLOURS } from './palette.js';
 
 const FONT_STACK =
   'ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif';
+const FANTASY_FONT_STACK = '"Palatino Linotype", Palatino, "Book Antiqua", Georgia, serif';
 
 export function drawScene(ctx: CanvasRenderingContext2D, scene: Scene): void {
   for (const prim of scene.prims) drawPrim(ctx, prim);
@@ -26,7 +28,18 @@ function drawPrim(ctx: CanvasRenderingContext2D, prim: Prim): void {
     }
     case 'polyline': {
       ctx.beginPath();
-      prim.points.forEach((p, i) => (i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y)));
+      if (prim.smooth && prim.points.length > 2) {
+        ctx.moveTo(prim.points[0]!.x, prim.points[0]!.y);
+        for (let i = 1; i < prim.points.length - 1; i++) {
+          const p = prim.points[i]!;
+          const next = prim.points[i + 1]!;
+          ctx.quadraticCurveTo(p.x, p.y, (p.x + next.x) / 2, (p.y + next.y) / 2);
+        }
+        const last = prim.points.at(-1)!;
+        ctx.lineTo(last.x, last.y);
+      } else {
+        prim.points.forEach((p, i) => (i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y)));
+      }
       ctx.strokeStyle = prim.stroke;
       ctx.lineWidth = prim.strokeWidth;
       ctx.lineJoin = prim.round ? 'round' : 'miter';
@@ -53,18 +66,42 @@ function drawPrim(ctx: CanvasRenderingContext2D, prim: Prim): void {
       break;
     }
     case 'text': {
-      ctx.font = `${prim.weight ?? 600} ${prim.size}px ${FONT_STACK}`;
+      ctx.font = `${prim.weight ?? 600} ${prim.size}px ${prim.fantasy ? FANTASY_FONT_STACK : FONT_STACK}`;
       ctx.textAlign = prim.anchor === 'start' ? 'left' : prim.anchor === 'end' ? 'right' : 'center';
       ctx.textBaseline = 'middle';
       if (prim.halo) {
         ctx.lineWidth = Math.max(2, prim.size * 0.28);
         ctx.strokeStyle = prim.halo;
         ctx.lineJoin = 'round';
-        ctx.strokeText(prim.text, prim.at.x, prim.at.y);
+        ctx.strokeText(prim.text, prim.at.x, prim.at.y, prim.maxWidth);
         ctx.lineJoin = 'miter';
       }
       ctx.fillStyle = prim.fill;
-      ctx.fillText(prim.text, prim.at.x, prim.at.y);
+      ctx.fillText(prim.text, prim.at.x, prim.at.y, prim.maxWidth);
+      break;
+    }
+    case 'city': {
+      const { c, r } = prim;
+      ctx.fillStyle = MAP_COLOURS.city;
+      ctx.strokeStyle = MAP_COLOURS.cityRing;
+      ctx.lineWidth = Math.max(1, r * 0.16);
+      ctx.lineJoin = 'round';
+      ctx.beginPath();
+      ctx.moveTo(c.x - r, c.y + r * 0.72);
+      ctx.lineTo(c.x - r, c.y - r * 0.35);
+      ctx.lineTo(c.x - r * 0.65, c.y - r * 0.7);
+      ctx.lineTo(c.x - r * 0.3, c.y - r * 0.35);
+      ctx.lineTo(c.x, c.y - r);
+      ctx.lineTo(c.x + r * 0.3, c.y - r * 0.35);
+      ctx.lineTo(c.x + r * 0.65, c.y - r * 0.7);
+      ctx.lineTo(c.x + r, c.y - r * 0.35);
+      ctx.lineTo(c.x + r, c.y + r * 0.72);
+      ctx.closePath(); ctx.fill(); ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(c.x, c.y + r * 0.72, r * 0.27, Math.PI, 0);
+      ctx.fillStyle = prim.onRiver ? MAP_COLOURS.river : MAP_COLOURS.cityRing;
+      ctx.fill();
+      ctx.lineJoin = 'miter';
       break;
     }
   }

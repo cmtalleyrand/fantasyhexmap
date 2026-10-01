@@ -52,7 +52,7 @@ function keyed(rows: string[], split: (row: string) => string[] = (r) => Array.f
   );
 }
 
-const ROW_STRINGS = ['lllll', 'lrrhl', 'lhHMl', 'lllll'];
+const ROW_STRINGS = ['wwwww', 'wrrhw', 'whHMw', 'wwwww'];
 
 const brief = {
   scale: '~50 km per hex, from the 250 km width of the island',

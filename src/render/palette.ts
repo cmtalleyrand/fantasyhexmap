@@ -93,6 +93,43 @@ export const MAP_COLOURS = {
   stale: '#e6a33c',
 };
 
+export const POLITY_PALETTE = [
+  '#4477aa', '#ee6677', '#228833', '#ccbb44', '#aa3377', '#66ccee',
+  '#ee8866', '#004488', '#bb5566', '#009988', '#ddaa33', '#772288',
+];
+
+/** Greedily maximises RGB distance between adjacent polity colours. */
+export function contrastingPolityColours(
+  polityIds: string[], owner: Array<string | null>, cols: number, rows: number,
+): Map<string, string> {
+  const neighbours = new Map(polityIds.map((id) => [id, new Set<string>()]));
+  const connect = (a: string | null, b: string | null) => {
+    if (!a || !b || a === b || !neighbours.has(a) || !neighbours.has(b)) return;
+    neighbours.get(a)!.add(b);
+    neighbours.get(b)!.add(a);
+  };
+  for (let row = 0; row < rows; row++) for (let col = 0; col < cols; col++) {
+    const here = owner[row * cols + col] ?? null;
+    if (col + 1 < cols) connect(here, owner[row * cols + col + 1] ?? null);
+    if (row + 1 < rows) {
+      connect(here, owner[(row + 1) * cols + col] ?? null);
+      const diagonal = col + (row % 2 === 0 ? -1 : 1);
+      if (diagonal >= 0 && diagonal < cols) connect(here, owner[(row + 1) * cols + diagonal] ?? null);
+    }
+  }
+  const rgb = (hex: string) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
+  const distance = (a: string, b: string) => rgb(a).reduce((sum, v, i) => sum + (v - rgb(b)[i]!) ** 2, 0);
+  const result = new Map<string, string>();
+  const ordered = [...polityIds].sort((a, b) => neighbours.get(b)!.size - neighbours.get(a)!.size || a.localeCompare(b));
+  for (const id of ordered) {
+    const adjacent = [...neighbours.get(id)!].map((n) => result.get(n)).filter((c): c is string => Boolean(c));
+    const comparison = adjacent.length ? adjacent : [...result.values()];
+    const score = (colour: string) => Math.min(...comparison.map((c) => distance(colour, c)), Infinity);
+    result.set(id, POLITY_PALETTE.reduce((best, colour) => score(colour) > score(best) ? colour : best));
+  }
+  return result;
+}
+
 export function withAlpha(hex: string, alpha: number): string {
   const m = /^#([0-9a-f]{6})$/i.exec(hex);
   if (!m) return hex;
