@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { hexIndex, indexToOffset } from '../../shared/hex.js';
+import { canHoldSettlement } from '../../shared/derive.js';
 import { buildRiverFromPath } from '../../shared/validate.js';
 import { removeRiverSegment } from '../../shared/riverEdit.js';
 import type { RiverTool } from '../state/riverTools.js';
@@ -418,8 +419,11 @@ function PolityEditor(props: SubProps) {
         </label>
       </div>
       <p className="hint" style={{ margin: 0 }}>
-        Assignment is a strict partition: a hex has one owner or none, and claims on water are
-        ignored. Brush mode assigns as you drag.
+        Assignment is a strict partition: a hex has one owner or none.{' '}
+        {map.allowUnderwater
+          ? 'Underwater claims are allowed on this map.'
+          : 'Claims on water are ignored.'}{' '}
+        Brush mode assigns as you drag.
       </p>
 
       <div className="list">
@@ -497,6 +501,8 @@ function CityEditor(props: SubProps) {
   const [name, setName] = useState('');
   const [population, setPopulation] = useState('5000');
   const target = selected.length === 1 ? selected[0]! : null;
+  const targetBase = target === null ? undefined : map.layers.base.data?.[target];
+  const blockedByWater = target !== null && !canHoldSettlement(targetBase, map.allowUnderwater);
   const here = data.cities.filter((c) => selected.includes(hexIndex(map.cols, c.col, c.row)));
 
   const add = () => {
@@ -530,10 +536,16 @@ function CityEditor(props: SubProps) {
             value={population}
             onChange={(e) => setPopulation(e.target.value)}
           />
-          <button className="primary" onClick={add} disabled={!name.trim()}>
+          <button className="primary" onClick={add} disabled={!name.trim() || blockedByWater}>
             add
           </button>
         </div>
+      )}
+      {blockedByWater && (
+        <p className="hint">
+          That hex is {targetBase}. Cities can only stand on land unless underwater cities are
+          enabled in Settings &gt; Map.
+        </p>
       )}
 
       {here.length > 0 && (

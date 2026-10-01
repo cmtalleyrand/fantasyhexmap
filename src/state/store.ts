@@ -13,7 +13,14 @@
  *    layer is already flagged stale by the upstream change.
  */
 
-import { recomputeCityFacts, isLandLike } from '../../shared/derive.js';
+import { recomputeCityFacts, canHoldSettlement } from '../../shared/derive.js';
+import {
+  baseTransitions,
+  clearedAt,
+  inferNewLand,
+  riversWithoutHexes,
+} from '../../shared/landChange.js';
+import { isLayerEnabled } from '../../shared/layers.js';
 import { setRiverNavigability } from '../../shared/riverEdit.js';
 import { currentDepVersions, trimHistory } from '../../shared/layers.js';
 import { LAYER_META, normaliseSelection } from '../../shared/layers.js';
@@ -24,6 +31,7 @@ import type {
   JournalKind,
   LayerDataMap,
   LayerId,
+  BaseGeo,
   LayerSnapshot,
   LayerState,
   MapState,
@@ -37,6 +45,7 @@ export type Action =
   | { type: 'setMeta'; name?: string; description?: string }
   | { type: 'setHexDimensions'; hexDimensions: HexDimensions }
   | { type: 'setPlan'; layers: LayerId[] }
+  | { type: 'setAllowUnderwater'; allow: boolean }
   | {
       type: 'applyGeneration';
       layer: LayerId;
@@ -144,12 +153,13 @@ function reconcile(map: MapState): MapState {
   const base = map.layers.base.data;
   if (!base) return map;
   const rivers = map.layers.rivers.data?.rivers ?? null;
+  const allow = map.allowUnderwater === true;
   let layers = map.layers;
 
   const cities = layers.cities.data;
   if (cities) {
     const next = cities.cities
-      .filter((c) => isLandLike(base[c.row * map.cols + c.col]))
+      .filter((c) => canHoldSettlement(base[c.row * map.cols + c.col], allow))
       .map((c) => recomputeCityFacts(c, base, map.cols, map.rows, rivers));
     const changed =
       next.length !== cities.cities.length ||
@@ -171,7 +181,7 @@ function reconcile(map: MapState): MapState {
   if (polities) {
     let dirty = false;
     const owner = polities.owner.map((id, i) => {
-      if (id && !isLandLike(base[i])) {
+      if (id && !canHoldSettlement(base[i], allow)) {
         dirty = true;
         return null;
       }
@@ -183,6 +193,129 @@ function reconcile(map: MapState): MapState {
   }
 
   return layers === map.layers ? map : { ...map, layers };
+}
+
+/**
+ * Turning underwater settlement off removes what it permitted. Unlike routine
+ * reconciliation this is a deliberate change to the cities and polities layers,
+ * so it is committed and can be undone from each of them.
+ */
+function dropUnderwater(map: MapState): MapState {
+  const base = map.layers.base.data;
+  if (!base) return map;
+  let next = map;
+  const cities = map.layers.cities.data;
+  if (cities) {
+    const kept = cities.cities.filter((c) => canHoldSettlement(base[c.row * map.cols + c.col], false));
+    if (kept.length !== cities.cities.length) {
+      next = journal(
+        withLayer(next, 'cities', commit(next.layers.cities, { data: { cities: kept } })),
+        manualEntry('cities', `Removed ${cities.cities.length - kept.length} underwater cities.`),
+      );
+    }
+  }
+  const polities = map.layers.polities.data;
+  if (polities) {
+    let cleared = 0;
+    const owner = polities.owner.map((id, i) => {
+      if (id && !canHoldSettlement(base[i], false)) {
+        cleared++;
+        return null;
+      }
+      return id;
+    });
+    if (cleared > 0) {
+      next = journal(
+        withLayer(next, 'polities', commit(next.layers.polities, { data: { ...polities, owner } })),
+        manualEntry('polities', `Cleared polity claims from ${cleared} underwater hexes.`),
+      );
+    }
+  }
+  return next;
+}
+
+/**
+ * Carry a base-geography edit through to the layers that sit on it.
+ *
+ * Hexes that went from land to Sea or Lake lose their elevation, climate,
+ * vegetation and population, and any river running through them. Hexes that
+ * went from Sea or Lake to land are filled in from the surrounding land for
+ * every layer that is both planned and generated. These are real edits to those
+ * layers, so each is committed and individually undoable.
+ */
+function propagateBaseEdit(
+  map: MapState,
+  before: BaseGeo[],
+  after: BaseGeo[],
+  indices: number[],
+): MapState {
+  const { toWater, toLand } = baseTransitions(before, after, indices);
+  if (toWater.length === 0 && toLand.length === 0) return map;
+  const { cols, rows } = map;
+  let next = map;
+  const notes: string[] = [];
+  const plural = (n: number, noun: string) => `${n} ${noun}${n === 1 ? '' : 's'}`;
+
+  if (toWater.length > 0) {
+    for (const id of ['elevation', 'climate', 'vegetation', 'population'] as const) {
+      const layer = next.layers[id];
+      if (!layer.data) continue;
+      const cleared = clearedAt(layer.data as unknown[], toWater);
+      if (!cleared) continue;
+      next = withLayer(next, id, commit(layer as LayerState, { data: cleared as LayerDataMap[LayerId] }));
+      notes.push(`cleared ${LAYER_META[id].label.toLowerCase()}`);
+    }
+    const rivers = next.layers.rivers.data;
+    if (rivers) {
+      const kept = riversWithoutHexes(rivers.rivers, new Set(toWater), after, cols, rows);
+      const changed =
+        kept.length !== rivers.rivers.length ||
+        kept.some((r, i) => r !== rivers.rivers[i]);
+      if (changed) {
+        next = withLayer(next, 'rivers', commit(next.layers.rivers, { data: { rivers: kept } }));
+        notes.push('trimmed rivers');
+      }
+    }
+  }
+
+  if (toLand.length > 0) {
+    const active = (id: LayerId) => isLayerEnabled(next, id) && next.layers[id].data !== null;
+    const fill = inferNewLand(
+      {
+        base: after,
+        elevation: active('elevation') ? next.layers.elevation.data : null,
+        climate: active('climate') ? next.layers.climate.data : null,
+        vegetation: active('vegetation') ? next.layers.vegetation.data : null,
+        population: active('population') ? next.layers.population.data : null,
+        owner: active('polities') ? next.layers.polities.data!.owner : null,
+      },
+      toLand,
+      cols,
+      rows,
+    );
+    for (const id of ['elevation', 'climate', 'vegetation', 'population'] as const) {
+      const values = fill[id] as Map<number, unknown> | undefined;
+      if (!values || values.size === 0) continue;
+      const layer = next.layers[id];
+      const data = (layer.data as unknown[]).slice();
+      for (const [i, v] of values) data[i] = v;
+      next = withLayer(next, id, commit(layer as LayerState, { data: data as LayerDataMap[LayerId] }));
+      notes.push(`filled ${LAYER_META[id].label.toLowerCase()}`);
+    }
+    if (fill.owner && fill.owner.size > 0) {
+      const layer = next.layers.polities;
+      const owner = layer.data!.owner.slice();
+      for (const [i, v] of fill.owner) owner[i] = v;
+      next = withLayer(next, 'polities', commit(layer, { data: { ...layer.data!, owner } }));
+      notes.push('extended polity borders');
+    }
+  }
+
+  if (notes.length === 0) return next;
+  const parts: string[] = [];
+  if (toWater.length > 0) parts.push(`${plural(toWater.length, 'hex')} became water`);
+  if (toLand.length > 0) parts.push(`${plural(toLand.length, 'hex')} became land`);
+  return journal(next, manualEntry('base', `${parts.join(' and ')}: ${notes.join(', ')}.`));
 }
 
 export function reducer(map: MapState, action: Action): MapState {
@@ -226,6 +359,20 @@ export function reducer(map: MapState, action: Action): MapState {
         model: null,
         warnings: 0,
       });
+    }
+
+    case 'setAllowUnderwater': {
+      if ((map.allowUnderwater === true) === action.allow) return map;
+      const next = journal(
+        { ...map, allowUnderwater: action.allow, updatedAt: Date.now() },
+        manualEntry(
+          'base',
+          action.allow
+            ? 'Allowed cities and polities on Sea and Lake hexes.'
+            : 'Disallowed cities and polities on Sea and Lake hexes.',
+        ),
+      );
+      return action.allow ? next : dropUnderwater(next);
     }
 
     case 'applyGeneration': {
@@ -277,7 +424,10 @@ export function reducer(map: MapState, action: Action): MapState {
           `Set ${action.indices.length} hex${action.indices.length === 1 ? '' : 'es'} to ${value} by hand.`,
         ),
       );
-      return action.layer === 'base' ? reconcile(next) : next;
+      if (action.layer !== 'base') return next;
+      return reconcile(
+        propagateBaseEdit(next, layer.data as BaseGeo[], data as BaseGeo[], action.indices),
+      );
     }
 
     case 'setPolityOwner': {
@@ -287,8 +437,8 @@ export function reducer(map: MapState, action: Action): MapState {
       const base = map.layers.base.data;
       for (const i of action.indices) {
         if (i < 0 || i >= owner.length) continue;
-        // The partition covers land only; a claim on water is not representable.
-        if (action.polityId && base && !isLandLike(base[i])) continue;
+        // Unless the map allows underwater polities the partition covers land only.
+        if (action.polityId && base && !canHoldSettlement(base[i], map.allowUnderwater)) continue;
         owner[i] = action.polityId;
       }
       const target = action.polityId
@@ -349,6 +499,10 @@ export function reducer(map: MapState, action: Action): MapState {
       const layer = map.layers.cities;
       const current = layer.data ?? { cities: [] };
       const base = map.layers.base.data;
+      // A city cannot be placed (or moved) onto water unless the map allows it.
+      if (base && !canHoldSettlement(base[action.city.row * map.cols + action.city.col], map.allowUnderwater)) {
+        return map;
+      }
       const city = base
         ? recomputeCityFacts(action.city, base, map.cols, map.rows, map.layers.rivers.data?.rivers ?? null)
         : action.city;

@@ -43,6 +43,9 @@ export interface SettingsDialogProps {
   /** The open map's hex size; null on the create screen, where no map exists yet. */
   hexDimensions: HexDimensions | null;
   onSaveHexDimensions: (next: HexDimensions) => void;
+  /** Whether the open map lets cities and polities occupy water; null on the create screen. */
+  allowUnderwater: boolean | null;
+  onSaveAllowUnderwater: (allow: boolean) => void;
   initialTab?: SettingsTab;
 }
 
@@ -50,6 +53,7 @@ export default function SettingsDialog(props: SettingsDialogProps) {
   const [key, setKey] = useState(props.apiKey);
   const [prefs, setPrefs] = useState<Prefs>(props.prefs);
   const [hex, setHex] = useState<HexDimensions | null>(props.hexDimensions);
+  const [underwater, setUnderwater] = useState<boolean | null>(props.allowUnderwater);
   const [reveal, setReveal] = useState(false);
   const [protect, setProtect] = useState(props.locked);
   const [passphrase, setPassphrase] = useState('');
@@ -84,6 +88,9 @@ export default function SettingsDialog(props: SettingsDialogProps) {
 
   const save = () => {
     if (hex && hex !== props.hexDimensions) props.onSaveHexDimensions(hex);
+    if (underwater !== null && underwater !== props.allowUnderwater) {
+      props.onSaveAllowUnderwater(underwater);
+    }
     props.onSave(key, prefs, needsEncrypt ? passphrase : protect ? null : '');
   };
 
@@ -128,6 +135,25 @@ export default function SettingsDialog(props: SettingsDialogProps) {
             <div className="stack">
               <h3>Hex size</h3>
               <HexSizeInput value={hex} onChange={setHex} />
+              {underwater !== null && (
+                <>
+                  <h3>Water</h3>
+                  <label className="check">
+                    <input
+                      type="checkbox"
+                      checked={underwater}
+                      onChange={(e) => setUnderwater(e.target.checked)}
+                    />
+                    Allow underwater cities and polities
+                  </label>
+                  <p className="hint">
+                    Off by default: cities stand on land and polities partition only land, so
+                    anything on a Sea or Lake hex is removed when the geography changes. Turning
+                    this off removes any underwater cities and claims the map already has (each
+                    layer can undo it).
+                  </p>
+                </>
+              )}
             </div>
           )}
 

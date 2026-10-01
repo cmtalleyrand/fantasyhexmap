@@ -273,6 +273,12 @@ export interface MapState {
    * so removing one is never destructive.
    */
   enabledLayers: LayerId[];
+  /**
+   * Let cities stand on, and polities own, Sea and Lake hexes. Off by default:
+   * the map is then a land partition and anything on water is dropped when the
+   * geography changes. Absent on maps saved before the option existed.
+   */
+  allowUnderwater?: boolean;
   layers: LayersState;
   /** Append-only record of every change, oldest first. */
   journal: JournalEntry[];

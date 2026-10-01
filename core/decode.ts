@@ -313,7 +313,7 @@ export function decodeLayer(
         coastal: false,
         coastalEdges: [],
       }));
-      const checked = validateCities(cities, ctx.base!, ctx.rivers?.rivers ?? null, cols, rows);
+      const checked = validateCities(cities, ctx.base!, ctx.rivers?.rivers ?? null, cols, rows, ctx.allowUnderwater);
       warnings.push(...checked.warnings);
       data = { cities: checked.data };
       break;
@@ -356,7 +356,7 @@ export function decodeLayer(
       if (unknownKeys > 0) {
         warnings.push(`${unknownKeys} hexes used an undeclared polity key and were left unclaimed.`);
       }
-      const checked = validatePolities(polities, owner, ctx.base!, cols, rows);
+      const checked = validatePolities(polities, owner, ctx.base!, cols, rows, ctx.allowUnderwater);
       warnings.push(...checked.warnings);
       warnings.push(...sizeWarnings(r.polities, polities, checked.data.owner));
       data = checked.data;

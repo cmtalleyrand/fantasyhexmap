@@ -24,6 +24,14 @@ export function isLandLike(v: BaseGeo | undefined): boolean {
   return v === 'Land' || v === 'Coastal Land' || v === 'Island';
 }
 
+/**
+ * Whether a city may stand on, or a polity own, a hex of this type. Land always
+ * qualifies; Sea and Lake only when the map opts in to underwater settlement.
+ */
+export function canHoldSettlement(v: BaseGeo | undefined, allowUnderwater: boolean | undefined): boolean {
+  return isLandLike(v) || (allowUnderwater === true && isWater(v));
+}
+
 /** Edges of (col,row) that border a Sea or Lake hex. Off-map edges do not count. */
 export function waterEdgesOf(
   base: BaseData,

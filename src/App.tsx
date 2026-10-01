@@ -1,6 +1,6 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { edgeBetween, indexToOffset } from '../shared/hex.js';
-import { riversThroughHex } from '../shared/derive.js';
+import { canHoldSettlement, riversThroughHex } from '../shared/derive.js';
 import { moveRiverSegment } from '../shared/riverEdit.js';
 import { LAYER_META, createMapState } from '../shared/layers.js';
 import { nextGenerationWave } from '../shared/generationQueue.js';
@@ -341,6 +341,11 @@ export default function App() {
       if (!city) return;
       const target = indexToOffset(map.cols, targetIndex);
       if (city.col === target.col && city.row === target.row) return;
+      if (!canHoldSettlement(map.layers.base.data?.[targetIndex], map.allowUnderwater)) {
+        setError('Cities cannot stand on water. Enable underwater cities in Settings > Map to allow it.');
+        return;
+      }
+      setError(null);
       dispatch({ type: 'upsertCity', city: { ...city, ...target } });
     },
     [map],
@@ -433,6 +438,8 @@ export default function App() {
       initialTab={settingsTab}
       hexDimensions={map ? normaliseHexDimensions(map.hexDimensions) : null}
       onSaveHexDimensions={(hexDimensions) => dispatch({ type: 'setHexDimensions', hexDimensions })}
+      allowUnderwater={map ? map.allowUnderwater === true : null}
+      onSaveAllowUnderwater={(allow) => dispatch({ type: 'setAllowUnderwater', allow })}
       onForget={() => {
         forgetKey();
         setApiKey('');
