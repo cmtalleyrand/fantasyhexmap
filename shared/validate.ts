@@ -14,6 +14,7 @@ import {
   ELEVATION_FLOW_RANK,
   edgesToOffMap,
   isLandLike,
+  canHoldSettlement,
   isWater,
   recomputeCityFacts,
   waterEdgesOf,
@@ -410,6 +411,7 @@ export function validateCities(
   rivers: River[] | null,
   cols: number,
   rows: number,
+  allowUnderwater = false,
 ): Repaired<City[]> {
   const warnings: string[] = [];
   const out: City[] = [];
@@ -420,7 +422,7 @@ export function validateCities(
       warnings.push(`City "${c.name}" at ${c.col},${c.row} is off the map and was dropped.`);
       continue;
     }
-    if (!isLandLike(base[hexIndex(cols, c.col, c.row)])) {
+    if (!canHoldSettlement(base[hexIndex(cols, c.col, c.row)], allowUnderwater)) {
       offLand.push(`${c.name} @ ${c.col},${c.row}`);
       continue;
     }
@@ -437,7 +439,7 @@ export function validateCities(
       ),
     );
   }
-  summarise(warnings, offLand, (n) => `Dropped ${n} cities placed on water or ice`);
+  summarise(warnings, offLand, (n) => `Dropped ${n} cities placed ${allowUnderwater ? 'on ice' : 'on water or ice'}`);
   return { data: out, warnings };
 }
 
@@ -450,6 +452,7 @@ export function validatePolities(
   base: BaseData,
   cols: number,
   rows: number,
+  allowUnderwater = false,
 ): Repaired<PolitiesData> {
   const warnings: string[] = [];
   const known = new Set(polities.map((p) => p.id));
@@ -463,7 +466,7 @@ export function validatePolities(
       unknownRefs++;
       continue;
     }
-    if (!isLandLike(base[i])) {
+    if (!canHoldSettlement(base[i], allowUnderwater)) {
       onWater.push(at(cols, i));
       continue;
     }

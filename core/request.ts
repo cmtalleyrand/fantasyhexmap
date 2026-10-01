@@ -26,6 +26,8 @@ export interface GenerateBody {
   layers?: Partial<Record<LayerId, unknown>>;
   /** Layers this map has chosen not to have; changes how absent context is described. */
   excluded?: string[];
+  /** Cities and polities may occupy Sea and Lake hexes. */
+  allowUnderwater?: boolean;
   /** Which half of a splittable layer to run; ignored by layers that do not split. */
   selection?: string;
   /** A roster supplied instead of generated, for a paint-only run. */
@@ -115,6 +117,7 @@ export function validateGenerateBody(body: GenerateBody): { error: string } | { 
     excluded: (body.excluded ?? []).filter((id): id is LayerId =>
       LAYER_ORDER.includes(id as LayerId),
     ),
+    allowUnderwater: body.allowUnderwater === true,
   };
 
   for (const dep of LAYER_META[layer].requires) {

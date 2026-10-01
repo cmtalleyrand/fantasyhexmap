@@ -36,6 +36,7 @@ export function contextFromMap(map: MapState, instruction: string | null): Promp
     population: map.layers.population.data,
     instruction,
     excluded: excludedLayers(map),
+    allowUnderwater: map.allowUnderwater === true,
   };
 }
 

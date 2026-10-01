@@ -137,6 +137,7 @@ export async function generateLayer(
         instruction,
         layers,
         excluded: excludedLayers(map),
+        allowUnderwater: map.allowUnderwater === true,
         selection,
         roster,
       }),

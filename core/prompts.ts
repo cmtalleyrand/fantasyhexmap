@@ -72,6 +72,8 @@ export interface PromptContext {
    * would have depended on it has to be settled now.
    */
   excluded?: LayerId[];
+  /** Cities may stand on, and polities own, Sea and Lake hexes on this map. */
+  allowUnderwater?: boolean;
   /**
    * How grids are to be returned: 'keyed' (cell by cell, enforced by the API's
    * grammar) or 'rows' (one string per row, for the webchat path). Only changes
@@ -713,7 +715,13 @@ function citiesPrompt(ctx: PromptContext): BuiltPrompt {
     gridRules(ctx.cols, ctx.rows),
     '',
     section('WHERE CITIES GO', [
-      '- On Land, Coastal Land or Island hexes only. Never on Sea, Lake or Ice.',
+      ...(ctx.allowUnderwater
+        ? [
+            '- On Land, Coastal Land or Island hexes, or - since this world has submerged settlements - on Sea or Lake hexes',
+            '  where the brief or the setting supports one (a drowned city, a merfolk reef-city, a pile-built lake town).',
+            '  Never on Ice. Keep underwater cities rare and say why each exists in its "reason" field.',
+          ]
+        : ['- On Land, Coastal Land or Island hexes only. Never on Sea, Lake or Ice.']),
       '- Cities want water and traffic: river mouths, the lowest bridging point of a river, confluences, sheltered',
       '  bays, the neck of a peninsula, the pass through a range, the edge of a fertile plain.',
       '- Cities want food: cultivated or fertile hexes nearby. A great city in the middle of a desert needs a reason',
@@ -792,7 +800,13 @@ function politiesPrompt(ctx: PromptContext): BuiltPrompt {
     section('THE PARTITION RULE', [
       'Every Land, Coastal Land and Island hex belongs to exactly one polity, or to none (unclaimed wilderness). There are no',
       'overlapping claims, no condominiums and no disputed hexes in this model - pick an owner or leave it unclaimed.',
-      `Sea, Lake and Ice hexes are always "${POLITY_UNCLAIMED}".`,
+      ...(ctx.allowUnderwater
+        ? [
+            `Ice hexes are always "${POLITY_UNCLAIMED}". This world has submerged realms, so a polity may also own Sea or Lake`,
+            'hexes - territorial waters, a reef kingdom, a drowned empire - but only where the brief or the setting supports it;',
+            `open water is otherwise "${POLITY_UNCLAIMED}".`,
+          ]
+        : [`Sea, Lake and Ice hexes are always "${POLITY_UNCLAIMED}".`]),
     ]),
     '',
     section('DRAWING BORDERS', [
@@ -1013,7 +1027,13 @@ function politiesPaintPrompt(ctx: PromptContext, roster: Roster | null): BuiltPr
     section('THE PARTITION RULE', [
       'Every Land, Coastal Land and Island hex belongs to exactly one polity, or to none (unclaimed wilderness). There are no',
       'overlapping claims, no condominiums and no disputed hexes in this model - pick an owner or leave it unclaimed.',
-      `Sea, Lake and Ice hexes are always "${POLITY_UNCLAIMED}".`,
+      ...(ctx.allowUnderwater
+        ? [
+            `Ice hexes are always "${POLITY_UNCLAIMED}". This world has submerged realms, so a polity may also own Sea or Lake`,
+            'hexes - territorial waters, a reef kingdom, a drowned empire - but only where the brief or the setting supports it;',
+            `open water is otherwise "${POLITY_UNCLAIMED}".`,
+          ]
+        : [`Sea, Lake and Ice hexes are always "${POLITY_UNCLAIMED}".`]),
     ]),
     '',
     section('DRAWING BORDERS', [
