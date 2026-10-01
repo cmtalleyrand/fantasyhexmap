@@ -75,6 +75,7 @@ export type Prim =
       anchor?: 'start' | 'middle' | 'end';
       maxWidth?: number;
       fantasy?: boolean;
+      rotation?: number;
     }
   | {
       kind: 'city';
@@ -96,6 +97,7 @@ export interface SceneOptions {
   size: number;
   visible: VisibleLayers;
   labels: boolean;
+  elevationStyle?: 'colour' | 'contours';
   /** Screen-only decoration; omitted from exports. */
   selection?: Set<number> | null;
   hover?: number | null;
@@ -119,7 +121,10 @@ export function buildScene(map: MapState, opts: SceneOptions): Scene {
   const prims: Prim[] = [];
 
   const base = opts.visible.base ? layers.base.data : null;
-  const thematic = FILL_PRECEDENCE.find((id) => opts.visible[id] && layers[id].data) ?? null;
+  const elevationStyle = opts.elevationStyle ?? 'colour';
+  const thematic = FILL_PRECEDENCE.find(
+    (id) => opts.visible[id] && layers[id].data && (id !== 'elevation' || elevationStyle === 'colour'),
+  ) ?? null;
 
   const population = opts.visible.population ? layers.population.data : null;
   const maxPop = population ? Math.max(1, ...population.map((v) => v ?? 0)) : 1;
@@ -169,6 +174,31 @@ export function buildScene(map: MapState, opts: SceneOptions): Scene {
       if (baseValue === 'Island') {
         const c = hexCenter(col, row, size);
         prims.push({ kind: 'circle', c, r: size * 0.34, fill: ISLAND_DOT });
+      }
+
+      if (elevationStyle === 'contours' && opts.visible.elevation) {
+        const elevation = layers.elevation.data?.[i];
+        if (elevation) {
+          const centre = hexCenter(col, row, size);
+          const levels: Record<Elevation, number> = {
+            Lowland: 0, Rolling: 1, Hills: 2, Highland: 3, Mountains: 4, Plateau: 2,
+          };
+          const count = levels[elevation];
+          for (let mark = 0; mark < count; mark++) {
+            const halfWidth = size * (0.2 + mark * 0.1);
+            const y = centre.y + size * (0.25 - mark * 0.14);
+            const points = elevation === 'Plateau'
+              ? [{ x: centre.x - halfWidth, y }, { x: centre.x + halfWidth, y }]
+              : [{ x: centre.x - halfWidth, y }, { x: centre.x, y: y - size * 0.15 }, { x: centre.x + halfWidth, y }];
+            prims.push({
+              kind: 'polyline',
+              points,
+              stroke: MAP_COLOURS.elevationContour,
+              strokeWidth: Math.max(0.8, size * 0.045),
+              round: true,
+            });
+          }
+        }
       }
 
       if (population) {
@@ -310,29 +340,45 @@ export function buildScene(map: MapState, opts: SceneOptions): Scene {
         // Tiny territories are keyed by colour in the legend instead. A name
         // cannot fit legibly inside one to three hexes at any useful zoom.
         if (owned.length <= 3) continue;
-        let sx = 0;
-        let sy = 0;
-        for (const i of owned) {
-          const c = hexCenter(i % cols, Math.floor(i / cols), size);
-          sx += c.x;
-          sy += c.y;
-        }
         const centres = owned.map((i) => hexCenter(i % cols, Math.floor(i / cols), size));
-        const spanX = Math.max(...centres.map((c) => c.x)) - Math.min(...centres.map((c) => c.x)) + size * 1.5;
-        const spanY = Math.max(...centres.map((c) => c.y)) - Math.min(...centres.map((c) => c.y)) + size * 1.5;
+        const mean = centres.reduce((sum, c) => ({ x: sum.x + c.x, y: sum.y + c.y }), { x: 0, y: 0 });
+        mean.x /= centres.length;
+        mean.y /= centres.length;
+        let xx = 0;
+        let yy = 0;
+        let xy = 0;
+        for (const c of centres) {
+          const dx = c.x - mean.x;
+          const dy = c.y - mean.y;
+          xx += dx * dx;
+          yy += dy * dy;
+          xy += dx * dy;
+        }
+        let rotation = Math.atan2(2 * xy, xx - yy) / 2;
+        if (rotation > Math.PI / 2) rotation -= Math.PI;
+        if (rotation < -Math.PI / 2) rotation += Math.PI;
+        const along = centres.map((c) => (c.x - mean.x) * Math.cos(rotation) + (c.y - mean.y) * Math.sin(rotation));
+        const across = centres.map((c) => -(c.x - mean.x) * Math.sin(rotation) + (c.y - mean.y) * Math.cos(rotation));
+        const spanAlong = Math.max(...along) - Math.min(...along) + size * 1.5;
+        const spanAcross = Math.max(...across) - Math.min(...across) + size * 1.5;
         const idealSize = Math.max(9, size * 0.42);
-        const fittedSize = Math.max(7, Math.min(idealSize, spanY * 0.42, spanX / Math.max(1, polity.name.length * 0.62)));
+        const fittedSize = Math.min(idealSize, spanAcross * 0.42, spanAlong / Math.max(1, polity.name.length * 0.62));
+        if (fittedSize < 6) continue;
+        const labelCentre = centres.reduce((best, c) =>
+          (c.x - mean.x) ** 2 + (c.y - mean.y) ** 2 < (best.x - mean.x) ** 2 + (best.y - mean.y) ** 2 ? c : best,
+        );
+        const ink = contrastInk(polity.colour);
         prims.push({
           kind: 'text',
-          at: { x: sx / owned.length, y: sy / owned.length },
+          at: labelCentre,
           text: polity.name.toUpperCase(),
           size: fittedSize,
-          fill: contrastInk(polity.colour) === '#14100c' ? '#1b1409' : '#f7f3e7',
-          halo: withAlpha(polity.colour, 0.85),
-          weight: 700,
+          fill: ink,
+          halo: ink === '#14100c' ? 'rgba(247,243,231,0.9)' : 'rgba(20,16,12,0.88)',
+          weight: 600,
           anchor: 'middle',
-          maxWidth: spanX * 0.94,
           fantasy: true,
+          rotation,
         });
       }
     }

@@ -66,6 +66,9 @@ function drawPrim(ctx: CanvasRenderingContext2D, prim: Prim): void {
       break;
     }
     case 'text': {
+      ctx.save();
+      ctx.translate(prim.at.x, prim.at.y);
+      ctx.rotate(prim.rotation ?? 0);
       ctx.font = `${prim.weight ?? 600} ${prim.size}px ${prim.fantasy ? FANTASY_FONT_STACK : FONT_STACK}`;
       ctx.textAlign = prim.anchor === 'start' ? 'left' : prim.anchor === 'end' ? 'right' : 'center';
       ctx.textBaseline = 'middle';
@@ -73,11 +76,12 @@ function drawPrim(ctx: CanvasRenderingContext2D, prim: Prim): void {
         ctx.lineWidth = Math.max(2, prim.size * 0.28);
         ctx.strokeStyle = prim.halo;
         ctx.lineJoin = 'round';
-        ctx.strokeText(prim.text, prim.at.x, prim.at.y, prim.maxWidth);
+        ctx.strokeText(prim.text, 0, 0, prim.maxWidth);
         ctx.lineJoin = 'miter';
       }
       ctx.fillStyle = prim.fill;
-      ctx.fillText(prim.text, prim.at.x, prim.at.y, prim.maxWidth);
+      ctx.fillText(prim.text, 0, 0, prim.maxWidth);
+      ctx.restore();
       break;
     }
     case 'city': {

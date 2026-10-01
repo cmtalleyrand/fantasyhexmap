@@ -56,7 +56,10 @@ function primToSvg(prim: Prim): string {
       const halo = prim.halo
         ? ` stroke="${prim.halo}" stroke-width="${n(Math.max(2, prim.size * 0.28))}" stroke-linejoin="round" paint-order="stroke"`
         : '';
-      return `<text x="${n(prim.at.x)}" y="${n(prim.at.y)}" font-family="${prim.fantasy ? FANTASY_FONT_STACK : FONT_STACK}" font-size="${n(prim.size)}" font-weight="${prim.weight ?? 600}" text-anchor="${anchor}" dominant-baseline="central" fill="${prim.fill}"${halo}>${esc(prim.text)}</text>`;
+      const transform = prim.rotation
+        ? ` transform="rotate(${n(prim.rotation * 180 / Math.PI)} ${n(prim.at.x)} ${n(prim.at.y)})"`
+        : '';
+      return `<text x="${n(prim.at.x)}" y="${n(prim.at.y)}" font-family="${prim.fantasy ? FANTASY_FONT_STACK : FONT_STACK}" font-size="${n(prim.size)}" font-weight="${prim.weight ?? 600}" text-anchor="${anchor}" dominant-baseline="central" fill="${prim.fill}"${halo}${transform}>${esc(prim.text)}</text>`;
     }
     case 'city': {
       const { c, r } = prim;

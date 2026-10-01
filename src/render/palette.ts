@@ -84,6 +84,7 @@ export const MAP_COLOURS = {
   river: '#3f8fd0',
   coastMark: '#9fe0ff',
   riverNonNavigable: '#5aa6de',
+  elevationContour: 'rgba(37,30,22,0.72)',
   city: '#1a1410',
   cityRing: '#f6f1e4',
   label: '#14100c',

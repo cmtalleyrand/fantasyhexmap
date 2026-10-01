@@ -28,10 +28,38 @@ test('map presentation hides tiny polity labels and smooths thicker rivers', () 
   visible.rivers = true;
   const scene = buildScene(map, { size: 20, visible, labels: true });
   const labels = scene.prims.filter((p) => p.kind === 'text').map((p) => p.text);
+  const polityLabel = scene.prims.find((p) => p.kind === 'text');
   const river = scene.prims.find((p) => p.kind === 'polyline' && p.smooth);
 
   assert.deepEqual(labels, ['THE LONG KINGDOM']);
+  assert.equal(polityLabel?.halo, 'rgba(20,16,12,0.88)');
+  assert.equal(polityLabel?.weight, 600);
+  assert.notEqual(polityLabel?.rotation, 0);
   assert.ok(river && river.strokeWidth === 4.25);
+});
+
+test('terrain-mark elevation preserves geography colours and encodes height with strokes', () => {
+  const map = createMapState('Elevation marks', 3, 1);
+  map.layers.base.data = ['Land', 'Coastal Land', 'Land'];
+  map.layers.elevation.data = ['Lowland', 'Plateau', 'Mountains'];
+  const visible = defaultVisibility();
+  visible.elevation = true;
+
+  const scene = buildScene(map, {
+    size: 20,
+    visible,
+    labels: false,
+    elevationStyle: 'contours',
+  });
+  const fills = scene.prims.filter((p) => p.kind === 'polygon').map((p) => p.fill);
+  const marks = scene.prims.filter(
+    (p) => p.kind === 'polyline' && p.stroke === 'rgba(37,30,22,0.72)',
+  );
+
+  assert.deepEqual(fills, ['#c4d49b', '#d9c58f', '#c4d49b']);
+  assert.equal(marks.length, 6);
+  assert.equal(marks.filter((p) => p.points.length === 2).length, 2);
+  assert.equal(marks.filter((p) => p.points.length === 3).length, 4);
 });
 
 test('contrasting polity colours separate adjacent realms deterministically', () => {
