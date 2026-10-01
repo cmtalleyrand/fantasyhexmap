@@ -98,6 +98,26 @@ export const POLITY_PALETTE = [
   '#ed7048', '#064f9b', '#b63f5b', '#008c7a', '#d88c16', '#7529a3',
 ];
 
+function extendedPolityPalette(count: number): string[] {
+  const colours = POLITY_PALETTE.slice(0, count);
+  for (let i = colours.length; i < count; i++) {
+    const hue = (i * 137.508) % 360;
+    const saturation = [72, 82, 66][i % 3]!;
+    const lightness = [46, 56, 38][Math.floor(i / 3) % 3]!;
+    const s = saturation / 100;
+    const l = lightness / 100;
+    const chroma = (1 - Math.abs(2 * l - 1)) * s;
+    const x = chroma * (1 - Math.abs((hue / 60) % 2 - 1));
+    const m = l - chroma / 2;
+    const [r, g, b] =
+      hue < 60 ? [chroma, x, 0] : hue < 120 ? [x, chroma, 0] :
+      hue < 180 ? [0, chroma, x] : hue < 240 ? [0, x, chroma] :
+      hue < 300 ? [x, 0, chroma] : [chroma, 0, x];
+    colours.push(`#${[r, g, b].map((channel) => Math.round((channel + m) * 255).toString(16).padStart(2, '0')).join('')}`);
+  }
+  return colours;
+}
+
 /** Greedily maximises RGB distance between adjacent polity colours. */
 export function contrastingPolityColours(
   polityIds: string[], owner: Array<string | null>, cols: number, rows: number,
@@ -120,12 +140,16 @@ export function contrastingPolityColours(
   const rgb = (hex: string) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
   const distance = (a: string, b: string) => rgb(a).reduce((sum, v, i) => sum + (v - rgb(b)[i]!) ** 2, 0);
   const result = new Map<string, string>();
-  const ordered = [...polityIds].sort((a, b) => neighbours.get(b)!.size - neighbours.get(a)!.size || a.localeCompare(b));
+  const available = extendedPolityPalette(neighbours.size);
+  const ordered = [...neighbours.keys()].sort((a, b) => neighbours.get(b)!.size - neighbours.get(a)!.size || a.localeCompare(b));
   for (const id of ordered) {
     const adjacent = [...neighbours.get(id)!].map((n) => result.get(n)).filter((c): c is string => Boolean(c));
-    const comparison = adjacent.length ? adjacent : [...result.values()];
-    const score = (colour: string) => Math.min(...comparison.map((c) => distance(colour, c)), Infinity);
-    result.set(id, POLITY_PALETTE.reduce((best, colour) => score(colour) > score(best) ? colour : best));
+    const score = (colour: string) => Math.min(...adjacent.map((c) => distance(colour, c)), Infinity);
+    let best = 0;
+    for (let i = 1; i < available.length; i++) {
+      if (score(available[i]!) > score(available[best]!)) best = i;
+    }
+    result.set(id, available.splice(best, 1)[0]!);
   }
   return result;
 }

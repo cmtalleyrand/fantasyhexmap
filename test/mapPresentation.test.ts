@@ -47,6 +47,14 @@ test('contrasting polity colours separate adjacent realms deterministically', ()
   assert.deepEqual(colours, contrastingPolityColours(['west', 'east', 'south'], ['west', 'east', 'west', 'south'], 2, 2));
 });
 
+test('contrasting polity colours remain distinct beyond the twelve curated colours', () => {
+  const ids = Array.from({ length: 40 }, (_, i) => `realm-${i}`);
+  const colours = contrastingPolityColours(ids, ids, ids.length, 1);
+
+  assert.equal(colours.size, ids.length);
+  assert.equal(new Set(colours.values()).size, ids.length);
+});
+
 test('polity fills are opaque and independent of underlying thematic colours', () => {
   const map = createMapState('Polity colour test', 1, 1);
   map.layers.base.data = ['Coastal Land'];
