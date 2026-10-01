@@ -693,6 +693,13 @@ export default function App() {
           onAiEdit={() => void runGeneration(activeLayer, instruction.trim())}
           onWebchat={() => setWebchatLayer(activeLayer)}
           onGeneratePass={(passSelection) => void runGeneration(activeLayer, null, passSelection)}
+          onGenerateShortNames={() =>
+            void runGeneration(
+              'polities',
+              'Preserve every polity full name, colour, order and size exactly. Generate only concise shortName map labels. Remove generic polity-type wording when the proper name identifies the polity; retain a distinctive type alone when it uniquely identifies that polity.',
+              'roster',
+            )
+          }
           busy={busyLayers.size > 0}
           riverDraft={riverDraft}
           setRiverDraft={setRiverDraft}

@@ -10,7 +10,7 @@ test('map presentation hides tiny polity labels and smooths thicker rivers', () 
   map.layers.polities.data = {
     polities: [
       { id: 'tiny', name: 'Tiny March', colour: '#ff0000' },
-      { id: 'large', name: 'The Long Kingdom', colour: '#0000ff' },
+      { id: 'large', name: 'The Long Kingdom', shortName: 'Kingdom', colour: '#0000ff' },
     ],
     owner: ['tiny', 'tiny', null, null, 'tiny', 'large', 'large', null, null, 'large', 'large', null],
   };
@@ -31,10 +31,17 @@ test('map presentation hides tiny polity labels and smooths thicker rivers', () 
   const polityLabel = scene.prims.find((p) => p.kind === 'text');
   const river = scene.prims.find((p) => p.kind === 'polyline' && p.smooth);
 
-  assert.deepEqual(labels, ['THE LONG KINGDOM']);
-  assert.equal(polityLabel?.halo, 'rgba(20,16,12,0.88)');
+  assert.deepEqual(labels, ['KINGDOM']);
+  assert.equal(polityLabel?.fill, '#14100c');
+  assert.equal(polityLabel?.halo, undefined);
   assert.equal(polityLabel?.weight, 600);
-  assert.notEqual(polityLabel?.rotation, 0);
+  assert.ok(Math.abs(polityLabel?.rotation ?? 0) <= Math.PI / 6);
+  assert.ok((polityLabel?.size ?? 0) <= 20 * 0.58);
+  const withoutShortName = structuredClone(map);
+  delete withoutShortName.layers.polities.data!.polities[1]!.shortName;
+  const longLabel = buildScene(withoutShortName, { size: 20, visible, labels: true })
+    .prims.find((p) => p.kind === 'text');
+  assert.ok((longLabel?.size ?? 0) < (polityLabel?.size ?? 0), 'longer text should shrink to the same available territory');
   assert.ok(river && river.strokeWidth === 4.25);
 });
 
