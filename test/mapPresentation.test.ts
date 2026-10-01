@@ -46,3 +46,32 @@ test('contrasting polity colours separate adjacent realms deterministically', ()
   assert.notEqual(colours.get('west'), colours.get('south'));
   assert.deepEqual(colours, contrastingPolityColours(['west', 'east', 'south'], ['west', 'east', 'west', 'south'], 2, 2));
 });
+
+test('contrasting polity colours remain distinct beyond the twelve curated colours', () => {
+  const ids = Array.from({ length: 40 }, (_, i) => `realm-${i}`);
+  const colours = contrastingPolityColours(ids, ids, ids.length, 1);
+
+  assert.equal(colours.size, ids.length);
+  assert.equal(new Set(colours.values()).size, ids.length);
+});
+
+test('polity fills are opaque and independent of underlying thematic colours', () => {
+  const map = createMapState('Polity colour test', 1, 1);
+  map.layers.base.data = ['Coastal Land'];
+  map.layers.elevation.data = ['Mountains'];
+  map.layers.polities.data = {
+    polities: [{ id: 'realm', name: 'Realm', colour: '#2f6fbb' }],
+    owner: ['realm'],
+  };
+  const visible = defaultVisibility();
+  visible.polities = true;
+
+  const baseScene = buildScene(map, { size: 20, visible, labels: false });
+  visible.elevation = true;
+  const elevationScene = buildScene(map, { size: 20, visible, labels: false });
+  const polityFill = (scene: ReturnType<typeof buildScene>) =>
+    scene.prims.filter((p) => p.kind === 'polygon').at(-1)?.fill;
+
+  assert.equal(polityFill(baseScene), '#2f6fbb');
+  assert.equal(polityFill(elevationScene), '#2f6fbb');
+});
