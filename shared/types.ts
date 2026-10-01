@@ -259,6 +259,8 @@ export interface MapState {
   description: string;
   cols: number;
   rows: number;
+  /** Physical scale used to derive land surface area from the pointy-top hex grid. */
+  hexDimensions: HexDimensions;
   createdAt: number;
   updatedAt: number;
   /**
@@ -273,6 +275,24 @@ export interface MapState {
   /** Append-only record of every change, oldest first. */
   journal: JournalEntry[];
 }
+
+export interface HexDimensions {
+  /** Flat-to-flat horizontal span of one hex. */
+  width: number;
+  /** Corner-to-corner vertical span of one hex. */
+  height: number;
+  unit: string;
+  coastalLandPercent: number;
+  islandLandPercent: number;
+}
+
+export const DEFAULT_HEX_DIMENSIONS: HexDimensions = {
+  width: 10,
+  height: 8.66,
+  unit: 'km',
+  coastalLandPercent: 60,
+  islandLandPercent: 40,
+};
 
 export const MAX_DIM = 50;
 export const MIN_DIM = 3;

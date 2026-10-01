@@ -1,4 +1,5 @@
 import { LAYER_ORDER, type MapState } from '../../shared/types.js';
+import { normaliseHexDimensions } from '../../shared/surfaceArea.js';
 
 const RESPONSE_KEYS = new Set<string>(LAYER_ORDER);
 
@@ -30,5 +31,5 @@ export function parseMapImport(text: string): MapState {
     throw new Error('That file does not look like a fantasyhexmap export.');
   }
 
-  return candidate as MapState;
+  return { ...candidate, hexDimensions: normaliseHexDimensions(candidate.hexDimensions) } as MapState;
 }
