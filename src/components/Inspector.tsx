@@ -1,13 +1,15 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { hexIndex, indexToOffset } from '../../shared/hex.js';
 import { buildRiverFromPath } from '../../shared/validate.js';
 import { LAYER_META, stalenessOf } from '../../shared/layers.js';
 import {
   BASE_GEO_VALUES,
   CLIMATE_VALUES,
+  DEFAULT_HEX_DIMENSIONS,
   ELEVATION_VALUES,
   VEGETATION_GROUPS,
   type City,
+  type HexDimensions,
   type LayerId,
   type MapState,
   type Polity,
@@ -18,6 +20,7 @@ import { canSplit, passLabel, type PassSelection } from '../../core/rosters.js';
 import type { Action } from '../state/store.js';
 import { contrastingPolityColours } from '../render/palette.js';
 import Legend from './Legend.js';
+import { normaliseHexDimensions } from '../../shared/surfaceArea.js';
 
 const PER_HEX: LayerId[] = ['base', 'elevation', 'climate', 'vegetation', 'population'];
 
@@ -83,6 +86,107 @@ function coordLabel(map: MapState, index: number): string {
   return `${col},${row}`;
 }
 
+const LAND_PERCENT_OPTIONS = Array.from({ length: 11 }, (_, index) => index * 10);
+
+function AreaSettings({ map, dispatch }: Pick<InspectorProps, 'map' | 'dispatch'>) {
+  const dimensions = normaliseHexDimensions(map.hexDimensions);
+  const [width, setWidth] = useState(String(dimensions.width));
+  const [height, setHeight] = useState(String(dimensions.height));
+  const [unit, setUnit] = useState(dimensions.unit);
+
+  useEffect(() => {
+    setWidth(String(dimensions.width));
+    setHeight(String(dimensions.height));
+    setUnit(dimensions.unit);
+  }, [dimensions.width, dimensions.height, dimensions.unit]);
+
+  const save = (changes: Partial<HexDimensions>) => {
+    dispatch({ type: 'setHexDimensions', hexDimensions: { ...dimensions, ...changes } });
+  };
+  const savePositiveNumber = (field: 'width' | 'height', raw: string) => {
+    const value = Number(raw);
+    const valid = Number.isFinite(value) && value > 0
+      ? value
+      : DEFAULT_HEX_DIMENSIONS[field];
+    if (field === 'width') setWidth(String(valid));
+    else setHeight(String(valid));
+    save({ [field]: valid });
+  };
+
+  return (
+    <div className="stack">
+      <p className="hint" style={{ marginTop: 0 }}>
+        Set the real-world size of one pointy-top hex. Areas update immediately in the legend below.
+      </p>
+      <div className="row">
+        <div className="grow">
+          <label>Width (flat to flat)</label>
+          <input
+            aria-label="Hex width flat to flat"
+            type="number"
+            min="0.01"
+            step="any"
+            value={width}
+            onChange={(event) => setWidth(event.target.value)}
+            onBlur={() => savePositiveNumber('width', width)}
+          />
+        </div>
+        <div className="grow">
+          <label>Height (corner to corner)</label>
+          <input
+            aria-label="Hex height corner to corner"
+            type="number"
+            min="0.01"
+            step="any"
+            value={height}
+            onChange={(event) => setHeight(event.target.value)}
+            onBlur={() => savePositiveNumber('height', height)}
+          />
+        </div>
+        <div style={{ width: 70 }}>
+          <label>Unit</label>
+          <input
+            aria-label="Hex distance unit"
+            value={unit}
+            maxLength={12}
+            onChange={(event) => setUnit(event.target.value)}
+            onBlur={() => {
+              const valid = unit.trim() || DEFAULT_HEX_DIMENSIONS.unit;
+              setUnit(valid);
+              save({ unit: valid });
+            }}
+          />
+        </div>
+      </div>
+      <div className="row">
+        <div className="grow">
+          <label>Coastal Land occupied by land</label>
+          <select
+            aria-label="Coastal Land percentage"
+            value={dimensions.coastalLandPercent}
+            onChange={(event) => save({ coastalLandPercent: Number(event.target.value) })}
+          >
+            {LAND_PERCENT_OPTIONS.map((value) => <option key={value} value={value}>{value}%</option>)}
+          </select>
+        </div>
+        <div className="grow">
+          <label>Island hex occupied by land</label>
+          <select
+            aria-label="Island land percentage"
+            value={dimensions.islandLandPercent}
+            onChange={(event) => save({ islandLandPercent: Number(event.target.value) })}
+          >
+            {LAND_PERCENT_OPTIONS.map((value) => <option key={value} value={value}>{value}%</option>)}
+          </select>
+        </div>
+      </div>
+      <p className="hint" style={{ marginBottom: 0 }}>
+        One hex has area ¾ × width × height. Land contributes 100%; coast and island hexes use the percentages above.
+      </p>
+    </div>
+  );
+}
+
 export default function Inspector(props: InspectorProps) {
   const { map, dispatch, activeLayer, selection } = props;
   const layer = map.layers[activeLayer];
@@ -93,6 +197,13 @@ export default function Inspector(props: InspectorProps) {
 
   return (
     <div className="inspector">
+      {activeLayer === 'polities' && (
+        <div className="section">
+          <h2>Polity area settings</h2>
+          <AreaSettings map={map} dispatch={dispatch} />
+        </div>
+      )}
+
       <div className="section">
         <h2>{meta.label}</h2>
         <p className="hint" style={{ marginTop: 0 }}>{meta.blurb}</p>
