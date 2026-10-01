@@ -6,8 +6,9 @@
 import type { MapState } from '../../shared/types.js';
 
 const DB_NAME = 'fantasyhexmap';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const STORE = 'maps';
+const SAVES_STORE = 'saves';
 const CURRENT_KEY = 'current';
 
 function openDb(): Promise<IDBDatabase> {
@@ -16,6 +17,7 @@ function openDb(): Promise<IDBDatabase> {
     request.onupgradeneeded = () => {
       const db = request.result;
       if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE);
+      if (!db.objectStoreNames.contains(SAVES_STORE)) db.createObjectStore(SAVES_STORE, { keyPath: 'id' });
     };
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(request.error ?? new Error('IndexedDB open failed'));
@@ -83,4 +85,66 @@ export function makeAutosaver(delay = 400) {
       return snapshot ? saveMap(snapshot) : Promise.resolve();
     },
   };
+}
+
+/** A named, explicit save kept in the browser alongside the autosave. */
+export interface SavedMapRecord {
+  id: string;
+  name: string;
+  savedAt: number;
+  cols: number;
+  rows: number;
+  map: MapState;
+}
+
+export type SavedMapSummary = Omit<SavedMapRecord, 'map'>;
+
+function request<T>(mode: IDBTransactionMode, run: (store: IDBObjectStore) => IDBRequest<T>): Promise<T> {
+  return openDb().then(
+    (db) =>
+      new Promise<T>((resolve, reject) => {
+        const tx = db.transaction(SAVES_STORE, mode);
+        const req = run(tx.objectStore(SAVES_STORE));
+        tx.oncomplete = () => {
+          db.close();
+          resolve(req.result);
+        };
+        tx.onerror = tx.onabort = () => {
+          db.close();
+          reject(tx.error ?? new Error('IndexedDB transaction failed'));
+        };
+      }),
+  );
+}
+
+/** Save a snapshot under `id` (a new id is generated when omitted); returns the id. */
+export async function putSave(map: MapState, name: string, id?: string): Promise<string> {
+  const key = id ?? `save-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+  const record: SavedMapRecord = {
+    id: key,
+    name: name.trim() || 'Untitled map',
+    savedAt: Date.now(),
+    cols: map.cols,
+    rows: map.rows,
+    map,
+  };
+  await request('readwrite', (store) => store.put(record));
+  return key;
+}
+
+/** Newest first, without the (large) map payloads' consumers needing to hold them. */
+export async function listSaves(): Promise<SavedMapSummary[]> {
+  const records = await request<SavedMapRecord[]>('readonly', (store) => store.getAll());
+  return records
+    .map(({ map: _map, ...summary }) => summary)
+    .sort((a, b) => b.savedAt - a.savedAt);
+}
+
+export async function loadSave(id: string): Promise<MapState | null> {
+  const record = await request<SavedMapRecord | undefined>('readonly', (store) => store.get(id));
+  return record?.map ?? null;
+}
+
+export async function deleteSave(id: string): Promise<void> {
+  await request('readwrite', (store) => store.delete(id));
 }

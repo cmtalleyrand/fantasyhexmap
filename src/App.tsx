@@ -43,7 +43,8 @@ import SetupScreen from './components/SetupScreen.js';
 import { exportJson } from './render/export.js';
 import { defaultVisibility, type VisibleLayers } from './render/scene.js';
 import { clearMap, loadMap, makeAutosaver } from './state/persistence.js';
-import { parseMapImport } from './state/import.js';
+import { parseMapImport, prepareLoadedMap } from './state/import.js';
+import SavesDialog from './components/SavesDialog.js';
 import { reducer, type Action } from './state/store.js';
 import { normaliseHexDimensions } from '../shared/surfaceArea.js';
 
@@ -66,6 +67,7 @@ export default function App() {
   const [showSettings, setShowSettings] = useState(false);
   const [showDecisions, setShowDecisions] = useState(false);
   const [showPlan, setShowPlan] = useState(false);
+  const [showSaves, setShowSaves] = useState(false);
   const [webchatLayer, setWebchatLayer] = useState<LayerId | null>(null);
   // A passphrase-protected key lives on disk as ciphertext; the plaintext only
   // ever exists in `apiKey`, for this page load.
@@ -343,18 +345,7 @@ export default function App() {
     file
       .text()
       .then((text) => {
-        const imported = parseMapImport(text);
-        // Older exports may omit the undo stacks; give every layer empty ones.
-        imported.journal ??= [];
-        imported.enabledLayers ??= [...LAYER_ORDER];
-        for (const id of LAYER_ORDER) {
-          const layer = imported.layers[id];
-          if (!layer) throw new Error(`The file is missing the "${id}" layer.`);
-          layer.past ??= [];
-          layer.future ??= [];
-          layer.warnings ??= [];
-          layer.version ??= 0;
-        }
+        const imported = prepareLoadedMap(parseMapImport(text));
         dispatch({ type: 'load', map: imported });
         setError(null);
       })
@@ -487,6 +478,16 @@ export default function App() {
       {settings}
       {unlock}
       {planDialog}
+      {showSaves && (
+        <SavesDialog
+          map={map}
+          onLoad={(loaded) => {
+            dispatch({ type: 'load', map: loaded });
+            setError(null);
+          }}
+          onClose={() => setShowSaves(false)}
+        />
+      )}
       {decisionLog}
       {webchat}
       <div className="topbar">
@@ -554,6 +555,9 @@ export default function App() {
         </button>
         <button className="tiny" onClick={() => setShowSettings(true)}>
           settings
+        </button>
+        <button className="tiny" onClick={() => setShowSaves(true)} title="Named saves kept in this browser">
+          saves
         </button>
         <button className="tiny" onClick={() => exportJson(map, false)}>
           export JSON
