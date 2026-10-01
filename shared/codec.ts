@@ -96,7 +96,7 @@ export function decodeBase(
 /* ------------------------------------------------------- elevation (chars) */
 
 export const ELEVATION_CHARS: Record<Elevation, string> = {
-  Lowland: 'l',
+  Lowland: 'w',
   Rolling: 'r',
   Hills: 'h',
   Highland: 'H',
