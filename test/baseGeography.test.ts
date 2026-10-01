@@ -11,7 +11,7 @@ test('Coastal Land round-trips through the base-grid codec as land-like terrain'
   const encoded = encodeBase(base, 6, 1);
   const decoded = decodeBase(encoded, 6, 1);
 
-  assert.deepEqual(encoded, ['LC~o#i']);
+  assert.deepEqual(encoded, ['tcmlgi']);
   assert.deepEqual(decoded, { data: base, warnings: [] });
   assert.equal(isLandLike(decoded.data[1]), true);
 });

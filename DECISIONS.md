@@ -486,7 +486,7 @@ row strings.
 **Why.** §2's row strings were chosen to keep output small, and they did, but nothing enforced their
 length: the API's constrained decoding does not support string lengths or item counts above one, and
 the SDK silently moves those constraints into the field descriptions. The model was therefore relying
-on counting, and it cannot count characters it does not see: "LLLL" and "~~~~~~" arrive as single
+on counting, and it cannot count characters it does not see: "tttt" and "mmmmmm" arrive as single
 tokens of lengths it has to infer. Rows came back short in bands wherever the terrain had long uniform
 runs, and every short row shifted a band of the map sideways. Required properties are something the
 grammar does enforce, so the size is now guaranteed rather than requested. Naming each cell also tells
@@ -537,3 +537,37 @@ absorb.
 
 **What it costs.** More tokens per layer, and a slower first attempt. `medium` is one setting away.
 
+
+## 32. A compact webchat reply: data as JSON, reasoning as chat
+
+**Chosen.** Alongside the full form, the webchat prompt can ask for the layer data alone as JSON, with
+the plan written before it and the decisions after it, in prose. The prompt lists the data fields in
+place of the JSON Schema. On import, the prose around the JSON is kept as the layer's notes.
+
+**Why.** A chat model explains itself better in chat than inside a string field of a JSON object, and
+a shorter prompt leaves more of the conversation for the work. Keeping the prose as notes means the
+explanation still reaches the map. The import reads a fenced `json` block first, so a brace in the
+prose cannot be mistaken for the start of the answer.
+
+**What it costs.** Decisions arrive as one block of prose rather than structured entries with hex
+references, so the decision log cannot link them to hexes.
+
+## 33. Several layers in one webchat reply
+
+**Chosen.** The webchat dialog can ask for any set of layers in one prompt and import them from one
+reply: the shared rules and brief once, each layer's rules in pipeline order, one JSON key per layer.
+Import checks every layer before applying any, and decodes them in order against a context that
+already holds the ones before - so the elevation is validated against the base in the same reply.
+
+**Why.** In a chat window, one long reply in which the model can keep the whole map in view is often
+better and cheaper than a round trip per layer, and it keeps the layers consistent with each other by
+construction.
+
+**What it costs.** Each layer runs as a single pass, so polities and rivers lose the roster/paint
+split; and a long multi-layer reply is the kind most likely to be cut off by a chat interface's own
+output limit.
+
+## 34. Base geography letters
+
+**Chosen.** `t` Land, `c` Coastal Land, `m` Sea, `l` Lake, `g` Ice, `i` Island, replacing
+`L C ~ o # i`. Stored maps are unaffected: layers store values, not codes.

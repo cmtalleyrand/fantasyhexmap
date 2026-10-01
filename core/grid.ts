@@ -4,13 +4,13 @@
  * Two forms, for two different reasons.
  *
  * Out of the model, over the API, a grid is a keyed object - `{"r0": {"c0":
- * "L", "c1": "~", ...}, ...}` - in which every row and every cell is a required
+ * "t", "c1": "m", ...}, ...}` - in which every row and every cell is a required
  * property. That is the only shape in which constrained decoding can guarantee
  * the grid's size: the API cannot enforce a string's length or an array's item
  * count, but it does enforce that every required key is present. A row string
- * such as "LLLL~~~CC" cannot be counted reliably by a model at all, because the
- * model does not see characters: it sees tokens, and a run like "LLLL" or
- * "~~~~~~" is one token of a length it has to infer. That is why rows came back
+ * such as "ttttmmmcc" cannot be counted reliably by a model at all, because the
+ * model does not see characters: it sees tokens, and a run like "tttt" or
+ * "mmmmmm" is one token of a length it has to infer. That is why rows came back
  * one or two cells short in bands wherever the terrain had long uniform runs.
  * Naming every cell also tells the model which column it is writing, so a
  * feature cannot drift sideways as it would when a count slips.
@@ -91,7 +91,7 @@ function cellsOf(line: string, kind: CellKind): string[] {
  * A context grid as the model reads it: a row label, then the cells in groups
  * of five, each group introduced by the column it starts at.
  *
- *   r12: [0] ~~~~~ [5] ~~CLL [10] LLLLL [15] ...
+ *   r12: [0] mmmmm [5] mmctt [10] ttttt [15] ...
  *
  * The anchors are what make position readable: the model locates column 23 by
  * finding "[20]" and stepping three cells, instead of counting 23 characters it

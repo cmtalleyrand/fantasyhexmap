@@ -256,6 +256,20 @@ committing them. Surrounding prose and code fences in the reply are fine. If the
 error names the field — `rows.7: expected string to have >=30 characters` — so you can relay it and
 ask for a correction.
 
+Two choices in the dialog:
+
+- **Reply style.** *Everything in the JSON* asks for one object that carries notes and decisions too,
+  and includes the full JSON Schema. *JSON for the data, decisions in the chat* is the stripped-down
+  form: the prompt lists the data fields instead of a schema, and the model writes its plan (scale,
+  each requirement of the brief as a concrete target) before a fenced JSON block and explains its
+  decisions after it. Paste the whole reply: the prose around the JSON is kept as the layer's notes.
+- **Several layers in one reply.** Tick any layers the map has in its plan. The shared rules and the
+  brief are stated once, each layer's own rules follow in pipeline order, and the reply is one JSON
+  object with a key per layer (`"base"`, `"elevation"`, …). Each layer is built on the ones written
+  before it in the same reply and validated against them on import; if any layer is malformed,
+  nothing is applied. Each layer still gets its own undo entry. Polities and rivers run as a single
+  pass in this mode, and an edit instruction is not used.
+
 The decision record marks these as imported rather than generated. It already refuses to credit the
 AI with a choice you made by hand; crediting this app's model with a choice made somewhere else
 would be the same lie.
