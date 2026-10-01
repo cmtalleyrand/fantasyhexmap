@@ -62,10 +62,23 @@ function primToSvg(prim: Prim): string {
       return `<text x="${n(prim.at.x)}" y="${n(prim.at.y)}" font-family="${prim.fantasy ? FANTASY_FONT_STACK : FONT_STACK}" font-size="${n(prim.size)}" font-weight="${prim.weight ?? 600}" text-anchor="${anchor}" dominant-baseline="central" fill="${prim.fill}"${halo}${transform}>${esc(prim.text)}</text>`;
     }
     case 'city': {
-      const { c, r } = prim;
-      const d = `M ${n(c.x - r)} ${n(c.y + r * 0.72)} L ${n(c.x - r)} ${n(c.y - r * 0.35)} L ${n(c.x - r * 0.65)} ${n(c.y - r * 0.7)} L ${n(c.x - r * 0.3)} ${n(c.y - r * 0.35)} L ${n(c.x)} ${n(c.y - r)} L ${n(c.x + r * 0.3)} ${n(c.y - r * 0.35)} L ${n(c.x + r * 0.65)} ${n(c.y - r * 0.7)} L ${n(c.x + r)} ${n(c.y - r * 0.35)} L ${n(c.x + r)} ${n(c.y + r * 0.72)} Z`;
-      const gate = `M ${n(c.x - r * 0.27)} ${n(c.y + r * 0.72)} A ${n(r * 0.27)} ${n(r * 0.27)} 0 0 1 ${n(c.x + r * 0.27)} ${n(c.y + r * 0.72)} Z`;
-      return `<path d="${d}" fill="#1a1410" stroke="#f6f1e4" stroke-width="${n(Math.max(1, r * 0.16))}" stroke-linejoin="round"/><path d="${gate}" fill="${prim.onRiver ? '#3f8fd0' : '#f6f1e4'}"/>`;
+      const { c, r, symbol } = prim;
+      const strokeWidth = n(Math.max(1, r * 0.16));
+      let marker: string;
+      if (symbol === 'village' || symbol === 'town') {
+        const radius = r * (symbol === 'village' ? 0.58 : 0.82);
+        marker = `<circle cx="${n(c.x)}" cy="${n(c.y)}" r="${n(radius)}" fill="#1a1410" stroke="#f6f1e4" stroke-width="${strokeWidth}"/>`;
+        if (symbol === 'town') {
+          marker += `<circle cx="${n(c.x)}" cy="${n(c.y)}" r="${n(r * 0.48)}" fill="none" stroke="#f6f1e4" stroke-width="${strokeWidth}"/>`;
+        }
+      } else if (symbol === 'city') {
+        marker = `<path d="M ${n(c.x)} ${n(c.y - r)} L ${n(c.x + r)} ${n(c.y)} L ${n(c.x)} ${n(c.y + r)} L ${n(c.x - r)} ${n(c.y)} Z" fill="#1a1410" stroke="#f6f1e4" stroke-width="${strokeWidth}" stroke-linejoin="round"/>`;
+      } else {
+        const d = `M ${n(c.x - r)} ${n(c.y + r * 0.72)} L ${n(c.x - r)} ${n(c.y - r * 0.35)} L ${n(c.x - r * 0.65)} ${n(c.y - r * 0.7)} L ${n(c.x - r * 0.3)} ${n(c.y - r * 0.35)} L ${n(c.x)} ${n(c.y - r)} L ${n(c.x + r * 0.3)} ${n(c.y - r * 0.35)} L ${n(c.x + r * 0.65)} ${n(c.y - r * 0.7)} L ${n(c.x + r)} ${n(c.y - r * 0.35)} L ${n(c.x + r)} ${n(c.y + r * 0.72)} Z`;
+        marker = `<path d="${d}" fill="#1a1410" stroke="#f6f1e4" stroke-width="${strokeWidth}" stroke-linejoin="round"/>`;
+      }
+      const centre = `<circle cx="${n(c.x)}" cy="${n(c.y)}" r="${n(Math.max(1.5, r * 0.2))}" fill="${prim.onRiver ? '#3f8fd0' : '#f6f1e4'}"/>`;
+      return marker + centre;
     }
   }
 }

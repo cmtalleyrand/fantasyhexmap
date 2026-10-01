@@ -22,6 +22,7 @@ export interface MapViewProps {
   activeLayer: LayerId;
   riverDraft: number[] | null;
   onRiverDraftClick: ((index: number) => void) | null;
+  onCityMove: ((cityId: string, targetIndex: number) => void) | null;
 }
 
 interface View {
@@ -40,6 +41,7 @@ export default function MapView(props: MapViewProps) {
   const drag = useRef<
     | { mode: 'pan'; startX: number; startY: number; originX: number; originY: number }
     | { mode: 'select'; additive: boolean; touched: Set<number> }
+    | { mode: 'city'; cityId: string; target: number }
     | null
   >(null);
 
@@ -146,6 +148,17 @@ export default function MapView(props: MapViewProps) {
       return;
     }
 
+    if (props.onCityMove) {
+      const city = map.layers.cities.data?.cities.find(
+        (candidate) => hexIndex(map.cols, candidate.col, candidate.row) === index,
+      );
+      if (city) {
+        drag.current = { mode: 'city', cityId: city.id, target: index };
+        onSelectionChange(new Set([index]));
+        return;
+      }
+    }
+
     const additive = e.shiftKey || e.ctrlKey || e.metaKey;
     const touched = new Set<number>([index]);
     drag.current = { mode: 'select', additive, touched };
@@ -168,6 +181,13 @@ export default function MapView(props: MapViewProps) {
       }));
       return;
     }
+    if (state.mode === 'city') {
+      if (index !== null && index !== state.target) {
+        state.target = index;
+        onSelectionChange(new Set([index]));
+      }
+      return;
+    }
     if (index === null || state.touched.has(index)) return;
     state.touched.add(index);
     const next = state.additive ? new Set(selection) : new Set(state.touched);
@@ -179,6 +199,7 @@ export default function MapView(props: MapViewProps) {
     const state = drag.current;
     drag.current = null;
     if (state?.mode === 'select' && onStrokeEnd) onStrokeEnd([...state.touched]);
+    if (state?.mode === 'city') props.onCityMove?.(state.cityId, state.target);
   };
 
   const onWheel = (e: React.WheelEvent<HTMLCanvasElement>) => {
@@ -196,7 +217,11 @@ export default function MapView(props: MapViewProps) {
   };
 
   const hoverText = () => {
-    if (hover === null) return 'Drag to select · Alt-drag or right-drag to pan · Wheel to zoom';
+    if (hover === null) {
+      return props.onCityMove
+        ? 'Drag a city to move it · Drag elsewhere to select · Alt-drag or right-drag to pan · Wheel to zoom'
+        : 'Drag to select · Alt-drag or right-drag to pan · Wheel to zoom';
+    }
     const col = hover % map.cols;
     const row = Math.floor(hover / map.cols);
     const bits: string[] = [`hex ${col},${row}`];
