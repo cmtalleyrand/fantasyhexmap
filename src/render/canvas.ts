@@ -85,24 +85,45 @@ function drawPrim(ctx: CanvasRenderingContext2D, prim: Prim): void {
       break;
     }
     case 'city': {
-      const { c, r } = prim;
+      const { c, r, symbol } = prim;
       ctx.fillStyle = MAP_COLOURS.city;
       ctx.strokeStyle = MAP_COLOURS.cityRing;
       ctx.lineWidth = Math.max(1, r * 0.16);
       ctx.lineJoin = 'round';
       ctx.beginPath();
-      ctx.moveTo(c.x - r, c.y + r * 0.72);
-      ctx.lineTo(c.x - r, c.y - r * 0.35);
-      ctx.lineTo(c.x - r * 0.65, c.y - r * 0.7);
-      ctx.lineTo(c.x - r * 0.3, c.y - r * 0.35);
-      ctx.lineTo(c.x, c.y - r);
-      ctx.lineTo(c.x + r * 0.3, c.y - r * 0.35);
-      ctx.lineTo(c.x + r * 0.65, c.y - r * 0.7);
-      ctx.lineTo(c.x + r, c.y - r * 0.35);
-      ctx.lineTo(c.x + r, c.y + r * 0.72);
-      ctx.closePath(); ctx.fill(); ctx.stroke();
+      if (symbol === 'village' || symbol === 'town') {
+        ctx.arc(c.x, c.y, r * (symbol === 'village' ? 0.58 : 0.82), 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+        if (symbol === 'town') {
+          ctx.beginPath();
+          ctx.arc(c.x, c.y, r * 0.48, 0, Math.PI * 2);
+          ctx.stroke();
+        }
+      } else if (symbol === 'city') {
+        ctx.moveTo(c.x, c.y - r);
+        ctx.lineTo(c.x + r, c.y);
+        ctx.lineTo(c.x, c.y + r);
+        ctx.lineTo(c.x - r, c.y);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+      } else {
+        ctx.moveTo(c.x - r, c.y + r * 0.72);
+        ctx.lineTo(c.x - r, c.y - r * 0.35);
+        ctx.lineTo(c.x - r * 0.65, c.y - r * 0.7);
+        ctx.lineTo(c.x - r * 0.3, c.y - r * 0.35);
+        ctx.lineTo(c.x, c.y - r);
+        ctx.lineTo(c.x + r * 0.3, c.y - r * 0.35);
+        ctx.lineTo(c.x + r * 0.65, c.y - r * 0.7);
+        ctx.lineTo(c.x + r, c.y - r * 0.35);
+        ctx.lineTo(c.x + r, c.y + r * 0.72);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+      }
       ctx.beginPath();
-      ctx.arc(c.x, c.y + r * 0.72, r * 0.27, Math.PI, 0);
+      ctx.arc(c.x, c.y, Math.max(1.5, r * 0.2), 0, Math.PI * 2);
       ctx.fillStyle = prim.onRiver ? MAP_COLOURS.river : MAP_COLOURS.cityRing;
       ctx.fill();
       ctx.lineJoin = 'miter';

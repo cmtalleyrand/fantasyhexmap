@@ -2,7 +2,43 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createMapState } from '../shared/layers.ts';
 import { contrastingPolityColours } from '../src/render/palette.ts';
-import { buildScene, defaultVisibility } from '../src/render/scene.ts';
+import { buildScene, citySymbolForPopulation, defaultVisibility } from '../src/render/scene.ts';
+
+test('city symbols use the four population bands at their exact boundaries', () => {
+  assert.equal(citySymbolForPopulation(0), 'village');
+  assert.equal(citySymbolForPopulation(10_000), 'village');
+  assert.equal(citySymbolForPopulation(10_001), 'town');
+  assert.equal(citySymbolForPopulation(50_000), 'town');
+  assert.equal(citySymbolForPopulation(50_001), 'city');
+  assert.equal(citySymbolForPopulation(250_000), 'city');
+  assert.equal(citySymbolForPopulation(250_001), 'metropolis');
+});
+
+test('city scene primitives carry the population-band symbol for both screen and export renderers', () => {
+  const map = createMapState('City symbols', 4, 1);
+  map.layers.base.data = Array(4).fill('Land');
+  map.layers.cities.data = {
+    cities: [5_000, 25_000, 100_000, 500_000].map((population, col) => ({
+      id: `city-${col}`,
+      col,
+      row: 0,
+      name: `City ${col}`,
+      population,
+      onRiver: false,
+      riverId: null,
+      coastal: false,
+      coastalEdges: [],
+    })),
+  };
+  const visible = defaultVisibility();
+  visible.cities = true;
+
+  const symbols = buildScene(map, { size: 20, visible, labels: false }).prims
+    .filter((primitive) => primitive.kind === 'city')
+    .map((primitive) => primitive.symbol);
+
+  assert.deepEqual(symbols, ['village', 'town', 'city', 'metropolis']);
+});
 
 test('map presentation hides tiny polity labels and smooths thicker rivers', () => {
   const map = createMapState('Presentation test', 4, 3);

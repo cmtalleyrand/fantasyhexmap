@@ -82,8 +82,9 @@ export default function Legend({ layer, map }: { layer: LayerId; map: MapState }
     case 'cities':
       return (
         <div className="hint">
-          Marker size scales with population. A blue centre means the city sits on a river; the
-          highlighted hex edges are the ones that border Sea or Lake.
+          Symbols show population: circle ≤10k, ring 10k–50k, diamond 50k–250k, and castle &gt;250k.
+          A blue centre means the city sits on a river; highlighted hex edges border Sea or Lake.
+          With Cities selected, drag a symbol to move it.
         </div>
       );
     case 'polities': {
