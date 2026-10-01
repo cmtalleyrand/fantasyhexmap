@@ -110,6 +110,8 @@ export interface SceneOptions {
   /** Screen-only decoration; omitted from exports. */
   selection?: Set<number> | null;
   hover?: number | null;
+  /** Screen-only: the river being edited, drawn with a halo and a handle on each hex. */
+  highlightRiver?: string | null;
   transparentBackground?: boolean;
 }
 
@@ -295,6 +297,23 @@ export function buildScene(map: MapState, opts: SceneOptions): Scene {
   // --- rivers --------------------------------------------------------------
   const rivers = opts.visible.rivers ? layers.rivers.data : null;
   if (rivers) {
+    const picked = opts.highlightRiver ? rivers.rivers.find((r) => r.id === opts.highlightRiver) : null;
+    if (picked) {
+      const halo: Point[] = [];
+      for (const seg of picked.segments) {
+        if (seg.entryEdge !== null) halo.push(hexEdgeMidpoint(seg.col, seg.row, seg.entryEdge, size));
+        halo.push(hexCenter(seg.col, seg.row, size));
+        if (seg.exitEdge !== null) halo.push(hexEdgeMidpoint(seg.col, seg.row, seg.exitEdge, size));
+      }
+      prims.push({
+        kind: 'polyline',
+        points: halo,
+        stroke: withAlpha(MAP_COLOURS.selection, 0.55),
+        strokeWidth: Math.max(5, size * 0.42),
+        round: true,
+        smooth: true,
+      });
+    }
     for (const river of rivers.rivers) {
       // One polyline per run of same-navigability segments, so the change in
       // weight along a river is visible rather than averaged away.
@@ -337,6 +356,20 @@ export function buildScene(map: MapState, opts: SceneOptions): Scene {
         }
       }
       flush();
+    }
+  }
+
+  if (rivers && opts.highlightRiver) {
+    const picked = rivers.rivers.find((r) => r.id === opts.highlightRiver);
+    for (const seg of picked?.segments ?? []) {
+      prims.push({
+        kind: 'circle',
+        c: hexCenter(seg.col, seg.row, size),
+        r: Math.max(2.5, size * 0.13),
+        fill: '#ffffff',
+        stroke: MAP_COLOURS.selection,
+        strokeWidth: Math.max(1.5, size * 0.07),
+      });
     }
   }
 

@@ -14,6 +14,7 @@
  */
 
 import { recomputeCityFacts, isLandLike } from '../../shared/derive.js';
+import { setRiverNavigability } from '../../shared/riverEdit.js';
 import { currentDepVersions, trimHistory } from '../../shared/layers.js';
 import { LAYER_META, normaliseSelection } from '../../shared/layers.js';
 import type {
@@ -64,6 +65,7 @@ export type Action =
   | { type: 'addRiver'; river: River }
   | { type: 'updateRiver'; river: River }
   | { type: 'removeRiver'; id: string }
+  | { type: 'setRiverNavigability'; indices: number[]; navigable: boolean; downstream: boolean }
   | { type: 'clearLayer'; layer: LayerId }
   | { type: 'undo'; layer: LayerId }
   | { type: 'redo'; layer: LayerId };
@@ -404,6 +406,29 @@ export function reducer(map: MapState, action: Action): MapState {
         manualEntry('rivers', `Edited the river "${action.river.name}" by hand.`),
       );
       return reconcile(next);
+    }
+
+    case 'setRiverNavigability': {
+      const layer = map.layers.rivers;
+      if (!layer.data) return map;
+      const rivers = setRiverNavigability(
+        layer.data.rivers,
+        new Set(action.indices),
+        action.navigable,
+        action.downstream,
+        map.cols,
+      );
+      if (rivers === layer.data.rivers) return map;
+      const touched = rivers.filter((r, i) => r !== layer.data!.rivers[i]).map((r) => `"${r.name}"`);
+      return reconcile(
+        journal(
+          withLayer(map, 'rivers', commit(layer, { data: { rivers } })),
+          manualEntry(
+            'rivers',
+            `Marked part of ${touched.join(', ')} ${action.navigable ? 'navigable' : 'not navigable'} by hand.`,
+          ),
+        ),
+      );
     }
 
     case 'removeRiver': {

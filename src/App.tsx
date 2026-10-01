@@ -1,5 +1,7 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { edgeBetween, indexToOffset } from '../shared/hex.js';
+import { riversThroughHex } from '../shared/derive.js';
+import { moveRiverSegment } from '../shared/riverEdit.js';
 import { LAYER_META, createMapState } from '../shared/layers.js';
 import { nextGenerationWave } from '../shared/generationQueue.js';
 import { LAYER_ORDER, type LayerId, type MapState } from '../shared/types.js';
@@ -45,6 +47,7 @@ import { defaultVisibility, type VisibleLayers } from './render/scene.js';
 import { clearMap, loadMap, makeAutosaver } from './state/persistence.js';
 import { parseMapImport } from './state/import.js';
 import { reducer, type Action } from './state/store.js';
+import { DEFAULT_RIVER_TOOL, type RiverTool } from './state/riverTools.js';
 import { normaliseHexDimensions } from '../shared/surfaceArea.js';
 
 const PER_HEX: LayerId[] = ['base', 'elevation', 'climate', 'vegetation', 'population'];
@@ -85,6 +88,7 @@ export default function App() {
   const [progress, setProgress] = useState<Partial<Record<LayerId, ProgressEvent>>>({});
   const [error, setError] = useState<string | null>(null);
   const [riverDraft, setRiverDraft] = useState<number[] | null>(null);
+  const [riverTool, setRiverTool] = useState<RiverTool>(DEFAULT_RIVER_TOOL);
   const abortRef = useRef<Map<LayerId, AbortController>>(new Map());
   const batchCancelled = useRef(false);
   const mapRef = useRef<MapState | null>(map);
@@ -273,6 +277,59 @@ export default function App() {
       setRiverDraft([...riverDraft, index]);
     },
     [map, riverDraft],
+  );
+
+  const onRiverSelect = useCallback(
+    (index: number) => {
+      if (!map) return;
+      const rivers = map.layers.rivers.data?.rivers ?? [];
+      const through = riversThroughHex(rivers, index % map.cols, Math.floor(index / map.cols));
+      if (through.length === 0) return;
+      setRiverTool((tool) =>
+        through.some((r) => r.id === tool.selectedId) ? tool : { ...tool, selectedId: through[0]!.id },
+      );
+    },
+    [map],
+  );
+
+  const onRiverMove = useCallback(
+    (fromIndex: number, toIndex: number) => {
+      const current = mapRef.current;
+      const base = current?.layers.base.data;
+      if (!current || !base) return;
+      const from = indexToOffset(current.cols, fromIndex);
+      const through = riversThroughHex(current.layers.rivers.data?.rivers ?? [], from.col, from.row);
+      const river = through.find((r) => r.id === riverTool.selectedId) ?? through[0];
+      if (!river) return;
+      const result = moveRiverSegment(
+        river,
+        river.segments.findIndex((s) => s.col === from.col && s.row === from.row),
+        indexToOffset(current.cols, toIndex),
+        base,
+        current.layers.elevation.data,
+        current.cols,
+        current.rows,
+      );
+      if ('error' in result) {
+        setError(result.error);
+        return;
+      }
+      setError(null);
+      dispatch({ type: 'updateRiver', river: result.river });
+    },
+    [riverTool.selectedId],
+  );
+
+  const onRiverPaint = useCallback(
+    (indices: number[]) => {
+      dispatch({
+        type: 'setRiverNavigability',
+        indices,
+        navigable: riverTool.paintNavigable,
+        downstream: riverTool.downstream,
+      });
+    },
+    [riverTool.paintNavigable, riverTool.downstream],
   );
 
   const onCityMove = useCallback(
@@ -608,6 +665,7 @@ export default function App() {
             onSelect={(id) => {
               setActiveLayer(id);
               setRiverDraft(null);
+              setSelection(new Set());
             }}
             onToggleVisible={(id) => setVisible((v) => ({ ...v, [id]: !v[id] }))}
             onToggleSelected={(id) =>
@@ -689,6 +747,10 @@ export default function App() {
           riverDraft={riverDraft}
           onRiverDraftClick={riverDraft !== null ? onRiverDraftClick : null}
           onCityMove={activeLayer === 'cities' ? onCityMove : null}
+          riverTool={activeLayer === 'rivers' && riverDraft === null && map.layers.rivers.data ? riverTool : null}
+          onRiverSelect={onRiverSelect}
+          onRiverMove={onRiverMove}
+          onRiverPaint={onRiverPaint}
         />
 
         <Inspector
@@ -716,6 +778,8 @@ export default function App() {
           busy={busyLayers.size > 0}
           riverDraft={riverDraft}
           setRiverDraft={setRiverDraft}
+          riverTool={riverTool}
+          setRiverTool={setRiverTool}
           onOpenDecisionLog={() => setShowDecisions(true)}
         />
       </div>

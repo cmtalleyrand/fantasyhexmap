@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { hexIndex, indexToOffset } from '../../shared/hex.js';
 import { buildRiverFromPath } from '../../shared/validate.js';
+import { removeRiverSegment } from '../../shared/riverEdit.js';
+import type { RiverTool } from '../state/riverTools.js';
 import { LAYER_META, stalenessOf } from '../../shared/layers.js';
 import {
   BASE_GEO_VALUES,
@@ -45,6 +47,8 @@ export interface InspectorProps {
   busy: boolean;
   riverDraft: number[] | null;
   setRiverDraft: (next: number[] | null) => void;
+  riverTool: RiverTool;
+  setRiverTool: (next: RiverTool) => void;
   onOpenDecisionLog: () => void;
 }
 
@@ -728,15 +732,22 @@ function RiverEditor(props: SubProps) {
         </div>
       )}
 
+      {draft === null && data.rivers.length > 0 && <RiverToolPanel {...props} />}
+
       <div className="list">
         {data.rivers.map((r) => (
-          <div key={r.id} className={`entry ${openId === r.id ? 'selected' : ''}`} style={{ flexWrap: 'wrap' }}>
+          <div
+            key={r.id}
+            className={`entry ${openId === r.id || props.riverTool.selectedId === r.id ? 'selected' : ''}`} style={{ flexWrap: 'wrap' }}>
             <input
               className="grow"
               value={r.name}
               onChange={(e) => dispatch({ type: 'updateRiver', river: { ...r, name: e.target.value } })}
             />
             <span className="hint">{r.segments.length} hexes · {r.terminus}</span>
+            <button className="tiny" onClick={() => props.setRiverTool({ ...props.riverTool, selectedId: r.id })}>
+              select
+            </button>
             <button className="tiny" onClick={() => setOpenId(openId === r.id ? null : r.id)}>
               {openId === r.id ? 'hide' : 'segments'}
             </button>
@@ -748,6 +759,140 @@ function RiverEditor(props: SubProps) {
         ))}
       </div>
       {data.rivers.length === 0 && <p className="hint">No rivers yet.</p>}
+    </div>
+  );
+}
+
+const RIVER_TOOLS: { kind: RiverTool['kind']; label: string; hint: string }[] = [
+  { kind: 'select', label: 'select', hint: 'Click a river on the map to select it.' },
+  {
+    kind: 'move',
+    label: 'move',
+    hint: 'Drag one of a river\'s hexes to another land hex. The river stays connected, stretching along a straight run of hexes if needed.',
+  },
+  {
+    kind: 'navigability',
+    label: 'navigability',
+    hint: 'Drag across river hexes to mark them. One stroke is one undo step.',
+  },
+];
+
+/** Map-driven river editing: pick a tool, then work directly on the map. */
+function RiverToolPanel(props: SubProps) {
+  const { map, dispatch, riverTool: tool, setRiverTool } = props;
+  const rivers = map.layers.rivers.data!.rivers;
+  const river = rivers.find((r) => r.id === tool.selectedId) ?? null;
+  const picked = [...props.selection][0];
+  const pickedOffset = picked === undefined ? null : indexToOffset(map.cols, picked);
+  const pickedIndex =
+    river && pickedOffset
+      ? river.segments.findIndex((s) => s.col === pickedOffset.col && s.row === pickedOffset.row)
+      : -1;
+  const [removeError, setRemoveError] = useState<string | null>(null);
+  const navigableCount = river?.segments.filter((s) => s.navigable).length ?? 0;
+
+  const removePicked = () => {
+    if (!river || pickedIndex < 0 || !map.layers.base.data) return;
+    const result = removeRiverSegment(
+      river,
+      pickedIndex,
+      map.layers.base.data,
+      map.layers.elevation.data,
+      map.cols,
+      map.rows,
+    );
+    if (result === null) {
+      props.setSelection(new Set());
+      dispatch({ type: 'removeRiver', id: river.id });
+    } else if ('error' in result) {
+      setRemoveError(result.error);
+    } else {
+      props.setSelection(new Set());
+      setRemoveError(null);
+      dispatch({ type: 'updateRiver', river: result.river });
+    }
+  };
+
+  return (
+    <div className="stack">
+      <div className="row">
+        {RIVER_TOOLS.map((t) => (
+          <button
+            key={t.kind}
+            className={`tiny ${tool.kind === t.kind ? 'primary' : ''}`}
+            onClick={() => setRiverTool({ ...tool, kind: t.kind })}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+      <p className="hint">{RIVER_TOOLS.find((t) => t.kind === tool.kind)?.hint} Show the Rivers layer to see them.</p>
+
+      {tool.kind === 'navigability' && (
+        <div className="stack">
+          <div className="row">
+            <button
+              className={`tiny ${tool.paintNavigable ? 'primary' : ''}`}
+              onClick={() => setRiverTool({ ...tool, paintNavigable: true })}
+            >
+              paint navigable
+            </button>
+            <button
+              className={`tiny ${!tool.paintNavigable ? 'primary' : ''}`}
+              onClick={() => setRiverTool({ ...tool, paintNavigable: false })}
+            >
+              paint not navigable
+            </button>
+          </div>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 6, textTransform: 'none', fontSize: 11 }}>
+            <input
+              type="checkbox"
+              style={{ width: 'auto' }}
+              checked={tool.downstream}
+              onChange={(e) => setRiverTool({ ...tool, downstream: e.target.checked })}
+            />
+            also everything downstream of each hex I touch
+          </label>
+        </div>
+      )}
+
+      {river ? (
+        <div className="stack">
+          <div className="hint">
+            {river.name}: {navigableCount} of {river.segments.length} hexes navigable
+          </div>
+          <div className="row">
+            <button
+              className="tiny"
+              onClick={() =>
+                dispatch({
+                  type: 'updateRiver',
+                  river: { ...river, segments: river.segments.map((s) => ({ ...s, navigable: true })) },
+                })
+              }
+            >
+              all navigable
+            </button>
+            <button
+              className="tiny"
+              onClick={() =>
+                dispatch({
+                  type: 'updateRiver',
+                  river: { ...river, segments: river.segments.map((s) => ({ ...s, navigable: false })) },
+                })
+              }
+            >
+              none navigable
+            </button>
+            <button className="tiny danger" disabled={pickedIndex < 0} onClick={removePicked}>
+              remove selected hex
+            </button>
+          </div>
+        </div>
+      ) : (
+        <p className="hint">No river selected.</p>
+      )}
+      {removeError && <p className="hint">{removeError}</p>}
     </div>
   );
 }

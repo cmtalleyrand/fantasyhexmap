@@ -182,3 +182,25 @@ export function hexDistance(a: Offset, b: Offset): number {
     2
   );
 }
+
+/**
+ * The hexes on the straight line from `a` to `b`, both ends included. Each step
+ * is to an adjacent hex, so the result is always a valid river path.
+ */
+export function hexLine(a: Offset, b: Offset): Offset[] {
+  const n = hexDistance(a, b);
+  if (n === 0) return [{ col: a.col, row: a.row }];
+  const aa = offsetToAxial(a.col, a.row);
+  const bb = offsetToAxial(b.col, b.row);
+  const out: Offset[] = [];
+  for (let i = 0; i <= n; i++) {
+    const t = i / n;
+    // The nudge breaks ties deterministically when the line runs along a hex edge.
+    const { q, r } = axialRound(
+      aa.q + (bb.q - aa.q) * t + 1e-6,
+      aa.r + (bb.r - aa.r) * t + 2e-6,
+    );
+    out.push(axialToOffset(q, r));
+  }
+  return out;
+}

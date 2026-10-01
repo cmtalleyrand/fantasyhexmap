@@ -4,6 +4,8 @@ import type { LayerId, MapState } from '../../shared/types.js';
 import { drawScene } from '../render/canvas.js';
 import { buildScene, type VisibleLayers } from '../render/scene.js';
 import { MAP_COLOURS } from '../render/palette.js';
+import { riversThroughHex } from '../../shared/derive.js';
+import type { RiverTool } from '../state/riverTools.js';
 
 const HEX_SIZE = 26;
 
@@ -23,6 +25,13 @@ export interface MapViewProps {
   riverDraft: number[] | null;
   onRiverDraftClick: ((index: number) => void) | null;
   onCityMove: ((cityId: string, targetIndex: number) => void) | null;
+  /** Non-null while the Rivers layer is being edited on the map (and no river is being drawn). */
+  riverTool: RiverTool | null;
+  /** A river hex was clicked or grabbed; the caller decides which river that selects. */
+  onRiverSelect: (index: number) => void;
+  onRiverMove: (fromIndex: number, toIndex: number) => void;
+  /** A navigability stroke finished over these hexes. */
+  onRiverPaint: (indices: number[]) => void;
 }
 
 interface View {
@@ -42,6 +51,8 @@ export default function MapView(props: MapViewProps) {
     | { mode: 'pan'; startX: number; startY: number; originX: number; originY: number }
     | { mode: 'select'; additive: boolean; touched: Set<number> }
     | { mode: 'city'; cityId: string; target: number }
+    | { mode: 'riverMove'; from: number; target: number }
+    | { mode: 'riverPaint'; touched: Set<number> }
     | null
   >(null);
 
@@ -54,8 +65,9 @@ export default function MapView(props: MapViewProps) {
       elevationStyle,
       selection: riverDraftSelection ?? selection,
       hover,
+      highlightRiver: props.riverTool?.selectedId ?? null,
     });
-  }, [map, visible, labels, elevationStyle, selection, hover, props.riverDraft]);
+  }, [map, visible, labels, elevationStyle, selection, hover, props.riverDraft, props.riverTool?.selectedId]);
 
   // Fit the map into the viewport the first time it is laid out.
   const fitted = useRef(false);
@@ -148,6 +160,24 @@ export default function MapView(props: MapViewProps) {
       return;
     }
 
+    const tool = props.riverTool;
+    if (tool) {
+      if (tool.kind === 'select') {
+        props.onRiverSelect(index);
+        onSelectionChange(new Set([index]));
+      } else if (tool.kind === 'move') {
+        const rivers = map.layers.rivers.data?.rivers ?? [];
+        if (riversThroughHex(rivers, index % map.cols, Math.floor(index / map.cols)).length === 0) return;
+        props.onRiverSelect(index);
+        drag.current = { mode: 'riverMove', from: index, target: index };
+        onSelectionChange(new Set([index]));
+      } else {
+        drag.current = { mode: 'riverPaint', touched: new Set([index]) };
+        onSelectionChange(new Set([index]));
+      }
+      return;
+    }
+
     if (props.onCityMove) {
       const city = map.layers.cities.data?.cities.find(
         (candidate) => hexIndex(map.cols, candidate.col, candidate.row) === index,
@@ -188,6 +218,20 @@ export default function MapView(props: MapViewProps) {
       }
       return;
     }
+    if (state.mode === 'riverMove') {
+      if (index !== null && index !== state.target) {
+        state.target = index;
+        onSelectionChange(new Set([state.from, index]));
+      }
+      return;
+    }
+    if (state.mode === 'riverPaint') {
+      if (index !== null && !state.touched.has(index)) {
+        state.touched.add(index);
+        onSelectionChange(new Set(state.touched));
+      }
+      return;
+    }
     if (index === null || state.touched.has(index)) return;
     state.touched.add(index);
     const next = state.additive ? new Set(selection) : new Set(state.touched);
@@ -200,6 +244,14 @@ export default function MapView(props: MapViewProps) {
     drag.current = null;
     if (state?.mode === 'select' && onStrokeEnd) onStrokeEnd([...state.touched]);
     if (state?.mode === 'city') props.onCityMove?.(state.cityId, state.target);
+    if (state?.mode === 'riverMove') {
+      onSelectionChange(new Set());
+      if (state.target !== state.from) props.onRiverMove(state.from, state.target);
+    }
+    if (state?.mode === 'riverPaint') {
+      onSelectionChange(new Set());
+      props.onRiverPaint([...state.touched]);
+    }
   };
 
   const onWheel = (e: React.WheelEvent<HTMLCanvasElement>) => {
@@ -218,6 +270,9 @@ export default function MapView(props: MapViewProps) {
 
   const hoverText = () => {
     if (hover === null) {
+      if (props.riverTool?.kind === 'move') return 'Drag a river hex to move it · Alt-drag or right-drag to pan · Wheel to zoom';
+      if (props.riverTool?.kind === 'navigability') return 'Drag along a river to set navigability · Alt-drag or right-drag to pan · Wheel to zoom';
+      if (props.riverTool) return 'Click a river to select it · Alt-drag or right-drag to pan · Wheel to zoom';
       return props.onCityMove
         ? 'Drag a city to move it · Drag elsewhere to select · Alt-drag or right-drag to pan · Wheel to zoom'
         : 'Drag to select · Alt-drag or right-drag to pan · Wheel to zoom';
@@ -239,6 +294,10 @@ export default function MapView(props: MapViewProps) {
     if (owner) {
       const polity = map.layers.polities.data?.polities.find((p) => p.id === owner);
       if (polity) bits.push(polity.name);
+    }
+    for (const river of riversThroughHex(map.layers.rivers.data?.rivers ?? [], col, row)) {
+      const seg = river.segments.find((x) => x.col === col && x.row === row);
+      bits.push(`${river.name} (${seg?.navigable ? 'navigable' : 'not navigable'})`);
     }
     const cities = map.layers.cities.data?.cities.filter((c) => hexIndex(map.cols, c.col, c.row) === hover) ?? [];
     for (const city of cities) bits.push(`${city.name} (${city.population.toLocaleString()})`);
