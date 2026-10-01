@@ -78,6 +78,11 @@ export interface PromptContext {
    * the output instructions; context grids are shown the same way either way.
    */
   gridFormat?: 'rows' | 'keyed';
+  /**
+   * Webchat's compact style: the reply carries only the layer data as JSON, and
+   * the plan and the decisions are written in the chat around it.
+   */
+  decisionsInChat?: boolean;
 }
 
 const isExcluded = (ctx: PromptContext, layer: LayerId) =>
@@ -104,7 +109,7 @@ export interface BuiltPrompt {
 
 /* ----------------------------------------------------------------- shared */
 
-function gridRules(cols: number, rows: number): string {
+export function gridRules(cols: number, rows: number): string {
   return `THE GRID
 The map is a rectangular grid of pointy-top hexes, ${cols} columns wide and ${rows} rows tall (${cols * rows} hexes).
 - Columns are numbered 0 to ${cols - 1}, west to east. Rows are numbered 0 to ${rows - 1}, north to south.
@@ -176,7 +181,7 @@ function polityGridOutput(ctx: PromptContext): string {
   ].join('\n');
 }
 
-function descriptionBlock(description: string): string {
+export function descriptionBlock(description: string): string {
   return `THE BRIEF (the user's description of this world - it is the authority on everything it mentions)
 <description>
 ${description.trim() || '(no description given - invent something coherent and interesting)'}
@@ -271,37 +276,58 @@ function polityGrid(ctx: PromptContext, title: string, withColours: boolean): st
   ]);
 }
 
-const RECORD_YOUR_DECISIONS = `RECORD YOUR DECISIONS
-Along with the layer, return the 3 to 8 decisions that most shaped it, in "decisions". This is read
-by the person whose world this is, and it is the only record of why the map looks the way it does.
-
-- Write about choices, not contents. "The eastern basin is BWk" is data the map already shows.
+const DECISION_GUIDANCE = `- Write about choices, not contents. "The eastern basin is BWk" is data the map already shows.
   "The eastern basin is arid because the Spine takes the westerly rain out of the air before it gets
   there, which is what the brief's rain-shadow desert asks for" is a decision.
 - Say what you did with the brief: which cue you followed, where two parts of it pulled against each
   other and how you resolved that, and what you invented because the brief was silent.
 - Include anything a reader would otherwise think was a mistake - a desert at a temperate latitude,
   a great city on a frontier, an empty quarter no polity claims.
-- Name places and give hex coordinates where they help. Use the "hexes" field for the hexes a
-  decision is actually about; leave it empty for decisions about the map as a whole.
 - Be specific and be brief. Three good sentences beat a paragraph of hedging.`;
 
-const HOUSE_STYLE = `THE BRIEF COMES FIRST
+export function recordDecisions(ctx: PromptContext): string {
+  if (ctx.decisionsInChat) {
+    return `EXPLAIN YOUR DECISIONS IN THE CHAT
+After the JSON, explain in ordinary prose the 3 to 8 decisions that most shaped this layer. Do not put
+notes or decisions inside the JSON. This is read by the person whose world this is.
+
+${DECISION_GUIDANCE}
+- Name places and give hex coordinates as (column,row) where they help.`;
+  }
+  return `RECORD YOUR DECISIONS
+Along with the layer, return the 3 to 8 decisions that most shaped it, in "decisions". This is read
+by the person whose world this is, and it is the only record of why the map looks the way it does.
+
+${DECISION_GUIDANCE}
+- Name places and give hex coordinates where they help. Use the "hexes" field for the hexes a
+  decision is actually about; leave it empty for decisions about the map as a whole.`;
+}
+
+function planInstruction(ctx: PromptContext): string {
+  const where = ctx.decisionsInChat
+    ? 'write in the chat, before the JSON,'
+    : 'fill in "brief":';
+  return `Before writing any of the layer, ${where} the scale, and every statement in the brief that bears on this
+layer, each turned into a concrete target on this grid - a hex count, a place given by rows and columns, a relative
+size. Then build the layer to meet those targets, and check it against them before you finish.`;
+}
+
+export function houseStyle(ctx: PromptContext): string {
+  return `THE BRIEF COMES FIRST
 The brief is the user's specification, not a source of inspiration. Everything else in this prompt - typical sizes,
 usual placements, suggested counts, default proportions, "usually" and "rarely" - is a default for where the brief is
 silent. Where the brief is specific (a size, an area, a distance, a position, a count, a named feature, something
 that must not exist), it overrides those defaults every time. A layer that contradicts a specific statement in the
 brief is wrong, however plausible it looks.
 
-Before writing any of the layer, fill in "brief": the scale, and every statement in the brief that bears on this
-layer, each turned into a concrete target on this grid - a hex count, a place given by rows and columns, a relative
-size. Then build the layer to meet those targets, and check it against them before you finish.
+${planInstruction(ctx)}
 
 HOW TO WORK
 - Think about the map as a whole before writing any of it. Geography is continuous: coastlines, ranges, climate belts and borders are large connected shapes, not per-hex noise.
 - Never produce speckle - isolated single hexes of one value scattered through a field of another - unless the brief explicitly calls for it (an archipelago, an oasis chain).
 - Keep positions exact. Read where things are from the row labels and "[n]" column anchors in the context grids, not by counting characters, and put each value at the same row and column as the hex it describes.
 - Where the brief is silent, make a decision that is plausible and interesting rather than uniform.`;
+}
 
 /* -------------------------------------------------------------------- base */
 
@@ -335,9 +361,9 @@ function basePrompt(ctx: PromptContext): BuiltPrompt {
     '',
     rowFormatRules(ctx.cols, ctx.rows, 'char', ctx.gridFormat),
     '',
-    HOUSE_STYLE,
+    houseStyle(ctx),
     '',
-    RECORD_YOUR_DECISIONS,
+    recordDecisions(ctx),
   ].join('\n');
 
   const parts = [descriptionBlock(ctx.description)];
@@ -397,9 +423,9 @@ function elevationPrompt(ctx: PromptContext): BuiltPrompt {
     '',
     'A hex that is not Land, Coastal Land or Island MUST be "." in your output.',
     '',
-    HOUSE_STYLE,
+    houseStyle(ctx),
     '',
-    RECORD_YOUR_DECISIONS,
+    recordDecisions(ctx),
   ].join('\n');
 
   const parts = [
@@ -465,9 +491,9 @@ function climatePrompt(ctx: PromptContext): BuiltPrompt {
     '',
     rowFormatRules(ctx.cols, ctx.rows, 'token', ctx.gridFormat),
     '',
-    HOUSE_STYLE,
+    houseStyle(ctx),
     '',
-    RECORD_YOUR_DECISIONS,
+    recordDecisions(ctx),
   ].join('\n');
 
   const parts = [
@@ -544,9 +570,9 @@ function vegetationPrompt(ctx: PromptContext): BuiltPrompt {
     '',
     rowFormatRules(ctx.cols, ctx.rows, 'token', ctx.gridFormat),
     '',
-    HOUSE_STYLE,
+    houseStyle(ctx),
     '',
-    RECORD_YOUR_DECISIONS,
+    recordDecisions(ctx),
   ].join('\n');
 
   const parts = [
@@ -650,9 +676,9 @@ function riversPrompt(ctx: PromptContext): BuiltPrompt {
     '',
     'Name rivers in a style consistent with the brief.',
     '',
-    HOUSE_STYLE,
+    houseStyle(ctx),
     '',
-    RECORD_YOUR_DECISIONS,
+    recordDecisions(ctx),
   ].join('\n');
 
   const parts = [
@@ -711,9 +737,9 @@ function citiesPrompt(ctx: PromptContext): BuiltPrompt {
     '',
     'Do not report whether a city is coastal or on a river: that is derived from the map itself.',
     '',
-    HOUSE_STYLE,
+    houseStyle(ctx),
     '',
-    RECORD_YOUR_DECISIONS,
+    recordDecisions(ctx),
   ].join('\n');
 
   const parts = [
@@ -791,9 +817,9 @@ function politiesPrompt(ctx: PromptContext): BuiltPrompt {
       polityGridOutput(ctx),
     ]),
     '',
-    HOUSE_STYLE,
+    houseStyle(ctx),
     '',
-    RECORD_YOUR_DECISIONS,
+    recordDecisions(ctx),
   ].join('\n');
 
   const parts = [
@@ -864,9 +890,9 @@ function populationPrompt(ctx: PromptContext): BuiltPrompt {
     '',
     rowFormatRules(ctx.cols, ctx.rows, 'token', ctx.gridFormat),
     '',
-    HOUSE_STYLE,
+    houseStyle(ctx),
     '',
-    RECORD_YOUR_DECISIONS,
+    recordDecisions(ctx),
   ].join('\n');
 
   const parts = [
@@ -954,9 +980,9 @@ function politiesRosterPrompt(ctx: PromptContext): BuiltPrompt {
       'not near-black and not near-white, and not two similar hues side by side.',
     ]),
     '',
-    HOUSE_STYLE,
+    houseStyle(ctx),
     '',
-    RECORD_YOUR_DECISIONS,
+    recordDecisions(ctx),
   ].join('\n');
 
   const parts = [descriptionBlock(ctx.description), '', ...geographyContext(ctx)];
@@ -999,9 +1025,9 @@ function politiesPaintPrompt(ctx: PromptContext, roster: Roster | null): BuiltPr
     '',
     section('OUTPUT', [polityGridOutput(ctx)]),
     '',
-    HOUSE_STYLE,
+    houseStyle(ctx),
     '',
-    RECORD_YOUR_DECISIONS,
+    recordDecisions(ctx),
   ].join('\n');
 
   const parts = [
@@ -1049,9 +1075,9 @@ function riversRosterPrompt(ctx: PromptContext): BuiltPrompt {
       'Bay of Kelder". No hex coordinates.',
     ]),
     '',
-    HOUSE_STYLE,
+    houseStyle(ctx),
     '',
-    RECORD_YOUR_DECISIONS,
+    recordDecisions(ctx),
   ].join('\n');
 
   const parts = [descriptionBlock(ctx.description), '', ...geographyContext(ctx)];
@@ -1100,9 +1126,9 @@ function riversPathsPrompt(ctx: PromptContext, roster: Roster | null): BuiltProm
       '- Small or steep rivers may be navigable nowhere at all. Say so with all-false entries.',
     ]),
     '',
-    HOUSE_STYLE,
+    houseStyle(ctx),
     '',
-    RECORD_YOUR_DECISIONS,
+    recordDecisions(ctx),
   ].join('\n');
 
   const parts = [
@@ -1182,4 +1208,49 @@ export function buildPrompt(
     throw new Error(`Layer "${layer}" has no paint pass.`);
   }
   return BUILDERS[layer](ctx);
+}
+
+/* ----------------------------------------------- several layers in one go */
+
+/**
+ * The rules for one layer with the parts every layer shares taken out, so a
+ * prompt that asks for several layers at once can state those parts once.
+ *
+ * Builders produce system and user text together, and the user half reads the
+ * layers it depends on - which, in a multi-layer prompt, may be produced earlier
+ * in the same reply and so not exist yet. The system half never depends on
+ * layer data, so it is built against a stand-in base and the user half dropped.
+ */
+export function layerRules(layer: LayerId, ctx: PromptContext): string {
+  const stand: PromptContext = {
+    ...ctx,
+    base: ctx.base ?? new Array(ctx.cols * ctx.rows).fill('Sea'),
+    instruction: null,
+  };
+  let system = buildPrompt(layer, stand).system;
+  for (const shared of [gridRules(ctx.cols, ctx.rows), houseStyle(ctx), recordDecisions(ctx)]) {
+    system = system.replace(shared, '');
+  }
+  return system.replace(/\n{3,}/g, '\n\n').trim();
+}
+
+/**
+ * Every layer the map already has, apart from those about to be regenerated,
+ * shown the way the single-layer prompts show them.
+ */
+export function existingContext(ctx: PromptContext, regenerating: LayerId[]): string[] {
+  const keep = (id: LayerId) => !regenerating.includes(id);
+  const parts: string[] = [];
+  const add = (text: string) => parts.push('', text);
+  if (ctx.base && keep('base')) add(baseGrid(ctx));
+  if (ctx.elevation && keep('elevation')) add(elevationGrid(ctx));
+  if (ctx.climate && keep('climate')) add(climateGrid(ctx));
+  if (ctx.vegetation && keep('vegetation')) add(vegetationGrid(ctx));
+  if (ctx.rivers && ctx.rivers.rivers.length > 0 && keep('rivers')) add(section('RIVERS', riverSummary(ctx.rivers)));
+  if (ctx.cities && ctx.cities.cities.length > 0 && keep('cities')) {
+    add(section('CITIES', ctx.cities.cities.map((c) => `${c.name} at (${c.col},${c.row}) pop ${c.population}`)));
+  }
+  if (ctx.polities && ctx.polities.polities.length > 0 && keep('polities')) add(polityGrid(ctx, 'POLITIES', false));
+  if (ctx.population && keep('population')) add(populationGrid(ctx));
+  return parts.slice(1);
 }

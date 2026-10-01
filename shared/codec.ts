@@ -35,11 +35,11 @@ export function stripGridView(line: string): string {
 /* ------------------------------------------------------------------ base */
 
 export const BASE_CHARS: Record<BaseGeo, string> = {
-  Land: 'L',
-  'Coastal Land': 'C',
-  Sea: '~',
-  Lake: 'o',
-  Ice: '#',
+  Land: 't',
+  'Coastal Land': 'c',
+  Sea: 'm',
+  Lake: 'l',
+  Ice: 'g',
   Island: 'i',
 };
 const BASE_BY_CHAR = new Map<string, BaseGeo>(

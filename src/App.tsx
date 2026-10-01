@@ -23,6 +23,7 @@ import {
 import { decryptKey, encryptKey } from './api/keyvault.js';
 import type { PassSelection, Roster } from '../core/rosters.js';
 import type { WebchatApplied } from './components/WebchatDialog.js';
+import type { MultiWebchatImportResult } from '../core/webchat.js';
 
 /**
  * Loaded on demand. The dialog validates a pasted layer against the same Zod
@@ -298,6 +299,30 @@ export default function App() {
     setError(null);
   }, []);
 
+  /** Several layers from one webchat reply, applied in pipeline order, each its own undo entry. */
+  const applyWebchatMany = useCallback((results: MultiWebchatImportResult[], source: string) => {
+    for (const { layer, result } of results) {
+      const action: Action = {
+        type: 'applyGeneration',
+        layer,
+        data: result.data,
+        warnings: result.warnings,
+        notes: result.notes,
+        decisions: result.decisions,
+        model: source || null,
+        imported: true,
+        instruction: null,
+      };
+      mapRef.current = reducer(mapRef.current!, action);
+      dispatch(action);
+    }
+    const shown = results.map((r) => r.layer);
+    setVisible((v) => ({ ...v, ...Object.fromEntries(shown.map((id) => [id, true])) }));
+    if (shown.length > 0) setActiveLayer(shown[shown.length - 1]!);
+    setWebchatLayer(null);
+    setError(null);
+  }, []);
+
   const handleImport = useCallback((file: File) => {
     file
       .text()
@@ -332,6 +357,7 @@ export default function App() {
           layer={webchatLayer}
           instruction={instruction.trim() || null}
           onApply={(result) => applyWebchat(webchatLayer, result)}
+          onApplyMany={applyWebchatMany}
           onClose={() => setWebchatLayer(null)}
         />
       </Suspense>

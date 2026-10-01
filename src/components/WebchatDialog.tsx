@@ -1,13 +1,19 @@
 import { useMemo, useState } from 'react';
 import { LAYER_META } from '../../shared/layers.js';
-import type { LayerId, MapState } from '../../shared/types.js';
+import { LAYER_ORDER, type LayerId, type MapState } from '../../shared/types.js';
 import { contextFromMap, existingFeatures } from '../../core/context.js';
 import { canSplit, passLabel, rosterFromContext, type PassId } from '../../core/passes.js';
 import {
+  buildMultiWebchatPrompt,
   buildWebchatPrompt,
+  importMultiWebchatResponse,
   importWebchatResponse,
+  multiLayerProblem,
+  orderLayers,
   webchatPromptTitle,
   WebchatImportError,
+  type MultiWebchatImportResult,
+  type WebchatStyle,
 } from '../../core/webchat.js';
 import {
   parseRoster,
@@ -27,10 +33,13 @@ interface Props {
   layer: LayerId;
   instruction: string | null;
   onApply: (result: WebchatApplied) => void;
+  /** Several layers from one reply, in pipeline order, applied together. */
+  onApplyMany: (results: MultiWebchatImportResult[], source: string) => void;
   onClose: () => void;
 }
 
 type RosterSource = 'generated' | 'existing' | 'typed';
+type Scope = 'one' | 'several';
 
 /**
  * Run a layer through a chat window instead of the API.
@@ -40,8 +49,11 @@ type RosterSource = 'generated' | 'existing' | 'typed';
  * to be worth a subscription rather than metered tokens, or simply wanting to
  * argue with the model about the borders before committing them.
  */
-export default function WebchatDialog({ map, layer, instruction, onApply, onClose }: Props) {
-  const splittable = canSplit(layer);
+export default function WebchatDialog({ map, layer, instruction, onApply, onApplyMany, onClose }: Props) {
+  const [scope, setScope] = useState<Scope>('one');
+  const [style, setStyle] = useState<WebchatStyle>('full');
+  const [selected, setSelected] = useState<LayerId[]>([layer]);
+  const splittable = canSplit(layer) && scope === 'one';
   const [pass, setPass] = useState<PassId>(splittable ? 'roster' : 'full');
   const [rosterSource, setRosterSource] = useState<RosterSource>('existing');
   const [rosterText, setRosterText] = useState('');
@@ -52,6 +64,16 @@ export default function WebchatDialog({ map, layer, instruction, onApply, onClos
 
   const ctx = useMemo(() => contextFromMap(map, instruction), [map, instruction]);
   const existingRoster = useMemo(() => rosterFromContext(layer, ctx), [layer, ctx]);
+  const choosable = useMemo(
+    () => LAYER_ORDER.filter((id) => map.enabledLayers.includes(id)),
+    [map.enabledLayers],
+  );
+  const selectionProblem = useMemo(
+    () => (scope === 'several' ? multiLayerProblem(selected, ctx) : null),
+    [scope, selected, ctx],
+  );
+  const toggle = (id: LayerId) =>
+    setSelected((current) => (current.includes(id) ? current.filter((x) => x !== id) : [...current, id]));
 
   /** The roster a paint pass will be drawn against, from whichever source. */
   const roster = useMemo((): Roster | null => {
@@ -67,7 +89,7 @@ export default function WebchatDialog({ map, layer, instruction, onApply, onClos
   }, [pass, rosterSource, rosterText, layer, existingRoster]);
 
   const rosterProblem = useMemo((): string | null => {
-    if (pass !== 'paint') return null;
+    if (scope === 'several' || pass !== 'paint') return null;
     if (rosterSource === 'typed') {
       if (!rosterText.trim()) return 'Type or paste a roster, one entry per line.';
       try {
@@ -82,14 +104,19 @@ export default function WebchatDialog({ map, layer, instruction, onApply, onClos
       : `This map has no ${LAYER_META[layer].label.toLowerCase()} yet, so there is no roster to reuse. Run the roster pass first, or type one in.`;
   }, [pass, rosterSource, rosterText, layer, existingRoster]);
 
+  const effectivePass: PassId = splittable ? pass : 'full';
+  const problem = selectionProblem ?? rosterProblem;
+
   const prompt = useMemo(() => {
-    if (rosterProblem) return null;
+    if (problem) return null;
     try {
-      return buildWebchatPrompt({ layer, pass, ctx, roster });
+      return scope === 'several'
+        ? buildMultiWebchatPrompt({ layers: selected, ctx, style })
+        : buildWebchatPrompt({ layer, pass: effectivePass, ctx, roster, style });
     } catch (e) {
       return `Could not build a prompt: ${e instanceof Error ? e.message : String(e)}`;
     }
-  }, [layer, pass, ctx, roster, rosterProblem]);
+  }, [scope, selected, layer, effectivePass, ctx, roster, style, problem]);
 
   const copy = async () => {
     if (!prompt) return;
@@ -105,9 +132,19 @@ export default function WebchatDialog({ map, layer, instruction, onApply, onClos
   const apply = () => {
     setError(null);
     try {
+      if (scope === 'several') {
+        const results = importMultiWebchatResponse({
+          layers: selected,
+          ctx,
+          text: reply,
+          existing: existingFeatures(ctx),
+        });
+        onApplyMany(results, source.trim());
+        return;
+      }
       const result = importWebchatResponse({
         layer,
-        pass,
+        pass: effectivePass,
         ctx,
         text: reply,
         roster,
@@ -124,13 +161,69 @@ export default function WebchatDialog({ map, layer, instruction, onApply, onClos
   return (
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal wide stack" onClick={(e) => e.stopPropagation()}>
-        <h2>{webchatPromptTitle(layer, pass)} — by webchat</h2>
+        <h2>
+          {scope === 'several'
+            ? `${orderLayers(selected).length} layers`
+            : webchatPromptTitle(layer, effectivePass)}{' '}
+          — by webchat
+        </h2>
         <p className="hint">
           Copy the prompt into any chat window, then paste the JSON it replies with back here. It
           goes through the same checks and the same undo stack as a generation made from inside the
           app, and is recorded as imported so the decision log does not credit this app&rsquo;s model
           for it.
         </p>
+
+        <div className="row" style={{ gap: 12, alignItems: 'flex-start' }}>
+          <div className="stack" style={{ gap: 4, flex: 1 }}>
+            <label>Layers</label>
+            <select value={scope} onChange={(e) => setScope(e.target.value as Scope)}>
+              <option value="one">{LAYER_META[layer].label} only</option>
+              <option value="several">Several layers in one reply</option>
+            </select>
+          </div>
+          <div className="stack" style={{ gap: 4, flex: 1 }}>
+            <label>Reply style</label>
+            <select value={style} onChange={(e) => setStyle(e.target.value as WebchatStyle)}>
+              <option value="full">Everything in the JSON</option>
+              <option value="compact">JSON for the data, decisions in the chat</option>
+            </select>
+          </div>
+        </div>
+        <p className="hint" style={{ margin: 0 }}>
+          {style === 'compact'
+            ? 'A shorter prompt: the model replies with the layer data as JSON and explains its plan and decisions in ordinary chat around it. That explanation is kept as the layer notes when you import the whole reply.'
+            : 'The model replies with one JSON object that also carries its notes and decisions, which go into the decision log.'}
+        </p>
+
+        {scope === 'several' && (
+          <div className="stack" style={{ gap: 4 }}>
+            <label>Generate together</label>
+            <div className="row" style={{ flexWrap: 'wrap', gap: 12 }}>
+              {choosable.map((id) => (
+                <label
+                  key={id}
+                  className="row"
+                  style={{ gap: 6, margin: 0, cursor: 'pointer', textTransform: 'none', letterSpacing: 0, fontSize: 13 }}
+                >
+                  <input
+                    type="checkbox"
+                    style={{ width: 'auto' }}
+                    checked={selected.includes(id)}
+                    onChange={() => toggle(id)}
+                  />
+                  {LAYER_META[id].label}
+                </label>
+              ))}
+            </div>
+            <p className="hint" style={{ margin: 0 }}>
+              One prompt, one reply. The layers are written in pipeline order, each built on the ones
+              before it in the same reply, and imported together - or not at all if any of them is
+              malformed. Each runs as a single pass{instruction ? ', and the edit instruction is not used' : ''}.
+              Selected layers that already exist are replaced.
+            </p>
+          </div>
+        )}
 
         {splittable && (
           <div className="stack" style={{ gap: 4 }}>
@@ -147,7 +240,7 @@ export default function WebchatDialog({ map, layer, instruction, onApply, onClos
           </div>
         )}
 
-        {pass === 'paint' && (
+        {splittable && pass === 'paint' && (
           <div className="stack" style={{ gap: 4 }}>
             <label>Roster to draw against</label>
             <select
@@ -179,8 +272,8 @@ export default function WebchatDialog({ map, layer, instruction, onApply, onClos
           </div>
         )}
 
-        {rosterProblem ? (
-          <div className="notice warn">{rosterProblem}</div>
+        {problem ? (
+          <div className="notice warn">{problem}</div>
         ) : (
           <div className="stack" style={{ gap: 4 }}>
             <div className="row">
@@ -225,7 +318,7 @@ export default function WebchatDialog({ map, layer, instruction, onApply, onClos
 
         <div className="row" style={{ justifyContent: 'flex-end' }}>
           <button onClick={onClose}>Cancel</button>
-          <button className="primary" onClick={apply} disabled={!reply.trim() || Boolean(rosterProblem)}>
+          <button className="primary" onClick={apply} disabled={!reply.trim() || Boolean(problem)}>
             Import
           </button>
         </div>

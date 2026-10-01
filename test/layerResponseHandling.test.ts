@@ -150,7 +150,7 @@ test('the prompt asks for keyed output and shows context grids with column ancho
   const system = (calls[0]!.system as { text: string }[])[0]!.text;
   const user = (calls[0]!.messages as { content: string }[])[0]!.content;
   assert.match(system, /"r0" \(northern edge\)/);
-  assert.match(user, /r0: \[0\] LLLLL/);
+  assert.match(user, /r0: \[0\] ttttt/);
   assert.match(user, /Land-type hexes \(Land \+ Coastal Land \+ Island\): 20 of 20/);
 });
 

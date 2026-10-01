@@ -448,7 +448,7 @@ export function mockLayer(layer: LayerId, ctx: PromptContext): unknown {
   switch (layer) {
     case 'base':
       return {
-        rows: toRowChars(buildBase(ctx).map((v) => BASE_CHARS[v]), cols, rows, '~'),
+        rows: toRowChars(buildBase(ctx).map((v) => BASE_CHARS[v]), cols, rows, BASE_CHARS.Sea),
         notes: MOCK_NOTE,
         decisions,
       };

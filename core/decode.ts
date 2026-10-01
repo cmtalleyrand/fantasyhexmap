@@ -85,6 +85,28 @@ export interface DecodedLayer<K extends LayerId = LayerId> {
  * empty response rather than a parse failure.
  */
 export function extractJsonObject(text: string): string | null {
+  // A fenced block is the clearest signal of where the answer is, and reading
+  // it first keeps a brace in the prose around it - which the compact webchat
+  // style asks for - from being mistaken for the start of the object.
+  for (const fence of text.matchAll(/```[a-zA-Z]*[ \t]*\r?\n([\s\S]*?)```/g)) {
+    const inside = scanForObject(fence[1] ?? '');
+    if (inside) return inside;
+  }
+  return scanForObject(text);
+}
+
+/**
+ * The prose of a reply with the JSON taken out - the fenced block that held it,
+ * or the object itself. In the compact webchat style this is where the plan and
+ * the decisions are, so it is kept rather than discarded.
+ */
+export function proseAround(text: string, json: string): string {
+  const fenced = [...text.matchAll(/```[a-zA-Z]*[ \t]*\r?\n[\s\S]*?```/g)].find((m) => m[0].includes(json));
+  const without = fenced ? text.replace(fenced[0], '') : text.replace(json, '');
+  return without.replace(/\n{3,}/g, '\n\n').trim();
+}
+
+function scanForObject(text: string): string | null {
   const start = text.indexOf('{');
   if (start === -1) return null;
 
