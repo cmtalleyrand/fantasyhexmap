@@ -33,3 +33,19 @@ export function parseMapImport(text: string): MapState {
 
   return { ...candidate, hexDimensions: normaliseHexDimensions(candidate.hexDimensions) } as MapState;
 }
+
+/** Fill in fields that older exports or saves may lack. Throws if a layer is missing. */
+export function prepareLoadedMap(map: MapState): MapState {
+  map.journal ??= [];
+  map.enabledLayers ??= [...LAYER_ORDER];
+  map.hexDimensions = normaliseHexDimensions(map.hexDimensions);
+  for (const id of LAYER_ORDER) {
+    const layer = map.layers[id];
+    if (!layer) throw new Error(`The map is missing the "${id}" layer.`);
+    layer.past ??= [];
+    layer.future ??= [];
+    layer.warnings ??= [];
+    layer.version ??= 0;
+  }
+  return map;
+}
