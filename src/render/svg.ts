@@ -1,8 +1,8 @@
+import { FANTASY_FONT_STACK, FONT_STACK } from './fonts.js';
 import type { Prim, Scene } from './scene.js';
 
-const FONT_STACK =
-  'ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif';
-const FANTASY_FONT_STACK = 'Palatino Linotype, Palatino, Book Antiqua, Georgia, serif';
+
+const attrFont = (fantasy?: boolean) => (fantasy ? FANTASY_FONT_STACK : FONT_STACK).replace(/"/g, "'");
 
 function esc(s: string): string {
   return s
@@ -59,7 +59,7 @@ function primToSvg(prim: Prim): string {
       const transform = prim.rotation
         ? ` transform="rotate(${n(prim.rotation * 180 / Math.PI)} ${n(prim.at.x)} ${n(prim.at.y)})"`
         : '';
-      return `<text x="${n(prim.at.x)}" y="${n(prim.at.y)}" font-family="${prim.fantasy ? FANTASY_FONT_STACK : FONT_STACK}" font-size="${n(prim.size)}" font-weight="${prim.weight ?? 600}" text-anchor="${anchor}" dominant-baseline="central" fill="${prim.fill}"${halo}${transform}>${esc(prim.text)}</text>`;
+      return `<text x="${n(prim.at.x)}" y="${n(prim.at.y)}" font-family="${attrFont(prim.fantasy)}" font-size="${n(prim.size)}" font-weight="${prim.weight ?? 600}" text-anchor="${anchor}" dominant-baseline="central" fill="${prim.fill}"${halo}${transform}>${esc(prim.text)}</text>`;
     }
     case 'city': {
       const { c, r, symbol } = prim;

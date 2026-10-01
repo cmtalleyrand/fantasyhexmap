@@ -78,7 +78,7 @@ test('map presentation hides tiny polity labels and smooths thicker rivers', () 
   delete withoutShortName.layers.polities.data!.polities[1]!.shortName;
   const longLabel = buildScene(withoutShortName, { size: 20, visible, labels: true })
     .prims.find((p) => p.kind === 'text');
-  assert.ok((longLabel?.size ?? 0) < (polityLabel?.size ?? 0), 'longer text should shrink to the same available territory');
+  assert.ok((longLabel?.size ?? 0) <= (polityLabel?.size ?? 0), 'a longer name never gets bigger type in the same territory');
   assert.ok(river && river.strokeWidth === 4.25);
 });
 
@@ -232,4 +232,30 @@ test('a polity label steers clear of a city marker inside the territory', () => 
     Math.abs(label.at.y - city.y) > label.size * 0.55 || Math.abs(label.at.x - city.x) > half + size * 0.4,
     'polity name must not sit on the city marker',
   );
+});
+
+test('a long unbreakable name shrinks, but a multi-word name wraps to keep larger type', () => {
+  const label = (name: string) => {
+    const map = createMapState('Wrap', 4, 4);
+    map.layers.base.data = Array(16).fill('Land');
+    map.layers.polities.data = {
+      polities: [{ id: 'r', name, colour: '#3355aa' }],
+      owner: Array(16).fill('r'),
+    };
+    const visible = defaultVisibility();
+    visible.polities = true;
+    return buildScene(map, { size: 20, visible, labels: true }).prims.filter(
+      (p) => p.kind === 'text' && p.fantasy,
+    ) as Extract<ReturnType<typeof buildScene>['prims'][number], { kind: 'text' }>[];
+  };
+  const short = label('Aster');
+  const unbreakable = label('Asterhaventhorpeshire');
+  const wrapped = label('Aster Haven Thorpe Shire');
+  assert.equal(short.length, 1);
+  assert.equal(unbreakable.length, 1);
+  assert.ok(unbreakable[0]!.size < short[0]!.size, 'one long word has nowhere to wrap, so it shrinks');
+  assert.equal(wrapped.length, 2, 'a long multi-word name is split over two lines');
+  assert.deepEqual(wrapped.map((l) => l.text), ['ASTER HAVEN', 'THORPE SHIRE']);
+  assert.ok(wrapped[0]!.size > unbreakable[0]!.size, 'wrapping keeps type larger than the unbroken equivalent');
+  assert.ok(wrapped[0]!.at.y < wrapped[1]!.at.y, 'lines stack top to bottom');
 });

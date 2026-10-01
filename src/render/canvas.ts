@@ -1,9 +1,7 @@
+import { FANTASY_FONT_STACK, FONT_STACK } from './fonts.js';
 import type { Prim, Scene } from './scene.js';
 import { MAP_COLOURS } from './palette.js';
 
-const FONT_STACK =
-  'ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif';
-const FANTASY_FONT_STACK = '"Palatino Linotype", Palatino, "Book Antiqua", Georgia, serif';
 
 export function drawScene(ctx: CanvasRenderingContext2D, scene: Scene): void {
   for (const prim of scene.prims) drawPrim(ctx, prim);

@@ -17,6 +17,7 @@ import {
   pixelToOffset,
   type Point,
 } from '../../shared/hex.js';
+import { fantasyTextEm } from './fonts.js';
 
 export interface LabelBox {
   left: number;
@@ -28,10 +29,13 @@ export interface LabelBox {
 export interface PolityLabel {
   polityId: string;
   at: Point;
-  text: string;
+  /** One entry per rendered line, top to bottom. */
+  lines: string[];
   size: number;
   rotation: number;
 }
+
+export const LABEL_LINE_EM = 1.1;
 
 export interface LabelObstacle extends LabelBox {}
 
@@ -45,9 +49,9 @@ export interface LabelInput {
   obstacles: LabelObstacle[];
 }
 
-/** Advance width of an upper-case semibold display face, in em per character. */
-export const LABEL_CHAR_EM = 0.66;
-const LABEL_HEIGHT_EM = 1.1;
+const LABEL_HEIGHT_EM = LABEL_LINE_EM;
+/** Preference for keeping a name on one line when wrapping gains nothing. */
+const WRAP_PENALTY = 0.02;
 const MIN_FONT = 7;
 const GOOD_COVERAGE = 0.92;
 const FALLBACK_COVERAGE = 0.78;
@@ -76,6 +80,26 @@ interface Candidate {
   at: Point;
   /** Distance from the territory centroid, used to prefer central placements. */
   offCentre: number;
+}
+
+interface TextLayout {
+  lines: string[];
+  /** Width of the widest line, in em. */
+  em: number;
+}
+
+/** The name on one line, plus the most balanced two-line split if it has spaces. */
+function textLayouts(text: string): TextLayout[] {
+  const layouts: TextLayout[] = [{ lines: [text], em: fantasyTextEm(text) }];
+  const words = text.split(/\s+/).filter(Boolean);
+  let best: TextLayout | null = null;
+  for (let k = 1; k < words.length; k++) {
+    const lines = [words.slice(0, k).join(' '), words.slice(k).join(' ')];
+    const em = Math.max(...lines.map((line) => fantasyTextEm(line)));
+    if (!best || em < best.em) best = { lines, em };
+  }
+  if (best) layouts.push(best);
+  return layouts;
 }
 
 export function placePolityLabels(input: LabelInput): PolityLabel[] {
@@ -156,6 +180,7 @@ export function placePolityLabels(input: LabelInput): PolityLabel[] {
       .sort((a, b) => Math.abs(a) - Math.abs(b));
 
     const text = (polity.shortName?.trim() || polity.name).toUpperCase();
+    const layouts = textLayouts(text);
     // Hex area is proportional to size², so a linear dimension such as type
     // size grows with sqrt(hex count).
     const idealSize = size * 0.28 * Math.sqrt(owned.length);
@@ -166,38 +191,44 @@ export function placePolityLabels(input: LabelInput): PolityLabel[] {
       fontFloor: number,
     ): PolityLabel | null => {
       for (let font = idealSize; font >= fontFloor; font *= SIZE_STEP) {
-        const w = text.length * font * LABEL_CHAR_EM;
-        const h = font * LABEL_HEIGHT_EM;
-        const across = Math.min(24, Math.max(3, Math.ceil(w / (size * 0.45))));
-        let best: { at: Point; rotation: number; score: number } | null = null;
-        for (const rotation of rotations) {
-          const cos = Math.cos(rotation);
-          const sin = Math.sin(rotation);
-          const samples: Point[] = [];
-          for (let a = 0; a < across; a++) {
-            for (let b = 0; b < 3; b++) {
-              const u = ((a + 0.5) / across - 0.5) * w;
-              const v = (b / 2 - 0.5) * h * 0.9;
-              samples.push({ x: u * cos - v * sin, y: u * sin + v * cos });
+        let best: { at: Point; rotation: number; lines: string[]; score: number } | null = null;
+        for (const layout of layouts) {
+          const w = layout.em * font;
+          const h = font * LABEL_HEIGHT_EM * layout.lines.length;
+          const across = Math.min(24, Math.max(3, Math.ceil(w / (size * 0.45))));
+          const down = Math.max(3, layout.lines.length * 2 + 1);
+          for (const rotation of rotations) {
+            const cos = Math.cos(rotation);
+            const sin = Math.sin(rotation);
+            const samples: Point[] = [];
+            for (let a = 0; a < across; a++) {
+              for (let b = 0; b < down; b++) {
+                const u = ((a + 0.5) / across - 0.5) * w;
+                const v = (b / (down - 1) - 0.5) * h * 0.9;
+                samples.push({ x: u * cos - v * sin, y: u * sin + v * cos });
+              }
             }
-          }
-          const allowedMisses = Math.floor(samples.length * (1 - minCoverage));
-          for (const cand of candidates) {
-            const box = labelBox(cand.at, w, h, rotation);
-            if (box.left < 0 || box.top < 0) continue;
-            if (obstacles.some((o) => overlaps(box, o))) continue;
-            let misses = 0;
-            for (const s of samples) {
-              if (!isOwnedBy(polity.id, cand.at.x + s.x, cand.at.y + s.y) && ++misses > allowedMisses) break;
+            const allowedMisses = Math.floor(samples.length * (1 - minCoverage));
+            for (const cand of candidates) {
+              const box = labelBox(cand.at, w, h, rotation);
+              if (box.left < 0 || box.top < 0) continue;
+              if (obstacles.some((o) => overlaps(box, o))) continue;
+              let misses = 0;
+              for (const s of samples) {
+                if (!isOwnedBy(polity.id, cand.at.x + s.x, cand.at.y + s.y) && ++misses > allowedMisses) break;
+              }
+              if (misses > allowedMisses) continue;
+              const coverage = 1 - misses / samples.length;
+              const score =
+                coverage -
+                (cand.offCentre / size) * 0.01 -
+                (Math.abs(rotation) / MAX_ROTATION) * 0.03 -
+                (layout.lines.length > 1 ? WRAP_PENALTY : 0);
+              if (!best || score > best.score) best = { at: cand.at, rotation, lines: layout.lines, score };
             }
-            if (misses > allowedMisses) continue;
-            const coverage = 1 - misses / samples.length;
-            const score =
-              coverage - (cand.offCentre / size) * 0.01 - (Math.abs(rotation) / MAX_ROTATION) * 0.03;
-            if (!best || score > best.score) best = { at: cand.at, rotation, score };
           }
         }
-        if (best) return { polityId: polity.id, at: best.at, text, size: font, rotation: best.rotation };
+        if (best) return { polityId: polity.id, at: best.at, lines: best.lines, size: font, rotation: best.rotation };
       }
       return null;
     };
@@ -211,8 +242,9 @@ export function placePolityLabels(input: LabelInput): PolityLabel[] {
       attempt(claimed, FALLBACK_COVERAGE, MIN_FONT);
     if (!label) continue;
     placed.push(label);
+    const em = Math.max(...label.lines.map((line) => fantasyTextEm(line)));
     claimed.push(
-      labelBox(label.at, text.length * label.size * LABEL_CHAR_EM, label.size * LABEL_HEIGHT_EM, label.rotation),
+      labelBox(label.at, em * label.size, label.size * LABEL_HEIGHT_EM * label.lines.length, label.rotation),
     );
   }
   return placed;

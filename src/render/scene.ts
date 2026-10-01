@@ -39,7 +39,7 @@ import {
   populationColour,
   withAlpha,
 } from './palette.js';
-import { placePolityLabels, type LabelObstacle, type PolityLabel } from './labels.js';
+import { LABEL_LINE_EM, placePolityLabels, type LabelObstacle, type PolityLabel } from './labels.js';
 
 export type Prim =
   | {
@@ -396,16 +396,24 @@ export function buildScene(map: MapState, opts: SceneOptions): Scene {
         obstacles.push({ left: c.x - halfWidth, right: c.x + halfWidth, top: y - fontSize * 0.6, bottom: y + fontSize * 0.6 });
       }
       for (const label of cachedPolityLabels(polities, cities, cols, rows, size, obstacles)) {
-        prims.push({
-          kind: 'text',
-          at: label.at,
-          text: label.text,
-          size: label.size,
-          fill: MAP_COLOURS.label,
-          weight: 600,
-          anchor: 'middle',
-          fantasy: true,
-          rotation: label.rotation,
+        // Lines are stacked perpendicular to the baseline so a wrapped,
+        // rotated name stays a single rigid block.
+        label.lines.forEach((line, k) => {
+          const offset = (k - (label.lines.length - 1) / 2) * label.size * LABEL_LINE_EM;
+          prims.push({
+            kind: 'text',
+            at: {
+              x: label.at.x - offset * Math.sin(label.rotation),
+              y: label.at.y + offset * Math.cos(label.rotation),
+            },
+            text: line,
+            size: label.size,
+            fill: MAP_COLOURS.label,
+            weight: 600,
+            anchor: 'middle',
+            fantasy: true,
+            rotation: label.rotation,
+          });
         });
       }
     }
