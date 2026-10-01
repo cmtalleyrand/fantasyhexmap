@@ -26,6 +26,7 @@ import type {
   LayerSnapshot,
   LayerState,
   MapState,
+  HexDimensions,
   Polity,
   River,
 } from '../../shared/types.js';
@@ -33,6 +34,7 @@ import type {
 export type Action =
   | { type: 'load'; map: MapState }
   | { type: 'setMeta'; name?: string; description?: string }
+  | { type: 'setHexDimensions'; hexDimensions: HexDimensions }
   | { type: 'setPlan'; layers: LayerId[] }
   | {
       type: 'applyGeneration';
@@ -191,6 +193,13 @@ export function reducer(map: MapState, action: Action): MapState {
         ...map,
         name: action.name ?? map.name,
         description: action.description ?? map.description,
+        updatedAt: Date.now(),
+      };
+
+    case 'setHexDimensions':
+      return {
+        ...map,
+        hexDimensions: { ...action.hexDimensions },
         updatedAt: Date.now(),
       };
 

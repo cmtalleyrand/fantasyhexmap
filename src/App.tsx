@@ -45,6 +45,7 @@ import { defaultVisibility, type VisibleLayers } from './render/scene.js';
 import { clearMap, loadMap, makeAutosaver } from './state/persistence.js';
 import { parseMapImport } from './state/import.js';
 import { reducer, type Action } from './state/store.js';
+import { normaliseHexDimensions } from '../shared/surfaceArea.js';
 
 const PER_HEX: LayerId[] = ['base', 'elevation', 'climate', 'vegetation', 'population'];
 
@@ -96,6 +97,7 @@ export default function App() {
         if (restored) {
           // Maps autosaved before layer plans existed have every layer.
           restored.enabledLayers ??= [...LAYER_ORDER];
+          restored.hexDimensions = normaliseHexDimensions(restored.hexDimensions);
           dispatch({ type: 'load', map: restored });
         }
       })
@@ -457,8 +459,8 @@ export default function App() {
           keyPresent={apiKey.trim().length > 0 || prefs.offline}
           onOpenSettings={() => setShowSettings(true)}
           onImport={handleImport}
-          onCreate={(description, cols, rows, name, layers) =>
-            dispatch({ type: 'load', map: createMapState(description, cols, rows, name, layers) })
+          onCreate={(description, cols, rows, name, layers, hexDimensions) =>
+            dispatch({ type: 'load', map: createMapState(description, cols, rows, name, layers, hexDimensions) })
           }
         />
       </>

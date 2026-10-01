@@ -11,6 +11,7 @@
 import {
   LAYER_ORDER,
   MAX_HISTORY,
+  DEFAULT_HEX_DIMENSIONS,
   type LayerId,
   type LayerState,
   type LayersState,
@@ -121,6 +122,7 @@ export function createMapState(
   rows: number,
   name = 'Untitled map',
   enabledLayers: LayerId[] = [...LAYER_ORDER],
+  hexDimensions = DEFAULT_HEX_DIMENSIONS,
 ): MapState {
   const now = Date.now();
   return {
@@ -129,6 +131,7 @@ export function createMapState(
     description,
     cols,
     rows,
+    hexDimensions: { ...hexDimensions },
     createdAt: now,
     updatedAt: now,
     enabledLayers: normaliseSelection(enabledLayers),

@@ -16,6 +16,7 @@ import {
   VEGETATION_COLOURS,
 } from '../render/palette.js';
 import type { MapState } from '../../shared/types.js';
+import { normaliseHexDimensions, politySurfaceAreas } from '../../shared/surfaceArea.js';
 
 function Swatch({ colour, label }: { colour: string; label: string }) {
   return (
@@ -87,11 +88,19 @@ export default function Legend({ layer, map }: { layer: LayerId; map: MapState }
       );
     case 'polities': {
       const polities = map.layers.polities.data?.polities ?? [];
+      const dimensions = normaliseHexDimensions(map.hexDimensions);
+      const areas = map.layers.base.data && map.layers.polities.data
+        ? politySurfaceAreas(map.layers.base.data, map.layers.polities.data, dimensions)
+        : new Map<string, number>();
       if (polities.length === 0) return <div className="hint">No polities yet.</div>;
       return (
         <div className="legend">
           {polities.map((p) => (
-            <Swatch key={p.id} colour={p.colour} label={p.name} />
+            <Swatch
+              key={p.id}
+              colour={p.colour}
+              label={`${p.name} — ${(areas.get(p.id) ?? 0).toLocaleString(undefined, { maximumFractionDigits: 2 })} ${dimensions.unit}²`}
+            />
           ))}
         </div>
       );

@@ -1,5 +1,12 @@
 import { useState } from 'react';
-import { LAYER_ORDER, MAX_DIM, MIN_DIM, type LayerId } from '../../shared/types.js';
+import {
+  DEFAULT_HEX_DIMENSIONS,
+  LAYER_ORDER,
+  MAX_DIM,
+  MIN_DIM,
+  type HexDimensions,
+  type LayerId,
+} from '../../shared/types.js';
 import type { Transport } from '../api/client.js';
 import LayerPicker from './LayerPicker.js';
 
@@ -23,6 +30,7 @@ export default function SetupScreen({
     rows: number,
     name: string,
     layers: LayerId[],
+    hexDimensions: HexDimensions,
   ) => void;
   onImport: (file: File) => void;
   transport: Transport;
@@ -35,6 +43,11 @@ export default function SetupScreen({
   const [cols, setCols] = useState('30');
   const [rows, setRows] = useState('22');
   const [layers, setLayers] = useState<LayerId[]>([...LAYER_ORDER]);
+  const [hexWidth, setHexWidth] = useState(String(DEFAULT_HEX_DIMENSIONS.width));
+  const [hexHeight, setHexHeight] = useState(String(DEFAULT_HEX_DIMENSIONS.height));
+  const [unit, setUnit] = useState(DEFAULT_HEX_DIMENSIONS.unit);
+  const [coastalLandPercent, setCoastalLandPercent] = useState(60);
+  const [islandLandPercent, setIslandLandPercent] = useState(40);
 
   const clamp = (v: string) =>
     Math.max(MIN_DIM, Math.min(MAX_DIM, Math.round(Number(v) || MIN_DIM)));
@@ -99,6 +112,39 @@ export default function SetupScreen({
         </div>
 
         <div>
+          <label>Physical size of each pointy-top hex</label>
+          <div className="row">
+            <div className="grow">
+              <label>Width (flat to flat)</label>
+              <input type="number" min="0.01" step="any" value={hexWidth} onChange={(e) => setHexWidth(e.target.value)} />
+            </div>
+            <div className="grow">
+              <label>Height (corner to corner)</label>
+              <input type="number" min="0.01" step="any" value={hexHeight} onChange={(e) => setHexHeight(e.target.value)} />
+            </div>
+            <div className="grow">
+              <label>Distance unit</label>
+              <input value={unit} maxLength={12} onChange={(e) => setUnit(e.target.value)} />
+            </div>
+          </div>
+          <div className="row" style={{ marginTop: 8 }}>
+            <div className="grow">
+              <label>Coastal Land land share</label>
+              <select value={coastalLandPercent} onChange={(e) => setCoastalLandPercent(Number(e.target.value))}>
+                {Array.from({ length: 11 }, (_, i) => i * 10).map((value) => <option key={value} value={value}>{value}%</option>)}
+              </select>
+            </div>
+            <div className="grow">
+              <label>Island land share</label>
+              <select value={islandLandPercent} onChange={(e) => setIslandLandPercent(Number(e.target.value))}>
+                {Array.from({ length: 11 }, (_, i) => i * 10).map((value) => <option key={value} value={value}>{value}%</option>)}
+              </select>
+            </div>
+          </div>
+          <p className="hint">Area uses ¾ × width × height; coast and island hexes contribute only their selected land share.</p>
+        </div>
+
+        <div>
           <label>Which layers should this map have?</label>
           <LayerPicker
             selection={layers}
@@ -149,7 +195,13 @@ export default function SetupScreen({
             className="primary"
             disabled={description.trim().length === 0}
             onClick={() =>
-              onCreate(description.trim(), clamp(cols), clamp(rows), name.trim() || 'Untitled map', layers)
+              onCreate(description.trim(), clamp(cols), clamp(rows), name.trim() || 'Untitled map', layers, {
+                width: Math.max(0.01, Number(hexWidth) || DEFAULT_HEX_DIMENSIONS.width),
+                height: Math.max(0.01, Number(hexHeight) || DEFAULT_HEX_DIMENSIONS.height),
+                unit: unit.trim() || DEFAULT_HEX_DIMENSIONS.unit,
+                coastalLandPercent,
+                islandLandPercent,
+              })
             }
           >
             Create map
