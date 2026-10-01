@@ -82,7 +82,17 @@ export type Prim =
       c: Point;
       r: number;
       onRiver: boolean;
+      symbol: CitySymbol;
     };
+
+export type CitySymbol = 'village' | 'town' | 'city' | 'metropolis';
+
+export function citySymbolForPopulation(population: number): CitySymbol {
+  if (population <= 10_000) return 'village';
+  if (population <= 50_000) return 'town';
+  if (population <= 250_000) return 'city';
+  return 'metropolis';
+}
 
 export interface Scene {
   width: number;
@@ -325,7 +335,13 @@ export function buildScene(map: MapState, opts: SceneOptions): Scene {
           dash: [size * 0.18, size * 0.14],
         });
       }
-      prims.push({ kind: 'city', c, r, onRiver: city.onRiver });
+      prims.push({
+        kind: 'city',
+        c,
+        r,
+        onRiver: city.onRiver,
+        symbol: citySymbolForPopulation(city.population),
+      });
     }
   }
 
