@@ -37,6 +37,10 @@ export interface Prefs {
   /** Use the offline procedural generator instead of calling the API. */
   offline: boolean;
   remember: boolean;
+  /** How elevation is drawn on the map: tinted hexes or terrain marks. */
+  elevationStyle: 'colour' | 'contours';
+  /** Draw polity/city names on the map. */
+  labels: boolean;
   /**
    * Which generation of defaults these prefs were saved under. Prefs saved
    * before this existed carry the old effort and budget whether or not anyone
@@ -54,6 +58,8 @@ export const DEFAULT_PREFS: Prefs = {
   taskBudget: DEFAULT_TASK_BUDGET,
   offline: false,
   remember: true,
+  elevationStyle: 'colour',
+  labels: true,
   defaultsVersion: DEFAULTS_VERSION,
 };
 
@@ -140,6 +146,8 @@ export function loadPrefs(): Prefs {
       ...DEFAULT_PREFS,
       ...stored,
       taskBudget: clampTaskBudget(stored.taskBudget ?? DEFAULT_PREFS.taskBudget),
+      elevationStyle: stored.elevationStyle === 'contours' ? 'contours' : 'colour',
+      labels: stored.labels !== false,
       defaultsVersion: DEFAULTS_VERSION,
     };
   } catch {

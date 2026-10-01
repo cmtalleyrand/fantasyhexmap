@@ -290,7 +290,8 @@ export interface HexDimensions {
 
 export const DEFAULT_HEX_DIMENSIONS: HexDimensions = {
   width: 10,
-  height: 8.66,
+  // Regular hex: corner-to-corner = flat-to-flat * 2 / sqrt(3).
+  height: 11.5470053838,
   unit: 'km',
   coastalLandPercent: 60,
   islandLandPercent: 40,
