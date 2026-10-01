@@ -188,7 +188,9 @@ export function buildScene(map: MapState, opts: SceneOptions): Scene {
           prims.push({
             kind: 'polygon',
             points: corners,
-            fill: withAlpha(polityColour.get(owner) ?? '#888888', 0.3),
+            // Polity colours are categorical data, not a tint. An opaque fill
+            // keeps a realm's colour invariant when substrate layers change.
+            fill: polityColour.get(owner) ?? '#777777',
           });
         }
       }

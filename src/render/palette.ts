@@ -94,8 +94,8 @@ export const MAP_COLOURS = {
 };
 
 export const POLITY_PALETTE = [
-  '#4477aa', '#ee6677', '#228833', '#ccbb44', '#aa3377', '#66ccee',
-  '#ee8866', '#004488', '#bb5566', '#009988', '#ddaa33', '#772288',
+  '#2f6fbb', '#e84a5f', '#16843b', '#d2ad20', '#a52878', '#28a9cc',
+  '#ed7048', '#064f9b', '#b63f5b', '#008c7a', '#d88c16', '#7529a3',
 ];
 
 /** Greedily maximises RGB distance between adjacent polity colours. */
