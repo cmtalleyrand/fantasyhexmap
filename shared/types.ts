@@ -159,6 +159,8 @@ export interface City {
 export interface Polity {
   id: string;
   name: string;
+  /** A compact cartographic label; the full official name remains in `name`. */
+  shortName?: string;
   colour: string;
 }
 

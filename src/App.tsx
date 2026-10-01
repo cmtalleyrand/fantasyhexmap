@@ -275,6 +275,18 @@ export default function App() {
     [map, riverDraft],
   );
 
+  const onCityMove = useCallback(
+    (cityId: string, targetIndex: number) => {
+      if (!map) return;
+      const city = map.layers.cities.data?.cities.find((candidate) => candidate.id === cityId);
+      if (!city) return;
+      const target = indexToOffset(map.cols, targetIndex);
+      if (city.col === target.col && city.row === target.row) return;
+      dispatch({ type: 'upsertCity', city: { ...city, ...target } });
+    },
+    [map],
+  );
+
   /**
    * Apply a layer produced in a chat window.
    *
@@ -676,6 +688,7 @@ export default function App() {
           activeLayer={activeLayer}
           riverDraft={riverDraft}
           onRiverDraftClick={riverDraft !== null ? onRiverDraftClick : null}
+          onCityMove={activeLayer === 'cities' ? onCityMove : null}
         />
 
         <Inspector
@@ -693,6 +706,13 @@ export default function App() {
           onAiEdit={() => void runGeneration(activeLayer, instruction.trim())}
           onWebchat={() => setWebchatLayer(activeLayer)}
           onGeneratePass={(passSelection) => void runGeneration(activeLayer, null, passSelection)}
+          onGenerateShortNames={() =>
+            void runGeneration(
+              'polities',
+              'Preserve every polity full name, colour, order and size exactly. Generate only concise shortName map labels. Remove generic polity-type wording when the proper name identifies the polity; retain a distinctive type alone when it uniquely identifies that polity.',
+              'roster',
+            )
+          }
           busy={busyLayers.size > 0}
           riverDraft={riverDraft}
           setRiverDraft={setRiverDraft}

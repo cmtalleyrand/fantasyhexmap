@@ -41,6 +41,7 @@ export interface InspectorProps {
   onWebchat: () => void;
   /** Generate this layer, optionally only one half of a splittable one. */
   onGeneratePass: (selection: PassSelection) => void;
+  onGenerateShortNames: () => void;
   busy: boolean;
   riverDraft: number[] | null;
   setRiverDraft: (next: number[] | null) => void;
@@ -532,6 +533,19 @@ function PolityEditor(props: SubProps) {
                 onChange={(e) => dispatch({ type: 'upsertPolity', polity: { ...p, name: e.target.value } })}
               />
               <input
+                aria-label={`Short map name for ${p.name}`}
+                title="Short map name"
+                style={{ width: 90 }}
+                placeholder="map name"
+                value={p.shortName ?? ''}
+                onChange={(e) =>
+                  dispatch({
+                    type: 'upsertPolity',
+                    polity: { ...p, shortName: e.target.value || undefined },
+                  })
+                }
+              />
+              <input
                 type="color"
                 style={{ width: 32, padding: 0, height: 24 }}
                 value={p.colour}
@@ -549,6 +563,16 @@ function PolityEditor(props: SubProps) {
       <button onClick={assignContrastingColours} disabled={data.polities.length === 0}>
         Assign contrasting colours
       </button>
+      <button
+        onClick={props.onGenerateShortNames}
+        disabled={props.busy || data.polities.length === 0}
+      >
+        Generate short map names with AI
+      </button>
+      <p className="hint" style={{ margin: 0 }}>
+        Generates only the polity roster, preserving the existing borders. Full names remain
+        available in the legend.
+      </p>
 
       <div className="row">
         <input placeholder="New polity name" value={name} onChange={(e) => setName(e.target.value)} />

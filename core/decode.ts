@@ -326,6 +326,7 @@ export function decodeLayer(
         const polity: Polity = {
           id: reuseIdByName(existing?.polities, p.name) ?? stableId('pol', p.name, i),
           name: p.name,
+          ...(p.shortName?.trim() ? { shortName: p.shortName.trim() } : {}),
           colour: normaliseColour(p.colour, i),
         };
         const key = (p.key ?? '').trim().charAt(0);
