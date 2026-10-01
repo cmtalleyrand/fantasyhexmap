@@ -73,6 +73,7 @@ export default function App() {
   const [activeLayer, setActiveLayer] = useState<LayerId>('base');
   const [visible, setVisible] = useState<VisibleLayers>(defaultVisibility);
   const [labels, setLabels] = useState(true);
+  const [elevationStyle, setElevationStyle] = useState<'colour' | 'contours'>('colour');
   const [selection, setSelection] = useState<Set<number>>(new Set());
   const [brush, setBrushState] = useState<Record<string, string>>({});
   const [brushMode, setBrushMode] = useState(false);
@@ -500,6 +501,13 @@ export default function App() {
                   : 'your browser · no key set'}
         </span>
         <span className="spacer" />
+        <label style={{ display: 'flex', alignItems: 'center', gap: 6, textTransform: 'none', fontSize: 12, margin: 0 }}>
+          elevation
+          <select style={{ width: 'auto' }} value={elevationStyle} onChange={(e) => setElevationStyle(e.target.value as 'colour' | 'contours')}>
+            <option value="colour">colour</option>
+            <option value="contours">terrain marks</option>
+          </select>
+        </label>
         <label
           style={{
             display: 'flex',
@@ -640,7 +648,7 @@ export default function App() {
             </div>
           )}
 
-          <ExportPanel map={map} visible={visible} />
+          <ExportPanel map={map} visible={visible} elevationStyle={elevationStyle} />
 
           <div className="section">
             <h2>Description</h2>
@@ -659,6 +667,7 @@ export default function App() {
           map={map}
           visible={visible}
           labels={labels}
+          elevationStyle={elevationStyle}
           selection={selection}
           onSelectionChange={setSelection}
           onStrokeEnd={brushMode && canEdit ? onStrokeEnd : null}

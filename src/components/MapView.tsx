@@ -11,6 +11,7 @@ export interface MapViewProps {
   map: MapState;
   visible: VisibleLayers;
   labels: boolean;
+  elevationStyle: 'colour' | 'contours';
   selection: Set<number>;
   onSelectionChange: (next: Set<number>) => void;
   /**
@@ -30,7 +31,7 @@ interface View {
 }
 
 export default function MapView(props: MapViewProps) {
-  const { map, visible, labels, selection, onSelectionChange, onStrokeEnd } = props;
+  const { map, visible, labels, elevationStyle, selection, onSelectionChange, onStrokeEnd } = props;
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const [view, setView] = useState<View>({ scale: 1, x: 0, y: 0 });
@@ -48,10 +49,11 @@ export default function MapView(props: MapViewProps) {
       size: HEX_SIZE,
       visible,
       labels,
+      elevationStyle,
       selection: riverDraftSelection ?? selection,
       hover,
     });
-  }, [map, visible, labels, selection, hover, props.riverDraft]);
+  }, [map, visible, labels, elevationStyle, selection, hover, props.riverDraft]);
 
   // Fit the map into the viewport the first time it is laid out.
   const fitted = useRef(false);

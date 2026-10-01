@@ -7,9 +7,11 @@ import type { VisibleLayers } from '../render/scene.js';
 export default function ExportPanel({
   map,
   visible,
+  elevationStyle,
 }: {
   map: MapState;
   visible: VisibleLayers;
+  elevationStyle: 'colour' | 'contours';
 }) {
   const [format, setFormat] = useState<'png' | 'svg'>('png');
   const [labels, setLabels] = useState(true);
@@ -26,6 +28,7 @@ export default function ExportPanel({
     labels,
     size: 32,
     scale: Number(scale) || 2,
+    elevationStyle,
   };
 
   const planned = plannedLayers(map);

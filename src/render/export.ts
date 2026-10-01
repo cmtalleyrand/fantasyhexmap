@@ -13,6 +13,7 @@ import { sceneToSvg } from './svg.js';
 export interface ExportOptions {
   format: 'png' | 'svg';
   labels: boolean;
+  elevationStyle?: 'colour' | 'contours';
   /** Hex circumradius in px used to lay the scene out. */
   size?: number;
   /** PNG pixel multiplier on top of `size`. */
@@ -51,6 +52,7 @@ async function emit(
     size: opts.size ?? 32,
     visible,
     labels: opts.labels,
+    elevationStyle: opts.elevationStyle,
     selection: null,
     hover: null,
     transparentBackground: opts.transparentBackground ?? false,
