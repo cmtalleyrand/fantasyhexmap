@@ -97,6 +97,20 @@ The owner made two decisions after the review. First, a rename is not a change: 
 
 Phase 1 and A6 are done. Each fix was checked in the running app. Generating every layer now finishes with every layer marked ready. Typing a new river name creates one undo step and marks nothing stale. A polity brush stroke assigns ownership as one undo step. The + button keeps the centre hex fixed. The model picker shows only the effort levels the chosen model accepts. The test suite grew from 144 to 164 tests.
 
+Phase 2 is done.
+- **Generate buttons:** every layer has a Generate or Regenerate button at the top of the inspector, and a stale layer can be regenerated from its warning.
+- **Empty map:** an empty map shows a first-step card on the map itself, which also shows progress while Base Geography generates.
+- **Layer list:** each row has an eye button for visibility and a labelled batch checkbox, and the list says which layers are still to generate, with one button to generate them.
+- **Inspector order:** generate, then edit by hand, then edit with an instruction, then notes and reasoning.
+- **Panning:** Space-drag, two-finger drag and pinch now pan and zoom, alongside the old right-drag and Alt-drag.
+- **Phone layout:** the map comes first.
+- **Disabled buttons:** a disabled primary button now looks disabled.
+
+The owner also asked for three river changes, now done.
+- **Joining:** sections of river can be consolidated into one river, as one undo step. Ends that don't touch are bridged by a straight run of land.
+- **Length:** each river's length is calculated from the hex size and shown in the list, on the selected river's card (with and without its branches), in the hover readout and, optionally, in the exported legend.
+- **Simpler editing:** select and move are now one tool. Each tool's hint sits next to the controls. The selected river gets one card with all of its actions, including reversing its flow. The list nests branches under their parent rivers. Drawing works from the keyboard: Enter finishes, Backspace takes back a whole click, Esc cancels. River errors appear in the river panel, not the far sidebar.
+
 ## Plan
 
 Each phase can ship on its own as one PR, with tests added to the existing `test/*.test.ts` suite (`npm test` runs them with `tsx --test`).
@@ -119,7 +133,7 @@ Saves error: use `notice error`.
 
 Tests: reducer tests that a no-op upsert does not change `past.length`/`version`; that a rename does not mark downstream layers stale (if adopted); a `zoomAt` unit test.
 
-### Phase 2: make the core path obvious (B1–B5, C9, E2, E3)
+### Phase 2: make the core path obvious (B1–B5, C9, E2, E3) — done
 
 Per-layer Generate: add a primary "Generate {layer}" button at the top of the inspector for every layer that is unlocked and empty, and "Regenerate" (with a confirm, since it replaces data) when it has data. For polities/rivers this button runs "both passes", with the existing pass selector folded beneath it as an advanced option. Reuse `runGeneration` / `onGeneratePass` (`App.tsx:146`, `Inspector.tsx:174–211`). Stale layers get a "Regenerate to bring in line" button inside the stale notice.
 

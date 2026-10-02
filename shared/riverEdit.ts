@@ -254,3 +254,139 @@ export function setRiverNavigability(
   });
   return changed ? out : rivers;
 }
+
+/** The river's land hexes, upstream first, with their navigability. */
+function landPath(river: River): PathHex[] {
+  return river.segments.map((s) => ({ col: s.col, row: s.row, navigable: s.navigable }));
+}
+
+/**
+ * Reverse a river's direction of flow: the mouth becomes the source. Its new
+ * last hex finds its own way out - to adjacent water, or over the map edge -
+ * exactly as a drawn river's does. Navigability stays with each hex.
+ */
+export function reverseRiver(
+  river: River,
+  base: BaseData,
+  elevation: ElevationData | null,
+  cols: number,
+  rows: number,
+): RiverEditResult {
+  if (river.segments.length < 2) return { error: 'A one-hex river has no direction to reverse.' };
+  return rebuild(river, landPath(river).reverse(), base, elevation, cols, rows);
+}
+
+export type RiverMergeResult =
+  | {
+      river: River;
+      /** Rivers folded into `river`, to be removed. */
+      absorbed: string[];
+      /** Hexes added to bridge gaps between the pieces. */
+      bridged: number;
+      warnings: string[];
+    }
+  | { error: string };
+
+/** Join `up` to `down`: up's hexes, a straight run across any gap, then down's hexes and mouth. */
+function joinTwo(
+  up: River,
+  down: River,
+  base: BaseData,
+  cols: number,
+  rows: number,
+): { path: PathHex[]; bridged: number } | { error: string } {
+  const upPath = landPath(up);
+  const downPath = pathOf(down, base, cols, rows);
+  const from = upPath[upPath.length - 1]!;
+  const to = downPath[0]!;
+  const navigable = from.navigable && to.navigable;
+  // leg() includes `to`; drop it, as down's own first hex follows.
+  const bridge = from.col === to.col && from.row === to.row ? [] : leg(from, to, navigable).slice(0, -1);
+  if (bridge.some((h) => isWater(base[hexIndex(cols, h.col, h.row)]))) {
+    return {
+      error:
+        `The gap between ${up.name} and ${down.name} crosses water. ` +
+        'Move or extend one of them so their ends meet over land, then join them.',
+    };
+  }
+  const startsAtEnd = from.col === to.col && from.row === to.row;
+  return {
+    path: [...upPath, ...bridge, ...(startsAtEnd ? downPath.slice(1) : downPath)],
+    bridged: bridge.length,
+  };
+}
+
+/**
+ * Consolidate several rivers into one.
+ *
+ * The pieces are chained end to source, nearest pair first: a piece whose last
+ * hex is closest to another's first hex flows into it. Ends that do not touch
+ * are joined by a straight run of land hexes, as when drawing. No piece is
+ * reversed - if one was drawn the wrong way round, reverse it first. The result
+ * keeps `keepId`'s id and name, so cities on it and branches off any piece stay
+ * attached.
+ */
+export function mergeRivers(
+  pieces: River[],
+  keepId: string,
+  base: BaseData,
+  elevation: ElevationData | null,
+  cols: number,
+  rows: number,
+): RiverMergeResult {
+  if (pieces.length < 2) return { error: 'Pick at least two rivers to join.' };
+  const keep = pieces.find((r) => r.id === keepId);
+  if (!keep) return { error: 'The river whose name is kept must be one of those being joined.' };
+  if (pieces.some((r) => r.segments.length === 0)) return { error: 'One of those rivers has no hexes.' };
+
+  // Chains of pieces, each in flow order; merged greedily by the shortest gap.
+  let chains: River[][] = pieces.map((r) => [r]);
+  while (chains.length > 1) {
+    let best: { up: number; down: number; gap: number } | null = null;
+    for (let i = 0; i < chains.length; i++) {
+      for (let j = 0; j < chains.length; j++) {
+        if (i === j) continue;
+        const upLast = chains[i]!.at(-1)!.segments.at(-1)!;
+        const downFirst = chains[j]![0]!.segments[0]!;
+        const gap = hexDistance(upLast, downFirst);
+        // On a tie, prefer ending at a river that reaches water.
+        const better =
+          !best ||
+          gap < best.gap ||
+          (gap === best.gap && chains[j]!.at(-1)!.terminus !== 'Unresolved' && chains[best.down]!.at(-1)!.terminus === 'Unresolved');
+        if (better) best = { up: i, down: j, gap };
+      }
+    }
+    const { up, down } = best!;
+    const joined = [...chains[up]!, ...chains[down]!];
+    chains = chains.filter((_, k) => k !== up && k !== down);
+    chains.push(joined);
+  }
+
+  const order = chains[0]!;
+  let path = landPath(order[0]!);
+  let bridged = 0;
+  for (let k = 1; k < order.length; k++) {
+    const upSoFar: River = { ...order[k - 1]!, segments: path.map((p) => ({ ...p, entryEdge: null, exitEdge: null })) };
+    const result = joinTwo(upSoFar, order[k]!, base, cols, rows);
+    if ('error' in result) return result;
+    // Keep only land hexes until the last piece; its mouth (if any) ends the river.
+    path = k === order.length - 1 ? result.path : result.path.filter((h) => !isWater(base[hexIndex(cols, h.col, h.row)]));
+    bridged += result.bridged;
+  }
+
+  const looped = withoutLoops(path);
+  const rebuilt = rebuild(keep, looped, base, elevation, cols, rows);
+  if ('error' in rebuilt) return rebuilt;
+  const absorbedIds = new Set(pieces.filter((r) => r.id !== keepId).map((r) => r.id));
+  // The joined river is a branch only if its upstream piece was one, of a river not being joined.
+  const upstreamParent = order[0]!.branchOf;
+  const river: River = { ...rebuilt.river };
+  delete river.branchOf;
+  if (upstreamParent && upstreamParent !== keepId && !absorbedIds.has(upstreamParent)) {
+    river.branchOf = upstreamParent;
+  }
+  const warnings = [...rebuilt.warnings];
+  if (looped.length < path.length) warnings.push('The joined course crossed itself; the loop was cut out.');
+  return { river, absorbed: [...absorbedIds], bridged, warnings };
+}

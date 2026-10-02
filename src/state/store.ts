@@ -75,6 +75,8 @@ export type Action =
   | { type: 'addRiver'; river: River }
   | { type: 'updateRiver'; river: River }
   | { type: 'removeRiver'; id: string }
+  /** Replace several rivers by one built from them (see `mergeRivers`): one undo entry. */
+  | { type: 'mergeRivers'; river: River; absorbed: string[] }
   | { type: 'setRiverNavigability'; indices: number[]; navigable: boolean; downstream: boolean }
   /** Put Mountains hexes in the range `id`, creating it if it does not exist. */
   | { type: 'nameMountainRange'; id: string; name: string; indices: number[] }
@@ -574,6 +576,25 @@ export function reducer(map: MapState, action: Action): MapState {
       const next = journal(
         withLayer(map, 'rivers', commit(layer, { data: { rivers } })),
         manualEntry('rivers', `Edited the river "${action.river.name}" by hand.`),
+      );
+      return reconcile(next);
+    }
+
+    case 'mergeRivers': {
+      const layer = map.layers.rivers;
+      if (!layer.data) return map;
+      const absorbed = new Set(action.absorbed);
+      const names = layer.data.rivers.filter((r) => absorbed.has(r.id)).map((r) => `"${r.name}"`);
+      const rivers = detachOrphanBranches(
+        layer.data.rivers
+          .filter((r) => !absorbed.has(r.id))
+          .map((r) => (r.id === action.river.id ? action.river : r))
+          // Branches of a river that was folded in now leave the joined one.
+          .map((r) => (r.branchOf && absorbed.has(r.branchOf) ? { ...r, branchOf: action.river.id } : r)),
+      );
+      const next = journal(
+        withLayer(map, 'rivers', commit(layer, { data: { rivers } })),
+        manualEntry('rivers', `Joined ${names.join(', ')} into the river "${action.river.name}" by hand.`),
       );
       return reconcile(next);
     }

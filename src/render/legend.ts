@@ -22,6 +22,7 @@ import {
 } from './palette.js';
 import { thematicLayer, type CitySymbol, type Prim, type Scene, type VisibleLayers } from './scene.js';
 import { LAYER_META } from '../../shared/layers.js';
+import { formatLength, riverLength } from '../../shared/riverLength.js';
 import { normaliseHexDimensions, politySurfaceAreas } from '../../shared/surfaceArea.js';
 import {
   BASE_GEO_VALUES,
@@ -42,6 +43,8 @@ export interface LegendOptions {
   onlyUsed: boolean;
   /** Append each polity's land area to its entry. */
   polityAreas: boolean;
+  /** List every river with its length under the river symbols. */
+  riverLengths: boolean;
   /** Head the legend with the map's name. */
   title: boolean;
 }
@@ -50,6 +53,7 @@ export const DEFAULT_LEGEND_OPTIONS: LegendOptions = {
   exclude: [],
   onlyUsed: true,
   polityAreas: false,
+  riverLengths: false,
   title: true,
 };
 
@@ -174,6 +178,15 @@ export function legendSections(
             swatch: { kind: 'line', colour: MAP_COLOURS.riverNonNavigable, width: 1.6 },
             label: 'Non-navigable river',
           });
+        }
+        if (options.riverLengths) {
+          const dims = normaliseHexDimensions(map.hexDimensions);
+          for (const river of map.layers.rivers.data?.rivers ?? []) {
+            entries.push({
+              swatch: { kind: 'line', colour: MAP_COLOURS.river, width: 1.6 },
+              label: `${river.name} - ${formatLength(riverLength(river, dims), dims.unit)}`,
+            });
+          }
         }
         break;
       }

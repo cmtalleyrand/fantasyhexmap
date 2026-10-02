@@ -56,6 +56,7 @@ export default function ExportPanel({
   const [legendTitle, setLegendTitle] = useState(DEFAULT_LEGEND_OPTIONS.title);
   const [onlyUsed, setOnlyUsed] = useState(DEFAULT_LEGEND_OPTIONS.onlyUsed);
   const [polityAreas, setPolityAreas] = useState(DEFAULT_LEGEND_OPTIONS.polityAreas);
+  const [riverLengths, setRiverLengths] = useState(DEFAULT_LEGEND_OPTIONS.riverLengths);
   // Stored as exclusions so a layer switched on later is in the legend by default.
   const [legendExclude, setLegendExclude] = useState<LayerId[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -75,7 +76,7 @@ export default function ExportPanel({
     uniformLand,
     polityNames,
     legend: legend
-      ? { exclude: legendExclude, onlyUsed, polityAreas, title: legendTitle }
+      ? { exclude: legendExclude, onlyUsed, polityAreas, riverLengths, title: legendTitle }
       : null,
   };
 
@@ -122,6 +123,11 @@ export default function ExportPanel({
             <Check checked={onlyUsed} onChange={setOnlyUsed}>
               Only values that appear on the map
             </Check>
+            {legendChoices.includes('rivers') && (
+              <Check checked={riverLengths} onChange={setRiverLengths}>
+                River lengths
+              </Check>
+            )}
             {legendChoices.includes('polities') && (
               <Check checked={polityAreas} onChange={setPolityAreas}>
                 Polity land areas

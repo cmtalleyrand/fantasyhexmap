@@ -95,6 +95,7 @@ export default function Legend({ layer, map }: { layer: LayerId; map: MapState }
         : new Map<string, number>();
       if (polities.length === 0) return <div className="hint">No polities yet.</div>;
       return (
+        <div className="stack">
         <div className="legend">
           {polities.map((p) => (
             <Swatch
@@ -103,6 +104,10 @@ export default function Legend({ layer, map }: { layer: LayerId; map: MapState }
               label={`${p.name} — ${(areas.get(p.id) ?? 0).toLocaleString(undefined, { maximumFractionDigits: 2 })} ${dimensions.unit}²`}
             />
           ))}
+        </div>
+        <p className="hint" style={{ margin: 0 }}>
+          Land areas use the hex size set in Settings → Map.
+        </p>
         </div>
       );
     }

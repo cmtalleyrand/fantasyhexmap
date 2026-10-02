@@ -169,22 +169,12 @@ export default function SetupScreen({
           >
             Create map
           </button>
-          <label
-            style={{
-              textTransform: 'none',
-              fontSize: 13,
-              margin: 0,
-              cursor: 'pointer',
-              border: '1px solid var(--line)',
-              borderRadius: 6,
-              padding: '5px 10px',
-            }}
-          >
+          <label className="file-button">
             Import a map JSON
             <input
               type="file"
               accept="application/json,.json"
-              style={{ display: 'none' }}
+              className="visually-hidden"
               onChange={(e) => {
                 const file = e.target.files?.[0];
                 if (file) onImport(file);
