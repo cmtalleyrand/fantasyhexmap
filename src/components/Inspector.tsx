@@ -19,7 +19,7 @@ import { planMultiLayerEdit } from '../../shared/multiEdit.js';
 import { canSplit, passLabel, type PassSelection } from '../../core/rosters.js';
 import { isWaterSurface, type Action } from '../state/store.js';
 import { wouldCycle } from '../../shared/polityTree.js';
-import { contrastingPolityColours } from '../render/palette.js';
+import { contrastingRealmColours } from '../render/hierarchy.js';
 import Legend from './Legend.js';
 import CommitInput, { CommitColour } from './CommitInput.js';
 
@@ -707,7 +707,8 @@ function PolityEditor(props: SubProps) {
   const setTarget = (id: string) => props.setBrush('polities', id);
 
   const assignContrastingColours = () => {
-    const colours = contrastingPolityColours(data.polities.map((p) => p.id), data.owner, map.cols, map.rows);
+    // Realms contrast with their neighbours; their parts take shades of the realm's colour.
+    const colours = contrastingRealmColours(data.polities, data.owner, map.cols, map.rows);
     dispatch({ type: 'setPolityColours', colours: Object.fromEntries(colours) });
   };
 

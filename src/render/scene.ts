@@ -249,6 +249,9 @@ function ownersWithLakes(
   return out;
 }
 
+/** Opacity of the realm fill under the border band in the tint style. */
+const TINT_ALPHA = 0.32;
+
 /** Blend two #rrggbb colours; `t` = 0 gives `a`. */
 function mix(a: string, b: string, t: number): string {
   const pa = /^#([0-9a-f]{6})$/i.exec(a);
@@ -394,12 +397,13 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
     const out: string[] = [];
     const value = population?.[i];
     if (value !== null && value !== undefined) out.push(withAlpha(populationColour(value, maxPop), 0.82));
-    const owner = knobs.polityStyle === 'fill' ? polities?.owner[i] : null;
+    const owner = knobs.polityStyle === 'fill' || knobs.polityStyle === 'tint' ? polities?.owner[i] : null;
     if (owner) {
       // Polity colours are categorical data, not a tint. An opaque fill
       // keeps a realm's colour invariant when substrate layers change.
       const solid = polityColour.get(owner) ?? '#777777';
-      out.push(polityOpacity < 1 ? withAlpha(solid, polityOpacity) : solid);
+      const alpha = knobs.polityStyle === 'tint' ? TINT_ALPHA * polityOpacity : polityOpacity;
+      out.push(alpha < 1 ? withAlpha(solid, alpha) : solid);
     }
     return out;
   };
@@ -607,7 +611,8 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
       prims.push({ kind: 'path', d, fill: islandLand });
       // Only the landmass belongs to the polity; the surrounding sea stays sea.
       if (fill && knobs.polityStyle === 'fill') prims.push({ kind: 'path', d, fill });
-      if (fill && knobs.polityStyle === 'wash') prims.push({ kind: 'path', d, fill: withAlpha(polityColour.get(owner!) ?? '#777777', 0.45) });
+      if (fill && knobs.polityStyle === 'wash') prims.push({ kind: 'path', d, fill: withAlpha(polityColour.get(owner!) ?? '#777777', 0.55) });
+      if (fill && knobs.polityStyle === 'tint') prims.push({ kind: 'path', d, fill: withAlpha(polityColour.get(owner!) ?? '#777777', 0.6) });
       if (fill && knobs.polityStyle === 'outline') {
         prims.push({ kind: 'path', d, stroke: polityColour.get(owner!) ?? '#777777', strokeWidth: Math.max(1, size * 0.08), round: true });
       }
@@ -714,7 +719,9 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
     }
     const band =
       knobs.polityStyle === 'wash'
-        ? { width: size * 0.5, alpha: 0.42 }
+        ? { width: size * 0.6, alpha: 0.55 }
+        : knobs.polityStyle === 'tint'
+          ? { width: size * 0.32, alpha: 0.75 }
         : knobs.polityStyle === 'outline'
           ? { width: size * 0.09, alpha: 1 }
           : { width: Math.max(1.5, size * 0.16), alpha: 1 };
@@ -735,8 +742,8 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
         }],
       });
     }
-    // With realms not filled solid, a fine ink line marks where one ends and the next begins.
-    if (knobs.polityStyle !== 'fill' && frontier.length > 0) {
+    // A fine ink line where one realm ends and the next begins.
+    if (knobs.frontier !== 'none' && frontier.length > 0) {
       const d = chainEdges(frontier).flatMap((chain) =>
         chain.points.map((p, k) => [k === 0 ? 'M' : 'L', p.x, p.y] as PathCmd).concat(chain.closed ? [['Z'] as PathCmd] : []),
       );

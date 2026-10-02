@@ -37,9 +37,9 @@ export interface StyleKnobs {
    */
   relief: 'colour' | 'marks' | 'illustrated' | 'hillshade';
   /** Realms as solid fills, as a wash of colour along their borders, or as outlines only. */
-  polityStyle: 'fill' | 'wash' | 'outline';
-  /** The line between realms (with wash or outline): solid, dashed, or dash-dot. */
-  frontier: 'solid' | 'dashed' | 'dashdot';
+  polityStyle: 'fill' | 'tint' | 'wash' | 'outline';
+  /** The ink line between realms: none, solid, dashed or dash-dot. Parts of one realm are always divided by a fine dashed line. */
+  frontier: 'none' | 'solid' | 'dashed' | 'dashdot';
   /** Realm colours as chosen, lightened, or greyed. */
   polityTone: 'vivid' | 'pastel' | 'muted';
   /** The dashed water-coloured marks on a city's coastal edges. */
@@ -157,7 +157,7 @@ const CLASSIC: PresetInfo = {
     subPolities: 'own',
     relief: 'colour',
     polityStyle: 'fill',
-    frontier: 'solid',
+    frontier: 'none',
     polityTone: 'vivid',
     cityCoastMarks: true,
   },
@@ -209,7 +209,7 @@ const PARCHMENT: PresetInfo = {
     subPolities: 'tints',
     relief: 'illustrated',
     polityStyle: 'wash',
-    frontier: 'dashed',
+    frontier: 'solid',
     polityTone: 'vivid',
     cityCoastMarks: false,
   },
@@ -218,7 +218,7 @@ const PARCHMENT: PresetInfo = {
 const ATLAS: PresetInfo = {
   id: 'atlas',
   label: 'Political atlas',
-  description: 'Pale seas shading to the coast, pastel realms washed along crisp frontiers, hill-shaded relief',
+  description: 'Pale seas shading to the coast, every realm tinted in its colour with a strong border band and a crisp frontier, hill-shaded relief',
   palette: {
     sea: '#a9cfe0',
     seaShallow: '#d6ecf2',
@@ -259,9 +259,9 @@ const ATLAS: PresetInfo = {
     grain: false,
     subPolities: 'tints',
     relief: 'hillshade',
-    polityStyle: 'wash',
+    polityStyle: 'tint',
     frontier: 'solid',
-    polityTone: 'pastel',
+    polityTone: 'vivid',
     cityCoastMarks: false,
   },
 };
@@ -311,7 +311,7 @@ const NIGHT: PresetInfo = {
     subPolities: 'tints',
     relief: 'hillshade',
     polityStyle: 'outline',
-    frontier: 'dashed',
+    frontier: 'solid',
     polityTone: 'muted',
     cityCoastMarks: false,
   },
@@ -403,6 +403,7 @@ export const KNOB_OPTIONS: {
     label: 'Realms',
     options: [
       { value: 'fill', label: 'Filled' },
+      { value: 'tint', label: 'Tint with border' },
       { value: 'wash', label: 'Border wash' },
       { value: 'outline', label: 'Outline' },
     ],
@@ -410,6 +411,7 @@ export const KNOB_OPTIONS: {
   frontier: {
     label: 'Frontier line',
     options: [
+      { value: 'none', label: 'None' },
       { value: 'solid', label: 'Solid' },
       { value: 'dashed', label: 'Dashed' },
       { value: 'dashdot', label: 'Dash-dot' },

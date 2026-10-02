@@ -721,3 +721,38 @@ test('small islands are two or three islets, spread apart', () => {
   const count = isles[0]!.d.filter((c) => c[0] === 'M').length;
   assert.ok(count >= 2 && count <= 3, `${count} islets`);
 });
+
+test('automatic colours contrast neighbouring realms and shade each realm’s parts from it', async () => {
+  const { contrastingRealmColours } = await import('../src/render/hierarchy.ts');
+  const polities = [
+    { id: 'k', name: 'Kingdom', colour: '#000000' },
+    { id: 'd1', name: 'Duchy One', colour: '#000000', parentId: 'k' },
+    { id: 'd2', name: 'Duchy Two', colour: '#000000', parentId: 'k' },
+    { id: 'n', name: 'Neighbour', colour: '#000000' },
+  ];
+  const owner = ['d1', 'd1', 'd2', 'd2', 'n', 'n'];
+  const colours = contrastingRealmColours(polities, owner, 6, 1);
+  assert.equal(colours.size, 4);
+  assert.notEqual(colours.get('k'), colours.get('n'));
+  const { toLab } = await import('../src/render/palette.ts');
+  const dist = (a: string, b: string) => Math.hypot(...toLab(a).map((v, i) => v - toLab(b)[i]!));
+  // Parts are near their realm's colour and far from the neighbour's.
+  for (const part of ['d1', 'd2']) {
+    assert.ok(dist(colours.get(part)!, colours.get('k')!) < dist(colours.get(part)!, colours.get('n')!), `${part} reads as part of the kingdom`);
+  }
+  assert.notEqual(colours.get('d1'), colours.get('d2'));
+});
+
+test('the frontier line can be switched off, and is drawn in filled mode when on', () => {
+  const map = createMapState('Front', 4, 1);
+  map.layers.base.data = Array(4).fill('Land');
+  map.layers.polities.data = { polities: [{ id: 'a', name: 'A', colour: '#aa3333' }, { id: 'b', name: 'B', colour: '#3355aa' }], owner: ['a', 'a', 'b', 'b'] };
+  const visible = defaultVisibility();
+  visible.polities = true;
+  const lines = (frontier: 'none' | 'solid') => {
+    const style = resolveStyle({ preset: 'classic', overrides: { frontier } });
+    return buildScene(map, { size: 20, visible, labels: false, style }).prims.filter((p) => p.kind === 'path' && p.stroke === style.palette.frontier).length;
+  };
+  assert.equal(lines('none'), 0);
+  assert.equal(lines('solid'), 1);
+});
