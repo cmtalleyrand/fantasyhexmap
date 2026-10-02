@@ -93,6 +93,19 @@ function primToSvg(prim: Prim, defs: Defs): string {
       return `<circle cx="${n(prim.c.x)}" cy="${n(prim.c.y)}" r="${n(prim.r)}" fill="${prim.fill ?? 'none'}"${stroke}/>`;
     }
     case 'text': {
+      if (prim.glyphs) {
+        // Every halo first, then every glyph, so no halo covers a neighbour's ink.
+        const passes = prim.halo
+          ? [{ halo: prim.halo, fill: 'none' }, { halo: undefined, fill: prim.fill }]
+          : [{ halo: undefined, fill: prim.fill }];
+        return `<g>${passes
+          .flatMap((pass) =>
+            prim.glyphs!.map((g) =>
+              primToSvg({ ...prim, ...pass, glyphs: undefined, text: g.ch, at: { x: g.x, y: g.y }, rotation: g.rotation, anchor: 'middle' }, defs),
+            ),
+          )
+          .join('')}</g>`;
+      }
       const anchor =
         prim.anchor === 'start' ? 'start' : prim.anchor === 'end' ? 'end' : 'middle';
       // paint-order lets the halo sit behind the glyphs, matching strokeText/fillText

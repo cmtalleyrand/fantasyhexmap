@@ -14,6 +14,8 @@
  */
 
 import { recomputeCityFacts, canHoldSettlement } from '../../shared/derive.js';
+import { isIslandType } from '../../shared/types.js';
+import { withValidParents } from '../../shared/polityTree.js';
 import {
   baseTransitions,
   clearedAt,
@@ -37,10 +39,16 @@ import type {
   MapState,
   HexDimensions,
   MountainRange,
+  WaterName,
   Polity,
   River,
   TokenUsage,
 } from '../../shared/types.js';
+
+/** Hexes whose surface is open water: seas and lakes, and the sea around islands. */
+export function isWaterSurface(v: BaseGeo | null | undefined): boolean {
+  return v === 'Sea' || v === 'Lake' || isIslandType(v);
+}
 
 export type Action =
   | { type: 'load'; map: MapState }
@@ -85,6 +93,12 @@ export type Action =
   | { type: 'nameMountainRange'; id: string; name: string; indices: number[] }
   | { type: 'renameMountainRange'; id: string; name: string }
   | { type: 'removeMountainRange'; id: string }
+  /** Put water hexes in the named body `id`, creating it if it does not exist. */
+  | { type: 'nameWaterBody'; id: string; name: string; indices: number[] }
+  | { type: 'renameWaterBody'; id: string; name: string }
+  | { type: 'removeWaterBody'; id: string }
+  /** Which side of their hex Coastal Island hexes lie against; null restores the automatic side. */
+  | { type: 'setIslandSide'; indices: number[]; edge: number | null }
   | { type: 'clearLayer'; layer: LayerId }
   | { type: 'undo'; layer: LayerId }
   | { type: 'redo'; layer: LayerId };
@@ -481,9 +495,12 @@ export function reducer(map: MapState, action: Action): MapState {
       const layer = map.layers.polities;
       const current = layer.data ?? { polities: [], owner: new Array(map.cols * map.rows).fill(null) };
       const exists = current.polities.some((p) => p.id === action.polity.id);
-      const polities = exists
-        ? current.polities.map((p) => (p.id === action.polity.id ? action.polity : p))
-        : [...current.polities, action.polity];
+      // A parent link that would close a loop, or names nothing, is dropped.
+      const polities = withValidParents(
+        exists
+          ? current.polities.map((p) => (p.id === action.polity.id ? action.polity : p))
+          : [...current.polities, action.polity],
+      ).polities;
       if (exists && identicalData(current.polities, polities)) return map;
       return journal(
         withLayer(map, 'polities', commit(layer, { data: { ...current, polities } })),
@@ -501,7 +518,8 @@ export function reducer(map: MapState, action: Action): MapState {
           'polities',
           commit(layer, {
             data: {
-              polities: layer.data.polities.filter((p) => p.id !== action.id),
+              // Its parts become independent rather than pointing at nothing.
+              polities: withValidParents(layer.data.polities.filter((p) => p.id !== action.id)).polities,
               owner: layer.data.owner.map((id) => (id === action.id ? null : id)),
             },
           }),
@@ -693,6 +711,76 @@ export function reducer(map: MapState, action: Action): MapState {
       return journal(
         { ...map, mountainRanges: ranges.filter((r) => r.id !== action.id), updatedAt: Date.now() },
         manualEntry('elevation', `Removed the mountain range "${old.name}".`),
+      );
+    }
+
+    case 'nameWaterBody': {
+      const name = action.name.trim();
+      const base = map.layers.base.data;
+      if (!name || !base) return map;
+      const picked = new Set(action.indices.filter((i) => isWaterSurface(base[i])));
+      if (picked.size === 0) return map;
+      const bodies = map.waterNames ?? [];
+      const existing = bodies.find((b) => b.id === action.id);
+      // A hex carries one name, so claiming it takes it from any other body.
+      const others = bodies
+        .filter((b) => b.id !== action.id)
+        .map((b) => ({ ...b, hexes: b.hexes.filter((i) => !picked.has(i)) }))
+        .filter((b) => b.hexes.length > 0);
+      const body: WaterName = {
+        id: action.id,
+        name,
+        hexes: [...new Set([...(existing?.hexes ?? []), ...picked])].sort((a, b) => a - b),
+      };
+      return journal(
+        { ...map, waterNames: [...others, body], updatedAt: Date.now() },
+        manualEntry('base', `${existing ? 'Extended' : 'Named'} the water "${name}" (${body.hexes.length} hexes) by hand.`),
+      );
+    }
+
+    case 'renameWaterBody': {
+      const name = action.name.trim();
+      const bodies = map.waterNames ?? [];
+      const old = bodies.find((b) => b.id === action.id);
+      if (!old || !name || old.name === name) return map;
+      return journal(
+        { ...map, waterNames: bodies.map((b) => (b.id === action.id ? { ...b, name } : b)), updatedAt: Date.now() },
+        manualEntry('base', `Renamed the water "${old.name}" to "${name}".`),
+      );
+    }
+
+    case 'removeWaterBody': {
+      const bodies = map.waterNames ?? [];
+      const old = bodies.find((b) => b.id === action.id);
+      if (!old) return map;
+      return journal(
+        { ...map, waterNames: bodies.filter((b) => b.id !== action.id), updatedAt: Date.now() },
+        manualEntry('base', `Removed the name of the water "${old.name}".`),
+      );
+    }
+
+    case 'setIslandSide': {
+      const base = map.layers.base.data;
+      if (!base) return map;
+      const sides = { ...(map.islandSides ?? {}) };
+      let changed = 0;
+      for (const i of action.indices) {
+        if (base[i] !== 'Coastal Island') continue;
+        const key = String(i);
+        if (action.edge === null) {
+          if (key in sides) {
+            delete sides[key];
+            changed++;
+          }
+        } else if (sides[key] !== action.edge) {
+          sides[key] = action.edge;
+          changed++;
+        }
+      }
+      if (changed === 0) return map;
+      return journal(
+        { ...map, islandSides: sides, updatedAt: Date.now() },
+        manualEntry('base', `Set the side ${changed} coastal island${changed === 1 ? '' : 's'} lie against by hand.`),
       );
     }
 

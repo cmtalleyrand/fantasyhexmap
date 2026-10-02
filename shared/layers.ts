@@ -305,7 +305,8 @@ function substance(data: unknown): string {
   }
   if (Array.isArray(record.cities)) {
     return JSON.stringify({
-      cities: (record.cities as { name: string }[]).map(({ name: _name, ...rest }) => rest),
+      // Where a city is drawn in its hex is presentation, like its name.
+      cities: (record.cities as { name: string; site?: unknown }[]).map(({ name: _name, site: _site, ...rest }) => rest),
     });
   }
   return JSON.stringify(data);

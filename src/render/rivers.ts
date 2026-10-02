@@ -1,17 +1,26 @@
 /**
  * River courses for the tapered style.
  *
- * A river's course is a centripetal Catmull-Rom spline through the midpoint of
- * every edge it crosses and a point near each hex centre. The edge midpoints
- * are fixed, so a river still crosses exactly the edges the data says it does
- * and a tributary still meets its trunk on the shared edge. Only the centre
- * point moves, by a seeded amount of at most a fifth of a hex, which is what
- * makes a straight run of hexes meander. The river is then drawn as a filled
- * outline whose width grows with distance from the source, steps up (smoothly)
- * where the river becomes navigable, and flares at a mouth into sea or lake.
+ * A course runs through the points where the river crosses hex edges. Each
+ * crossing slides along its edge by a seeded amount (at most a quarter of the
+ * edge length), keyed by the edge itself, so every river that crosses an edge
+ * crosses it at the same point and two hexes always agree on where their shared
+ * river passes. A hex centre is used only where a river rises. A tributary that
+ * ends inside another river's hex ends on that river's drawn line, and a
+ * distributary starts on its parent's line, so confluences and forks meet
+ * exactly.
+ *
+ * The course is a centripetal Catmull-Rom curve through those points. Passing
+ * through edge crossings rather than hex centres matters: when a river turns
+ * between two adjacent edges, a centre point sits behind both crossings and the
+ * curve hooks back on itself, which is what made the earlier version look odd.
+ *
+ * The river is drawn as a filled outline whose width grows with distance from
+ * the source, steps up (smoothly) where it becomes navigable, and flares at a
+ * mouth into sea or lake.
  */
 
-import { hexCenter, hexEdgeMidpoint, type Point } from '../../shared/hex.js';
+import { canonicalEdgeId, hexCenter, hexEdgePoints, type Point } from '../../shared/hex.js';
 import type { River } from '../../shared/types.js';
 import type { PathCmd } from './prims.js';
 import { signed } from './seed.js';
@@ -24,33 +33,61 @@ export interface RiverCourse {
   outline: PathCmd[];
 }
 
-const JITTER = 0.2;
-const SAMPLES_PER_SPAN = 6;
+/** How far a crossing may slide from the edge midpoint, as a fraction of the edge. */
+const SLIDE = 0.25;
+const SAMPLES_PER_SPAN = 8;
+
+/** Where rivers cross the edge `edge` of hex (col, row): the same point from either side. */
+export function edgeCrossing(col: number, row: number, edge: number, size: number, seed: string): Point {
+  const id = canonicalEdgeId(col, row, edge);
+  const m = /^(-?\d+),(-?\d+):(\d)$/.exec(id)!;
+  const [a, b] = hexEdgePoints(Number(m[1]), Number(m[2]), Number(m[3]), size);
+  const t = 0.5 + signed(seed, 'crossing', id) * SLIDE;
+  return { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t };
+}
 
 interface Control {
   p: Point;
+  /** Navigability of the span that ends at this point. */
   navigable: boolean;
 }
 
-function controls(river: River, size: number, seed: string): Control[] {
+export interface CourseEnds {
+  /** Where the river starts, if not its source hex's centre (a distributary's fork). */
+  start?: Point | null;
+  /** Where the river ends, if it ends inside a hex (a tributary's confluence). */
+  end?: Point | null;
+  /** A point past the mouth to run into, such as the centre of a small lake. */
+  beyond?: Point | null;
+}
+
+function controls(river: River, size: number, seed: string, ends: CourseEnds): Control[] {
   const out: Control[] = [];
   const push = (p: Point, navigable: boolean) => {
     const last = out[out.length - 1];
-    if (last && Math.abs(last.p.x - p.x) < 1e-6 && Math.abs(last.p.y - p.y) < 1e-6) {
-      last.navigable ||= navigable;
-      return;
-    }
+    if (last && Math.hypot(last.p.x - p.x, last.p.y - p.y) < size * 0.02) return;
     out.push({ p, navigable });
   };
-  for (const s of river.segments) {
-    if (s.entryEdge !== null) push(hexEdgeMidpoint(s.col, s.row, s.entryEdge, size), s.navigable);
-    const c = hexCenter(s.col, s.row, size);
-    // Keyed by the hex, not the river, so rivers sharing a hex share its bend.
-    const dx = signed(seed, 'river', s.col, s.row, 'x') * JITTER * size;
-    const dy = signed(seed, 'river', s.col, s.row, 'y') * JITTER * size;
-    push({ x: c.x + dx, y: c.y + dy }, s.navigable);
-    if (s.exitEdge !== null) push(hexEdgeMidpoint(s.col, s.row, s.exitEdge, size), s.navigable);
-  }
+  river.segments.forEach((s, k) => {
+    if (s.entryEdge !== null) push(edgeCrossing(s.col, s.row, s.entryEdge, size, seed), s.navigable);
+    else if (k === 0) {
+      if (ends.start) push(ends.start, s.navigable);
+      else {
+        // A spring: near, but not exactly at, the hex centre.
+        const c = hexCenter(s.col, s.row, size);
+        push({
+          x: c.x + signed(seed, 'source', s.col, s.row, 'x') * size * 0.15,
+          y: c.y + signed(seed, 'source', s.col, s.row, 'y') * size * 0.15,
+        }, s.navigable);
+      }
+    }
+    if (s.exitEdge !== null) push(edgeCrossing(s.col, s.row, s.exitEdge, size, seed), s.navigable);
+    else if (k === river.segments.length - 1) {
+      push(ends.end ?? hexCenter(s.col, s.row, size), s.navigable);
+    }
+  });
+  const last = river.segments.at(-1);
+  if (ends.beyond && last) push(ends.beyond, last.navigable);
   return out;
 }
 
@@ -78,26 +115,22 @@ function catmullRom(p0: Point, p1: Point, p2: Point, p3: Point, samples: number)
   return out;
 }
 
-export function riverCourse(river: River, size: number, seed: string): RiverCourse | null {
-  const ctrl = controls(river, size, seed);
+export function riverCourse(river: River, size: number, seed: string, ends: CourseEnds = {}): RiverCourse | null {
+  const ctrl = controls(river, size, seed, ends);
   if (ctrl.length < 2) return null;
   const pts = ctrl.map((c) => c.p);
   // Reflect the ends so the first and last spans have a tangent to follow.
-  const before = { x: 2 * pts[0]!.x - pts[1]!.x, y: 2 * pts[0]!.y - pts[1]!.y };
   const n = pts.length;
+  const before = { x: 2 * pts[0]!.x - pts[1]!.x, y: 2 * pts[0]!.y - pts[1]!.y };
   const after = { x: 2 * pts[n - 1]!.x - pts[n - 2]!.x, y: 2 * pts[n - 1]!.y - pts[n - 2]!.y };
   const ext = [before, ...pts, after];
 
   const centreline: Point[] = [pts[0]!];
   const navigable: boolean[] = [ctrl[0]!.navigable];
   for (let i = 0; i < n - 1; i++) {
-    const samples = catmullRom(ext[i]!, ext[i + 1]!, ext[i + 2]!, ext[i + 3]!, SAMPLES_PER_SPAN);
-    // A span is navigable only if both its ends are, so the river widens at the
-    // first fully navigable stretch rather than half a hex early.
-    const nav = ctrl[i]!.navigable && ctrl[i + 1]!.navigable;
-    for (const p of samples) {
+    for (const p of catmullRom(ext[i]!, ext[i + 1]!, ext[i + 2]!, ext[i + 3]!, SAMPLES_PER_SPAN)) {
       centreline.push(p);
-      navigable.push(nav);
+      navigable.push(ctrl[i + 1]!.navigable);
     }
   }
 
@@ -114,7 +147,7 @@ export function riverCourse(river: River, size: number, seed: string): RiverCour
     return navigable[i] ? Math.min(0.3, Math.max(narrow, 0.19 + 0.004 * run)) : narrow;
   });
   // Ease the step into navigable water over about half a hex.
-  const window = Math.max(1, Math.round(SAMPLES_PER_SPAN));
+  const window = Math.round(SAMPLES_PER_SPAN * 0.75);
   const widths = target.map((_, i) => {
     let sum = 0;
     let count = 0;
@@ -149,4 +182,78 @@ export function riverCourse(river: River, size: number, seed: string): RiverCour
   for (let i = right.length - 1; i >= 0; i--) outline.push(['L', right[i]!.x, right[i]!.y]);
   outline.push(['Z']);
   return { centreline, widths, outline };
+}
+
+/** The point of `line` nearest `p`. */
+function nearest(line: Point[], p: Point): Point {
+  let best = line[0]!;
+  let d = Infinity;
+  for (const q of line) {
+    const dq = Math.hypot(q.x - p.x, q.y - p.y);
+    if (dq < d) {
+      d = dq;
+      best = q;
+    }
+  }
+  return best;
+}
+
+/**
+ * Courses for a whole river network. Rivers that end in another river's hex
+ * are laid out after that river, so they can end on its drawn line; a river
+ * that cannot find one ends at the hex centre, as a river that runs nowhere does.
+ * `beyond` gives a point past a river's mouth to run into (a small lake's body).
+ */
+export function riverCourses(
+  rivers: River[],
+  size: number,
+  seed: string,
+  beyond: (river: River) => Point | null = () => null,
+): Map<string, RiverCourse> {
+  const out = new Map<string, RiverCourse>();
+  const key = (col: number, row: number) => `${col},${row}`;
+  // Which rivers flow on through each hex (rather than ending in it).
+  const through = new Map<string, string[]>();
+  for (const r of rivers) {
+    for (const s of r.segments) {
+      if (s.exitEdge === null) continue;
+      const k = key(s.col, s.row);
+      through.set(k, [...(through.get(k) ?? []), r.id]);
+    }
+  }
+  const byId = new Map(rivers.map((r) => [r.id, r]));
+  const pending = new Set(rivers.map((r) => r.id));
+  const needs = (r: River): string[] => {
+    const deps: string[] = [];
+    const last = r.segments.at(-1);
+    if (last && last.exitEdge === null) {
+      const host = (through.get(key(last.col, last.row)) ?? []).find((id) => id !== r.id);
+      if (host) deps.push(host);
+    }
+    if (r.branchOf && byId.has(r.branchOf)) deps.push(r.branchOf);
+    return deps;
+  };
+  const lay = (r: River) => {
+    pending.delete(r.id);
+    const first = r.segments[0];
+    const last = r.segments.at(-1);
+    const ends: CourseEnds = { beyond: beyond(r) };
+    if (first && first.entryEdge === null && r.branchOf) {
+      const parent = out.get(r.branchOf);
+      if (parent) ends.start = nearest(parent.centreline, hexCenter(first.col, first.row, size));
+    }
+    if (last && last.exitEdge === null) {
+      const host = (through.get(key(last.col, last.row)) ?? []).map((id) => out.get(id)).find(Boolean);
+      if (host) ends.end = nearest(host.centreline, hexCenter(last.col, last.row, size));
+    }
+    const course = riverCourse(r, size, seed, ends);
+    if (course) out.set(r.id, course);
+  };
+  // Lay out every river whose hosts are ready; when a cycle leaves none ready,
+  // lay out the next one regardless.
+  while (pending.size > 0) {
+    const ready = [...pending].map((id) => byId.get(id)!).filter((r) => needs(r).every((d) => !pending.has(d) || d === r.id));
+    for (const r of ready.length > 0 ? ready : [byId.get(pending.values().next().value!)!]) lay(r);
+  }
+  return out;
 }

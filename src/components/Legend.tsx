@@ -3,6 +3,8 @@ import {
   CLIMATE_VALUES,
   ELEVATION_VALUES,
   VEGETATION_GROUPS,
+  isIslandType,
+  type BaseGeo,
   type LayerId,
   type VegetationGroup,
 } from '../../shared/types.js';
@@ -27,6 +29,13 @@ function Swatch({ colour, label }: { colour: string; label: string }) {
   );
 }
 
+const ISLAND_NOTES: Partial<Record<BaseGeo, string>> = {
+  Island: 'a small islet in the sea',
+  'Coastal Island': 'an islet lying against one side, near a coast',
+  'Large Island': 'one island filling most of the hex',
+  'Small Islands': 'a scatter of islets',
+};
+
 export default function Legend({ layer, map }: { layer: LayerId; map: MapState }) {
   switch (layer) {
     case 'base':
@@ -35,8 +44,8 @@ export default function Legend({ layer, map }: { layer: LayerId; map: MapState }
           {BASE_GEO_VALUES.map((v) => (
             <Swatch
               key={v}
-              colour={v === 'Island' ? ISLAND_DOT : BASE_COLOURS[v]}
-              label={v === 'Island' ? 'Island (land dot on sea)' : v}
+              colour={isIslandType(v) ? ISLAND_DOT : BASE_COLOURS[v]}
+              label={ISLAND_NOTES[v] ? `${v} (${ISLAND_NOTES[v]})` : v}
             />
           ))}
         </div>

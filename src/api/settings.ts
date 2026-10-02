@@ -48,8 +48,6 @@ export interface Prefs {
   /** Use the offline procedural generator instead of calling the API. */
   offline: boolean;
   remember: boolean;
-  /** How elevation is drawn on the map: tinted hexes or terrain marks. */
-  elevationStyle: 'colour' | 'contours';
   /** Draw polity/city names on the map. */
   labels: boolean;
   /** Opacity of the polity fill, 0.1-1; below 1 the terrain shows through. */
@@ -64,6 +62,8 @@ export interface Prefs {
   riverNames: boolean;
   /** Draw mountain range names (with the Elevation layer visible). */
   rangeNames: boolean;
+  /** Draw the names given to seas, bays and lakes. */
+  seaNames: boolean;
   /** Smallest polity, in hexes, that is named on the map; `auto` lets the placer decide. */
   polityNames: PolityNameMin;
   /**
@@ -75,7 +75,7 @@ export interface Prefs {
   defaultsVersion?: number;
 }
 
-const DEFAULTS_VERSION = 4;
+const DEFAULTS_VERSION = 5;
 
 export const DEFAULT_PREFS: Prefs = {
   model: DEFAULT_MODEL,
@@ -83,12 +83,12 @@ export const DEFAULT_PREFS: Prefs = {
   taskBudget: DEFAULT_TASK_BUDGET,
   offline: false,
   remember: true,
-  elevationStyle: 'colour',
   labels: true,
   polityOpacity: 1,
   mapStyle: DEFAULT_STYLE_CHOICE,
   riverNames: false,
   rangeNames: false,
+  seaNames: true,
   polityNames: DEFAULT_POLITY_NAME_MIN,
   defaultsVersion: DEFAULTS_VERSION,
 };
@@ -168,7 +168,7 @@ export function loadPrefs(): Prefs {
   const raw = safeGet(window.localStorage, PREFS_NAME);
   if (!raw) return { ...DEFAULT_PREFS };
   try {
-    const stored = JSON.parse(raw) as Partial<Prefs> & { uniformLand?: unknown };
+    const stored = JSON.parse(raw) as Partial<Prefs> & { uniformLand?: unknown; elevationStyle?: unknown };
     if (
       // Version 2 restored high effort and a larger budget; prefs saved under
       // version 2 or later chose whatever they hold.
@@ -191,16 +191,22 @@ export function loadPrefs(): Prefs {
       mapStyle = { preset: 'classic', overrides: { land: 'uniform' } };
     }
     delete stored.uniformLand;
+    // Version 5 made the elevation display the style's Relief setting. Someone
+    // who had terrain marks on keeps them, unless they already chose a relief.
+    if (stored.elevationStyle === 'contours' && mapStyle.overrides.relief === undefined) {
+      mapStyle = { ...mapStyle, overrides: { ...mapStyle.overrides, relief: 'marks' } };
+    }
+    delete stored.elevationStyle;
     return {
       ...DEFAULT_PREFS,
       ...stored,
       mapStyle,
       taskBudget: clampTaskBudget(stored.taskBudget ?? DEFAULT_PREFS.taskBudget),
-      elevationStyle: stored.elevationStyle === 'contours' ? 'contours' : 'colour',
       labels: stored.labels !== false,
       polityOpacity: clampPolityOpacity(stored.polityOpacity),
       riverNames: stored.riverNames === true,
       rangeNames: stored.rangeNames === true,
+      seaNames: stored.seaNames !== false,
       polityNames: parsePolityNameMin(stored.polityNames),
       defaultsVersion: DEFAULTS_VERSION,
     };

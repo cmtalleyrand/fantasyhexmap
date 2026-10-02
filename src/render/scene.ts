@@ -27,6 +27,7 @@ import {
 } from '../../shared/hex.js';
 import {
   LAYER_ORDER,
+  isIslandType,
   type BaseGeo,
   type CitiesData,
   type Climate,
@@ -44,17 +45,36 @@ import {
   populationColour,
   withAlpha,
 } from './palette.js';
-import { placeRangeLabels, placeRiverLabels } from './featureLabels.js';
+import { placeRangeLabels, placeRiverLabels, placeWaterLabels } from './featureLabels.js';
 import {
   LABEL_LINE_EM,
+  labelBox,
+  placeCityNames,
   placePolityLabels,
+  type OrientedBox,
   type LabelObstacle,
   type PolityLabel,
   type PolityNameMin,
 } from './labels.js';
-import { circlePath, coastGeometry, hexesPath, isletPath, sideOf, type CoastGeometry } from './coast.js';
+import {
+  blobPath,
+  chainEdges,
+  circlePath,
+  coastalIslandSide,
+  coastGeometry,
+  hexesPath,
+  isletPath,
+  sideOf,
+  smallLakes,
+  type CoastGeometry,
+} from './coast.js';
 import type { CitySymbol, PathCmd, Prim } from './prims.js';
-import { riverCourse } from './rivers.js';
+import { riverCourses, type RiverCourse } from './rivers.js';
+import { citySite } from './sites.js';
+import { hillshade, reliefSymbols, vegetationSymbols, type Placed } from './symbols.js';
+import { ownersAtDepth, polityDepths, polityDisplayColours, toned } from './hierarchy.js';
+import { topLevelOf } from '../../shared/polityTree.js';
+import { fantasyTextEm, uiTextEm } from './fonts.js';
 import { signed, unit } from './seed.js';
 import { CLASSIC_STYLE, type MapStyle } from './styles.js';
 import { grainTile } from './texture.js';
@@ -85,6 +105,8 @@ export interface SceneOptions {
   riverNames?: boolean;
   /** Name mountain ranges (needs the Elevation layer visible). */
   rangeNames?: boolean;
+  /** Name seas, bays and lakes that have been named (needs the base layer visible). */
+  seaNames?: boolean;
   /** Smallest polity, in hexes, that is named; default 4. */
   polityNames?: PolityNameMin;
   elevationStyle?: 'colour' | 'contours';
@@ -161,8 +183,12 @@ function cachedPolityLabels(
   return labels;
 }
 
-/** The coast only depends on the base layer, so it is traced once per base array. */
-const coastCache = new WeakMap<object, { key: string; geometry: CoastGeometry }>();
+/**
+ * The coast only depends on the base layer, so it is traced once per base
+ * array. Lakes of one or two hexes are drawn as bodies of their own (see
+ * `smallLakes`), so they are traced as land here.
+ */
+const coastCache = new WeakMap<object, { key: string; geometry: CoastGeometry; lakes: number[][] }>();
 
 function cachedCoast(
   base: ReadonlyArray<BaseGeo | null>,
@@ -170,13 +196,16 @@ function cachedCoast(
   rows: number,
   size: number,
   smooth: boolean,
-): CoastGeometry {
+): { geometry: CoastGeometry; lakes: number[][] } {
   const key = `${cols}x${rows}@${size}/${smooth}`;
   const hit = coastCache.get(base);
-  if (hit && hit.key === key) return hit.geometry;
-  const geometry = coastGeometry(base, cols, rows, size, smooth);
-  coastCache.set(base, { key, geometry });
-  return geometry;
+  if (hit && hit.key === key) return hit;
+  const lakes = smallLakes(base, cols, rows);
+  const traced = base.slice();
+  for (const lake of lakes) for (const i of lake) traced[i] = 'Land';
+  const entry = { key, geometry: coastGeometry(traced, cols, rows, size, smooth), lakes };
+  coastCache.set(base, entry);
+  return entry;
 }
 
 /** Blend two #rrggbb colours; `t` = 0 gives `a`. */
@@ -248,16 +277,22 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
   const uniformLand = opts.uniformLand ?? knobs.land === 'uniform';
 
   const base = opts.visible.base ? layers.base.data : null;
-  const elevationStyle = opts.elevationStyle ?? 'colour';
+  // An explicit elevationStyle (the older two-way setting) overrides the style's relief.
+  const relief = opts.elevationStyle
+    ? opts.elevationStyle === 'colour' ? 'colour' : 'marks'
+    : knobs.relief;
+  const elevationStyle = relief === 'colour' ? 'colour' : 'contours';
   const thematic = thematicLayer(map, opts.visible, elevationStyle);
+  const elevationData = opts.visible.elevation ? layers.elevation.data : null;
 
   const population = opts.visible.population ? layers.population.data : null;
   const maxPop = population ? Math.max(1, ...population.map((v) => v ?? 0)) : 1;
 
   const polities = opts.visible.polities ? layers.polities.data : null;
-  const polityColour = new Map<string, string>(
-    (polities?.polities ?? []).map((p) => [p.id, p.colour]),
+  const polityColour = new Map(
+    [...polityDisplayColours(polities?.polities ?? [], knobs.subPolities)].map(([id, c]) => [id, toned(c, knobs.polityTone)]),
   );
+  const topLevel = new Map((polities?.polities ?? []).map((p) => [p.id, topLevelOf(polities!.polities, p.id)]));
 
   const polityOpacity = Math.min(1, Math.max(0, opts.polityOpacity ?? 1));
   // Fills are sealed with a hairline of their own colour, so the anti-aliased
@@ -268,6 +303,9 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
     switch (value) {
       case 'Sea':
       case 'Island':
+      case 'Coastal Island':
+      case 'Large Island':
+      case 'Small Islands':
         return palette.sea;
       case 'Lake':
         return palette.lake;
@@ -310,7 +348,7 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
     const out: string[] = [];
     const value = population?.[i];
     if (value !== null && value !== undefined) out.push(withAlpha(populationColour(value, maxPop), 0.82));
-    const owner = polities?.owner[i];
+    const owner = knobs.polityStyle === 'fill' ? polities?.owner[i] : null;
     if (owner) {
       // Polity colours are categorical data, not a tint. An opaque fill
       // keeps a realm's colour invariant when substrate layers change.
@@ -320,8 +358,37 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
     return out;
   };
 
-  const sides = base ? base.map((v) => sideOf(v)) : null;
+  const traced = base ? cachedCoast(base, cols, rows, size, knobs.coast === 'smooth') : null;
+  const lakeBodies = traced?.lakes ?? [];
+  const inLakeBody = new Set(lakeBodies.flat());
+  // A small lake's hexes are drawn as land, then the lake body over them.
+  /** The colour a hex finally shows: its fill with every overlay laid over it. */
+  const groundColour = (i: number): string => {
+    let colour = hexFill(i);
+    for (const overlay of overlays(i)) {
+      const m = /^rgba\((\d+),\s*(\d+),\s*(\d+),\s*([\d.]+)\)$/.exec(overlay);
+      if (m) {
+        const hex = `#${[m[1], m[2], m[3]].map((v) => Number(v).toString(16).padStart(2, '0')).join('')}`;
+        colour = mix(colour, hex, Number(m[4]));
+      } else {
+        colour = overlay;
+      }
+    }
+    return colour;
+  };
+
+  const sides = base ? base.map((v, i) => (inLakeBody.has(i) ? 'land' : sideOf(v))) : null;
   const isWater = (i: number) => sides?.[i] === 'water';
+  /** The land hex whose colours a small lake's hex borrows for the ground around the lake. */
+  const lakeShoreDonor = (i: number): number => {
+    for (let e = 0; e < 6; e++) {
+      const n = neighbourOf(i % cols, Math.floor(i / cols), e);
+      if (!inBounds(cols, rows, n.col, n.row)) continue;
+      const j = hexIndex(cols, n.col, n.row);
+      if (sides?.[j] === 'land' && !inLakeBody.has(j)) return j;
+    }
+    return i;
+  };
 
   // --- land -------------------------------------------------------------------
   for (let row = 0; row < rows; row++) {
@@ -329,27 +396,49 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
       const i = hexIndex(cols, col, row);
       if (isWater(i)) continue;
       const corners = hexCorners(col, row, size);
-      const fill = hexFill(i);
+      const own = inLakeBody.has(i) ? lakeShoreDonor(i) : i;
+      const fill = hexFill(own);
       prims.push({ kind: 'polygon', points: corners, fill, stroke: fill, strokeWidth: seal });
 
       if (knobs.ice === 'glacier' && base?.[i] === 'Ice' && fill === palette.ice) {
         prims.push(...crevasses(hexCenter(col, row, size), size, seed, i, palette.iceShade));
       }
 
-      if (elevationStyle === 'contours' && opts.visible.elevation) {
+      if (relief === 'marks' && opts.visible.elevation) {
         const elevation = layers.elevation.data?.[i];
         if (elevation) prims.push(...elevationMarks(hexCenter(col, row, size), size, elevation));
       }
 
-      for (const overlay of overlays(i)) prims.push({ kind: 'polygon', points: corners, fill: overlay });
+      for (const overlay of overlays(own)) prims.push({ kind: 'polygon', points: corners, fill: overlay });
+    }
+  }
+
+  // --- hill shading ----------------------------------------------------------------
+  // Over the land's colours (realm fills included), so height reads through them.
+  if (relief === 'hillshade' && elevationData) {
+    for (let i = 0; i < cols * rows; i++) {
+      const here = elevationData[i];
+      if (!here || isWater(i)) continue;
+      const col = i % cols;
+      const row = Math.floor(i / cols);
+      const v = hillshade(here, (e) => {
+        const n = neighbourOf(col, row, e);
+        if (!inBounds(cols, rows, n.col, n.row)) return null;
+        const j = hexIndex(cols, n.col, n.row);
+        if (isWater(j)) return 'water';
+        return elevationData[j] ?? here;
+      });
+      if (Math.abs(v) < 0.04) continue;
+      prims.push({
+        kind: 'polygon',
+        points: hexCorners(col, row, size),
+        fill: withAlpha(v > 0 ? '#ffffff' : palette.ink, Math.min(0.22, Math.abs(v) * 0.13)),
+      });
     }
   }
 
   // --- water --------------------------------------------------------------------
-  const coast =
-    base && (knobs.coast !== 'none' || knobs.water !== 'flat')
-      ? cachedCoast(base, cols, rows, size, knobs.coast === 'smooth')
-      : null;
+  const coast = traced && (knobs.coast !== 'none' || knobs.water !== 'flat') ? traced.geometry : null;
   const waterColour = (i: number) => (base?.[i] === 'Lake' ? palette.lake : palette.sea);
   const islands: number[] = [];
   if (base) {
@@ -357,7 +446,7 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
       if (!isWater(i)) continue;
       const fill = waterColour(i);
       prims.push({ kind: 'polygon', points: hexCorners(i % cols, Math.floor(i / cols), size), fill, stroke: fill, strokeWidth: seal });
-      if (base[i] === 'Island') islands.push(i);
+      if (isIslandType(base[i])) islands.push(i);
     }
     // Corners of land that the smoothed coast cuts off become water.
     for (const s of coast?.toWater ?? []) {
@@ -367,9 +456,52 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
   }
 
   const islandRand = (i: number) => (k: number) => unit(seed, 'islet', i, k);
+  const coastalSide = (i: number): number => {
+    const stored = map.islandSides?.[String(i)];
+    return stored !== undefined && stored >= 0 && stored < 6 ? stored : coastalIslandSide(base!, cols, rows, i);
+  };
+  /** Where the land of an island hex is centred: off-centre only for a coastal island. */
+  const islandCentre = (i: number): Point => {
+    const c = hexCenter(i % cols, Math.floor(i / cols), size);
+    if (base?.[i] !== 'Coastal Island') return c;
+    const angle = (coastalSide(i) * Math.PI) / 3;
+    return { x: c.x + Math.cos(angle) * size * 0.4, y: c.y + Math.sin(angle) * size * 0.4 };
+  };
+  /** The land in an island hex, as one or more closed paths. */
   const islandPath = (i: number): PathCmd[] => {
     const c = hexCenter(i % cols, Math.floor(i / cols), size);
-    return knobs.islands === 'blob' ? isletPath(c, size, islandRand(i)) : circlePath(c, size * 0.34);
+    const rand = islandRand(i);
+    const blob = knobs.islands === 'blob';
+    switch (base?.[i]) {
+      case 'Coastal Island': {
+        // Against one side of the hex, stretched along that side.
+        const angle = (coastalSide(i) * Math.PI) / 3;
+        const at = islandCentre(i);
+        return blob
+          ? blobPath(at, size * 0.44, size * 0.27, angle + Math.PI / 2, rand, 10)
+          : circlePath(at, size * 0.3);
+      }
+      case 'Large Island':
+        return blob
+          ? blobPath(c, size * 0.74, size * 0.62, rand(99) * Math.PI, rand, 12, 0.16)
+          : circlePath(c, size * 0.62);
+      case 'Small Islands': {
+        const count = 3 + Math.floor(rand(200) * 3);
+        const d: PathCmd[] = [];
+        for (let k = 0; k < count; k++) {
+          // Spread round the hex so the islets do not pile up in the middle.
+          const a = ((k + rand(300 + k) * 0.6) / count) * Math.PI * 2;
+          const r = size * (k === 0 && count > 3 ? 0.05 : 0.42 + rand(400 + k) * 0.1);
+          const at = { x: c.x + Math.cos(a) * r, y: c.y + Math.sin(a) * r };
+          const rr = size * (0.13 + rand(500 + k) * 0.07);
+          const sub = (q: number) => rand(1000 + k * 37 + q);
+          d.push(...(blob ? blobPath(at, rr * 1.25, rr, sub(99) * Math.PI, sub, 8, 0.18) : circlePath(at, rr)));
+        }
+        return d;
+      }
+      default:
+        return blob ? isletPath(c, size, rand) : circlePath(c, size * 0.34);
+    }
   };
   const shorelines: PathCmd[] = [...(coast?.paths.flat() ?? []), ...islands.flatMap(islandPath)];
 
@@ -388,12 +520,38 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
       const water = body === 'lake' ? palette.lake : palette.sea;
       const surface = knobs.water === 'depth'
         ? depthBands(shorelines, size, water, shift(palette.seaShallow, palette.sea, water))
-        : rippleBands(shorelines, size, water, palette.ripple, palette.rippleAlpha, body === 'lake' ? 1 : 3);
+        : rippleBands(shorelines, size, water, palette.ripple, palette.rippleAlpha, body === 'lake' ? 1 : knobs.ripples);
       prims.push({ kind: 'group', clip, prims: surface });
     }
   }
 
+  // --- small lakes ----------------------------------------------------------------
+  const lakeOutlines: PathCmd[] = [];
+  for (const lake of lakeBodies) {
+    const centres = lake.map((i) => hexCenter(i % cols, Math.floor(i / cols), size));
+    const rand = (k: number) => unit(seed, 'lake', lake[0]!, k);
+    const d = centres.length === 1
+      ? blobPath(centres[0]!, size * 0.8, size * 0.68, rand(99) * Math.PI, rand)
+      : blobPath(
+          { x: (centres[0]!.x + centres[1]!.x) / 2, y: (centres[0]!.y + centres[1]!.y) / 2 },
+          Math.hypot(centres[1]!.x - centres[0]!.x, centres[1]!.y - centres[0]!.y) / 2 + size * 0.6,
+          size * 0.62,
+          Math.atan2(centres[1]!.y - centres[0]!.y, centres[1]!.x - centres[0]!.x),
+          rand,
+          12,
+        );
+    lakeOutlines.push(...d);
+    prims.push({ kind: 'path', d, fill: palette.lake });
+    if (knobs.water !== 'flat') {
+      const surface = knobs.water === 'depth'
+        ? depthBands(d, size, palette.lake, shift(palette.seaShallow, palette.sea, palette.lake))
+        : rippleBands(d, size, palette.lake, palette.ripple, palette.rippleAlpha, 1);
+      prims.push({ kind: 'group', clip: d, prims: surface });
+    }
+  }
+
   // --- islands ------------------------------------------------------------------
+  const islandLand = uniformLand ? palette.land : palette.island;
   for (const i of islands) {
     const c = hexCenter(i % cols, Math.floor(i / cols), size);
     const owner = polities?.owner[i];
@@ -403,13 +561,17 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
           return polityOpacity < 1 ? withAlpha(solid, polityOpacity) : solid;
         })()
       : null;
-    if (knobs.islands === 'blob') {
+    if (knobs.islands === 'blob' || base?.[i] !== 'Island' || knobs.polityStyle !== 'fill') {
       const d = islandPath(i);
-      prims.push({ kind: 'path', d, fill: palette.island });
+      prims.push({ kind: 'path', d, fill: islandLand });
       // Only the landmass belongs to the polity; the surrounding sea stays sea.
-      if (fill) prims.push({ kind: 'path', d, fill });
+      if (fill && knobs.polityStyle === 'fill') prims.push({ kind: 'path', d, fill });
+      if (fill && knobs.polityStyle === 'wash') prims.push({ kind: 'path', d, fill: withAlpha(polityColour.get(owner!) ?? '#777777', 0.45) });
+      if (fill && knobs.polityStyle === 'outline') {
+        prims.push({ kind: 'path', d, stroke: polityColour.get(owner!) ?? '#777777', strokeWidth: Math.max(1, size * 0.08), round: true });
+      }
     } else {
-      prims.push({ kind: 'circle', c, r: size * 0.34, fill: palette.island });
+      prims.push({ kind: 'circle', c, r: size * 0.34, fill: islandLand });
       if (fill) prims.push({ kind: 'circle', c, r: size * 0.34, fill });
     }
   }
@@ -425,7 +587,7 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
   // Claims on water hexes (where the map allows them) sit over the sea's surface.
   if (base) {
     for (let i = 0; i < base.length; i++) {
-      if (!isWater(i) || base[i] === 'Island') continue;
+      if (!isWater(i) || isIslandType(base[i])) continue;
       for (const overlay of overlays(i)) {
         prims.push({ kind: 'polygon', points: hexCorners(i % cols, Math.floor(i / cols), size), fill: overlay });
       }
@@ -460,10 +622,10 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
   }
 
   // --- coastline ------------------------------------------------------------------
-  if (knobs.coast !== 'none' && shorelines.length > 0) {
+  if (knobs.coast !== 'none' && shorelines.length + lakeOutlines.length > 0) {
     prims.push({
       kind: 'path',
-      d: shorelines,
+      d: [...shorelines, ...lakeOutlines],
       stroke: palette.coast,
       strokeWidth: Math.max(0.8, size * palette.coastWidth),
       round: true,
@@ -471,41 +633,133 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
   }
 
   // --- polity borders ------------------------------------------------------
+  // Each realm's border is traced as continuous loops round its hexes and
+  // drawn as a band clipped to the inside of the realm, so corners join
+  // cleanly and two neighbours each show their own colour along the line.
+  // Island hexes are left out: the islet itself carries the realm's colour.
+  const internal: PathCmd[] = [];
   if (polities) {
+    const regions = new Map<string, number[]>();
+    const bands = new Map<string, Array<{ from: Point; to: Point; land: number; water: number }>>();
+    const frontier: Array<{ from: Point; to: Point; land: number; water: number }> = [];
+    const isIsland = (i: number) => isIslandType(base?.[i]);
     for (let row = 0; row < rows; row++) {
       for (let col = 0; col < cols; col++) {
-        const owner = polities.owner[hexIndex(cols, col, row)];
-        if (!owner) continue;
-        const centre = hexCenter(col, row, size);
+        const i = hexIndex(cols, col, row);
+        const owner = polities.owner[i];
+        if (!owner || isIsland(i)) continue;
+        regions.set(owner, [...(regions.get(owner) ?? []), i]);
         for (let e = 0; e < 6; e++) {
           const n = neighbourOf(col, row, e);
-          const other = inBounds(cols, rows, n.col, n.row)
-            ? polities.owner[hexIndex(cols, n.col, n.row)]
-            : null;
+          const inside = inBounds(cols, rows, n.col, n.row);
+          const j = inside ? hexIndex(cols, n.col, n.row) : -1;
+          const other = inside && !isIsland(j) ? polities.owner[j] ?? null : null;
           if (other === owner) continue;
-          // Each side paints its own half of the border, inset toward its own
-          // centre, so a frontier between two realms shows both their colours.
-          const inset = (p: Point): Point => ({
-            x: p.x + (centre.x - p.x) * 0.1,
-            y: p.y + (centre.y - p.y) * 0.1,
-          });
           const [a, b] = hexEdgePoints(col, row, e, size);
-          prims.push({
-            kind: 'polyline',
-            points: [inset(a), inset(b)],
-            stroke: polityColour.get(owner) ?? '#888888',
-            strokeWidth: Math.max(1.5, size * 0.11),
-            round: true,
-          });
+          if (other && topLevel.get(other) === topLevel.get(owner)) {
+            // Between two parts of one realm: a single fine dashed line on the
+            // edge itself, drawn once, so the realm still reads as one.
+            if (j > i) internal.push(['M', a.x, a.y], ['L', b.x, b.y]);
+            continue;
+          }
+          const edge = { from: a, to: b, land: i, water: j };
+          bands.set(owner, [...(bands.get(owner) ?? []), edge]);
+          // A frontier between realms on land, drawn from one side only.
+          const landAcross = inside && !isWater(j) && !isIsland(j);
+          if (landAcross && (other === null || owner < other)) frontier.push(edge);
         }
       }
     }
+    const band =
+      knobs.polityStyle === 'wash'
+        ? { width: size * 0.5, alpha: 0.42 }
+        : knobs.polityStyle === 'outline'
+          ? { width: size * 0.09, alpha: 1 }
+          : { width: Math.max(1.5, size * 0.16), alpha: 1 };
+    for (const [owner, edges] of bands) {
+      const loops = chainEdges(edges).flatMap((chain) =>
+        chain.points.map((p, k) => [k === 0 ? 'M' : 'L', p.x, p.y] as PathCmd).concat(chain.closed ? [['Z'] as PathCmd] : []),
+      );
+      const colour = polityColour.get(owner) ?? '#888888';
+      prims.push({
+        kind: 'group',
+        clip: hexesPath(regions.get(owner) ?? [], cols, size),
+        prims: [{
+          kind: 'path',
+          d: loops,
+          stroke: band.alpha < 1 ? withAlpha(colour, band.alpha) : colour,
+          strokeWidth: band.width * 2,
+          round: true,
+        }],
+      });
+    }
+    // With realms not filled solid, a fine ink line marks where one ends and the next begins.
+    if (knobs.polityStyle !== 'fill' && frontier.length > 0) {
+      const d = chainEdges(frontier).flatMap((chain) =>
+        chain.points.map((p, k) => [k === 0 ? 'M' : 'L', p.x, p.y] as PathCmd).concat(chain.closed ? [['Z'] as PathCmd] : []),
+      );
+      prims.push({
+        kind: 'path',
+        d,
+        stroke: palette.frontier,
+        strokeWidth: Math.max(0.8, size * 0.05),
+        dash: knobs.frontier === 'dashed'
+          ? [size * 0.22, size * 0.12]
+          : knobs.frontier === 'dashdot'
+            ? [size * 0.3, size * 0.1, size * 0.04, size * 0.1]
+            : undefined,
+        round: true,
+      });
+    }
+  }
+
+  if (internal.length > 0) {
+    prims.push({
+      kind: 'path',
+      d: internal,
+      stroke: palette.frontier,
+      strokeWidth: Math.max(0.8, size * 0.045),
+      dash: [size * 0.16, size * 0.1],
+      round: true,
+    });
+  }
+
+  // --- drawn relief and vegetation ----------------------------------------------------
+  if (relief === 'illustrated' && base) {
+    const vegetation = opts.visible.vegetation ? layers.vegetation.data : null;
+    const placed: Placed[] = [];
+    for (let i = 0; i < cols * rows; i++) {
+      if (isWater(i) || inLakeBody.has(i)) continue;
+      const height = elevationData?.[i] ?? null;
+      const cover = vegetation?.[i] ?? null;
+      if (!height && !cover) continue;
+      const centre = hexCenter(i % cols, Math.floor(i / cols), size);
+      const rand = (k: number) => unit(seed, 'symbol', i, k);
+      const colours = { ground: groundColour(i), ink: palette.ink };
+      if (height) placed.push(...reliefSymbols(centre, size, height, rand, colours));
+      if (cover) {
+        const crowded = height === 'Mountains' || height === 'Highland' || height === 'Hills' || height === 'Plateau';
+        if (height !== 'Mountains') placed.push(...vegetationSymbols(centre, size, cover, rand, colours, crowded));
+      }
+    }
+    placed.sort((a, b) => a.y - b.y);
+    for (const p of placed) prims.push(...p.prims);
   }
 
   // --- rivers --------------------------------------------------------------
   const rivers = opts.visible.rivers ? layers.rivers.data : null;
   const tapered = knobs.rivers === 'tapered';
   const courses = new Map<string, Point[]>();
+  // A river emptying into a small lake runs on into the lake's body.
+  const tapering: Map<string, RiverCourse> = rivers && tapered
+    ? riverCourses(rivers.rivers, size, seed, (river) => {
+        const last = river.segments.at(-1);
+        if (!last || last.exitEdge === null) return null;
+        const n = neighbourOf(last.col, last.row, last.exitEdge);
+        if (!inBounds(cols, rows, n.col, n.row) || !inLakeBody.has(hexIndex(cols, n.col, n.row))) return null;
+        return hexCenter(n.col, n.row, size);
+      })
+    : new Map();
   if (rivers) {
     const picked = opts.highlightRiver ? rivers.rivers.find((r) => r.id === opts.highlightRiver) : null;
     if (picked) {
@@ -526,7 +780,7 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
     }
     for (const river of rivers.rivers) {
       if (tapered) {
-        const course = riverCourse(river, size, seed);
+        const course = tapering.get(river.id);
         if (!course) continue;
         courses.set(river.id, course.centreline);
         prims.push({ kind: 'path', d: course.outline, fill: palette.river, stroke: palette.river, strokeWidth: Math.max(0.3, size * 0.015), round: true });
@@ -598,13 +852,26 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
 
   // --- cities --------------------------------------------------------------
   const cities = opts.visible.cities ? layers.cities.data : null;
+  const sites = new Map<string, Point>(
+    (cities?.cities ?? []).map((city) => [
+      city.id,
+      citySite(city, {
+        size,
+        base,
+        cols,
+        riverLine: (id) => courses.get(id) ?? null,
+        islandCentre: (i) => islandCentre(i),
+      }),
+    ]),
+  );
+  const siteOf = (city: { id: string; col: number; row: number }) => sites.get(city.id) ?? hexCenter(city.col, city.row, size);
   if (cities) {
     for (const city of cities.cities) {
-      const c = hexCenter(city.col, city.row, size);
+      const c = siteOf(city);
       const r = Math.max(size * 0.16, Math.min(size * 0.46, size * 0.1 * Math.log10(Math.max(10, city.population))));
       // Mark which edges are coastal, since "coastal" is edge-specific here.
       // Dashed and water-coloured so it never reads as a polity border.
-      for (const edge of city.coastalEdges) {
+      for (const edge of knobs.cityCoastMarks ? city.coastalEdges : []) {
         const [a, b] = hexEdgePoints(city.col, city.row, edge, size);
         prims.push({
           kind: 'polyline',
@@ -621,26 +888,57 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
         onRiver: city.onRiver,
         symbol: citySymbolForPopulation(city.population),
         riverDot: palette.river,
+        fill: palette.cityFill,
+        ring: palette.cityRing,
       });
     }
   }
 
   // --- labels --------------------------------------------------------------
-  if (opts.labels) {
-    if (polities) {
-      // City symbols and their names are drawn over the polity layer, so a
-      // realm's name is steered away from them where it can be.
-      const obstacles: LabelObstacle[] = [];
-      for (const city of cities?.cities ?? []) {
-        const c = hexCenter(city.col, city.row, size);
-        const r = Math.max(size * 0.16, Math.min(size * 0.46, size * 0.1 * Math.log10(Math.max(10, city.population))));
-        obstacles.push({ left: c.x - r, right: c.x + r, top: c.y - r, bottom: c.y + r });
-        const fontSize = Math.max(8, size * 0.36);
-        const halfWidth = (city.name.length * fontSize * 0.6) / 2;
-        const y = c.y + size * 0.95;
-        obstacles.push({ left: c.x - halfWidth, right: c.x + halfWidth, top: y - fontSize * 0.6, bottom: y + fontSize * 0.6 });
+  // Realm names are placed first and avoid only the city markers; river and
+  // range names follow their features; city names then take whichever slot
+  // around their marker is free of all of those. A realm's name is never
+  // pushed aside to make room for a city's.
+  const markerRadius = (population: number) =>
+    Math.max(size * 0.16, Math.min(size * 0.46, size * 0.1 * Math.log10(Math.max(10, population))));
+  const taken: OrientedBox[] = [];
+  if (opts.labels && polities) {
+    const obstacles: LabelObstacle[] = [];
+    for (const city of cities?.cities ?? []) {
+      const c = siteOf(city);
+      const r = markerRadius(city.population);
+      obstacles.push({ left: c.x - r, right: c.x + r, top: c.y - r, bottom: c.y + r });
+    }
+    // Without a hierarchy every realm is named once, from the cache. With one,
+    // each level is named in turn, largest first: a realm across all its
+    // parts, then the parts in smaller, lighter type clear of the realm's name.
+    const depths = polityDepths(polities.polities);
+    const maxDepth = Math.max(0, ...depths.values());
+    const levels: Array<{ labels: PolityLabel[]; depth: number }> = [];
+    if (maxDepth === 0) {
+      levels.push({ labels: cachedPolityLabels(polities, cities, cols, rows, size, obstacles, opts.polityNames), depth: 0 });
+    } else {
+      const claimed: LabelObstacle[] = [...obstacles];
+      for (let depth = 0; depth <= maxDepth; depth++) {
+        const labels = placePolityLabels({
+          cols,
+          rows,
+          size,
+          owner: ownersAtDepth(polities.polities, polities.owner, depth),
+          polities: polities.polities.filter((p) => depths.get(p.id) === depth),
+          obstacles: claimed,
+          minHexes: opts.polityNames,
+          scale: depth === 0 ? 1 : 0.62 ** depth,
+        });
+        for (const label of labels) {
+          const em = Math.max(...label.lines.map((line) => fantasyTextEm(line)));
+          claimed.push(labelBox(label.at, em * label.size, label.size * LABEL_LINE_EM * label.lines.length, label.rotation));
+        }
+        levels.push({ labels, depth });
       }
-      for (const label of cachedPolityLabels(polities, cities, cols, rows, size, obstacles, opts.polityNames)) {
+    }
+    for (const { labels, depth } of levels) {
+      for (const label of labels) {
         // Lines are stacked perpendicular to the baseline so a wrapped,
         // rotated name stays a single rigid block.
         label.lines.forEach((line, k) => {
@@ -653,27 +951,20 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
             },
             text: line,
             size: label.size,
-            fill: MAP_COLOURS.label,
-            weight: 600,
+            fill: depth === 0 ? palette.label : withAlpha(palette.label, 0.78),
+            weight: depth === 0 ? 600 : 500,
             anchor: 'middle',
             fantasy: true,
             rotation: label.rotation,
           });
         });
-      }
-    }
-    if (cities) {
-      for (const city of cities.cities) {
-        const c = hexCenter(city.col, city.row, size);
-        prims.push({
-          kind: 'text',
-          at: { x: c.x, y: c.y + size * 0.95 },
-          text: city.name,
-          size: Math.max(8, size * 0.36),
-          fill: MAP_COLOURS.label,
-          halo: MAP_COLOURS.labelHalo,
-          weight: 600,
-          anchor: 'middle',
+        const em = Math.max(...label.lines.map((line) => fantasyTextEm(line)));
+        taken.push({
+          cx: label.at.x,
+          cy: label.at.y,
+          halfW: (em * label.size) / 2,
+          halfH: (label.size * LABEL_LINE_EM * label.lines.length) / 2,
+          rotation: label.rotation,
         });
       }
     }
@@ -689,13 +980,17 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
         text: l.text,
         size: l.size,
         fill: palette.riverLabel,
-        halo: MAP_COLOURS.labelHalo,
+        halo: palette.labelHalo,
         weight: 600,
         anchor: 'middle',
         fantasy: true,
         italic: true,
         rotation: l.rotation,
+        glyphs: l.glyphs,
       });
+      for (const g of l.glyphs ?? []) {
+        taken.push({ cx: g.x, cy: g.y, halfW: l.size * 0.4, halfH: l.size * 0.6, rotation: g.rotation });
+      }
     }
   }
   if (opts.rangeNames && opts.visible.elevation && layers.elevation.data) {
@@ -705,12 +1000,64 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
         at: l.at,
         text: l.text,
         size: l.size,
-        fill: MAP_COLOURS.rangeLabel,
-        halo: MAP_COLOURS.labelHalo,
+        fill: palette.rangeLabel,
+        halo: palette.labelHalo,
         weight: 700,
         anchor: 'middle',
         fantasy: true,
         rotation: l.rotation,
+      });
+      taken.push({ cx: l.at.x, cy: l.at.y, halfW: (fantasyTextEm(l.text, 700) * l.size) / 2, halfH: l.size * 0.6, rotation: l.rotation });
+    }
+  }
+
+  if (opts.seaNames && base && (map.waterNames?.length ?? 0) > 0) {
+    for (const l of placeWaterLabels(map.waterNames!, cols, size)) {
+      prims.push({
+        kind: 'text',
+        at: l.at,
+        text: l.text,
+        size: l.size,
+        fill: palette.riverLabel,
+        weight: 500,
+        anchor: 'middle',
+        fantasy: true,
+        italic: true,
+        rotation: l.rotation,
+        glyphs: l.glyphs,
+      });
+      for (const g of l.glyphs ?? []) {
+        taken.push({ cx: g.x, cy: g.y, halfW: l.size * 0.5, halfH: l.size * 0.6, rotation: g.rotation });
+      }
+    }
+  }
+
+  if (opts.labels && cities) {
+    const fontSize = Math.max(8, size * 0.36);
+    const placements = placeCityNames(
+      cities.cities.map((city) => ({
+        id: city.id,
+        name: city.name,
+        at: siteOf(city),
+        r: markerRadius(city.population),
+        population: city.population,
+      })),
+      fontSize,
+      (text) => uiTextEm(text) * fontSize,
+      taken,
+      { width, height },
+    );
+    const byId = new Map(cities.cities.map((c) => [c.id, c]));
+    for (const p of placements) {
+      prims.push({
+        kind: 'text',
+        at: p.at,
+        text: byId.get(p.id)!.name,
+        size: fontSize,
+        fill: palette.label,
+        halo: palette.labelHalo,
+        weight: 600,
+        anchor: p.anchor,
       });
     }
   }

@@ -141,6 +141,18 @@ function drawPrim(ctx: Ctx, prim: Prim): void {
       break;
     }
     case 'text': {
+      if (prim.glyphs) {
+        // Every halo first, then every glyph, so no halo covers a neighbour's ink.
+        const passes = prim.halo
+          ? [{ halo: prim.halo, fill: 'rgba(0,0,0,0)' }, { halo: undefined, fill: prim.fill }]
+          : [{ halo: undefined, fill: prim.fill }];
+        for (const pass of passes) {
+          for (const g of prim.glyphs) {
+            drawPrim(ctx, { ...prim, ...pass, glyphs: undefined, text: g.ch, at: { x: g.x, y: g.y }, rotation: g.rotation, anchor: 'middle' });
+          }
+        }
+        break;
+      }
       ctx.save();
       ctx.translate(prim.at.x, prim.at.y);
       ctx.rotate(prim.rotation ?? 0);

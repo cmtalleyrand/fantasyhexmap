@@ -41,6 +41,9 @@ export const BASE_CHARS: Record<BaseGeo, string> = {
   Lake: 'l',
   Ice: 'g',
   Island: 'i',
+  'Coastal Island': 'k',
+  'Large Island': 'b',
+  'Small Islands': 'a',
 };
 const BASE_BY_CHAR = new Map<string, BaseGeo>(
   BASE_GEO_VALUES.map((v) => [BASE_CHARS[v], v]),

@@ -20,12 +20,15 @@ import {
   VEGETATION_COLOURS,
 } from './palette.js';
 import { CLASSIC_STYLE, type MapStyle } from './styles.js';
+import { polityDisplayColours } from './hierarchy.js';
+import { descendantsOf } from '../../shared/polityTree.js';
 import { thematicLayer, type CitySymbol, type Prim, type Scene, type VisibleLayers } from './scene.js';
 import { LAYER_META } from '../../shared/layers.js';
 import { formatLength, riverLength } from '../../shared/riverLength.js';
 import { normaliseHexDimensions, politySurfaceAreas } from '../../shared/surfaceArea.js';
 import {
   BASE_GEO_VALUES,
+  isIslandType,
   CLIMATE_VALUES,
   ELEVATION_VALUES,
   LAYER_ORDER,
@@ -59,7 +62,7 @@ export const DEFAULT_LEGEND_OPTIONS: LegendOptions = {
 
 export type LegendSwatch =
   | { kind: 'fill'; colour: string }
-  | { kind: 'island'; sea: string; land: string }
+  | { kind: 'island'; sea: string; land: string; variant: 'one' | 'coastal' | 'large' | 'small' }
   | { kind: 'line'; colour: string; width: number }
   | { kind: 'coast' }
   | { kind: 'city'; symbol: CitySymbol; onRiver: boolean }
@@ -69,6 +72,8 @@ export type LegendSwatch =
 export interface LegendEntry {
   swatch: LegendSwatch;
   label: string;
+  /** Nesting level: a polity that is part of another is listed under it, indented. */
+  indent?: number;
 }
 
 export interface LegendSection {
@@ -148,8 +153,16 @@ export function legendSections(
     switch (id) {
       case 'base':
         entries = keep(BASE_GEO_VALUES, usedValues(map.layers.base.data)).map((v) =>
-          v === 'Island'
-            ? { swatch: { kind: 'island', sea: palette.sea, land: palette.island }, label: 'Island' }
+          isIslandType(v)
+            ? {
+                swatch: {
+                  kind: 'island',
+                  sea: palette.sea,
+                  land: style.knobs.land === 'uniform' ? palette.land : palette.island,
+                  variant: v === 'Coastal Island' ? 'coastal' : v === 'Large Island' ? 'large' : v === 'Small Islands' ? 'small' : 'one',
+                },
+                label: v,
+              }
             : { swatch: { kind: 'fill', colour: baseColour[v] ?? BASE_COLOURS[v] }, label: v },
         );
         break;
@@ -214,7 +227,7 @@ export function legendSections(
         if (!options.onlyUsed || cities.some((c) => c.onRiver)) {
           entries.push({ swatch: { kind: 'city', symbol: 'village', onRiver: true }, label: 'Blue centre: on a river' });
         }
-        if (!options.onlyUsed || cities.some((c) => c.coastalEdges.length > 0)) {
+        if (style.knobs.cityCoastMarks && (!options.onlyUsed || cities.some((c) => c.coastalEdges.length > 0))) {
           entries.push({ swatch: { kind: 'coast' }, label: 'Dashed edge: borders sea or lake' });
         }
         break;
@@ -227,13 +240,21 @@ export function legendSections(
           ? politySurfaceAreas(base, data, dimensions)
           : null;
         const owned = usedValues(data?.owner);
-        for (const p of data?.polities ?? []) {
-          if (options.onlyUsed && !owned.has(p.id)) continue;
+        const all = data?.polities ?? [];
+        const colours = polityDisplayColours(all, style.knobs.subPolities);
+        // A realm's area is the sum of its own hexes and all its parts'.
+        const treeArea = (id: string) =>
+          [...descendantsOf(all, id)].reduce((sum, d) => sum + (areas?.get(d) ?? 0), 0);
+        const inUse = (id: string) => [...descendantsOf(all, id)].some((d) => owned.has(d));
+        const visit = (p: (typeof all)[number], depth: number) => {
+          if (options.onlyUsed && !inUse(p.id)) return;
           const area = areas
-            ? ` - ${(areas.get(p.id) ?? 0).toLocaleString(undefined, { maximumFractionDigits: 2 })} ${dimensions.unit}²`
+            ? ` - ${treeArea(p.id).toLocaleString(undefined, { maximumFractionDigits: 2 })} ${dimensions.unit}²`
             : '';
-          entries.push({ swatch: { kind: 'fill', colour: p.colour }, label: `${p.name}${area}` });
-        }
+          entries.push({ swatch: { kind: 'fill', colour: colours.get(p.id) ?? p.colour }, label: `${p.name}${area}`, indent: depth });
+          for (const child of all.filter((q) => q.parentId === p.id)) visit(child, depth + 1);
+        };
+        for (const p of all.filter((q) => !q.parentId || !all.some((r) => r.id === q.parentId))) visit(p, 0);
         break;
       }
       case 'population': {
@@ -301,7 +322,19 @@ function swatchPrims(swatch: LegendSwatch, x: number, cy: number, m: ReturnType<
     case 'fill':
       return [box(swatch.colour)];
     case 'island':
-      return [box(swatch.sea), { kind: 'circle', c: { x: cx, y: cy }, r: 4.6 * k, fill: swatch.land }];
+    {
+      const dot = (x0: number, y0: number, r: number): Prim => ({ kind: 'circle', c: { x: x0, y: y0 }, r, fill: swatch.land });
+      switch (swatch.variant) {
+        case 'coastal':
+          return [box(swatch.sea), dot(x + w - 5 * k, cy, 4 * k)];
+        case 'large':
+          return [box(swatch.sea), dot(cx, cy, 6.2 * k)];
+        case 'small':
+          return [box(swatch.sea), dot(cx - 5 * k, cy - 2 * k, 2.3 * k), dot(cx + 4 * k, cy - 3 * k, 2 * k), dot(cx + 1 * k, cy + 3.5 * k, 2.4 * k)];
+        default:
+          return [box(swatch.sea), dot(cx, cy, 4.6 * k)];
+      }
+    }
     case 'line':
       return [{
         kind: 'polyline',
@@ -421,7 +454,7 @@ export function appendLegend(
         r.kind === 'heading'
           ? textWidth(r.text, m.head, 700)
           : r.kind === 'entry'
-            ? m.swatchW + m.gap + textWidth(r.entry.label, m.body, 500)
+            ? (r.entry.indent ?? 0) * m.gap * 1.6 + m.swatchW + m.gap + textWidth(r.entry.label, m.body, 500)
             : 0,
       ),
     ),
@@ -488,10 +521,11 @@ export function appendLegend(
         y += m.headRow;
       } else {
         const cy = y + m.row / 2;
-        prims.push(...swatchPrims(row.entry.swatch, x, cy, m));
+        const dx = (row.entry.indent ?? 0) * m.gap * 1.6;
+        prims.push(...swatchPrims(row.entry.swatch, x + dx, cy, m));
         prims.push({
           kind: 'text',
-          at: { x: x + m.swatchW + m.gap, y: cy },
+          at: { x: x + dx + m.swatchW + m.gap, y: cy },
           text: row.entry.label,
           size: m.body,
           fill: PANEL.ink,

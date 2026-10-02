@@ -18,15 +18,15 @@
  */
 
 import { hexCorners, hexEdgePoints, hexIndex, inBounds, neighbourOf, type Point } from '../../shared/hex.js';
-import type { BaseGeo } from '../../shared/types.js';
+import { isIslandType, type BaseGeo } from '../../shared/types.js';
 import type { PathCmd } from './prims.js';
 
 export type Side = 'land' | 'water';
 
-/** Which side of the coast a hex is on. Island hexes are sea with an islet drawn on top. */
+/** Which side of the coast a hex is on. Island hexes of every kind are sea with land drawn on top. */
 export function sideOf(value: BaseGeo | null | undefined): Side | null {
   if (!value) return null;
-  return value === 'Sea' || value === 'Lake' || value === 'Island' ? 'water' : 'land';
+  return value === 'Sea' || value === 'Lake' || isIslandType(value) ? 'water' : 'land';
 }
 
 interface CoastEdge {
@@ -82,35 +82,44 @@ export function coastEdges(base: ReadonlyArray<BaseGeo | null>, cols: number, ro
 }
 
 export function chainEdges(edges: CoastEdge[]): CoastChain[] {
-  const byStart = new Map<string, number>();
+  // Coast edges never share a start point, but other boundary sets (realm
+  // frontiers meeting at a three-way junction) can, so starts map to lists.
+  const byStart = new Map<string, number[]>();
   const ends = new Set<string>();
   edges.forEach((edge, i) => {
-    byStart.set(key(edge.from), i);
+    const k = key(edge.from);
+    byStart.set(k, [...(byStart.get(k) ?? []), i]);
     ends.add(key(edge.to));
   });
   const used = new Uint8Array(edges.length);
   const chains: CoastChain[] = [];
+  const next = (at: Point): number | undefined => byStart.get(key(at))?.find((j) => !used[j]);
   const follow = (start: number): CoastEdge[] => {
     const run: CoastEdge[] = [];
     let i: number | undefined = start;
     while (i !== undefined && !used[i]) {
       used[i] = 1;
       run.push(edges[i]!);
-      i = byStart.get(key(edges[i]!.to));
+      i = next(edges[i]!.to);
     }
     return run;
   };
-  // Open chains first: they start where no coast edge ends (at the map edge).
+  const push = (run: CoastEdge[]) => {
+    // A run is a loop only if it really comes back to where it began.
+    const closed = run.length > 2 && key(run[run.length - 1]!.to) === key(run[0]!.from);
+    chains.push(
+      closed
+        ? { points: run.map((e) => e.from), edges: run, closed: true }
+        : { points: [run[0]!.from, ...run.map((e) => e.to)], edges: run, closed: false },
+    );
+  };
+  // Open chains first: they start where no edge ends (at the map edge, or a junction).
   edges.forEach((edge, i) => {
     if (used[i] || ends.has(key(edge.from))) return;
-    const run = follow(i);
-    chains.push({ points: [run[0]!.from, ...run.map((e) => e.to)], edges: run, closed: false });
+    push(follow(i));
   });
-  // Everything left goes round a closed loop.
   edges.forEach((_, i) => {
-    if (used[i]) return;
-    const run = follow(i);
-    chains.push({ points: run.map((e) => e.from), edges: run, closed: true });
+    if (!used[i]) push(follow(i));
   });
   return chains;
 }
@@ -231,4 +240,119 @@ export function isletPath(c: Point, size: number, rand: (k: number) => number): 
     });
   }
   return smoothPath(points, true);
+}
+
+/**
+ * Lakes of one or two hexes. Traced from the hex edges they come out as a
+ * rounded hexagon or a lozenge, which reads as a drawn symbol rather than a
+ * lake, so they are drawn instead as an irregular body sized to fill most of
+ * their hexes. Returns each such lake's hexes.
+ */
+export function smallLakes(
+  base: ReadonlyArray<BaseGeo | null>,
+  cols: number,
+  rows: number,
+  maxHexes = 2,
+): number[][] {
+  const seen = new Uint8Array(base.length);
+  const out: number[][] = [];
+  for (let i = 0; i < base.length; i++) {
+    if (seen[i] || base[i] !== 'Lake') continue;
+    const component: number[] = [];
+    const stack = [i];
+    seen[i] = 1;
+    while (stack.length > 0) {
+      const h = stack.pop()!;
+      component.push(h);
+      for (let e = 0; e < 6; e++) {
+        const n = neighbourOf(h % cols, Math.floor(h / cols), e);
+        if (!inBounds(cols, rows, n.col, n.row)) continue;
+        const j = hexIndex(cols, n.col, n.row);
+        if (!seen[j] && base[j] === 'Lake') {
+          seen[j] = 1;
+          stack.push(j);
+        }
+      }
+    }
+    if (component.length <= maxHexes) out.push(component.sort((a, b) => a - b));
+  }
+  return out;
+}
+
+/**
+ * An irregular closed body: an ellipse of half-axes rx, ry turned by `axis`,
+ * with each of its control points pushed in or out by up to `wobble` of its
+ * radius, then smoothed.
+ */
+export function blobPath(
+  c: Point,
+  rx: number,
+  ry: number,
+  axis: number,
+  rand: (k: number) => number,
+  count = 10,
+  wobble = 0.14,
+): PathCmd[] {
+  const points: Point[] = [];
+  for (let k = 0; k < count; k++) {
+    const angle = (k / count) * Math.PI * 2 + (rand(k) - 0.5) * 0.35;
+    const scale = 1 + (rand(k + 50) - 0.5) * 2 * wobble;
+    const x = Math.cos(angle) * rx * scale;
+    const y = Math.sin(angle) * ry * scale;
+    points.push({
+      x: c.x + x * Math.cos(axis) - y * Math.sin(axis),
+      y: c.y + x * Math.sin(axis) + y * Math.cos(axis),
+    });
+  }
+  return smoothPath(points, true);
+}
+
+/**
+ * The edge a Coastal Island lies against when the map does not say: the one
+ * pointing most nearly at the nearest land hex (searched out to four hexes),
+ * or edge 0 when there is no land that close.
+ */
+export function coastalIslandSide(
+  base: ReadonlyArray<BaseGeo | null>,
+  cols: number,
+  rows: number,
+  i: number,
+  size = 1,
+): number {
+  const col = i % cols;
+  const row = Math.floor(i / cols);
+  const seen = new Set([i]);
+  let frontier = [i];
+  for (let ring = 0; ring < 4 && frontier.length > 0; ring++) {
+    const next: number[] = [];
+    const land: number[] = [];
+    for (const h of frontier) {
+      for (let e = 0; e < 6; e++) {
+        const n = neighbourOf(h % cols, Math.floor(h / cols), e);
+        if (!inBounds(cols, rows, n.col, n.row)) continue;
+        const j = hexIndex(cols, n.col, n.row);
+        if (seen.has(j)) continue;
+        seen.add(j);
+        if (sideOf(base[j]) === 'land') land.push(j);
+        next.push(j);
+      }
+    }
+    if (land.length > 0) {
+      const here = hexCorners(col, row, size);
+      const cx = here.reduce((s, p) => s + p.x, 0) / 6;
+      const cy = here.reduce((s, p) => s + p.y, 0) / 6;
+      let dx = 0;
+      let dy = 0;
+      for (const j of land) {
+        const c = hexCorners(j % cols, Math.floor(j / cols), size);
+        dx += c.reduce((s, p) => s + p.x, 0) / 6 - cx;
+        dy += c.reduce((s, p) => s + p.y, 0) / 6 - cy;
+      }
+      // Edge e's midpoint lies at angle 60e degrees from the centre.
+      const angle = Math.atan2(dy, dx);
+      return ((Math.round(angle / (Math.PI / 3)) % 6) + 6) % 6;
+    }
+    frontier = next;
+  }
+  return 0;
 }

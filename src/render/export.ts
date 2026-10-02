@@ -19,13 +19,14 @@ import { renderToCanvas } from './canvas.js';
 import { appendLegend, legendSections, type LegendOptions } from './legend.js';
 import { buildScene, singleLayerVisibility, type Scene, type VisibleLayers } from './scene.js';
 import { sceneToSvg } from './svg.js';
-import type { MapStyle } from './styles.js';
+import { CLASSIC_STYLE, elevationStyleOf, type MapStyle } from './styles.js';
 
 export interface ExportOptions {
   format: 'png' | 'svg';
   labels: boolean;
   riverNames?: boolean;
   rangeNames?: boolean;
+  seaNames?: boolean;
   polityNames?: PolityNameMin;
   elevationStyle?: 'colour' | 'contours';
   polityOpacity?: number;
@@ -70,6 +71,7 @@ export function buildExportScene(map: MapState, visible: VisibleLayers, opts: Ex
     labels: opts.labels,
     riverNames: opts.riverNames,
     rangeNames: opts.rangeNames,
+    seaNames: opts.seaNames,
     polityNames: opts.polityNames,
     elevationStyle: opts.elevationStyle,
     polityOpacity: opts.polityOpacity,
@@ -80,7 +82,13 @@ export function buildExportScene(map: MapState, visible: VisibleLayers, opts: Ex
     transparentBackground: opts.transparentBackground ?? false,
   });
   if (!opts.legend) return scene;
-  const sections = legendSections(map, visible, opts.elevationStyle ?? 'colour', opts.legend, opts.style);
+  const sections = legendSections(
+    map,
+    visible,
+    opts.elevationStyle ?? elevationStyleOf(opts.style ?? CLASSIC_STYLE),
+    opts.legend,
+    opts.style,
+  );
   return appendLegend(scene, sections, opts.legend.title ? map.name : null, size);
 }
 
@@ -258,8 +266,8 @@ export function serializeParseFriendlyExport(map: MapState): string {
       rivers:
         'data.rivers: [{id, name, terminus, branchOf?, segments:[{col,row,entryEdge|null,exitEdge|null,navigable}]}]. Segments run source to mouth; entryEdge is null at the source.',
       cities:
-        'data.cities: [{id,col,row,name,population,onRiver,riverId|null,coastal,coastalEdges:number[]}]',
-      polities: 'data.polities: [{id,name,shortName?,colour}]; data.owner: array of hexCount polity ids or null',
+        'data.cities: [{id,col,row,name,population,onRiver,riverId|null,coastal,coastalEdges:number[],site?}]. site is where the marker is drawn: "auto", "inland", "river" or {coast: edge}.',
+      polities: 'data.polities: [{id,name,shortName?,colour,parentId?}]; parentId names the larger polity this one is part of, which may own no hexes itself. data.owner: array of hexCount polity ids (the most specific polity) or null',
     },
     values: {
       base: BASE_GEO_VALUES,
@@ -275,6 +283,12 @@ export function serializeParseFriendlyExport(map: MapState): string {
     scale: map.hexDimensions,
     ...(map.mountainRanges?.length
       ? { mountainRangesNote: 'map.mountainRanges[].hexes are flat indices (row * cols + col).' }
+      : {}),
+    ...(map.waterNames?.length
+      ? { waterNamesNote: 'map.waterNames[] names seas, bays and lakes; hexes are flat indices (row * cols + col).' }
+      : {}),
+    ...(map.islandSides && Object.keys(map.islandSides).length
+      ? { islandSidesNote: 'map.islandSides maps a Coastal Island hex\'s flat index to the edge (0..5) its islet lies against; absent hexes face the nearest land.' }
       : {}),
   };
 

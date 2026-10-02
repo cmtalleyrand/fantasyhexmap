@@ -14,7 +14,7 @@
 import { isLandLike, isWater } from './derive.js';
 import { hexIndex, inBounds, indexToOffset, neighbourOf } from './hex.js';
 import { buildRiverFromPath } from './validate.js';
-import { ELEVATION_VALUES, type BaseData, type Elevation, type River } from './types.js';
+import { ELEVATION_VALUES, isIslandType, type BaseData, type Elevation, type River } from './types.js';
 
 export interface BaseTransitions {
   /** Hexes that were land and are now Sea or Lake. */
@@ -201,7 +201,7 @@ export function inferNewLand(
 
     if (inputs.elevation && inputs.elevation[i] == null) {
       let value: Elevation = 'Lowland';
-      if (inputs.base[i] !== 'Island') {
+      if (!isIslandType(inputs.base[i])) {
         const picked = mode(
           donors.map((j) => inputs.elevation![j]).filter((v): v is Elevation => v != null),
           (a, b) => ELEVATION_RANK.get(a)! - ELEVATION_RANK.get(b)!,

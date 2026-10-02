@@ -25,6 +25,8 @@ export interface PolityRosterEntry {
   key: string;
   name: string;
   shortName?: string;
+  /** Name of the larger polity this one is part of. */
+  parent?: string;
   colour: string;
   /**
    * How many land hexes the polity is meant to hold, when that is known. Set by
@@ -108,6 +110,7 @@ export function rosterFromPolities(data: PolitiesData): Roster {
       key: keyAt(i),
       name: p.name,
       shortName: p.shortName,
+      ...(p.parentId ? { parent: data.polities.find((q) => q.id === p.parentId)?.name } : {}),
       colour: p.colour,
       hexes: data.owner.filter((id) => id === p.id).length,
     })),
@@ -203,10 +206,12 @@ function tryParseJson(kind: RosterKind, text: string): Roster | null {
         if (!name) throw new RosterParseError(`Entry ${i + 1} has no name.`);
         const key = String(item.key ?? '').trim().charAt(0) || keyAt(i);
         const shortName = String(item.shortName ?? '').trim();
+        const parent = String(item.parent ?? '').trim();
         return {
           key,
           name,
           ...(shortName ? { shortName } : {}),
+          ...(parent ? { parent } : {}),
           colour: String(item.colour ?? '').trim(),
           ...targetHexes(item.hexes),
         };

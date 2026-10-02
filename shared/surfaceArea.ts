@@ -1,5 +1,6 @@
 import {
   DEFAULT_HEX_DIMENSIONS,
+  isIslandType,
   type BaseData,
   type HexDimensions,
   type PolitiesData,
@@ -26,7 +27,10 @@ export function politySurfaceAreas(
     const fraction =
       base[index] === 'Coastal Land'
         ? dimensions.coastalLandPercent / 100
-        : base[index] === 'Island'
+        : base[index] === 'Large Island'
+          ? // One island filling most of its hex.
+            Math.max(0.75, dimensions.islandLandPercent / 100)
+          : isIslandType(base[index])
           ? dimensions.islandLandPercent / 100
           : base[index] === 'Land'
             ? 1
