@@ -10,7 +10,16 @@ export type Effort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 
 export const EFFORT_LEVELS: Effort[] = ['low', 'medium', 'high', 'xhigh', 'max'];
 
-export const DEFAULT_MODEL = 'claude-opus-5';
+/**
+ * The model every layer is generated with unless Settings or HEXMAP_MODEL says
+ * otherwise. Opus 5.5 is the current Opus: the same 1M context and 128k output
+ * as Opus 5 at a lower price. Its own default effort is medium, but the app
+ * always sends an effort explicitly, so that does not apply here.
+ */
+export const DEFAULT_MODEL = 'claude-opus-5-5';
+
+/** The default model before Opus 5.5, for recognising prefs nobody chose. */
+export const PREVIOUS_DEFAULT_MODEL = 'claude-opus-5';
 
 /**
  * Default reasoning depth.

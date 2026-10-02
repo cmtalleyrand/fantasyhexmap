@@ -20,7 +20,8 @@
 
 import * as z from 'zod/v4';
 
-import { LAYER_ORDER, type LayerId } from '../shared/types.js';
+import type { LayerId } from '../shared/types.js';
+import { generationOrder } from '../shared/generationQueue.js';
 import { LAYER_META } from '../shared/layers.js';
 import {
   descriptionBlock,
@@ -152,9 +153,12 @@ export interface MultiWebchatPromptOptions {
   style?: WebchatStyle;
 }
 
-/** The selected layers in pipeline order, which is the order they are written and decoded in. */
+/**
+ * The selected layers in the order they are written and decoded in: each after
+ * everything it reads, so Rivers comes before the Vegetation that uses them.
+ */
 export function orderLayers(layers: LayerId[]): LayerId[] {
-  return LAYER_ORDER.filter((id) => layers.includes(id));
+  return generationOrder(layers);
 }
 
 /**

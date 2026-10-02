@@ -22,7 +22,7 @@ import {
 } from '../../shared/landChange.js';
 import { isLayerEnabled } from '../../shared/layers.js';
 import { detachOrphanBranches, setRiverNavigability } from '../../shared/riverEdit.js';
-import { currentDepVersions, trimHistory } from '../../shared/layers.js';
+import { cosmeticallyEqual, currentDepVersions, identicalData, trimHistory } from '../../shared/layers.js';
 import { LAYER_META, normaliseSelection } from '../../shared/layers.js';
 import type {
   City,
@@ -75,6 +75,8 @@ export type Action =
   | { type: 'addRiver'; river: River }
   | { type: 'updateRiver'; river: River }
   | { type: 'removeRiver'; id: string }
+  /** Replace several rivers by one built from them (see `mergeRivers`): one undo entry. */
+  | { type: 'mergeRivers'; river: River; absorbed: string[] }
   | { type: 'setRiverNavigability'; indices: number[]; navigable: boolean; downstream: boolean }
   /** Put Mountains hexes in the range `id`, creating it if it does not exist. */
   | { type: 'nameMountainRange'; id: string; name: string; indices: number[] }
@@ -94,7 +96,16 @@ function snapshotOf<K extends LayerId>(layer: LayerState<K>): LayerSnapshot<K> {
   };
 }
 
-/** Commit a change to one layer: snapshot the old value, bump the version. */
+/**
+ * The version a layer moves to when its data goes from `before` to `after`.
+ * Only a change of substance bumps it: a rename or recolour leaves it alone, so
+ * nothing downstream is marked stale by one (see `cosmeticallyEqual`).
+ */
+function nextVersion(version: number, before: unknown, after: unknown): number {
+  return cosmeticallyEqual(before, after) ? version : version + 1;
+}
+
+/** Commit a change to one layer: snapshot the old value, bump the version if the change has substance. */
 function commit<K extends LayerId>(
   layer: LayerState<K>,
   next: Partial<LayerSnapshot<K>>,
@@ -102,7 +113,7 @@ function commit<K extends LayerId>(
   return {
     ...layer,
     ...next,
-    version: layer.version + 1,
+    version: 'data' in next ? nextVersion(layer.version, layer.data, next.data) : layer.version + 1,
     past: trimHistory([...layer.past, snapshotOf(layer)]),
     future: [],
   };
@@ -417,6 +428,8 @@ export function reducer(map: MapState, action: Action): MapState {
       for (const i of action.indices) {
         if (i >= 0 && i < data.length) data[i] = action.value;
       }
+      // A stroke over hexes that already hold the value changes nothing; do not record it.
+      if (identicalData(layer.data, data)) return map;
       const value = action.value === null ? 'no value' : String(action.value);
       const next = journal(
         withLayer(
@@ -446,6 +459,7 @@ export function reducer(map: MapState, action: Action): MapState {
         if (action.polityId && base && !canHoldSettlement(base[i], map.allowUnderwater)) continue;
         owner[i] = action.polityId;
       }
+      if (identicalData(layer.data.owner, owner)) return map;
       const target = action.polityId
         ? layer.data.polities.find((p) => p.id === action.polityId)?.name ?? 'a polity'
         : 'unclaimed';
@@ -465,6 +479,7 @@ export function reducer(map: MapState, action: Action): MapState {
       const polities = exists
         ? current.polities.map((p) => (p.id === action.polity.id ? action.polity : p))
         : [...current.polities, action.polity];
+      if (exists && identicalData(current.polities, polities)) return map;
       return journal(
         withLayer(map, 'polities', commit(layer, { data: { ...current, polities } })),
         manualEntry('polities', `${exists ? 'Edited' : 'Added'} the polity "${action.polity.name}" by hand.`),
@@ -494,6 +509,7 @@ export function reducer(map: MapState, action: Action): MapState {
       const layer = map.layers.polities;
       if (!layer.data) return map;
       const polities = layer.data.polities.map((p) => ({ ...p, colour: action.colours[p.id] ?? p.colour }));
+      if (identicalData(layer.data.polities, polities)) return map;
       return journal(
         withLayer(map, 'polities', commit(layer, { data: { ...layer.data, polities } })),
         manualEntry('polities', 'Assigned a contrasting colour set to polities.'),
@@ -515,6 +531,7 @@ export function reducer(map: MapState, action: Action): MapState {
       const cities = exists
         ? current.cities.map((c) => (c.id === city.id ? city : c))
         : [...current.cities, city];
+      if (exists && identicalData(current.cities, cities)) return map;
       return journal(
         withLayer(map, 'cities', commit(layer, { data: { cities } })),
         manualEntry('cities', `${exists ? 'Edited' : 'Added'} the city "${city.name}" by hand.`),
@@ -552,19 +569,32 @@ export function reducer(map: MapState, action: Action): MapState {
     case 'updateRiver': {
       const layer = map.layers.rivers;
       if (!layer.data) return map;
+      const rivers = detachOrphanBranches(
+        layer.data.rivers.map((r) => (r.id === action.river.id ? action.river : r)),
+      );
+      if (identicalData(layer.data.rivers, rivers)) return map;
       const next = journal(
-        withLayer(
-          map,
-          'rivers',
-          commit(layer, {
-            data: {
-              rivers: detachOrphanBranches(
-                layer.data.rivers.map((r) => (r.id === action.river.id ? action.river : r)),
-              ),
-            },
-          }),
-        ),
+        withLayer(map, 'rivers', commit(layer, { data: { rivers } })),
         manualEntry('rivers', `Edited the river "${action.river.name}" by hand.`),
+      );
+      return reconcile(next);
+    }
+
+    case 'mergeRivers': {
+      const layer = map.layers.rivers;
+      if (!layer.data) return map;
+      const absorbed = new Set(action.absorbed);
+      const names = layer.data.rivers.filter((r) => absorbed.has(r.id)).map((r) => `"${r.name}"`);
+      const rivers = detachOrphanBranches(
+        layer.data.rivers
+          .filter((r) => !absorbed.has(r.id))
+          .map((r) => (r.id === action.river.id ? action.river : r))
+          // Branches of a river that was folded in now leave the joined one.
+          .map((r) => (r.branchOf && absorbed.has(r.branchOf) ? { ...r, branchOf: action.river.id } : r)),
+      );
+      const next = journal(
+        withLayer(map, 'rivers', commit(layer, { data: { rivers } })),
+        manualEntry('rivers', `Joined ${names.join(', ')} into the river "${action.river.name}" by hand.`),
       );
       return reconcile(next);
     }
@@ -683,7 +713,7 @@ export function reducer(map: MapState, action: Action): MapState {
         withLayer(map, action.layer, {
           ...layer,
           ...previous,
-          version: layer.version + 1,
+          version: nextVersion(layer.version, layer.data, previous.data),
           past: layer.past.slice(0, -1),
           future: trimHistory([...layer.future, snapshotOf(layer)]),
         }),
@@ -703,7 +733,7 @@ export function reducer(map: MapState, action: Action): MapState {
         withLayer(map, action.layer, {
           ...layer,
           ...ahead,
-          version: layer.version + 1,
+          version: nextVersion(layer.version, layer.data, ahead.data),
           past: trimHistory([...layer.past, snapshotOf(layer)]),
           future: layer.future.slice(0, -1),
         }),

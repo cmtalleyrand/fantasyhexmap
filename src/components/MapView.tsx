@@ -6,7 +6,10 @@ import { drawScene } from '../render/canvas.js';
 import { buildScene, type VisibleLayers } from '../render/scene.js';
 import { MAP_COLOURS } from '../render/palette.js';
 import { riversThroughHex } from '../../shared/derive.js';
+import { formatLength, riverLength } from '../../shared/riverLength.js';
+import { normaliseHexDimensions } from '../../shared/surfaceArea.js';
 import type { RiverTool } from '../state/riverTools.js';
+import { pinchView, zoomAt, type ScreenPoint, type View } from '../render/view.js';
 
 const HEX_SIZE = 26;
 
@@ -40,12 +43,8 @@ export interface MapViewProps {
   onRiverExtend: (index: number) => void;
   /** A navigability stroke finished over these hexes. */
   onRiverPaint: (indices: number[]) => void;
-}
-
-interface View {
-  scale: number;
-  x: number;
-  y: number;
+  /** Shown over the middle of the map, such as the first step on an empty map. */
+  overlay?: React.ReactNode;
 }
 
 export default function MapView(props: MapViewProps) {
@@ -61,8 +60,37 @@ export default function MapView(props: MapViewProps) {
     | { mode: 'city'; cityId: string; target: number }
     | { mode: 'riverMove'; from: number; target: number }
     | { mode: 'riverPaint'; touched: Set<number> }
+    | { mode: 'pinch'; start: View; a0: ScreenPoint; b0: ScreenPoint; ids: [number, number] }
     | null
   >(null);
+  /** Every pointer currently down, by id, for two-finger pan and zoom on touch screens. */
+  const pointers = useRef(new Map<number, ScreenPoint>());
+  /** Held Space turns a drag into a pan, as in most drawing tools. */
+  const spaceHeld = useRef(false);
+  const [panReady, setPanReady] = useState(false);
+  useEffect(() => {
+    const typing = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      return Boolean(t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable));
+    };
+    const down = (e: KeyboardEvent) => {
+      if (e.code !== 'Space' || typing(e)) return;
+      e.preventDefault();
+      spaceHeld.current = true;
+      setPanReady(true);
+    };
+    const up = (e: KeyboardEvent) => {
+      if (e.code !== 'Space') return;
+      spaceHeld.current = false;
+      setPanReady(false);
+    };
+    window.addEventListener('keydown', down);
+    window.addEventListener('keyup', up);
+    return () => {
+      window.removeEventListener('keydown', down);
+      window.removeEventListener('keyup', up);
+    };
+  }, []);
 
   const scene = useMemo(() => {
     const riverDraftSelection = props.riverDraft ? new Set(props.riverDraft) : null;
@@ -82,8 +110,12 @@ export default function MapView(props: MapViewProps) {
     });
   }, [map, visible, labels, riverNames, rangeNames, polityNames, elevationStyle, polityOpacity, uniformLand, selection, hover, props.riverDraft, props.riverTool?.selectedId]);
 
-  // Fit the map into the viewport the first time it is laid out.
+  // Fit the map into the viewport the first time it is laid out, and again
+  // whenever a different map (a load, an import, a new map) takes its place.
   const fitted = useRef(false);
+  useEffect(() => {
+    fitted.current = false;
+  }, [map.id, map.cols, map.rows]);
   useEffect(() => {
     const wrap = wrapRef.current;
     if (!wrap) return;
@@ -114,7 +146,7 @@ export default function MapView(props: MapViewProps) {
       fitted.current = true;
       fit();
     }
-  }, [fit, size.width]);
+  }, [fit, size.width, map.id]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -152,9 +184,23 @@ export default function MapView(props: MapViewProps) {
     [map.cols, map.rows, view],
   );
 
+  const localPoint = (e: { clientX: number; clientY: number }): ScreenPoint => {
+    const rect = canvasRef.current?.getBoundingClientRect();
+    return { x: e.clientX - (rect?.left ?? 0), y: e.clientY - (rect?.top ?? 0) };
+  };
+
   const onPointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
     (e.target as HTMLCanvasElement).setPointerCapture(e.pointerId);
-    const panning = e.button === 1 || e.button === 2 || e.altKey;
+    pointers.current.set(e.pointerId, localPoint(e));
+    if (pointers.current.size === 2) {
+      // A second finger turns whatever the first one started into a pan and zoom.
+      // The first touch has already selected its hex; the pinch just leaves that be.
+      const [[idA, a0], [idB, b0]] = [...pointers.current.entries()] as [[number, ScreenPoint], [number, ScreenPoint]];
+      drag.current = { mode: 'pinch', start: view, a0, b0, ids: [idA, idB] };
+      return;
+    }
+    if (pointers.current.size > 2) return;
+    const panning = e.button === 1 || e.button === 2 || e.altKey || spaceHeld.current;
     if (panning) {
       drag.current = {
         mode: 'pan',
@@ -176,19 +222,18 @@ export default function MapView(props: MapViewProps) {
     const tool = props.riverTool;
     if (tool) {
       if (tool.kind === 'select') {
-        props.onRiverSelect(index);
+        // A river hex is picked, and dragging it moves it; anywhere else just picks the hex.
+        const rivers = map.layers.rivers.data?.rivers ?? [];
+        if (riversThroughHex(rivers, index % map.cols, Math.floor(index / map.cols)).length > 0) {
+          props.onRiverSelect(index);
+          drag.current = { mode: 'riverMove', from: index, target: index };
+        }
         onSelectionChange(new Set([index]));
       } else if (tool.kind === 'extend') {
         const rivers = map.layers.rivers.data?.rivers ?? [];
         const here = riversThroughHex(rivers, index % map.cols, Math.floor(index / map.cols));
         if (here.length > 0 && !here.some((r) => r.id === tool.selectedId)) props.onRiverSelect(index);
         else if (here.length === 0) props.onRiverExtend(index);
-        onSelectionChange(new Set([index]));
-      } else if (tool.kind === 'move') {
-        const rivers = map.layers.rivers.data?.rivers ?? [];
-        if (riversThroughHex(rivers, index % map.cols, Math.floor(index / map.cols)).length === 0) return;
-        props.onRiverSelect(index);
-        drag.current = { mode: 'riverMove', from: index, target: index };
         onSelectionChange(new Set([index]));
       } else {
         drag.current = { mode: 'riverPaint', touched: new Set([index]) };
@@ -218,9 +263,16 @@ export default function MapView(props: MapViewProps) {
   };
 
   const onPointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    if (pointers.current.has(e.pointerId)) pointers.current.set(e.pointerId, localPoint(e));
+    const state = drag.current;
+    if (state?.mode === 'pinch') {
+      const a = pointers.current.get(state.ids[0]);
+      const b = pointers.current.get(state.ids[1]);
+      if (a && b) setView(pinchView(state.start, state.a0, state.b0, a, b));
+      return;
+    }
     const index = hexAt(e.clientX, e.clientY);
     setHover(index);
-    const state = drag.current;
     if (!state) return;
     if (state.mode === 'pan') {
       setView((v) => ({
@@ -258,14 +310,22 @@ export default function MapView(props: MapViewProps) {
     onSelectionChange(next);
   };
 
-  const onPointerUp = () => {
+  const onPointerUp = (e?: React.PointerEvent<HTMLCanvasElement>) => {
+    if (e) pointers.current.delete(e.pointerId);
+    else pointers.current.clear();
     const state = drag.current;
+    if (state?.mode === 'pinch') {
+      // The gesture ends when either finger lifts; the other does nothing until it lifts too.
+      if (pointers.current.size < 2) drag.current = null;
+      return;
+    }
     drag.current = null;
     if (state?.mode === 'select' && onStrokeEnd) onStrokeEnd([...state.touched]);
     if (state?.mode === 'city') props.onCityMove?.(state.cityId, state.target);
-    if (state?.mode === 'riverMove') {
+    if (state?.mode === 'riverMove' && state.target !== state.from) {
+      // A drag moved the hex; a plain click leaves it picked.
       onSelectionChange(new Set());
-      if (state.target !== state.from) props.onRiverMove(state.from, state.target);
+      props.onRiverMove(state.from, state.target);
     }
     if (state?.mode === 'riverPaint') {
       onSelectionChange(new Set());
@@ -279,23 +339,19 @@ export default function MapView(props: MapViewProps) {
     const rect = canvas.getBoundingClientRect();
     const px = e.clientX - rect.left;
     const py = e.clientY - rect.top;
-    setView((v) => {
-      const factor = Math.exp(-e.deltaY * 0.0015);
-      const scale = Math.max(0.12, Math.min(6, v.scale * factor));
-      const k = scale / v.scale;
-      return { scale, x: px - (px - v.x) * k, y: py - (py - v.y) * k };
-    });
+    setView((v) => zoomAt(v, Math.exp(-e.deltaY * 0.0015), px, py));
   };
 
   const hoverText = () => {
     if (hover === null) {
-      if (props.riverTool?.kind === 'extend') return 'Click a hex to extend the selected river to it · Alt-drag or right-drag to pan · Wheel to zoom';
-      if (props.riverTool?.kind === 'move') return 'Drag a river hex to move it · Alt-drag or right-drag to pan · Wheel to zoom';
-      if (props.riverTool?.kind === 'navigability') return 'Drag along a river to set navigability · Alt-drag or right-drag to pan · Wheel to zoom';
-      if (props.riverTool) return 'Click a river to select it · Alt-drag or right-drag to pan · Wheel to zoom';
+      const nav = 'Space-drag, right-drag or two fingers to pan · wheel or pinch to zoom';
+      if (props.onRiverDraftClick) return `Click hexes from source to mouth · Enter finishes, Esc cancels · ${nav}`;
+      if (props.riverTool?.kind === 'extend') return `Click a hex to extend the selected river to it · ${nav}`;
+      if (props.riverTool?.kind === 'navigability') return `Drag along a river to set navigability · ${nav}`;
+      if (props.riverTool) return `Click a river to select it, drag one of its hexes to move it · ${nav}`;
       return props.onCityMove
-        ? 'Drag a city to move it · Drag elsewhere to select · Alt-drag or right-drag to pan · Wheel to zoom'
-        : 'Drag to select · Alt-drag or right-drag to pan · Wheel to zoom';
+        ? `Drag a city to move it · drag elsewhere to select · ${nav}`
+        : `Drag to select hexes · ${nav}`;
     }
     const col = hover % map.cols;
     const row = Math.floor(hover / map.cols);
@@ -317,7 +373,10 @@ export default function MapView(props: MapViewProps) {
     }
     for (const river of riversThroughHex(map.layers.rivers.data?.rivers ?? [], col, row)) {
       const seg = river.segments.find((x) => x.col === col && x.row === row);
-      bits.push(`${river.name} (${seg?.navigable ? 'navigable' : 'not navigable'})`);
+      const dims = normaliseHexDimensions(map.hexDimensions);
+      bits.push(
+        `${river.name} (${seg?.navigable ? 'navigable' : 'not navigable'}, ${formatLength(riverLength(river, dims), dims.unit)})`,
+      );
     }
     const cities = map.layers.cities.data?.cities.filter((c) => hexIndex(map.cols, c.col, c.row) === hover) ?? [];
     for (const city of cities) bits.push(`${city.name} (${city.population.toLocaleString()})`);
@@ -331,17 +390,32 @@ export default function MapView(props: MapViewProps) {
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
+        onPointerCancel={onPointerUp}
+        style={panReady ? { cursor: 'grab' } : undefined}
         onPointerLeave={() => {
           setHover(null);
-          onPointerUp();
+          if (pointers.current.size <= 1) onPointerUp();
         }}
         onWheel={onWheel}
         onContextMenu={(e) => e.preventDefault()}
       />
+      {props.overlay && <div className="map-overlay">{props.overlay}</div>}
       <div className="maphud">{hoverText()}</div>
       <div className="mapzoom">
-        <button className="tiny" onClick={() => setView((v) => ({ ...v, scale: Math.min(6, v.scale * 1.2) }))}>+</button>
-        <button className="tiny" onClick={() => setView((v) => ({ ...v, scale: Math.max(0.12, v.scale / 1.2) }))}>−</button>
+        <button
+          className="tiny"
+          aria-label="Zoom in"
+          onClick={() => setView((v) => zoomAt(v, 1.2, size.width / 2, size.height / 2))}
+        >
+          +
+        </button>
+        <button
+          className="tiny"
+          aria-label="Zoom out"
+          onClick={() => setView((v) => zoomAt(v, 1 / 1.2, size.width / 2, size.height / 2))}
+        >
+          −
+        </button>
         <button className="tiny" onClick={fit}>fit</button>
       </div>
     </div>

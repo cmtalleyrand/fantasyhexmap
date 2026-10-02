@@ -3,7 +3,7 @@ import { hexIndex, hexLine, indexToOffset } from '../shared/hex.js';
 import { canHoldSettlement, riversThroughHex } from '../shared/derive.js';
 import { extendRiver, moveRiverSegment } from '../shared/riverEdit.js';
 import { LAYER_META, createMapState } from '../shared/layers.js';
-import { nextGenerationWave } from '../shared/generationQueue.js';
+import { generationOrder, nextGenerationWave } from '../shared/generationQueue.js';
 import { instructionForLayer, planMultiLayerEdit } from '../shared/multiEdit.js';
 import { LAYER_ORDER, type LayerId, type MapState } from '../shared/types.js';
 import {
@@ -49,7 +49,7 @@ import { clearMap, loadMap, makeAutosaver } from './state/persistence.js';
 import { parseMapImport, prepareLoadedMap } from './state/import.js';
 import SavesDialog from './components/SavesDialog.js';
 import { reducer, type Action } from './state/store.js';
-import { DEFAULT_RIVER_TOOL, type RiverTool } from './state/riverTools.js';
+import { DEFAULT_RIVER_TOOL, type RiverNotice, type RiverTool } from './state/riverTools.js';
 import { normaliseHexDimensions } from '../shared/surfaceArea.js';
 
 const PER_HEX: LayerId[] = ['base', 'elevation', 'climate', 'vegetation', 'population'];
@@ -90,10 +90,25 @@ export default function App() {
   const [concurrency, setConcurrency] = useState(1);
   const [progress, setProgress] = useState<Partial<Record<LayerId, ProgressEvent>>>({});
   const [error, setError] = useState<string | null>(null);
-  const [riverDraft, setRiverDraft] = useState<number[] | null>(null);
+  const [riverDraft, setRiverDraftState] = useState<number[] | null>(null);
+  /**
+   * The draft's length after each click. One click can lay down a whole
+   * straight run, so taking a click back removes the run, not one hex.
+   */
+  const [riverDraftStops, setRiverDraftStops] = useState<number[]>([]);
+  const setRiverDraft = useCallback((next: number[] | null) => {
+    setRiverDraftState(next);
+    setRiverDraftStops(next && next.length > 0 ? [next.length] : []);
+  }, []);
+  const undoRiverDraftClick = useCallback(() => {
+    const kept = riverDraftStops.slice(0, -1);
+    setRiverDraftStops(kept);
+    setRiverDraftState((draft) => (draft === null ? null : draft.slice(0, kept.at(-1) ?? 0)));
+  }, [riverDraftStops]);
   /** When drawing a distributary: the river it splits from (the draft starts in the fork hex). */
   const [riverDraftParent, setRiverDraftParent] = useState<string | null>(null);
   const [riverTool, setRiverTool] = useState<RiverTool>(DEFAULT_RIVER_TOOL);
+  const [riverNotice, setRiverNotice] = useState<RiverNotice | null>(null);
   const abortRef = useRef<Map<LayerId, AbortController>>(new Map());
   const batchCancelled = useRef(false);
   const mapRef = useRef<MapState | null>(map);
@@ -214,10 +229,12 @@ export default function App() {
     [transport.mode, apiKey, prefs],
   );
 
-  const generateSelected = useCallback(async () => {
+  /** Generate the ticked layers, or the ones given, each after everything it reads. */
+  const generateSelected = useCallback(async (layers?: LayerId[]) => {
     if (!mapRef.current || abortRef.current.size > 0) return;
     batchCancelled.current = false;
-    let pending = LAYER_ORDER.filter((id) => selectedLayers.has(id));
+    if (layers) setSelectedLayers(new Set(layers));
+    let pending = generationOrder(layers ?? selectedLayers);
     let requestFailed = false;
     while (pending.length > 0) {
       const wave = nextGenerationWave(pending, mapRef.current, concurrency);
@@ -286,6 +303,18 @@ export default function App() {
   const onStrokeEnd = useCallback(
     (indices: number[]) => {
       if (!map || !brushMode || indices.length === 0) return;
+      if (activeLayer === 'polities') {
+        const data = map.layers.polities.data;
+        if (!data) return;
+        // One stroke is one assignment, so one undo entry. '' is unclaimed wilderness.
+        const target = brush.polities || null;
+        if (target && !data.polities.some((p) => p.id === target)) {
+          setError('The polity chosen for the brush no longer exists. Pick another in the inspector.');
+          return;
+        }
+        dispatch({ type: 'setPolityOwner', indices, polityId: target });
+        return;
+      }
       if (PER_HEX.includes(activeLayer)) {
         if (!map.layers[activeLayer].data) return;
         const raw = brush[activeLayer];
@@ -314,7 +343,8 @@ export default function App() {
       if (last === index) return;
       setError(null);
       if (last === undefined) {
-        setRiverDraft([index]);
+        setRiverDraftState([index]);
+        setRiverDraftStops([1]);
         return;
       }
       // Hexes that do not touch are joined by a straight run, so a river can be
@@ -322,7 +352,9 @@ export default function App() {
       const run = hexLine(indexToOffset(map.cols, last), indexToOffset(map.cols, index))
         .slice(1)
         .map((h) => hexIndex(map.cols, h.col, h.row));
-      setRiverDraft([...riverDraft, ...run]);
+      const next = [...riverDraft, ...run];
+      setRiverDraftState(next);
+      setRiverDraftStops((stops) => [...stops, next.length]);
     },
     [map, riverDraft],
   );
@@ -359,10 +391,10 @@ export default function App() {
         current.rows,
       );
       if ('error' in result) {
-        setError(result.error);
+        setRiverNotice({ kind: 'error', text: result.error });
         return;
       }
-      setError(null);
+      setRiverNotice(null);
       dispatch({ type: 'updateRiver', river: result.river });
     },
     [riverTool.selectedId],
@@ -375,7 +407,7 @@ export default function App() {
       if (!current || !base) return;
       const river = current.layers.rivers.data?.rivers.find((r) => r.id === riverTool.selectedId);
       if (!river) {
-        setError('Select a river first, then click where it should reach.');
+        setRiverNotice({ kind: 'error', text: 'Select a river first, then click where it should reach.' });
         return;
       }
       const result = extendRiver(
@@ -387,10 +419,10 @@ export default function App() {
         current.rows,
       );
       if ('error' in result) {
-        setError(result.error);
+        setRiverNotice({ kind: 'error', text: result.error });
         return;
       }
-      setError(null);
+      setRiverNotice(null);
       dispatch({ type: 'updateRiver', river: result.river });
     },
     [riverTool.selectedId],
@@ -615,6 +647,61 @@ export default function App() {
 
   const canEdit = map.layers[activeLayer].data !== null;
 
+  const cancelGeneration = () => {
+    batchCancelled.current = true;
+    for (const controller of abortRef.current.values()) controller.abort();
+  };
+
+  const plannedNow = LAYER_ORDER.filter((id) => map.enabledLayers.includes(id));
+  const describeProgress = (layer: LayerId) =>
+    `${progress[layer]?.phase ? ` - ${progress[layer]?.phase}` : ''}${
+      progress[layer]?.chars ? ` (${progress[layer]?.chars?.toLocaleString()} chars)` : ''
+    }`;
+  // An empty map says what to do first, or what is happening while it does it.
+  const emptyMapOverlay = map.layers.base.data ? null : busyLayers.size > 0 ? (
+    <div className="card map-empty" role="status">
+      <h3>Generating {[...busyLayers].map((id) => LAYER_META[id].label).join(', ')}</h3>
+      <p className="hint">
+        {[...busyLayers].map((id) => describeProgress(id).replace(/^ - /, '')).join(' · ') || 'starting'}
+      </p>
+      <div className="progress">
+        <div className="bar">
+          <i />
+        </div>
+      </div>
+      <button className="tiny" style={{ marginTop: 10 }} onClick={cancelGeneration}>
+        cancel
+      </button>
+    </div>
+  ) : (
+    <div className="card map-empty">
+      <h3>Start with Base Geography</h3>
+      <p className="hint">
+        Land and water come first; every other layer is built on them. Each generation reads the
+        description in the left panel.
+      </p>
+      <div className="stack">
+        <button className="primary" onClick={() => void runGeneration('base', null)}>
+          Generate Base Geography
+        </button>
+        {plannedNow.length > 1 && (
+          <button onClick={() => void generateSelected(plannedNow)}>
+            Generate all {plannedNow.length} layers in the plan
+          </button>
+        )}
+        <button
+          className="linkish"
+          onClick={() => {
+            setActiveLayer('base');
+            setWebchatLayer('base');
+          }}
+        >
+          or use a chat window instead…
+        </button>
+      </div>
+    </div>
+  );
+
 
   return (
     <div className="app">
@@ -691,24 +778,12 @@ export default function App() {
         <button className="tiny" onClick={() => exportJson(map, true)} title="Includes undo history">
           export JSON + history
         </button>
-        <label
-          className="tiny"
-          style={{
-            textTransform: 'none',
-            fontSize: 13,
-            margin: 0,
-            cursor: 'pointer',
-            border: '1px solid var(--line)',
-            borderRadius: 4,
-            padding: '2px 6px',
-            background: 'var(--panel-2)',
-          }}
-        >
+        <label className="file-button tiny">
           import JSON
           <input
             type="file"
             accept="application/json,.json"
-            style={{ display: 'none' }}
+            className="visually-hidden"
             onChange={(e) => {
               const file = e.target.files?.[0];
               if (file) handleImport(file);
@@ -737,6 +812,7 @@ export default function App() {
             busyLayers={busyLayers}
             onSelect={(id) => {
               setActiveLayer(id);
+              setRiverNotice(null);
               setRiverDraft(null);
               setRiverDraftParent(null);
               setSelection(new Set());
@@ -753,6 +829,7 @@ export default function App() {
             concurrency={concurrency}
             onConcurrencyChange={setConcurrency}
             onGenerateSelected={() => void generateSelected()}
+            onGenerateLayers={(layers) => void generateSelected(layers)}
             onEditPlan={() => setShowPlan(true)}
           />
 
@@ -761,8 +838,7 @@ export default function App() {
               {[...busyLayers].map((layer) => (
                 <div className="progress" key={layer}>
                   Generating {LAYER_META[layer].label.toLowerCase()}
-                  {progress[layer]?.phase ? ` - ${progress[layer]?.phase}` : ''}
-                  {progress[layer]?.chars ? ` (${progress[layer]?.chars?.toLocaleString()} chars)` : ''}
+                  {describeProgress(layer)}
                   <div className="bar">
                     <i />
                   </div>
@@ -771,10 +847,7 @@ export default function App() {
               <button
                 className="tiny"
                 style={{ marginTop: 6 }}
-                onClick={() => {
-                  batchCancelled.current = true;
-                  for (const controller of abortRef.current.values()) controller.abort();
-                }}
+                onClick={cancelGeneration}
               >
                 cancel {busyLayers.size > 1 ? 'all' : ''}
               </button>
@@ -840,6 +913,7 @@ export default function App() {
           onRiverMove={onRiverMove}
           onRiverExtend={onRiverExtend}
           onRiverPaint={onRiverPaint}
+          overlay={emptyMapOverlay}
         />
 
         <Inspector
@@ -867,12 +941,16 @@ export default function App() {
             )
           }
           busy={busyLayers.size > 0}
+          busyLayers={busyLayers}
           riverDraft={riverDraft}
           setRiverDraft={setRiverDraft}
+          undoRiverDraftClick={undoRiverDraftClick}
           riverDraftParent={riverDraftParent}
           setRiverDraftParent={setRiverDraftParent}
           riverTool={riverTool}
           setRiverTool={setRiverTool}
+          riverNotice={riverNotice}
+          setRiverNotice={setRiverNotice}
           onOpenDecisionLog={() => setShowDecisions(true)}
         />
       </div>

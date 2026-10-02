@@ -44,10 +44,18 @@ layers say so in their notes.
 | --- | --- | --- |
 | `ANTHROPIC_API_KEY` | – | Required unless `HEXMAP_MOCK=1`. |
 | `PORT` | `8787` | Express port; the Vite proxy follows it. |
-| `HEXMAP_MODEL` | `claude-opus-5` | Model used for every layer. |
+| `HEXMAP_MODEL` | `claude-opus-5-5` | Model used for every layer. Any model listed in `core/models.ts` gets a request shaped for it; an unlisted ID is sent the generic request. |
 | `HEXMAP_EFFORT` | `high` | `low` … `max`. Lower is cheaper and faster; spatial coherence suffers. |
 | `HEXMAP_TASK_BUDGET` | `96000` | Tokens the model paces its reasoning against. Minimum 20,000. |
 | `HEXMAP_MOCK` | – | `1` to use the offline generator. |
+
+When the page calls Anthropic itself (see Option A below), the model, effort and token budget are
+chosen in **Settings → Generation** instead. It offers Claude Fable 5.1, Opus 5.5 (the default),
+Opus 5, Opus 4.8, Sonnet 5.5, Sonnet 5, Sonnet 4.6 and Haiku 4.5. These models do not all accept the
+same request: Sonnet 5 and 4.6 take no task budget, Sonnet 4.6 has no `xhigh` effort, and Haiku
+takes no effort level and is given a fixed thinking budget instead. `core/models.ts` records the
+differences and every request is built from it. If a model turns down the task budget anyway, the
+request is retried once without it.
 
 Other scripts: `npm run typecheck` (client and server), `npm run build` (production client bundle),
 `npm run dev:server` / `npm run dev:web` to run one half on its own.
@@ -279,9 +287,24 @@ would be the same lie.
 Every layer supports both edit paths the same way.
 
 **By hand.** Click a hex, shift-click to add, or drag to sweep a region, then apply a value from the
-inspector. Turning on *brush mode* applies the value as you drag; a whole stroke is one undo entry,
-not one per hex. Rivers can be drawn by clicking a path of adjacent hexes from source to mouth;
-cities and polities have their own add/rename/recolour/delete controls.
+inspector. Turning on *brush mode* applies the value as you drag, for per-hex layers and for polity
+ownership; a whole stroke is one undo entry, not one per hex. Cities and polities have their own
+add, rename, recolour and delete controls. Renaming or recolouring something is undoable but marks
+no other layer stale, since nothing else depends on a name.
+
+**Rivers** have four tools. *Select & move*: click a river to select it, or drag one of its hexes to
+move it. *Add hexes*: stretch the selected river's nearer end to a hex. *Navigability*: paint along
+rivers. *Draw new*: click from source to mouth; Enter finishes, Backspace takes back the last click,
+Esc cancels. The selected river's card shows its length, has buttons to reverse its flow or branch
+from a picked hex, and can delete it. **Join rivers…** consolidates sections into one river: tick the
+sections, choose whose name to keep, and they are chained end to source, with any gap closed by a
+straight run of land.
+
+River length is measured along the course on the grid: from the centre of the hex where the river
+rises, through each hex centre, to the edge where it leaves the land. It uses the hex size in
+Settings → Map. It is the length of the course at the map's scale, without meanders inside a hex.
+It appears in the river list, on the selected river's card, in the hover readout, and optionally in
+the exported legend.
 
 **By instruction.** Type something like *"add a chain of volcanic islands along the eastern sea"* and
 the whole layer, plus the layers it depends on, is sent to Claude, which returns a complete
@@ -298,8 +321,8 @@ Both paths push onto the same per-layer undo stack (40 entries deep, with redo).
 - **Legend.** Either image export can append a legend panel to the right of the map. It describes
   what is actually painted: a hidden layer, or a fill layer outranked by a more derived one, is not
   listed. Options: include or leave out each layer's section, list only the values that occur on
-  the map (or every value a layer can take), show polity land areas, and head the legend with the
-  map's name. Long legends continue in further columns. The panel is built from the same scene
+  the map (or every value a layer can take), show polity land areas, list each river with its
+  length, and head the legend with the map's name. Long legends continue in further columns. The panel is built from the same scene
   primitives as the map, so PNG and SVG legends are identical.
 - **Markdown.** The decision record: what the model chose, why, and what you changed by hand.
 - **JSON.** The full map state including the decision record, with or without undo history, and a
@@ -374,7 +397,9 @@ decisions above.
   at lower effort and tells you what it spent; beyond that, raise the budget in Settings, run the
   layer in two passes, or use the webchat route.
 - Rivers are modelled as independent paths. A tributary is a separate river that happens to join a
-  trunk and follow it; there is no explicit confluence object.
+  trunk and follow it; there is no explicit confluence object. Distributaries (branches) are
+  recorded, and a river's length can be shown with or without them. Joining rivers never reverses a
+  section, so reverse any section that runs the wrong way first.
 - Undo is per layer by design, not one global stack across the whole map.
 - There is no cloud sync and no accounts. A map lives in one browser until you export it.
 - The optional proxy restricts origins but does not authenticate callers; see `worker/README.md`.

@@ -11,16 +11,10 @@ import type { TransportMode } from '../api/client.js';
 import type { HexDimensions } from '../../shared/types.js';
 import { POLITY_NAME_MIN_OPTIONS, parsePolityNameMin } from '../render/labels.js';
 import HexSizeInput from './HexSizeInput.js';
+import { MODELS, effortFor, modelInfo } from '../../core/models.js';
 
 export type SettingsTab = 'map' | 'display' | 'generation' | 'key';
 
-const MODELS = [
-  { id: 'claude-opus-5', label: 'Claude Opus 5 (best maps)' },
-  { id: 'claude-sonnet-5', label: 'Claude Sonnet 5 (cheaper, faster)' },
-  { id: 'claude-haiku-4-5', label: 'Claude Haiku 4.5 (cheapest, roughest)' },
-];
-
-const EFFORTS: Effort[] = ['low', 'medium', 'high', 'xhigh', 'max'];
 
 const ELEVATION_STYLES: { id: Prefs['elevationStyle']; label: string; hint: string }[] = [
   { id: 'colour', label: 'Colour', hint: 'Hexes are tinted from low to high ground' },
@@ -60,6 +54,7 @@ export default function SettingsDialog(props: SettingsDialogProps) {
   const [passphrase, setPassphrase] = useState('');
   const [confirm, setConfirm] = useState('');
   const browserMode = props.mode === 'browser';
+  const model = modelInfo(prefs.model);
   const suspect = key.trim().length > 0 && !looksLikeKey(key);
   const canEncrypt = cryptoAvailable();
 
@@ -276,29 +271,43 @@ export default function SettingsDialog(props: SettingsDialogProps) {
                   <label>Model</label>
                   <select
                     value={prefs.model}
-                    onChange={(e) => setPrefs({ ...prefs, model: e.target.value })}
+                    onChange={(e) => {
+                      // Keep the effort to one the new model accepts.
+                      const next = modelInfo(e.target.value);
+                      setPrefs({ ...prefs, model: next.id, effort: effortFor(next, prefs.effort) ?? prefs.effort });
+                    }}
                   >
                     {MODELS.map((m) => (
                       <option key={m.id} value={m.id}>
                         {m.label}
                       </option>
                     ))}
+                    {!MODELS.some((m) => m.id === prefs.model) && (
+                      <option value={prefs.model}>{prefs.model}</option>
+                    )}
                   </select>
                 </div>
                 <div style={{ width: 120 }}>
                   <label>Effort</label>
                   <select
-                    value={prefs.effort}
+                    value={model.efforts ? (effortFor(model, prefs.effort) ?? prefs.effort) : ''}
+                    disabled={!model.efforts}
+                    title={model.efforts ? undefined : 'This model takes no effort setting'}
                     onChange={(e) => setPrefs({ ...prefs, effort: e.target.value as Effort })}
                   >
-                    {EFFORTS.map((e) => (
-                      <option key={e} value={e}>
-                        {e}
-                      </option>
-                    ))}
+                    {model.efforts ? (
+                      model.efforts.map((e) => (
+                        <option key={e} value={e}>
+                          {e}
+                        </option>
+                      ))
+                    ) : (
+                      <option value="">n/a</option>
+                    )}
                   </select>
                 </div>
               </div>
+              <p className="hint" style={{ margin: 0 }}>{model.note}</p>
               <div className="row">
                 <div style={{ width: 160 }}>
                   <label>Token budget</label>
@@ -321,9 +330,13 @@ export default function SettingsDialog(props: SettingsDialogProps) {
               <p className="hint">
                 The model reasons and writes out of one budget, and on a hard layer almost all of it
                 goes on reasoning — a big polity map can spend tens of thousands of tokens deciding
-                before it writes a single row. The budget is what it paces itself against: raise it
-                if a layer keeps running out of room, lower it to spend less. Between{' '}
-                {MIN_TASK_BUDGET.toLocaleString()} and {MAX_TASK_BUDGET.toLocaleString()}.
+                before it writes a single row.{' '}
+                {model.thinking === 'budget'
+                  ? `${model.label} has no task budget: this number is used as its thinking budget instead, capped to leave room for the answer. Lower it to spend less.`
+                  : model.taskBudget
+                    ? 'The budget is what it paces itself against: raise it if a layer keeps running out of room, lower it to spend less.'
+                    : `${model.label} does not accept a token budget, so this setting is not used with it; control its spend with effort.`}{' '}
+                Between {MIN_TASK_BUDGET.toLocaleString()} and {MAX_TASK_BUDGET.toLocaleString()}.
               </p>
             </div>
           )}

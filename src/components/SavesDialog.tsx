@@ -43,7 +43,7 @@ export default function SavesDialog({
             save current
           </button>
         </div>
-        {error && <div className="error">{error}</div>}
+        {error && <div className="notice error" style={{ marginTop: 8 }}>{error}</div>}
         <div className="stack" style={{ marginTop: 12 }}>
           {saves === null ? (
             <span className="hint">Loading…</span>

@@ -280,3 +280,43 @@ export function currentDepVersions(
 export function trimHistory<T>(stack: T[]): T[] {
   return stack.length > MAX_HISTORY ? stack.slice(stack.length - MAX_HISTORY) : stack;
 }
+
+/**
+ * A layer's data with its cosmetic fields - names, short names, colours - left
+ * out. No other layer's validity depends on what a polity, river or city is
+ * called or coloured, so a change that leaves this unchanged is a rename rather
+ * than an edit: it is undoable, but it bumps no version and so marks nothing
+ * stale.
+ */
+function substance(data: unknown): string {
+  if (data === null || data === undefined) return 'null';
+  if (Array.isArray(data)) return JSON.stringify(data);
+  const record = data as Record<string, unknown>;
+  if (Array.isArray(record.polities) && Array.isArray(record.owner)) {
+    return JSON.stringify({
+      polities: (record.polities as { id: string }[]).map((p) => p.id),
+      owner: record.owner,
+    });
+  }
+  if (Array.isArray(record.rivers)) {
+    return JSON.stringify({
+      rivers: (record.rivers as { name: string }[]).map(({ name: _name, ...rest }) => rest),
+    });
+  }
+  if (Array.isArray(record.cities)) {
+    return JSON.stringify({
+      cities: (record.cities as { name: string }[]).map(({ name: _name, ...rest }) => rest),
+    });
+  }
+  return JSON.stringify(data);
+}
+
+/** True when two values of one layer differ, if at all, only in cosmetic fields. */
+export function cosmeticallyEqual(a: unknown, b: unknown): boolean {
+  return a === b || substance(a) === substance(b);
+}
+
+/** True when two values of one layer are identical, cosmetic fields included. */
+export function identicalData(a: unknown, b: unknown): boolean {
+  return a === b || JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+}
