@@ -15,6 +15,7 @@
  * ship no SDK at all.
  */
 
+import { withValidParents } from '../shared/polityTree.js';
 import {
   decodeBase,
   decodeClimate,
@@ -338,6 +339,17 @@ export function decodeLayer(
         if (key && key !== POLITY_UNCLAIMED) byKey.set(key, polity);
         return polity;
       });
+      // Parents are named in the response; resolve them to ids, dropping any
+      // that name nothing, name the polity itself, or close a loop.
+      const idByName = new Map(polities.map((p) => [p.name.trim().toLowerCase(), p.id]));
+      r.polities.forEach((p, i) => {
+        const parentId = p.parent?.trim() ? idByName.get(p.parent.trim().toLowerCase()) : undefined;
+        if (p.parent?.trim() && !parentId) warnings.push(`Polity "${p.name}" names an unknown parent "${p.parent}"; it is treated as independent.`);
+        if (parentId && parentId !== polities[i]!.id) polities[i]!.parentId = parentId;
+      });
+      const cleaned = withValidParents(polities);
+      if (cleaned.dropped > 0) warnings.push(`${cleaned.dropped} polity parent link(s) formed a loop and were removed.`);
+      polities.splice(0, polities.length, ...cleaned.polities);
       const owner: (string | null)[] = new Array(cols * rows).fill(null);
       let unknownKeys = 0;
       let misSized = 0;

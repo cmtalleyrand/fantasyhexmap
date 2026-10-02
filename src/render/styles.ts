@@ -32,6 +32,8 @@ export interface StyleKnobs {
   rivers: 'classic' | 'tapered';
   /** Paper grain over the whole map. */
   grain: boolean;
+  /** Polities that are part of another: in their own colours, or as shades of their parent's. */
+  subPolities: 'own' | 'tints';
 }
 
 export type KnobId = keyof StyleKnobs;
@@ -119,6 +121,7 @@ const CLASSIC: PresetInfo = {
     ice: 'flat',
     rivers: 'classic',
     grain: false,
+    subPolities: 'own',
   },
 };
 
@@ -158,6 +161,7 @@ const PARCHMENT: PresetInfo = {
     ice: 'glacier',
     rivers: 'tapered',
     grain: true,
+    subPolities: 'tints',
   },
 };
 
@@ -232,6 +236,13 @@ export const KNOB_OPTIONS: {
       { value: 'tapered', label: 'Meandering, widening' },
     ],
   },
+  subPolities: {
+    label: 'Sub-polities',
+    options: [
+      { value: 'own', label: 'Own colours' },
+      { value: 'tints', label: 'Shades of their realm' },
+    ],
+  },
   grain: {
     label: 'Paper grain',
     options: [
@@ -241,7 +252,7 @@ export const KNOB_OPTIONS: {
   },
 };
 
-export const KNOB_ORDER: KnobId[] = ['water', 'ripples', 'coast', 'grid', 'land', 'islands', 'ice', 'rivers', 'grain'];
+export const KNOB_ORDER: KnobId[] = ['water', 'ripples', 'coast', 'grid', 'land', 'islands', 'ice', 'rivers', 'subPolities', 'grain'];
 
 export const DEFAULT_STYLE_CHOICE: MapStyleChoice = { preset: 'classic', overrides: {} };
 

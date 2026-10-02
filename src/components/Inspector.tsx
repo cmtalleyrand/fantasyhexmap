@@ -18,6 +18,7 @@ import {
 import { planMultiLayerEdit } from '../../shared/multiEdit.js';
 import { canSplit, passLabel, type PassSelection } from '../../core/rosters.js';
 import { isWaterSurface, type Action } from '../state/store.js';
+import { wouldCycle } from '../../shared/polityTree.js';
 import { contrastingPolityColours } from '../render/palette.js';
 import Legend from './Legend.js';
 import CommitInput, { CommitColour } from './CommitInput.js';
@@ -803,6 +804,24 @@ function PolityEditor(props: SubProps) {
               <button className="tiny danger" onClick={() => dispatch({ type: 'removePolity', id: p.id })}>
                 ×
               </button>
+              <select
+                aria-label={`What ${p.name} is part of`}
+                title="Part of a larger polity"
+                style={{ flexBasis: '100%' }}
+                value={p.parentId ?? ''}
+                onChange={(e) =>
+                  dispatch({ type: 'upsertPolity', polity: { ...p, parentId: e.target.value || undefined } })
+                }
+              >
+                <option value="">Independent</option>
+                {data.polities
+                  .filter((q) => !wouldCycle(data.polities, p.id, q.id))
+                  .map((q) => (
+                    <option key={q.id} value={q.id}>
+                      Part of {q.name}
+                    </option>
+                  ))}
+              </select>
             </div>
           );
         })}

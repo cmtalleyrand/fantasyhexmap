@@ -261,7 +261,7 @@ export function serializeParseFriendlyExport(map: MapState): string {
         'data.rivers: [{id, name, terminus, branchOf?, segments:[{col,row,entryEdge|null,exitEdge|null,navigable}]}]. Segments run source to mouth; entryEdge is null at the source.',
       cities:
         'data.cities: [{id,col,row,name,population,onRiver,riverId|null,coastal,coastalEdges:number[],site?}]. site is where the marker is drawn: "auto", "inland", "river" or {coast: edge}.',
-      polities: 'data.polities: [{id,name,shortName?,colour}]; data.owner: array of hexCount polity ids or null',
+      polities: 'data.polities: [{id,name,shortName?,colour,parentId?}]; parentId names the larger polity this one is part of, which may own no hexes itself. data.owner: array of hexCount polity ids (the most specific polity) or null',
     },
     values: {
       base: BASE_GEO_VALUES,

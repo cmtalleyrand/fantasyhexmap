@@ -48,6 +48,7 @@ import {
 import { placeRangeLabels, placeRiverLabels, placeWaterLabels } from './featureLabels.js';
 import {
   LABEL_LINE_EM,
+  labelBox,
   placeCityNames,
   placePolityLabels,
   type OrientedBox,
@@ -69,6 +70,8 @@ import {
 import type { CitySymbol, PathCmd, Prim } from './prims.js';
 import { riverCourses, type RiverCourse } from './rivers.js';
 import { citySite } from './sites.js';
+import { ownersAtDepth, polityDepths, polityDisplayColours } from './hierarchy.js';
+import { topLevelOf } from '../../shared/polityTree.js';
 import { fantasyTextEm, uiTextEm } from './fonts.js';
 import { signed, unit } from './seed.js';
 import { CLASSIC_STYLE, type MapStyle } from './styles.js';
@@ -279,9 +282,8 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
   const maxPop = population ? Math.max(1, ...population.map((v) => v ?? 0)) : 1;
 
   const polities = opts.visible.polities ? layers.polities.data : null;
-  const polityColour = new Map<string, string>(
-    (polities?.polities ?? []).map((p) => [p.id, p.colour]),
-  );
+  const polityColour = polityDisplayColours(polities?.polities ?? [], knobs.subPolities);
+  const topLevel = new Map((polities?.polities ?? []).map((p) => [p.id, topLevelOf(polities!.polities, p.id)]));
 
   const polityOpacity = Math.min(1, Math.max(0, opts.polityOpacity ?? 1));
   // Fills are sealed with a hairline of their own colour, so the anti-aliased
@@ -579,6 +581,7 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
   }
 
   // --- polity borders ------------------------------------------------------
+  const internal: PathCmd[] = [];
   if (polities) {
     for (let row = 0; row < rows; row++) {
       for (let col = 0; col < cols; col++) {
@@ -591,6 +594,15 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
             ? polities.owner[hexIndex(cols, n.col, n.row)]
             : null;
           if (other === owner) continue;
+          if (other && topLevel.get(other) === topLevel.get(owner)) {
+            // Between two parts of one realm: a single fine dashed line on the
+            // edge itself, drawn once, so the realm still reads as one.
+            const j = hexIndex(cols, n.col, n.row);
+            if (j < hexIndex(cols, col, row)) continue;
+            const [a, b] = hexEdgePoints(col, row, e, size);
+            internal.push(['M', a.x, a.y], ['L', b.x, b.y]);
+            continue;
+          }
           // Each side paints its own half of the border, inset toward its own
           // centre, so a frontier between two realms shows both their colours.
           const inset = (p: Point): Point => ({
@@ -608,6 +620,17 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
         }
       }
     }
+  }
+
+  if (internal.length > 0) {
+    prims.push({
+      kind: 'path',
+      d: internal,
+      stroke: withAlpha('#1e1a14', 0.55),
+      strokeWidth: Math.max(0.8, size * 0.045),
+      dash: [size * 0.16, size * 0.1],
+      round: true,
+    });
   }
 
   // --- rivers --------------------------------------------------------------
@@ -771,34 +794,64 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
       const r = markerRadius(city.population);
       obstacles.push({ left: c.x - r, right: c.x + r, top: c.y - r, bottom: c.y + r });
     }
-    for (const label of cachedPolityLabels(polities, cities, cols, rows, size, obstacles, opts.polityNames)) {
-      // Lines are stacked perpendicular to the baseline so a wrapped,
-      // rotated name stays a single rigid block.
-      label.lines.forEach((line, k) => {
-        const offset = (k - (label.lines.length - 1) / 2) * label.size * LABEL_LINE_EM;
-        prims.push({
-          kind: 'text',
-          at: {
-            x: label.at.x - offset * Math.sin(label.rotation),
-            y: label.at.y + offset * Math.cos(label.rotation),
-          },
-          text: line,
-          size: label.size,
-          fill: MAP_COLOURS.label,
-          weight: 600,
-          anchor: 'middle',
-          fantasy: true,
+    // Without a hierarchy every realm is named once, from the cache. With one,
+    // each level is named in turn, largest first: a realm across all its
+    // parts, then the parts in smaller, lighter type clear of the realm's name.
+    const depths = polityDepths(polities.polities);
+    const maxDepth = Math.max(0, ...depths.values());
+    const levels: Array<{ labels: PolityLabel[]; depth: number }> = [];
+    if (maxDepth === 0) {
+      levels.push({ labels: cachedPolityLabels(polities, cities, cols, rows, size, obstacles, opts.polityNames), depth: 0 });
+    } else {
+      const claimed: LabelObstacle[] = [...obstacles];
+      for (let depth = 0; depth <= maxDepth; depth++) {
+        const labels = placePolityLabels({
+          cols,
+          rows,
+          size,
+          owner: ownersAtDepth(polities.polities, polities.owner, depth),
+          polities: polities.polities.filter((p) => depths.get(p.id) === depth),
+          obstacles: claimed,
+          minHexes: opts.polityNames,
+          scale: depth === 0 ? 1 : 0.62 ** depth,
+        });
+        for (const label of labels) {
+          const em = Math.max(...label.lines.map((line) => fantasyTextEm(line)));
+          claimed.push(labelBox(label.at, em * label.size, label.size * LABEL_LINE_EM * label.lines.length, label.rotation));
+        }
+        levels.push({ labels, depth });
+      }
+    }
+    for (const { labels, depth } of levels) {
+      for (const label of labels) {
+        // Lines are stacked perpendicular to the baseline so a wrapped,
+        // rotated name stays a single rigid block.
+        label.lines.forEach((line, k) => {
+          const offset = (k - (label.lines.length - 1) / 2) * label.size * LABEL_LINE_EM;
+          prims.push({
+            kind: 'text',
+            at: {
+              x: label.at.x - offset * Math.sin(label.rotation),
+              y: label.at.y + offset * Math.cos(label.rotation),
+            },
+            text: line,
+            size: label.size,
+            fill: depth === 0 ? MAP_COLOURS.label : withAlpha(MAP_COLOURS.label, 0.78),
+            weight: depth === 0 ? 600 : 500,
+            anchor: 'middle',
+            fantasy: true,
+            rotation: label.rotation,
+          });
+        });
+        const em = Math.max(...label.lines.map((line) => fantasyTextEm(line)));
+        taken.push({
+          cx: label.at.x,
+          cy: label.at.y,
+          halfW: (em * label.size) / 2,
+          halfH: (label.size * LABEL_LINE_EM * label.lines.length) / 2,
           rotation: label.rotation,
         });
-      });
-      const em = Math.max(...label.lines.map((line) => fantasyTextEm(line)));
-      taken.push({
-        cx: label.at.x,
-        cy: label.at.y,
-        halfW: (em * label.size) / 2,
-        halfH: (label.size * LABEL_LINE_EM * label.lines.length) / 2,
-        rotation: label.rotation,
-      });
+      }
     }
   }
 

@@ -474,3 +474,90 @@ test('water bodies are named, renamed and removed, and their names are drawn whe
   delete old.waterNames;
   assert.deepEqual(prepareLoadedMap(old).waterNames, []);
 });
+
+test('polity parents that name nothing, name themselves or close a loop are dropped', async () => {
+  const { withValidParents, topLevelOf } = await import('../shared/polityTree.ts');
+  const base = { colour: '#336699' };
+  const { polities, dropped } = withValidParents([
+    { id: 'k', name: 'Kingdom', ...base },
+    { id: 'd', name: 'Duchy', parentId: 'k', ...base },
+    { id: 'c', name: 'County', parentId: 'd', ...base },
+    { id: 'x', name: 'Ghost', parentId: 'nobody', ...base },
+    { id: 's', name: 'Self', parentId: 's', ...base },
+    { id: 'a', name: 'A', parentId: 'b', ...base },
+    { id: 'b', name: 'B', parentId: 'a', ...base },
+  ]);
+  assert.equal(dropped, 3);
+  assert.equal(topLevelOf(polities, 'c'), 'k');
+  assert.equal(polities.find((p) => p.id === 'x')!.parentId, undefined);
+  assert.equal(polities.find((p) => p.id === 's')!.parentId, undefined);
+  assert.equal(polities.filter((p) => (p.id === 'a' || p.id === 'b') && p.parentId).length, 1, 'one link of the loop survives');
+});
+
+test('a generated roster names parents, which decode into parent ids', async () => {
+  const { decodeLayer } = await import('../core/decode.ts');
+  const ctx = {
+    description: '', cols: 3, rows: 1, base: ['Land', 'Land', 'Land'] as BaseGeo[],
+    elevation: null, climate: null, vegetation: null, rivers: null, cities: null, polities: null, population: null,
+  };
+  const out = decodeLayer('polities', {
+    polities: [
+      { key: 'A', name: 'High Kingdom', colour: '#aa3333' },
+      { key: 'B', name: 'March of Ost', parent: 'High Kingdom', colour: '#3333aa' },
+      { key: 'C', name: 'Duchy of West', parent: 'high kingdom', colour: '#33aa33' },
+      { key: 'D', name: 'Free City', parent: 'Nowhere', colour: '#777777' },
+    ],
+    rows: ['BCD'],
+    notes: '',
+  }, ctx as never);
+  const data = out.data as { polities: Array<{ id: string; name: string; parentId?: string }> };
+  const king = data.polities.find((p) => p.name === 'High Kingdom')!;
+  assert.equal(data.polities.find((p) => p.name === 'March of Ost')!.parentId, king.id);
+  assert.equal(data.polities.find((p) => p.name === 'Duchy of West')!.parentId, king.id, 'parent names match regardless of case');
+  assert.equal(data.polities.find((p) => p.name === 'Free City')!.parentId, undefined);
+  assert.ok(out.warnings.some((w) => w.includes('Nowhere')));
+});
+
+test('a realm is named across all its parts, its parts smaller, with a dashed line between them', () => {
+  const cols = 8;
+  const rows = 4;
+  const map = createMapState('Realm', cols, rows);
+  map.layers.base.data = Array(cols * rows).fill('Land');
+  map.layers.polities.data = {
+    polities: [
+      { id: 'k', name: 'Valdoria', colour: '#aa3333' },
+      { id: 'w', name: 'Westmark', colour: '#3366aa', parentId: 'k' },
+      { id: 'e', name: 'Eastmark', colour: '#33aa66', parentId: 'k' },
+    ],
+    owner: Array.from({ length: cols * rows }, (_, i) => (i % cols < cols / 2 ? 'w' : 'e')),
+  };
+  const visible = defaultVisibility();
+  visible.polities = true;
+  const style = resolveStyle({ preset: 'parchment', overrides: {} });
+  const prims = buildScene(map, { size: 20, visible, labels: true, polityNames: 0, style }).prims;
+  const texts = prims.filter((p): p is Extract<Prim, { kind: 'text' }> => p.kind === 'text' && Boolean(p.fantasy));
+  const realm = texts.find((t) => t.text === 'VALDORIA');
+  assert.ok(realm, 'the realm, which owns no hexes itself, is named');
+  for (const part of texts.filter((t) => t.text !== 'VALDORIA')) assert.ok(part.size < realm.size, `${part.text} is set smaller`);
+  assert.ok(prims.some((p) => p.kind === 'path' && p.dash), 'parts are divided by a dashed line');
+  // With tints, the parts are drawn as shades of the realm's colour, not their own.
+  const fills = new Set(prims.filter((p) => p.kind === 'polygon').map((p) => p.fill));
+  assert.ok(!fills.has('#3366aa') && !fills.has('#33aa66'));
+});
+
+test('the legend lists a realm with its parts indented under it', async () => {
+  const { legendSections, DEFAULT_LEGEND_OPTIONS } = await import('../src/render/legend.ts');
+  const map = createMapState('Realm', 2, 1);
+  map.layers.base.data = ['Land', 'Land'];
+  map.layers.polities.data = {
+    polities: [
+      { id: 'w', name: 'Westmark', colour: '#3366aa', parentId: 'k' },
+      { id: 'k', name: 'Valdoria', colour: '#aa3333' },
+    ],
+    owner: ['w', 'w'],
+  };
+  const visible = defaultVisibility();
+  visible.polities = true;
+  const section = legendSections(map, visible, 'colour', DEFAULT_LEGEND_OPTIONS).find((s) => s.id === 'polities')!;
+  assert.deepEqual(section.entries.map((e) => [e.label, e.indent]), [['Valdoria', 0], ['Westmark', 1]]);
+});

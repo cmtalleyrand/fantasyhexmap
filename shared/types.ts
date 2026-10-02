@@ -218,6 +218,11 @@ export interface Polity {
   /** A compact cartographic label; the full official name remains in `name`. */
   shortName?: string;
   colour: string;
+  /**
+   * The larger polity this one is part of (a duchy's kingdom). A parent may
+   * own no hexes itself: its territory is the union of its descendants'.
+   */
+  parentId?: string;
 }
 
 /** Per-hex flat arrays are indexed `row * cols + col`. */

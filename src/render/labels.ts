@@ -68,6 +68,8 @@ export interface LabelInput {
   obstacles: LabelObstacle[];
   /** Defaults to {@link DEFAULT_POLITY_NAME_MIN}. */
   minHexes?: PolityNameMin;
+  /** Type size relative to a top-level realm's: the parts of a realm are named smaller. */
+  scale?: number;
 }
 
 const LABEL_HEIGHT_EM = LABEL_LINE_EM;
@@ -213,7 +215,8 @@ export function placePolityLabels(input: LabelInput): PolityLabel[] {
     // size grows with sqrt(hex count).
     // Capped, so the largest realms are named in large type rather than in
     // letters so big they cannot fit without crossing water and neighbours.
-    const idealSize = Math.min(size * MAX_FONT_HEXES, size * 0.28 * Math.sqrt(owned.length));
+    const scale = input.scale ?? 1;
+    const idealSize = Math.min(size * MAX_FONT_HEXES * scale, size * 0.28 * scale * Math.sqrt(owned.length));
 
     const attempt = (
       obstacles: LabelBox[],

@@ -299,6 +299,7 @@ const polityEntry = (opts: SchemaOptions) =>
     key: z.string().length(1).describe('The single character used for this polity in the grid.'),
     name: z.string(),
     shortName: z.string().optional().describe('A short map label without generic polity-type wording.'),
+    parent: z.string().optional().describe('Name of the larger polity this one is part of, if any.'),
     colour: z.string().describe('Hex colour such as #a33b2e.'),
     hexes: (keyed(opts) ? z.number().int() : z.number().int().optional()).describe(
       'How many land hexes this polity should hold. Convert any area the brief gives using the scale; otherwise your judgement of its size.',

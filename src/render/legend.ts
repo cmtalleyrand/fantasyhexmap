@@ -20,6 +20,8 @@ import {
   VEGETATION_COLOURS,
 } from './palette.js';
 import { CLASSIC_STYLE, type MapStyle } from './styles.js';
+import { polityDisplayColours } from './hierarchy.js';
+import { descendantsOf } from '../../shared/polityTree.js';
 import { thematicLayer, type CitySymbol, type Prim, type Scene, type VisibleLayers } from './scene.js';
 import { LAYER_META } from '../../shared/layers.js';
 import { formatLength, riverLength } from '../../shared/riverLength.js';
@@ -70,6 +72,8 @@ export type LegendSwatch =
 export interface LegendEntry {
   swatch: LegendSwatch;
   label: string;
+  /** Nesting level: a polity that is part of another is listed under it, indented. */
+  indent?: number;
 }
 
 export interface LegendSection {
@@ -236,13 +240,21 @@ export function legendSections(
           ? politySurfaceAreas(base, data, dimensions)
           : null;
         const owned = usedValues(data?.owner);
-        for (const p of data?.polities ?? []) {
-          if (options.onlyUsed && !owned.has(p.id)) continue;
+        const all = data?.polities ?? [];
+        const colours = polityDisplayColours(all, style.knobs.subPolities);
+        // A realm's area is the sum of its own hexes and all its parts'.
+        const treeArea = (id: string) =>
+          [...descendantsOf(all, id)].reduce((sum, d) => sum + (areas?.get(d) ?? 0), 0);
+        const inUse = (id: string) => [...descendantsOf(all, id)].some((d) => owned.has(d));
+        const visit = (p: (typeof all)[number], depth: number) => {
+          if (options.onlyUsed && !inUse(p.id)) return;
           const area = areas
-            ? ` - ${(areas.get(p.id) ?? 0).toLocaleString(undefined, { maximumFractionDigits: 2 })} ${dimensions.unit}²`
+            ? ` - ${treeArea(p.id).toLocaleString(undefined, { maximumFractionDigits: 2 })} ${dimensions.unit}²`
             : '';
-          entries.push({ swatch: { kind: 'fill', colour: p.colour }, label: `${p.name}${area}` });
-        }
+          entries.push({ swatch: { kind: 'fill', colour: colours.get(p.id) ?? p.colour }, label: `${p.name}${area}`, indent: depth });
+          for (const child of all.filter((q) => q.parentId === p.id)) visit(child, depth + 1);
+        };
+        for (const p of all.filter((q) => !q.parentId || !all.some((r) => r.id === q.parentId))) visit(p, 0);
         break;
       }
       case 'population': {
@@ -442,7 +454,7 @@ export function appendLegend(
         r.kind === 'heading'
           ? textWidth(r.text, m.head, 700)
           : r.kind === 'entry'
-            ? m.swatchW + m.gap + textWidth(r.entry.label, m.body, 500)
+            ? (r.entry.indent ?? 0) * m.gap * 1.6 + m.swatchW + m.gap + textWidth(r.entry.label, m.body, 500)
             : 0,
       ),
     ),
@@ -509,10 +521,11 @@ export function appendLegend(
         y += m.headRow;
       } else {
         const cy = y + m.row / 2;
-        prims.push(...swatchPrims(row.entry.swatch, x, cy, m));
+        const dx = (row.entry.indent ?? 0) * m.gap * 1.6;
+        prims.push(...swatchPrims(row.entry.swatch, x + dx, cy, m));
         prims.push({
           kind: 'text',
-          at: { x: x + m.swatchW + m.gap, y: cy },
+          at: { x: x + dx + m.swatchW + m.gap, y: cy },
           text: row.entry.label,
           size: m.body,
           fill: PANEL.ink,

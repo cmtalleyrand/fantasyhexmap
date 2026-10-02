@@ -15,6 +15,7 @@
 
 import { recomputeCityFacts, canHoldSettlement } from '../../shared/derive.js';
 import { isIslandType } from '../../shared/types.js';
+import { withValidParents } from '../../shared/polityTree.js';
 import {
   baseTransitions,
   clearedAt,
@@ -494,9 +495,12 @@ export function reducer(map: MapState, action: Action): MapState {
       const layer = map.layers.polities;
       const current = layer.data ?? { polities: [], owner: new Array(map.cols * map.rows).fill(null) };
       const exists = current.polities.some((p) => p.id === action.polity.id);
-      const polities = exists
-        ? current.polities.map((p) => (p.id === action.polity.id ? action.polity : p))
-        : [...current.polities, action.polity];
+      // A parent link that would close a loop, or names nothing, is dropped.
+      const polities = withValidParents(
+        exists
+          ? current.polities.map((p) => (p.id === action.polity.id ? action.polity : p))
+          : [...current.polities, action.polity],
+      ).polities;
       if (exists && identicalData(current.polities, polities)) return map;
       return journal(
         withLayer(map, 'polities', commit(layer, { data: { ...current, polities } })),
@@ -514,7 +518,8 @@ export function reducer(map: MapState, action: Action): MapState {
           'polities',
           commit(layer, {
             data: {
-              polities: layer.data.polities.filter((p) => p.id !== action.id),
+              // Its parts become independent rather than pointing at nothing.
+              polities: withValidParents(layer.data.polities.filter((p) => p.id !== action.id)).polities,
               owner: layer.data.owner.map((id) => (id === action.id ? null : id)),
             },
           }),
