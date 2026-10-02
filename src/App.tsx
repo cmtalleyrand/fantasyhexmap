@@ -57,6 +57,7 @@ import { reducer, type Action } from './state/store.js';
 import { DEFAULT_RIVER_TOOL, type RiverNotice, type RiverTool } from './state/riverTools.js';
 import { normaliseHexDimensions } from '../shared/surfaceArea.js';
 import { describeUsage, formatDuration } from './api/usageText.js';
+import { toggleMapFocus, type PanelVisibility } from './state/workspace.js';
 
 const PER_HEX: LayerId[] = ['base', 'elevation', 'climate', 'vegetation', 'population'];
 
@@ -96,6 +97,9 @@ export default function App() {
   const { labels, riverNames, rangeNames, polityNames, elevationStyle, polityOpacity } = prefs;
   const mapStyle = useMemo(() => resolveStyle(prefs.mapStyle), [prefs.mapStyle]);
   const [selection, setSelection] = useState<Set<number>>(new Set());
+  const [panels, setPanels] = useState<PanelVisibility>({ layers: true, inspector: true });
+  const panelRestore = useRef<PanelVisibility>({ layers: true, inspector: true });
+  const [mobilePane, setMobilePane] = useState<'layers' | 'inspector'>('layers');
   const [brush, setBrushState] = useState<Record<string, string>>({});
   const [brushMode, setBrushMode] = useState(false);
   const [instruction, setInstruction] = useState('');
@@ -940,8 +944,35 @@ export default function App() {
         />
       </div>
 
+      <div className="workspace-controls" aria-label="Workspace panels">
+        <button
+          className="tiny"
+          aria-pressed={panels.layers}
+          onClick={() => setPanels((current) => ({ ...current, layers: !current.layers }))}
+        >
+          {panels.layers ? 'hide' : 'show'} layers
+        </button>
+        <button
+          className="tiny"
+          onClick={() => {
+            const next = toggleMapFocus(panels, panelRestore.current);
+            panelRestore.current = next.previous;
+            setPanels(next.panels);
+          }}
+        >
+          {!panels.layers && !panels.inspector ? 'restore panels' : 'focus map'}
+        </button>
+        <button
+          className="tiny"
+          aria-pressed={panels.inspector}
+          onClick={() => setPanels((current) => ({ ...current, inspector: !current.inspector }))}
+        >
+          {panels.inspector ? 'hide' : 'show'} inspector
+        </button>
+      </div>
+
       <div className="workspace">
-        <div className="sidebar">
+        <div className={`sidebar ${panels.layers ? '' : 'panel-closed'} ${mobilePane === 'layers' ? 'mobile-active' : ''}`}>
           <LayerPipeline
             map={map}
             activeLayer={activeLayer}
@@ -1032,43 +1063,62 @@ export default function App() {
           banner={banner}
         />
 
-        <Inspector
-          map={map}
-          dispatch={dispatch}
-          activeLayer={activeLayer}
-          selection={selection}
-          setSelection={setSelection}
-          brush={brush}
-          setBrush={setBrush}
-          brushMode={brushMode}
-          setBrushMode={setBrushMode}
-          instruction={instruction}
-          setInstruction={setInstruction}
-          onAiEdit={() => void runGeneration(activeLayer, instruction.trim())}
-          selectedLayers={selectedLayers}
-          onAiEditSelected={() => void runMultiEdit(instruction.trim())}
-          onWebchat={() => setWebchatLayer(activeLayer)}
-          onGeneratePass={(passSelection) => void runGeneration(activeLayer, null, passSelection)}
-          onGenerateShortNames={() =>
-            void runGeneration(
-              'polities',
-              'Preserve every polity full name, colour, order and size exactly. Generate only concise shortName map labels. Remove generic polity-type wording when the proper name identifies the polity; retain a distinctive type alone when it uniquely identifies that polity.',
-              'roster',
-            )
-          }
-          busy={busyLayers.size > 0}
-          busyLayers={busyLayers}
-          riverDraft={riverDraft}
-          setRiverDraft={setRiverDraft}
-          undoRiverDraftClick={undoRiverDraftClick}
-          riverDraftParent={riverDraftParent}
-          setRiverDraftParent={setRiverDraftParent}
-          riverTool={riverTool}
-          setRiverTool={setRiverTool}
-          riverNotice={riverNotice}
-          setRiverNotice={setRiverNotice}
-          onOpenDecisionLog={() => setShowDecisions(true)}
-        />
+        <div className="mobile-workspace-tabs" role="tablist" aria-label="Map workspace">
+          <button
+            role="tab"
+            aria-selected={mobilePane === 'layers'}
+            onClick={() => setMobilePane('layers')}
+          >
+            Layers
+          </button>
+          <button
+            role="tab"
+            aria-selected={mobilePane === 'inspector'}
+            onClick={() => setMobilePane('inspector')}
+          >
+            Edit
+          </button>
+        </div>
+
+        <div className={`inspector-shell ${panels.inspector ? '' : 'panel-closed'} ${mobilePane === 'inspector' ? 'mobile-active' : ''}`}>
+          <Inspector
+            map={map}
+            dispatch={dispatch}
+            activeLayer={activeLayer}
+            selection={selection}
+            setSelection={setSelection}
+            brush={brush}
+            setBrush={setBrush}
+            brushMode={brushMode}
+            setBrushMode={setBrushMode}
+            instruction={instruction}
+            setInstruction={setInstruction}
+            onAiEdit={() => void runGeneration(activeLayer, instruction.trim())}
+            selectedLayers={selectedLayers}
+            onAiEditSelected={() => void runMultiEdit(instruction.trim())}
+            onWebchat={() => setWebchatLayer(activeLayer)}
+            onGeneratePass={(passSelection) => void runGeneration(activeLayer, null, passSelection)}
+            onGenerateShortNames={() =>
+              void runGeneration(
+                'polities',
+                'Preserve every polity full name, colour, order and size exactly. Generate only concise shortName map labels. Remove generic polity-type wording when the proper name identifies the polity; retain a distinctive type alone when it uniquely identifies that polity.',
+                'roster',
+              )
+            }
+            busy={busyLayers.size > 0}
+            busyLayers={busyLayers}
+            riverDraft={riverDraft}
+            setRiverDraft={setRiverDraft}
+            undoRiverDraftClick={undoRiverDraftClick}
+            riverDraftParent={riverDraftParent}
+            setRiverDraftParent={setRiverDraftParent}
+            riverTool={riverTool}
+            setRiverTool={setRiverTool}
+            riverNotice={riverNotice}
+            setRiverNotice={setRiverNotice}
+            onOpenDecisionLog={() => setShowDecisions(true)}
+          />
+        </div>
       </div>
     </div>
   );

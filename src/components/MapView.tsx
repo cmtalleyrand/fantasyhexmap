@@ -11,6 +11,7 @@ import { formatLength, riverLength } from '../../shared/riverLength.js';
 import { normaliseHexDimensions } from '../../shared/surfaceArea.js';
 import type { RiverTool } from '../state/riverTools.js';
 import { pinchView, zoomAt, type ScreenPoint, type View } from '../render/view.js';
+import { startsPan, type MapNavigationTool } from '../state/workspace.js';
 
 const HEX_SIZE = 26;
 
@@ -71,6 +72,7 @@ export default function MapView(props: MapViewProps) {
   /** Held Space turns a drag into a pan, as in most drawing tools. */
   const spaceHeld = useRef(false);
   const [panReady, setPanReady] = useState(false);
+  const [navigationTool, setNavigationTool] = useState<MapNavigationTool>('select');
   useEffect(() => {
     const typing = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement | null;
@@ -215,7 +217,11 @@ export default function MapView(props: MapViewProps) {
       return;
     }
     if (pointers.current.size > 2) return;
-    const panning = e.button === 1 || e.button === 2 || e.altKey || spaceHeld.current;
+    const panning = startsPan(navigationTool, {
+      button: e.button,
+      altKey: e.altKey,
+      spaceHeld: spaceHeld.current,
+    });
     if (panning) {
       drag.current = {
         mode: 'pan',
@@ -359,14 +365,16 @@ export default function MapView(props: MapViewProps) {
 
   const hoverText = () => {
     if (hover === null) {
-      const nav = 'Space-drag, right-drag or two fingers to pan · wheel or pinch to zoom';
+      const nav = navigationTool === 'pan'
+        ? 'Drag to pan · wheel or pinch to zoom'
+        : 'Drag to select · Space-drag, right-drag or two fingers to pan';
       if (props.onRiverDraftClick) return `Click hexes from source to mouth · Enter finishes, Esc cancels · ${nav}`;
       if (props.riverTool?.kind === 'extend') return `Click a hex to extend the selected river to it · ${nav}`;
       if (props.riverTool?.kind === 'navigability') return `Drag along a river to set navigability · ${nav}`;
       if (props.riverTool) return `Click a river to select it, drag one of its hexes to move it · ${nav}`;
       return props.onCityMove
-        ? `Drag a city to move it · drag elsewhere to select · ${nav}`
-        : `Drag to select hexes · ${nav}`;
+        ? `Drag a city to move it · ${nav}`
+        : nav;
     }
     const col = hover % map.cols;
     const row = Math.floor(hover / map.cols);
@@ -406,6 +414,7 @@ export default function MapView(props: MapViewProps) {
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
         onPointerCancel={onPointerUp}
+        className={navigationTool === 'pan' ? 'pan-tool' : undefined}
         style={panReady ? { cursor: 'grab' } : undefined}
         onPointerLeave={() => {
           setHover(null);
@@ -417,7 +426,25 @@ export default function MapView(props: MapViewProps) {
       {props.overlay && <div className="map-overlay">{props.overlay}</div>}
       {props.banner}
       <div className="maphud">{hoverText()}</div>
-      <div className="mapzoom">
+      <div className="mapzoom" role="toolbar" aria-label="Map navigation">
+        <div className="map-tool-toggle" aria-label="Pointer tool">
+          <button
+            className="tiny"
+            aria-pressed={navigationTool === 'select'}
+            onClick={() => setNavigationTool('select')}
+            title="Drag across hexes to select them"
+          >
+            select
+          </button>
+          <button
+            className="tiny"
+            aria-pressed={navigationTool === 'pan'}
+            onClick={() => setNavigationTool('pan')}
+            title="Drag the map to move around it"
+          >
+            pan
+          </button>
+        </div>
         <button
           className="tiny"
           aria-label="Zoom in"
