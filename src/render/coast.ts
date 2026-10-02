@@ -356,3 +356,140 @@ export function coastalIslandSide(
   }
   return 0;
 }
+
+/**
+ * The drawn body of a lake: its hex outline, smoothed well beyond the coast's
+ * eighth-of-a-hex bound, then pushed out into the surrounding land by a
+ * seeded amount that varies slowly round the shore. A lake therefore reaches
+ * a little into its neighbouring hexes and never reads as a stamped hexagon
+ * or a row of circles. Holes (land inside the lake) come out as inner loops
+ * wound the other way, so a nonzero fill leaves them as land.
+ */
+export function lakeBodyPath(
+  hexes: number[],
+  cols: number,
+  rows: number,
+  size: number,
+  rand: (k: number) => number,
+): PathCmd[] {
+  const inside = new Set(hexes);
+  const edges: CoastEdge[] = [];
+  for (const i of hexes) {
+    const col = i % cols;
+    const row = Math.floor(i / cols);
+    for (let e = 0; e < 6; e++) {
+      const n = neighbourOf(col, row, e);
+      const j = inBounds(cols, rows, n.col, n.row) ? hexIndex(cols, n.col, n.row) : -1;
+      if (j >= 0 && inside.has(j)) continue;
+      const [from, to] = hexEdgePoints(col, row, e, size);
+      edges.push({ from, to, land: i, water: j });
+    }
+  }
+  const d: PathCmd[] = [];
+  chainEdges(edges).forEach((chain, c) => {
+    const corners = chain.points;
+    const n = corners.length;
+    if (n < 3) return;
+    // Sample the quadratic B-spline through the edge midpoints.
+    let pts: Point[] = [];
+    for (let k = 0; k < n; k++) {
+      const a = mid(corners[(k - 1 + n) % n]!, corners[k]!);
+      const ctrl = corners[k]!;
+      const b = mid(corners[k]!, corners[(k + 1) % n]!);
+      for (let s = 0; s < 6; s++) {
+        const t = s / 6;
+        pts.push({
+          x: (1 - t) * (1 - t) * a.x + 2 * (1 - t) * t * ctrl.x + t * t * b.x,
+          y: (1 - t) * (1 - t) * a.y + 2 * (1 - t) * t * ctrl.y + t * t * b.y,
+        });
+      }
+    }
+    const smooth = (list: Point[], passes: number): Point[] => {
+      let out = list;
+      for (let p = 0; p < passes; p++) {
+        out = out.map((q, i) => {
+          const prev = out[(i - 1 + out.length) % out.length]!;
+          const next = out[(i + 1) % out.length]!;
+          return { x: 0.25 * prev.x + 0.5 * q.x + 0.25 * next.x, y: 0.25 * prev.y + 0.5 * q.y + 0.25 * next.y };
+        });
+      }
+      return out;
+    };
+    pts = smooth(pts, 6);
+    // How far each point moves out: a few slow seeded swells round the shore,
+    // so even a one-hex lake has bays and points, and a long shore varies
+    // every few hexes rather than at every sample.
+    const perimeter = pts.reduce((sum, q, i) => sum + Math.hypot(q.x - pts[(i + 1) % pts.length]!.x, q.y - pts[(i + 1) % pts.length]!.y), 0);
+    const waves = [1, 2, 3].map((h) => ({ h, phase: rand(c * 1000 + 10 + h) * Math.PI * 2, amp: [0.07, 0.05, 0.035][h - 1]! }));
+    const local = Math.max(1, Math.round(perimeter / (size * 3)));
+    const localPhase = rand(c * 1000 + 20) * Math.PI * 2;
+    const push = pts.map((_, i) => {
+      const f = (i / pts.length) * Math.PI * 2;
+      return 0.17
+        + waves.reduce((sum, w) => sum + w.amp * Math.cos(w.h * f + w.phase), 0)
+        + 0.04 * Math.cos(local * f + localPhase);
+    });
+    const out = pts.map((q, i) => {
+      const prev = pts[(i - 1 + pts.length) % pts.length]!;
+      const next = pts[(i + 1) % pts.length]!;
+      const dx = next.x - prev.x;
+      const dy = next.y - prev.y;
+      const len = Math.hypot(dx, dy) || 1;
+      // The lake lies to the right of the direction of travel; land to the left.
+      return { x: q.x + (dy / len) * push[i]! * size, y: q.y + (-dx / len) * push[i]! * size };
+    });
+    smooth(out, 2).forEach((q, i) => d.push([i === 0 ? 'M' : 'L', q.x, q.y]));
+    d.push(['Z']);
+  });
+  return d;
+}
+
+/**
+ * Every lake, as connected groups of hexes. An island hex whose water
+ * neighbours are all lake belongs to its lake: it is drawn on lake water,
+ * not sea.
+ */
+export function lakeComponents(
+  base: ReadonlyArray<BaseGeo | null>,
+  cols: number,
+  rows: number,
+): { lakes: number[][]; lakeIslands: Set<number> } {
+  const lakeIslands = new Set<number>();
+  for (let i = 0; i < base.length; i++) {
+    if (!isIslandType(base[i])) continue;
+    let lake = 0;
+    let other = 0;
+    for (let e = 0; e < 6; e++) {
+      const n = neighbourOf(i % cols, Math.floor(i / cols), e);
+      if (!inBounds(cols, rows, n.col, n.row)) continue;
+      const v = base[hexIndex(cols, n.col, n.row)];
+      if (v === 'Lake') lake++;
+      else if (v === 'Sea' || (isIslandType(v) && v !== undefined)) other++;
+    }
+    if (lake > 0 && other === 0) lakeIslands.add(i);
+  }
+  const member = (i: number) => base[i] === 'Lake' || lakeIslands.has(i);
+  const seen = new Uint8Array(base.length);
+  const lakes: number[][] = [];
+  for (let i = 0; i < base.length; i++) {
+    if (seen[i] || base[i] !== 'Lake') continue;
+    const component: number[] = [];
+    const stack = [i];
+    seen[i] = 1;
+    while (stack.length > 0) {
+      const h = stack.pop()!;
+      component.push(h);
+      for (let e = 0; e < 6; e++) {
+        const n = neighbourOf(h % cols, Math.floor(h / cols), e);
+        if (!inBounds(cols, rows, n.col, n.row)) continue;
+        const j = hexIndex(cols, n.col, n.row);
+        if (!seen[j] && member(j)) {
+          seen[j] = 1;
+          stack.push(j);
+        }
+      }
+    }
+    lakes.push(component.sort((a, b) => a - b));
+  }
+  return { lakes, lakeIslands };
+}

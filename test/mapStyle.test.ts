@@ -253,11 +253,13 @@ test('a one-hex lake is drawn as an irregular body, not traced from its hex edge
   assert.equal(lakeHexes.length, 0, 'the lake hex is drawn as land under the body');
   const bodies = prims.filter((p) => p.kind === 'path' && p.fill === style.palette.lake);
   assert.equal(bodies.length, 1);
-  // The body is irregular: its control points are not all the same distance from the centre.
-  const d = (bodies[0] as { d: PathCmd[] }).d.filter((c) => c[0] === 'Q');
+  // The body is irregular, and reaches past its own hex's edges into the neighbours.
+  const d = (bodies[0] as { d: PathCmd[] }).d.filter((c) => c[0] === 'M' || c[0] === 'L');
   const centre = { x: 20 * Math.sqrt(3) * 3.5 + 20 * Math.sqrt(3) / 2, y: 20 * 1.5 * 3 + 20 };
   const radii = d.map((c) => Math.hypot((c[1] as number) - centre.x, (c[2] as number) - centre.y));
-  assert.ok(Math.max(...radii) - Math.min(...radii) > 1);
+  assert.ok(Math.max(...radii) - Math.min(...radii) > 1, 'not a circle');
+  assert.ok(Math.max(...radii) > 20 * (Math.sqrt(3) / 2), 'reaches into a neighbouring hex');
+  assert.ok(Math.max(...radii) < 20 * 1.4, 'but only a little way');
 });
 
 test('a crossing point is the same seen from either side of its edge', async () => {
@@ -661,4 +663,192 @@ test('boundary chains close only when they return to their start, even where edg
       assert.deepEqual(last, c.edges[0]!.from, 'a closed chain returns to its start');
     }
   }
+});
+
+test('a river city on the coast stands where its river meets the shore', async () => {
+  const { citySite, resolvedSite } = await import('../src/render/sites.ts');
+  const { hexCenter } = await import('../shared/hex.ts');
+  const size = 20;
+  const centre = hexCenter(1, 1, size);
+  // The river runs west to east across the hex; the coast is the east edge.
+  const line = Array.from({ length: 21 }, (_, k) => ({ x: centre.x - 20 + k * 2, y: centre.y + 2 }));
+  const city = {
+    id: 'c', col: 1, row: 1, name: 'Mouth', population: 20_000,
+    onRiver: true, riverId: 'r', coastal: true, coastalEdges: [0],
+  };
+  const ctx = { size, base: Array(9).fill('Land') as BaseGeo[], cols: 3, riverLine: () => line };
+  assert.equal(resolvedSite(city).kind, 'port', 'auto makes a river city on the coast a port');
+  const auto = citySite(city, ctx);
+  assert.ok(auto.x > centre.x + size * 0.4 && Math.abs(auto.y - (centre.y + 2)) < 1e-9, 'on the river, toward the east shore');
+  assert.deepEqual(citySite({ ...city, site: { coast: 0, river: true } }, ctx), auto);
+  assert.equal(resolvedSite({ ...city, site: { coast: 0 } }).kind, 'coast', 'coast alone still leaves the river');
+});
+
+test('an island in a lake sits on lake water, and a lake inside one realm is drawn as part of it', () => {
+  const cols = 7;
+  const rows = 5;
+  const map = createMapState('Lake realm', cols, rows);
+  const base: BaseGeo[] = Array(cols * rows).fill('Land');
+  // A three-hex lake with an islet in it, all inside one realm.
+  for (const i of [2 * cols + 2, 2 * cols + 4, 1 * cols + 3]) base[i] = 'Lake';
+  base[2 * cols + 3] = 'Island';
+  map.layers.base.data = base;
+  map.layers.polities.data = {
+    polities: [{ id: 'r', name: 'Realm', colour: '#aa3333' }],
+    owner: base.map((v) => (v === 'Land' ? 'r' : null)),
+  };
+  const visible = defaultVisibility();
+  visible.polities = true;
+  const style = resolveStyle({ preset: 'parchment', overrides: {} });
+  const prims = buildScene(map, { size: 20, visible, labels: false, style }).prims;
+  assert.ok(!prims.some((p) => p.kind === 'polygon' && p.fill === style.palette.sea), 'no sea under the lake islet');
+  assert.equal(prims.filter((p) => p.kind === 'path' && p.fill === style.palette.lake).length, 1, 'one lake body');
+  // The realm's border band runs round the realm's outside only: no band loop round the lake.
+  const bands = prims.filter((p): p is Extract<Prim, { kind: 'group' }> => p.kind === 'group' && p.prims.length === 1);
+  const lakeCentre = { x: 20 * Math.sqrt(3) * 3 + 20 * Math.sqrt(3) / 2, y: 20 * 1.5 * 2 + 20 };
+  for (const g of bands) {
+    const pts = (g.prims[0] as { d: PathCmd[] }).d.filter((c) => c[0] !== 'Z').map((c) => ({ x: c[1] as number, y: c[2] as number }));
+    assert.ok(!pts.some((q) => Math.hypot(q.x - lakeCentre.x, q.y - lakeCentre.y) < 20 * 1.2), 'a border band rings the lake');
+  }
+});
+
+test('small islands are two or three islets, spread apart', () => {
+  const map = createMapState('Isles', 3, 3);
+  map.layers.base.data = ['Sea', 'Sea', 'Sea', 'Sea', 'Small Islands', 'Sea', 'Sea', 'Sea', 'Sea'];
+  const style = resolveStyle({ preset: 'parchment', overrides: {} });
+  const isles = buildScene(map, { size: 20, visible: defaultVisibility(), labels: false, style }).prims
+    .filter((p): p is Extract<Prim, { kind: 'path' }> => p.kind === 'path' && p.fill === style.palette.island);
+  const count = isles[0]!.d.filter((c) => c[0] === 'M').length;
+  assert.ok(count >= 2 && count <= 3, `${count} islets`);
+});
+
+test('automatic colours contrast neighbouring realms and shade each realm’s parts from it', async () => {
+  const { contrastingRealmColours } = await import('../src/render/hierarchy.ts');
+  const polities = [
+    { id: 'k', name: 'Kingdom', colour: '#000000' },
+    { id: 'd1', name: 'Duchy One', colour: '#000000', parentId: 'k' },
+    { id: 'd2', name: 'Duchy Two', colour: '#000000', parentId: 'k' },
+    { id: 'n', name: 'Neighbour', colour: '#000000' },
+  ];
+  const owner = ['d1', 'd1', 'd2', 'd2', 'n', 'n'];
+  const colours = contrastingRealmColours(polities, owner, 6, 1);
+  assert.equal(colours.size, 4);
+  assert.notEqual(colours.get('k'), colours.get('n'));
+  const { toLab } = await import('../src/render/palette.ts');
+  const dist = (a: string, b: string) => Math.hypot(...toLab(a).map((v, i) => v - toLab(b)[i]!));
+  // Parts are near their realm's colour and far from the neighbour's.
+  for (const part of ['d1', 'd2']) {
+    assert.ok(dist(colours.get(part)!, colours.get('k')!) < dist(colours.get(part)!, colours.get('n')!), `${part} reads as part of the kingdom`);
+  }
+  assert.notEqual(colours.get('d1'), colours.get('d2'));
+});
+
+test('the frontier line can be switched off, and is drawn in filled mode when on', () => {
+  const map = createMapState('Front', 4, 1);
+  map.layers.base.data = Array(4).fill('Land');
+  map.layers.polities.data = { polities: [{ id: 'a', name: 'A', colour: '#aa3333' }, { id: 'b', name: 'B', colour: '#3355aa' }], owner: ['a', 'a', 'b', 'b'] };
+  const visible = defaultVisibility();
+  visible.polities = true;
+  const lines = (frontier: 'none' | 'solid') => {
+    const style = resolveStyle({ preset: 'classic', overrides: { frontier } });
+    return buildScene(map, { size: 20, visible, labels: false, style }).prims.filter((p) => p.kind === 'path' && p.stroke === style.palette.frontier).length;
+  };
+  assert.equal(lines('none'), 0);
+  assert.equal(lines('solid'), 1);
+});
+
+test('city names can prefer the place below their marker', async () => {
+  const { placeCityNames } = await import('../src/render/labels.ts');
+  const city = [{ id: 'a', name: 'Alder', at: { x: 100, y: 100 }, r: 5, population: 10_000 }];
+  const beside = placeCityNames(city, 10, (t) => t.length * 6, [], { width: 400, height: 400 });
+  const below = placeCityNames(city, 10, (t) => t.length * 6, [], { width: 400, height: 400 }, 'below');
+  assert.equal(beside[0]!.anchor, 'start');
+  assert.equal(below[0]!.anchor, 'middle');
+  assert.ok(below[0]!.at.y > 100);
+});
+
+test('a plateau is drawn as an escarpment where it falls to lower ground, not as a symbol in every hex', () => {
+  const map = createMapState('Plateau', 4, 1);
+  map.layers.base.data = Array(4).fill('Land');
+  map.layers.elevation.data = ['Lowland', 'Plateau', 'Plateau', 'Mountains'];
+  const visible = defaultVisibility();
+  visible.elevation = true;
+  const style = resolveStyle({ preset: 'parchment', overrides: {} });
+  const ink = style.palette.ink;
+  const prims = buildScene(map, { size: 20, visible, labels: false, style }).prims;
+  const escarpments = prims.filter((p): p is Extract<Prim, { kind: 'path' }> =>
+    p.kind === 'path' && Boolean(p.stroke) && !p.fill && p.d.filter((c) => c[0] === 'M').length >= 4);
+  // Only the edge between the Lowland hex and the plateau carries one; the plateau-to-mountain edge does not.
+  assert.equal(escarpments.length, 1);
+  assert.ok(ink);
+});
+
+test('names are set in the style’s lettering, tracked realm names letter by letter', async () => {
+  const { LETTERINGS, LETTERING_ORDER } = await import('../src/render/lettering.ts');
+  const cols = 8;
+  const rows = 4;
+  const map = createMapState('Lettering', cols, rows);
+  map.layers.base.data = Array(cols * rows).fill('Land');
+  map.layers.polities.data = {
+    polities: [{ id: 'k', name: 'Valdoria', colour: '#aa3333' }],
+    owner: Array(cols * rows).fill('k'),
+  };
+  map.layers.cities.data = {
+    cities: [{ id: 'c', name: 'Alder', col: 2, row: 1, population: 20_000, polityId: 'k', coastalEdges: [], onRiver: false } as never],
+  };
+  const visible = defaultVisibility();
+  visible.polities = true;
+  visible.cities = true;
+  for (const id of LETTERING_ORDER) {
+    const style = resolveStyle({ preset: 'parchment', overrides: { lettering: id } });
+    const prims = buildScene(map, { size: 24, visible, labels: true, polityNames: 0, style }).prims;
+    const texts = prims.filter((p): p is Extract<Prim, { kind: 'text' }> => p.kind === 'text');
+    const realm = texts.find((t) => t.text === 'VALDORIA');
+    const city = texts.find((t) => t.text === 'Alder');
+    assert.ok(realm && city, `${id}: realm and city are named`);
+    assert.equal(realm.font, LETTERINGS[id].realm.family);
+    assert.equal(realm.weight, LETTERINGS[id].realm.weight);
+    assert.equal(city.font, LETTERINGS[id].city.family);
+    if (LETTERINGS[id].realm.tracking > 0) assert.equal(realm.glyphs?.length, 'VALDORIA'.length, `${id}: tracked`);
+    else assert.equal(realm.glyphs, undefined);
+  }
+});
+
+test('every bundled pairing has a real face for each kind of name', async () => {
+  const { LETTERINGS, LETTERING_ORDER, letteringFaces } = await import('../src/render/lettering.ts');
+  for (const id of LETTERING_ORDER.filter((l) => l !== 'classic')) {
+    const faces = letteringFaces(id);
+    const l = LETTERINGS[id];
+    for (const role of [l.realm, l.water, l.river, l.city, l.range]) {
+      assert.ok(
+        faces.some((f) => role.family.startsWith(`"${f.family}"`) && f.weight === role.weight && f.italic === role.italic),
+        `${id}: ${role.family} ${role.weight}${role.italic ? ' italic' : ''} is bundled`,
+      );
+    }
+  }
+  assert.deepEqual(letteringFaces('classic'), []);
+  assert.equal(parseStyleChoice({ preset: 'parchment', overrides: { lettering: 'comic' } }).overrides.lettering, undefined);
+  assert.equal(resolveStyle({ preset: 'atlas', overrides: {} }).knobs.lettering, 'atlas');
+});
+
+test('an SVG carries the font rules it is given, and measurements can be thrown away', async () => {
+  const fonts = await import('../src/render/fonts.ts');
+  const scene = { width: 10, height: 10, background: '#fff', prims: [] };
+  const css = '@font-face{font-family:"HexMap Cinzel";src:url(data:font/woff2;base64,AAAA)}';
+  assert.ok(sceneToSvg(scene, 't', css).includes(`<style>${css}</style>`));
+  assert.ok(!sceneToSvg(scene, 't').includes('<style>'));
+  const before = fonts.measureEpoch;
+  fonts.invalidateTextMeasures();
+  assert.equal(fonts.measureEpoch, before + 1);
+});
+
+test('a river name moves along its river to keep clear of a realm name', async () => {
+  const { placeRiverLabels } = await import('../src/render/featureLabels.ts');
+  const river = { id: 'r', name: 'Wend', terminus: 'Sea', segments: [] } as never;
+  const line = Array.from({ length: 41 }, (_, i) => ({ x: i * 10, y: 100 }));
+  const free = placeRiverLabels([river], 20, () => line)[0]!;
+  assert.ok(Math.abs(free.at.x - 200) < 30, 'unobstructed, the name sits mid-river');
+  const realm = { cx: 200, cy: 95, halfW: 70, halfH: 12, rotation: 0 };
+  const moved = placeRiverLabels([river], 20, () => line, undefined, [realm])[0]!;
+  for (const g of moved.glyphs!) assert.ok(Math.abs(g.x - 200) > 70, `glyph ${g.ch} clears the realm name`);
 });

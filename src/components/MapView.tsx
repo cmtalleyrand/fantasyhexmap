@@ -12,6 +12,7 @@ import { normaliseHexDimensions } from '../../shared/surfaceArea.js';
 import type { RiverTool } from '../state/riverTools.js';
 import { pinchView, zoomAt, type ScreenPoint, type View } from '../render/view.js';
 import { startsPan, type MapNavigationTool } from '../state/workspace.js';
+import { loadLettering } from '../render/fontFiles.js';
 
 const HEX_SIZE = 26;
 
@@ -97,6 +98,20 @@ export default function MapView(props: MapViewProps) {
     };
   }, []);
 
+  // Names are measured in the style's lettering, so once its bundled fonts
+  // have loaded the map is laid out again with the real widths.
+  const [fontsVersion, setFontsVersion] = useState(0);
+  const lettering = mapStyle.knobs.lettering;
+  useEffect(() => {
+    let live = true;
+    void loadLettering(lettering).then(() => {
+      if (live) setFontsVersion((v) => v + 1);
+    });
+    return () => {
+      live = false;
+    };
+  }, [lettering]);
+
   // The map itself is rebuilt only when the data or a display option changes;
   // the pointer moving only rebuilds the hover and selection outlines.
   const scene = useMemo(
@@ -113,7 +128,7 @@ export default function MapView(props: MapViewProps) {
         style: mapStyle,
         highlightRiver: props.riverTool?.selectedId ?? null,
       }),
-    [map, visible, labels, riverNames, rangeNames, seaNames, polityNames, polityOpacity, mapStyle, props.riverTool?.selectedId],
+    [map, visible, labels, riverNames, rangeNames, seaNames, polityNames, polityOpacity, mapStyle, props.riverTool?.selectedId, fontsVersion],
   );
   const decoration = useMemo(() => {
     const riverDraftSelection = props.riverDraft ? new Set(props.riverDraft) : null;

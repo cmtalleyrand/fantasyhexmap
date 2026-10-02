@@ -4,6 +4,7 @@ import { createMapState } from '../shared/layers.ts';
 import { hexCenter, pixelToOffset } from '../shared/hex.ts';
 import { contrastingPolityColours } from '../src/render/palette.ts';
 import { buildScene, citySymbolForPopulation, defaultVisibility } from '../src/render/scene.ts';
+import { resolveStyle } from '../src/render/styles.ts';
 
 test('city symbols use the four population bands at their exact boundaries', () => {
   assert.equal(citySymbolForPopulation(0), 'village');
@@ -148,8 +149,8 @@ test('polity fills are opaque and independent of underlying thematic colours', (
   assert.equal(polityFill(elevationScene), '#2f6fbb');
 });
 
-test('polity type size grows with territory area for the same label', () => {
-  const sizeFor = (cols: number, rows: number): number => {
+test('polity type size grows with territory area: slowly by default, to fill when asked', () => {
+  const sizeFor = (cols: number, rows: number, realmNames?: 'moderate' | 'fill') => {
     const map = createMapState('Label area test', cols, rows);
     map.layers.base.data = Array(cols * rows).fill('Land');
     map.layers.polities.data = {
@@ -158,18 +159,20 @@ test('polity type size grows with territory area for the same label', () => {
     };
     const visible = defaultVisibility();
     visible.polities = true;
-    const label = buildScene(map, { size: 20, visible, labels: true }).prims.find(
+    const style = realmNames ? resolveStyle({ preset: 'classic', overrides: { realmNames } }) : undefined;
+    const label = buildScene(map, { size: 20, visible, labels: true, style }).prims.find(
       (prim) => prim.kind === 'text',
     );
     assert.ok(label?.kind === 'text');
     return label.size;
   };
 
-  const fourHexes = sizeFor(2, 2);
-  const sixteenHexes = sizeFor(4, 4);
-
-  assert.ok(sixteenHexes > fourHexes);
-  assert.equal(sixteenHexes / fourHexes, 2);
+  // Moderate (the default): type grows with the fourth root of the area, so
+  // sixteen times the hexes gives type twice the size.
+  assert.ok(Math.abs(sizeFor(8, 8) / sizeFor(2, 2) - 2) < 1e-9);
+  assert.ok(Math.abs(sizeFor(4, 4) / sizeFor(2, 2) - Math.SQRT2) < 1e-9);
+  // Filling: type grows with the square root of the area, as it used to.
+  assert.ok(Math.abs(sizeFor(4, 4, 'fill') / sizeFor(2, 2, 'fill') - 2) < 1e-9);
 });
 
 test('a polity label lies inside its territory, even for a crescent-shaped realm', () => {

@@ -9,7 +9,7 @@
  */
 
 import type { Point } from '../../shared/hex.js';
-import { fantasyTextEm } from './fonts.js';
+import { fantasyTextEm, textEm } from './fonts.js';
 
 export interface Glyph {
   ch: string;
@@ -19,8 +19,16 @@ export interface Glyph {
 }
 
 /** Advance of each glyph in px, and the run's total width (no trailing tracking). */
-export function glyphAdvances(text: string, size: number, tracking: number, weight = 600): { advances: number[]; width: number } {
-  const advances = [...text].map((ch) => fantasyTextEm(ch, weight) * size + tracking * size);
+export function glyphAdvances(
+  text: string,
+  size: number,
+  tracking: number,
+  weight = 600,
+  family?: string,
+  italic = false,
+): { advances: number[]; width: number } {
+  const em = (ch: string) => (family ? textEm(ch, family, weight, italic) : fantasyTextEm(ch, weight));
+  const advances = [...text].map((ch) => em(ch) * size + tracking * size);
   const width = advances.reduce((a, b) => a + b, 0) - (text.length > 0 ? tracking * size : 0);
   return { advances, width };
 }
@@ -55,11 +63,11 @@ export function glyphsAlong(
   size: number,
   points: Point[],
   start: number,
-  options: { tracking?: number; lift?: number; weight?: number } = {},
+  options: { tracking?: number; lift?: number; weight?: number; family?: string; italic?: boolean } = {},
 ): Glyph[] {
   const tracking = options.tracking ?? 0;
   const lift = options.lift ?? 0;
-  const { advances, width } = glyphAdvances(text, size, tracking, options.weight);
+  const { advances, width } = glyphAdvances(text, size, tracking, options.weight, options.family, options.italic);
   let path = points;
   let cum = cumulative(path);
   let from = start;
@@ -87,4 +95,23 @@ export function glyphsAlong(
     s += advances[k]!;
   });
   return glyphs;
+}
+
+/** Text laid letter-spaced along a straight baseline centred on `at`. */
+export function glyphsStraight(
+  text: string,
+  size: number,
+  at: Point,
+  rotation: number,
+  options: { tracking: number; weight?: number; family?: string; italic?: boolean },
+): Glyph[] {
+  const { width } = glyphAdvances(text, size, options.tracking, options.weight, options.family, options.italic);
+  const c = Math.cos(rotation);
+  const s = Math.sin(rotation);
+  const reach = width;
+  const line = [
+    { x: at.x - c * reach, y: at.y - s * reach },
+    { x: at.x + c * reach, y: at.y + s * reach },
+  ];
+  return glyphsAlong(text, size, line, reach - width / 2, options);
 }

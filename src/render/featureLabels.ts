@@ -8,8 +8,10 @@
 
 import { hexCenter, hexEdgeMidpoint, type Point } from '../../shared/hex.js';
 import type { Elevation, MountainRange, River } from '../../shared/types.js';
-import { fantasyTextEm } from './fonts.js';
-import { glyphAdvances, glyphsAlong, type Glyph } from './glyphs.js';
+import type { FaceRole } from './lettering.js';
+import { LETTERINGS } from './lettering.js';
+import { insideBox, type OrientedBox } from './labels.js';
+import { glyphAdvances, glyphsAlong, glyphsStraight, type Glyph } from './glyphs.js';
 
 export interface FeatureLabel {
   text: string;
@@ -22,8 +24,7 @@ export interface FeatureLabel {
   width?: number;
 }
 
-/** Letter-spacing of river names, in em: open type reads at small sizes over busy ground. */
-const RIVER_TRACKING = 0.08;
+
 
 /** Keep text upright: rotate by a half turn if it would read upside down. */
 function upright(angle: number): number {
@@ -68,6 +69,8 @@ export function placeRiverLabels(
   rivers: River[],
   size: number,
   pathFor?: (riverId: string) => Point[] | null,
+  face: FaceRole = LETTERINGS.classic.river,
+  avoid: OrientedBox[] = [],
 ): FeatureLabel[] {
   const out: FeatureLabel[] = [];
   // Large enough to read against relief and polity colour; a river too
@@ -84,7 +87,7 @@ export function placeRiverLabels(
       cum.push(cum[i - 1]! + Math.hypot(pts[i]!.x - pts[i - 1]!.x, pts[i]!.y - pts[i - 1]!.y));
     }
     const total = cum[cum.length - 1]!;
-    const em = glyphAdvances(text, 1, RIVER_TRACKING).width;
+    const em = glyphAdvances(text, 1, face.tracking, face.weight, face.family, face.italic).width;
     // Shrink to fit short rivers; a name that cannot fit legibly is left off.
     const font = Math.min(idealFont, (total * 0.95) / em);
     if (font < minFont) continue;
@@ -108,8 +111,26 @@ export function placeRiverLabels(
         );
       }
       const centreBias = Math.abs(start + width / 2 - total / 2) / total;
+      // Names already placed (realms) are avoided: the share of the text's
+      // length, sampled along its baseline and its top, that would fall on one.
+      let covered = 0;
+      if (avoid.length > 0) {
+        for (let j = 0; j <= 8; j++) {
+          const d = start + (width * j) / 8;
+          const p = pointAt(pts, cum, d);
+          const q = pointAt(pts, cum, d + font * 0.3);
+          const angle = Math.atan2(q.y - p.y, q.x - p.x);
+          const up = Math.cos(angle) >= 0 ? 1 : -1;
+          for (const lift of [font * 0.4, font * 1.2]) {
+            const x = p.x + Math.sin(angle) * lift * up;
+            const y = p.y - Math.cos(angle) * lift * up;
+            if (avoid.some((box) => insideBox(box, x, y))) covered++;
+          }
+        }
+        covered /= 18;
+      }
       // The name bends with the river, so a bend matters less than for straight type.
-      const score = (deviation / size) * 0.5 + centreBias * 0.3;
+      const score = (deviation / size) * 0.5 + centreBias * 0.3 + covered * 2;
       if (!best || score < best.score) best = { start, score };
     }
     const a = pointAt(pts, cum, best!.start);
@@ -123,7 +144,7 @@ export function placeRiverLabels(
       size: font,
       rotation,
       at: { x: mid.x + Math.sin(rotation) * lift, y: mid.y - Math.cos(rotation) * lift },
-      glyphs: glyphsAlong(text, font, pts, best!.start, { tracking: RIVER_TRACKING, lift }),
+      glyphs: glyphsAlong(text, font, pts, best!.start, { tracking: face.tracking, lift, weight: face.weight, family: face.family, italic: face.italic }),
       width,
     });
   }
@@ -135,6 +156,7 @@ export function placeRangeLabels(
   elevation: (Elevation | null)[],
   cols: number,
   size: number,
+  face: FaceRole = LETTERINGS.classic.range,
 ): FeatureLabel[] {
   const out: FeatureLabel[] = [];
   for (const range of ranges) {
@@ -175,15 +197,20 @@ export function placeRangeLabels(
       hi = Math.max(hi, u);
     }
     const length = hi - lo + size * 1.8;
-    const em = fantasyTextEm(text, 700);
+    const em = glyphAdvances(text, 1, face.tracking, face.weight, face.family, face.italic).width;
     const font = Math.max(Math.max(8, size * 0.3), Math.min(size * 0.7, length / em));
-    out.push({ text, size: font, rotation, at: mean });
+    out.push({
+      text,
+      size: font,
+      rotation,
+      at: mean,
+      width: em * font,
+      ...(face.tracking > 0 ? { glyphs: glyphsStraight(text, font, mean, rotation, face) } : {}),
+    });
   }
   return out;
 }
 
-/** Letter-spacing of sea names, in em: wide, as atlases set water. */
-const WATER_TRACKING = 0.32;
 
 /**
  * Names of seas, bays and lakes. Each is set in spaced capitals across its
@@ -195,6 +222,7 @@ export function placeWaterLabels(
   bodies: Array<{ name: string; hexes: number[] }>,
   cols: number,
   size: number,
+  face: FaceRole = LETTERINGS.classic.water,
 ): FeatureLabel[] {
   const out: FeatureLabel[] = [];
   for (const body of bodies) {
@@ -226,7 +254,7 @@ export function placeWaterLabels(
       hi = Math.max(hi, u);
     }
     const length = hi - lo + size * 1.2;
-    const em = glyphAdvances(text, 1, WATER_TRACKING, 500).width;
+    const em = glyphAdvances(text, 1, face.tracking, face.weight, face.family, face.italic).width;
     const font = Math.max(size * 0.32, Math.min(size * 0.85, (length * 0.8) / em));
     const width = em * font;
 
@@ -274,7 +302,7 @@ export function placeWaterLabels(
         mid = d;
       }
     }
-    const glyphs = glyphsAlong(text, font, line, mid - width / 2, { tracking: WATER_TRACKING, weight: 500 });
+    const glyphs = glyphsAlong(text, font, line, mid - width / 2, { tracking: face.tracking, weight: face.weight, family: face.family, italic: face.italic });
     out.push({ text, at: mean, size: font, rotation: axis, glyphs, width });
   }
   return out;

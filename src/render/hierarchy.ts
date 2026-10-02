@@ -5,6 +5,7 @@
 
 import { ancestry } from '../../shared/polityTree.js';
 import type { Polity } from '../../shared/types.js';
+import { contrastingPolityColours } from './palette.js';
 
 function mix(a: string, b: string, t: number): string {
   const pa = /^#([0-9a-f]{6})$/i.exec(a);
@@ -65,4 +66,25 @@ export function toned(colour: string, tone: 'vivid' | 'pastel' | 'muted'): strin
   if (tone === 'pastel') return mix(colour, '#ffffff', 0.45);
   if (tone === 'muted') return mix(mix(colour, '#8c877a', 0.42), '#ffffff', 0.08);
   return colour;
+}
+
+/**
+ * Colours for "Assign contrasting colours" that respect the hierarchy:
+ * top-level realms are made to contrast with their neighbours (judged over
+ * each realm's whole territory, parts included), and every part takes a
+ * shade of its realm's colour, so a realm and its provinces read as one
+ * family while neighbouring realms stay distinct.
+ */
+export function contrastingRealmColours(
+  polities: Polity[],
+  owner: (string | null)[],
+  cols: number,
+  rows: number,
+): Map<string, string> {
+  const top = new Map(polities.map((p) => [p.id, ancestry(polities, p.id).at(-1)!]));
+  const tops = polities.filter((p) => top.get(p.id) === p.id).map((p) => p.id);
+  const topOwner = owner.map((id) => (id ? top.get(id) ?? null : null));
+  const topColours = contrastingPolityColours(tops, topOwner, cols, rows);
+  const seeded = polities.map((p) => (topColours.has(p.id) ? { ...p, colour: topColours.get(p.id)! } : p));
+  return polityDisplayColours(seeded, 'tints');
 }

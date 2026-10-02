@@ -93,27 +93,6 @@ function hump(base: Point, w: number, h: number, c: SymbolInk, size: number, fil
   return { y: base.y, prims };
 }
 
-function mesa(base: Point, w: number, h: number, c: SymbolInk, size: number): Placed {
-  const top = w * 0.62;
-  const stroke = Math.max(0.6, size * 0.035);
-  const tl = { x: base.x - top / 2, y: base.y - h };
-  const tr = { x: base.x + top / 2, y: base.y - h };
-  return {
-    y: base.y,
-    prims: [
-      { kind: 'path', d: [['M', base.x - w / 2, base.y], ['L', tl.x, tl.y], ['L', tr.x, tr.y], ['L', base.x + w * 0.1, base.y], ['Z']], fill: light(c) },
-      { kind: 'path', d: [['M', tr.x, tr.y], ['L', base.x + w / 2, base.y], ['L', base.x + w * 0.1, base.y], ['Z']], fill: shade(c) },
-      {
-        kind: 'path',
-        d: [['M', base.x - w / 2, base.y], ['L', tl.x, tl.y], ['L', tr.x, tr.y], ['L', base.x + w / 2, base.y]],
-        stroke: c.ink,
-        strokeWidth: stroke,
-        round: true,
-      },
-    ],
-  };
-}
-
 /** The drawings for one hex's height. `rand(k)` is the hex's seeded randomness. */
 export function reliefSymbols(
   centre: Point,
@@ -163,7 +142,9 @@ export function reliefSymbols(
         hump(at(0.22, 0.36, 5), size * 0.4, size * 0.08, colours, size, false),
       ];
     case 'Plateau':
-      return [mesa(at(0, 0.3, 1), size * 0.86, size * 0.28, colours, size)];
+      // A plateau is flat on top; it is drawn where it rises, along its
+      // edges (see escarpment), not in every hex.
+      return [];
     case 'Lowland':
       return [];
   }
@@ -327,4 +308,36 @@ export function hillshade(
   const ly = -Math.SQRT1_2;
   // The surface faces against its uphill gradient.
   return -(gx * lx + gy * ly) / 3 + (h >= 4 ? 0.1 : 0);
+}
+
+/**
+ * The edge of a plateau where it falls to lower ground: a line just inside
+ * the plateau's side of the hex edge, with short ticks running downhill
+ * across it, the cartographer's sign for an escarpment.
+ */
+export function escarpment(a: Point, b: Point, centre: Point, size: number, colours: SymbolInk, rand: (k: number) => number): Placed {
+  const inset = 0.14;
+  const p = { x: a.x + (centre.x - a.x) * inset, y: a.y + (centre.y - a.y) * inset };
+  const q = { x: b.x + (centre.x - b.x) * inset, y: b.y + (centre.y - b.y) * inset };
+  const len = Math.hypot(q.x - p.x, q.y - p.y) || 1;
+  // Downhill: away from the plateau hex's centre.
+  const mx = (p.x + q.x) / 2;
+  const my = (p.y + q.y) / 2;
+  const ox = mx - centre.x;
+  const oy = my - centre.y;
+  const olen = Math.hypot(ox, oy) || 1;
+  const dx = ox / olen;
+  const dy = oy / olen;
+  const ink = mix(colours.ground, colours.ink, 0.75);
+  const stroke = Math.max(0.55, size * 0.03);
+  const d: PathCmd[] = [['M', p.x, p.y], ['L', q.x, q.y]];
+  const ticks = Math.max(3, Math.round(len / (size * 0.16)));
+  for (let k = 0; k < ticks; k++) {
+    const t = (k + 0.5) / ticks;
+    const x = p.x + (q.x - p.x) * t;
+    const y = p.y + (q.y - p.y) * t;
+    const l = size * (0.13 + 0.05 * rand(k));
+    d.push(['M', x, y], ['L', x + dx * l, y + dy * l]);
+  }
+  return { y: my, prims: [{ kind: 'path', d, stroke: ink, strokeWidth: stroke, round: true }] };
 }

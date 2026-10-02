@@ -9,6 +9,7 @@
  * preset later reaches everyone who has not overridden that knob.
  */
 
+import type { LetteringId } from './lettering.js';
 import { BASE_COLOURS, ISLAND_DOT, MAP_COLOURS } from './palette.js';
 
 export type StylePresetId = 'classic' | 'parchment' | 'atlas' | 'night';
@@ -37,11 +38,17 @@ export interface StyleKnobs {
    */
   relief: 'colour' | 'marks' | 'illustrated' | 'hillshade';
   /** Realms as solid fills, as a wash of colour along their borders, or as outlines only. */
-  polityStyle: 'fill' | 'wash' | 'outline';
-  /** The line between realms (with wash or outline): solid, dashed, or dash-dot. */
-  frontier: 'solid' | 'dashed' | 'dashdot';
+  polityStyle: 'fill' | 'tint' | 'wash' | 'outline';
+  /** The ink line between realms: none, solid, dashed or dash-dot. Parts of one realm are always divided by a fine dashed line. */
+  frontier: 'none' | 'solid' | 'dashed' | 'dashdot';
   /** Realm colours as chosen, lightened, or greyed. */
   polityTone: 'vivid' | 'pastel' | 'muted';
+  /** Realm names in moderate type, or grown to fill their territory. */
+  realmNames: 'moderate' | 'fill';
+  /** Where a city's name goes first: beside its marker or below it. */
+  cityNames: 'beside' | 'below';
+  /** The typefaces names are set in: a pairing for realms, water and cities. */
+  lettering: LetteringId;
   /** The dashed water-coloured marks on a city's coastal edges. */
   cityCoastMarks: boolean;
   /** Paper grain over the whole map. */
@@ -157,9 +164,12 @@ const CLASSIC: PresetInfo = {
     subPolities: 'own',
     relief: 'colour',
     polityStyle: 'fill',
-    frontier: 'solid',
+    frontier: 'none',
     polityTone: 'vivid',
     cityCoastMarks: true,
+    realmNames: 'moderate',
+    cityNames: 'beside',
+    lettering: 'classic',
   },
 };
 
@@ -209,16 +219,19 @@ const PARCHMENT: PresetInfo = {
     subPolities: 'tints',
     relief: 'illustrated',
     polityStyle: 'wash',
-    frontier: 'dashed',
+    frontier: 'solid',
     polityTone: 'vivid',
     cityCoastMarks: false,
+    realmNames: 'moderate',
+    cityNames: 'beside',
+    lettering: 'storybook',
   },
 };
 
 const ATLAS: PresetInfo = {
   id: 'atlas',
   label: 'Political atlas',
-  description: 'Pale seas shading to the coast, pastel realms washed along crisp frontiers, hill-shaded relief',
+  description: 'Pale seas shading to the coast, every realm tinted in its colour with a strong border band and a crisp frontier, hill-shaded relief',
   palette: {
     sea: '#a9cfe0',
     seaShallow: '#d6ecf2',
@@ -259,10 +272,13 @@ const ATLAS: PresetInfo = {
     grain: false,
     subPolities: 'tints',
     relief: 'hillshade',
-    polityStyle: 'wash',
+    polityStyle: 'tint',
     frontier: 'solid',
-    polityTone: 'pastel',
+    polityTone: 'vivid',
     cityCoastMarks: false,
+    realmNames: 'moderate',
+    cityNames: 'beside',
+    lettering: 'atlas',
   },
 };
 
@@ -311,9 +327,12 @@ const NIGHT: PresetInfo = {
     subPolities: 'tints',
     relief: 'hillshade',
     polityStyle: 'outline',
-    frontier: 'dashed',
+    frontier: 'solid',
     polityTone: 'muted',
     cityCoastMarks: false,
+    realmNames: 'moderate',
+    cityNames: 'beside',
+    lettering: 'storybook',
   },
 };
 
@@ -391,18 +410,19 @@ export const KNOB_OPTIONS: {
     ],
   },
   relief: {
-    label: 'Relief',
+    label: 'Elevation shown as',
     options: [
-      { value: 'colour', label: 'Tinted by height' },
+      { value: 'colour', label: 'Colours by height' },
       { value: 'marks', label: 'Height marks' },
-      { value: 'illustrated', label: 'Drawn hills and peaks' },
-      { value: 'hillshade', label: 'Hill shading' },
+      { value: 'illustrated', label: 'Drawn mountains and hills' },
+      { value: 'hillshade', label: 'Shaded slopes' },
     ],
   },
   polityStyle: {
     label: 'Realms',
     options: [
       { value: 'fill', label: 'Filled' },
+      { value: 'tint', label: 'Tint with border' },
       { value: 'wash', label: 'Border wash' },
       { value: 'outline', label: 'Outline' },
     ],
@@ -410,6 +430,7 @@ export const KNOB_OPTIONS: {
   frontier: {
     label: 'Frontier line',
     options: [
+      { value: 'none', label: 'None' },
       { value: 'solid', label: 'Solid' },
       { value: 'dashed', label: 'Dashed' },
       { value: 'dashdot', label: 'Dash-dot' },
@@ -421,6 +442,29 @@ export const KNOB_OPTIONS: {
       { value: 'vivid', label: 'As chosen' },
       { value: 'pastel', label: 'Pastel' },
       { value: 'muted', label: 'Muted' },
+    ],
+  },
+  realmNames: {
+    label: 'Realm names',
+    options: [
+      { value: 'moderate', label: 'Moderate size' },
+      { value: 'fill', label: 'Fill the territory' },
+    ],
+  },
+  cityNames: {
+    label: 'City names',
+    options: [
+      { value: 'beside', label: 'Beside the marker' },
+      { value: 'below', label: 'Below the marker' },
+    ],
+  },
+  lettering: {
+    label: 'Lettering',
+    options: [
+      { value: 'classic', label: 'Classic (Palatino)' },
+      { value: 'storybook', label: 'Storybook (Cinzel, Garamond)' },
+      { value: 'oldprint', label: 'Old print (IM Fell)' },
+      { value: 'atlas', label: 'Atlas (Alegreya)' },
     ],
   },
   cityCoastMarks: {
@@ -446,9 +490,12 @@ export const KNOB_OPTIONS: {
   },
 };
 
-export const KNOB_ORDER: KnobId[] = ['relief', 'water', 'ripples', 'coast', 'grid', 'land', 'islands', 'ice', 'rivers', 'polityStyle', 'frontier', 'polityTone', 'subPolities', 'cityCoastMarks', 'grain'];
+export const KNOB_ORDER: KnobId[] = ['relief', 'water', 'ripples', 'coast', 'grid', 'land', 'islands', 'ice', 'rivers', 'polityStyle', 'frontier', 'polityTone', 'subPolities', 'lettering', 'realmNames', 'cityNames', 'cityCoastMarks', 'grain'];
 
 export const DEFAULT_STYLE_CHOICE: MapStyleChoice = { preset: 'classic', overrides: {} };
+
+/** What a new user starts with. Saved choices, and prefs saved before styles existed, keep Classic. */
+export const NEW_USER_STYLE_CHOICE: MapStyleChoice = { preset: 'parchment', overrides: {} };
 
 export function resolveStyle(choice: MapStyleChoice | null | undefined): MapStyle {
   const preset = PRESETS[choice?.preset ?? 'classic'] ?? CLASSIC;

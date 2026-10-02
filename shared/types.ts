@@ -210,7 +210,11 @@ export interface City {
   site?: CitySite;
 }
 
-export type CitySite = 'auto' | 'inland' | 'river' | { coast: number };
+/**
+ * `{ coast }` stands on that coastal edge; `{ coast, river: true }` stands
+ * where its river meets that coast - a river port.
+ */
+export type CitySite = 'auto' | 'inland' | 'river' | { coast: number; river?: boolean };
 
 export interface Polity {
   id: string;

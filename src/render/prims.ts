@@ -64,6 +64,8 @@ export type Prim =
       anchor?: 'start' | 'middle' | 'end';
       maxWidth?: number;
       fantasy?: boolean;
+      /** A CSS font-family list; when set it overrides `fantasy`. */
+      font?: string;
       italic?: boolean;
       rotation?: number;
       /**
