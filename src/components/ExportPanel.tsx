@@ -2,16 +2,19 @@ import { useState } from 'react';
 import { LAYER_META, plannedLayers } from '../../shared/layers.js';
 import { type LayerId, type MapState } from '../../shared/types.js';
 import { exportComposite, exportLayer } from '../render/export.js';
+import type { PolityNameMin } from '../render/labels.js';
 import type { VisibleLayers } from '../render/scene.js';
 
 export default function ExportPanel({
   map,
   visible,
   elevationStyle,
+  polityNames,
 }: {
   map: MapState;
   visible: VisibleLayers;
   elevationStyle: 'colour' | 'contours';
+  polityNames: PolityNameMin;
 }) {
   const [format, setFormat] = useState<'png' | 'svg'>('png');
   const [labels, setLabels] = useState(true);
@@ -29,6 +32,7 @@ export default function ExportPanel({
     size: 32,
     scale: Number(scale) || 2,
     elevationStyle,
+    polityNames,
   };
 
   const planned = plannedLayers(map);

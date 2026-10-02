@@ -19,6 +19,11 @@ import {
   type Effort,
 } from '../../core/config.js';
 
+import {
+  DEFAULT_POLITY_NAME_MIN,
+  parsePolityNameMin,
+  type PolityNameMin,
+} from '../render/labels.js';
 import type { EncryptedKey } from './keyvault.js';
 
 const KEY_NAME = 'fantasyhexmap.apiKey';
@@ -41,6 +46,8 @@ export interface Prefs {
   elevationStyle: 'colour' | 'contours';
   /** Draw polity/city names on the map. */
   labels: boolean;
+  /** Smallest polity, in hexes, that is named on the map; `auto` lets the placer decide. */
+  polityNames: PolityNameMin;
   /**
    * Which generation of defaults these prefs were saved under. Prefs saved
    * before this existed carry the old effort and budget whether or not anyone
@@ -60,6 +67,7 @@ export const DEFAULT_PREFS: Prefs = {
   remember: true,
   elevationStyle: 'colour',
   labels: true,
+  polityNames: DEFAULT_POLITY_NAME_MIN,
   defaultsVersion: DEFAULTS_VERSION,
 };
 
@@ -148,6 +156,7 @@ export function loadPrefs(): Prefs {
       taskBudget: clampTaskBudget(stored.taskBudget ?? DEFAULT_PREFS.taskBudget),
       elevationStyle: stored.elevationStyle === 'contours' ? 'contours' : 'colour',
       labels: stored.labels !== false,
+      polityNames: parsePolityNameMin(stored.polityNames),
       defaultsVersion: DEFAULTS_VERSION,
     };
   } catch {

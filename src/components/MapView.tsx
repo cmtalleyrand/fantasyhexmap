@@ -1,3 +1,4 @@
+import type { PolityNameMin } from '../render/labels.js';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { hexIndex, pixelToOffset, gridPixelSize, inBounds } from '../../shared/hex.js';
 import type { LayerId, MapState } from '../../shared/types.js';
@@ -13,6 +14,7 @@ export interface MapViewProps {
   map: MapState;
   visible: VisibleLayers;
   labels: boolean;
+  polityNames: PolityNameMin;
   elevationStyle: 'colour' | 'contours';
   selection: Set<number>;
   onSelectionChange: (next: Set<number>) => void;
@@ -41,7 +43,7 @@ interface View {
 }
 
 export default function MapView(props: MapViewProps) {
-  const { map, visible, labels, elevationStyle, selection, onSelectionChange, onStrokeEnd } = props;
+  const { map, visible, labels, polityNames, elevationStyle, selection, onSelectionChange, onStrokeEnd } = props;
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const [view, setView] = useState<View>({ scale: 1, x: 0, y: 0 });
@@ -62,12 +64,13 @@ export default function MapView(props: MapViewProps) {
       size: HEX_SIZE,
       visible,
       labels,
+      polityNames,
       elevationStyle,
       selection: riverDraftSelection ?? selection,
       hover,
       highlightRiver: props.riverTool?.selectedId ?? null,
     });
-  }, [map, visible, labels, elevationStyle, selection, hover, props.riverDraft, props.riverTool?.selectedId]);
+  }, [map, visible, labels, polityNames, elevationStyle, selection, hover, props.riverDraft, props.riverTool?.selectedId]);
 
   // Fit the map into the viewport the first time it is laid out.
   const fitted = useRef(false);

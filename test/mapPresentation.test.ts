@@ -259,3 +259,29 @@ test('a long unbreakable name shrinks, but a multi-word name wraps to keep large
   assert.ok(wrapped[0]!.size > unbreakable[0]!.size, 'wrapping keeps type larger than the unbroken equivalent');
   assert.ok(wrapped[0]!.at.y < wrapped[1]!.at.y, 'lines stack top to bottom');
 });
+
+test('the polity-name threshold decides which small polities are named', () => {
+  // A 6x1 strip: "big" owns four hexes, "small" owns two.
+  const named = (polityNames: Parameters<typeof buildScene>[1]['polityNames']) => {
+    const map = createMapState('Thresholds', 6, 1);
+    map.layers.base.data = Array(6).fill('Land');
+    map.layers.polities.data = {
+      polities: [
+        { id: 'big', name: 'Bigland', colour: '#3355aa' },
+        { id: 'small', name: 'Sm', colour: '#aa5533' },
+      ],
+      owner: ['big', 'big', 'big', 'big', 'small', 'small'],
+    };
+    const visible = defaultVisibility();
+    visible.polities = true;
+    return buildScene(map, { size: 20, visible, labels: true, polityNames }).prims
+      .filter((p) => p.kind === 'text' && p.fantasy)
+      .map((p) => (p as { text: string }).text);
+  };
+  assert.deepEqual(named(undefined), ['BIGLAND'], 'default keeps the old four-hex cut-off');
+  assert.deepEqual(named(5), [], 'five-hex threshold hides both');
+  assert.ok(named(2).includes('SM'), 'a two-hex polity is named at threshold 2');
+  assert.ok(named(0).includes('SM'));
+  assert.ok(!named(3).includes('SM'));
+  assert.ok(named(3).includes('BIGLAND'));
+});

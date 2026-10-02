@@ -6,6 +6,7 @@
 import type { LayerId, MapState } from '../../shared/types.js';
 import { LAYER_META } from '../../shared/layers.js';
 import { LAYER_ORDER } from '../../shared/types.js';
+import type { PolityNameMin } from './labels.js';
 import { renderToCanvas } from './canvas.js';
 import { buildScene, singleLayerVisibility, type VisibleLayers } from './scene.js';
 import { sceneToSvg } from './svg.js';
@@ -13,6 +14,7 @@ import { sceneToSvg } from './svg.js';
 export interface ExportOptions {
   format: 'png' | 'svg';
   labels: boolean;
+  polityNames?: PolityNameMin;
   elevationStyle?: 'colour' | 'contours';
   /** Hex circumradius in px used to lay the scene out. */
   size?: number;
@@ -52,6 +54,7 @@ async function emit(
     size: opts.size ?? 32,
     visible,
     labels: opts.labels,
+    polityNames: opts.polityNames,
     elevationStyle: opts.elevationStyle,
     selection: null,
     hover: null,
