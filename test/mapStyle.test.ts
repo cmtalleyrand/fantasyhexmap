@@ -766,3 +766,19 @@ test('city names can prefer the place below their marker', async () => {
   assert.equal(below[0]!.anchor, 'middle');
   assert.ok(below[0]!.at.y > 100);
 });
+
+test('a plateau is drawn as an escarpment where it falls to lower ground, not as a symbol in every hex', () => {
+  const map = createMapState('Plateau', 4, 1);
+  map.layers.base.data = Array(4).fill('Land');
+  map.layers.elevation.data = ['Lowland', 'Plateau', 'Plateau', 'Mountains'];
+  const visible = defaultVisibility();
+  visible.elevation = true;
+  const style = resolveStyle({ preset: 'parchment', overrides: {} });
+  const ink = style.palette.ink;
+  const prims = buildScene(map, { size: 20, visible, labels: false, style }).prims;
+  const escarpments = prims.filter((p): p is Extract<Prim, { kind: 'path' }> =>
+    p.kind === 'path' && Boolean(p.stroke) && !p.fill && p.d.filter((c) => c[0] === 'M').length >= 4);
+  // Only the edge between the Lowland hex and the plateau carries one; the plateau-to-mountain edge does not.
+  assert.equal(escarpments.length, 1);
+  assert.ok(ink);
+});

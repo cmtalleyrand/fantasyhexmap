@@ -403,12 +403,12 @@ export const KNOB_OPTIONS: {
     ],
   },
   relief: {
-    label: 'Relief',
+    label: 'Elevation shown as',
     options: [
-      { value: 'colour', label: 'Tinted by height' },
+      { value: 'colour', label: 'Colours by height' },
       { value: 'marks', label: 'Height marks' },
-      { value: 'illustrated', label: 'Drawn hills and peaks' },
-      { value: 'hillshade', label: 'Hill shading' },
+      { value: 'illustrated', label: 'Drawn mountains and hills' },
+      { value: 'hillshade', label: 'Shaded slopes' },
     ],
   },
   polityStyle: {
@@ -477,6 +477,9 @@ export const KNOB_OPTIONS: {
 export const KNOB_ORDER: KnobId[] = ['relief', 'water', 'ripples', 'coast', 'grid', 'land', 'islands', 'ice', 'rivers', 'polityStyle', 'frontier', 'polityTone', 'subPolities', 'realmNames', 'cityNames', 'cityCoastMarks', 'grain'];
 
 export const DEFAULT_STYLE_CHOICE: MapStyleChoice = { preset: 'classic', overrides: {} };
+
+/** What a new user starts with. Saved choices, and prefs saved before styles existed, keep Classic. */
+export const NEW_USER_STYLE_CHOICE: MapStyleChoice = { preset: 'parchment', overrides: {} };
 
 export function resolveStyle(choice: MapStyleChoice | null | undefined): MapStyle {
   const preset = PRESETS[choice?.preset ?? 'classic'] ?? CLASSIC;

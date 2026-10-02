@@ -72,7 +72,7 @@ import {
 import type { CitySymbol, PathCmd, Prim } from './prims.js';
 import { riverCourses, type RiverCourse } from './rivers.js';
 import { citySite } from './sites.js';
-import { hillshade, reliefSymbols, vegetationSymbols, type Placed } from './symbols.js';
+import { escarpment, hillshade, reliefSymbols, vegetationSymbols, type Placed } from './symbols.js';
 import { ownersAtDepth, polityDepths, polityDisplayColours, toned } from './hierarchy.js';
 import { topLevelOf } from '../../shared/polityTree.js';
 import { fantasyTextEm, uiTextEm } from './fonts.js';
@@ -788,6 +788,20 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
       const rand = (k: number) => unit(seed, 'symbol', i, k);
       const colours = { ground: groundColour(i), ink: palette.ink };
       if (height) placed.push(...reliefSymbols(centre, size, height, rand, colours));
+      if (height === 'Plateau') {
+        // Escarpments wherever the plateau falls away to lower ground or water.
+        for (let e = 0; e < 6; e++) {
+          const n = neighbourOf(i % cols, Math.floor(i / cols), e);
+          if (!inBounds(cols, rows, n.col, n.row)) continue;
+          const j = hexIndex(cols, n.col, n.row);
+          // The coast (and an ice edge) already marks where land meets water.
+          if (isWater(j) || inLakeBody.has(j) || base[j] === 'Ice') continue;
+          const there = elevationData?.[j] ?? null;
+          if (there === 'Plateau' || there === 'Highland' || there === 'Mountains') continue;
+          const [a, b] = hexEdgePoints(i % cols, Math.floor(i / cols), e, size);
+          placed.push(escarpment(a, b, centre, size, colours, (k) => rand(600 + e * 20 + k)));
+        }
+      }
       if (cover) {
         const crowded = height === 'Mountains' || height === 'Highland' || height === 'Hills' || height === 'Plateau';
         if (height !== 'Mountains') placed.push(...vegetationSymbols(centre, size, cover, rand, colours, crowded));

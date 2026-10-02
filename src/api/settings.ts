@@ -26,7 +26,7 @@ import {
   type PolityNameMin,
 } from '../render/labels.js';
 import {
-  DEFAULT_STYLE_CHOICE,
+  NEW_USER_STYLE_CHOICE,
   parseStyleChoice,
   type MapStyleChoice,
 } from '../render/styles.js';
@@ -85,7 +85,7 @@ export const DEFAULT_PREFS: Prefs = {
   remember: true,
   labels: true,
   polityOpacity: 1,
-  mapStyle: DEFAULT_STYLE_CHOICE,
+  mapStyle: NEW_USER_STYLE_CHOICE,
   riverNames: false,
   rangeNames: false,
   seaNames: true,
