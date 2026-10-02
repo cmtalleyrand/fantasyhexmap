@@ -295,6 +295,12 @@ Both paths push onto the same per-layer undo stack (40 entries deep, with redo).
   visible, as **PNG** or **SVG**, with a toggle for city and polity name labels. Single-layer
   exports keep base geography as a substrate — a land-only layer is unreadable without knowing where
   the land is — and drop labels unless the layer is cities or polities.
+- **Legend.** Either image export can append a legend panel to the right of the map. It describes
+  what is actually painted: a hidden layer, or a fill layer outranked by a more derived one, is not
+  listed. Options: include or leave out each layer's section, list only the values that occur on
+  the map (or every value a layer can take), show polity land areas, and head the legend with the
+  map's name. Long legends continue in further columns. The panel is built from the same scene
+  primitives as the map, so PNG and SVG legends are identical.
 - **Markdown.** The decision record: what the model chose, why, and what you changed by hand.
 - **JSON.** The full map state including the decision record, with or without undo history, and a
   matching import.

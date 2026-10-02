@@ -129,6 +129,20 @@ export function defaultVisibility(): VisibleLayers {
 const FILL_PRECEDENCE: LayerId[] = ['vegetation', 'climate', 'elevation'];
 
 /**
+ * The one layer whose values paint the hex fills, or null. Exported so the legend
+ * describes what is actually drawn rather than everything that is switched on.
+ */
+export function thematicLayer(
+  map: MapState,
+  visible: VisibleLayers,
+  elevationStyle: 'colour' | 'contours' = 'colour',
+): LayerId | null {
+  return FILL_PRECEDENCE.find(
+    (id) => visible[id] && map.layers[id].data && (id !== 'elevation' || elevationStyle === 'colour'),
+  ) ?? null;
+}
+
+/**
  * Placement is a search over the territory, and the scene is rebuilt on every
  * hover and selection change, so the result is remembered per data identity.
  * Layer edits are immutable (a new `owner` array / cities object each time).
@@ -169,9 +183,7 @@ export function buildScene(map: MapState, opts: SceneOptions): Scene {
 
   const base = opts.visible.base ? layers.base.data : null;
   const elevationStyle = opts.elevationStyle ?? 'colour';
-  const thematic = FILL_PRECEDENCE.find(
-    (id) => opts.visible[id] && layers[id].data && (id !== 'elevation' || elevationStyle === 'colour'),
-  ) ?? null;
+  const thematic = thematicLayer(map, opts.visible, elevationStyle);
 
   const population = opts.visible.population ? layers.population.data : null;
   const maxPop = population ? Math.max(1, ...population.map((v) => v ?? 0)) : 1;

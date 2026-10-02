@@ -2,7 +2,30 @@ import { useState } from 'react';
 import { LAYER_META, plannedLayers } from '../../shared/layers.js';
 import { type LayerId, type MapState } from '../../shared/types.js';
 import { exportComposite, exportLayer } from '../render/export.js';
+import { DEFAULT_LEGEND_OPTIONS, legendLayers } from '../render/legend.js';
 import type { VisibleLayers } from '../render/scene.js';
+
+function Check({
+  checked,
+  onChange,
+  children,
+}: {
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <label style={{ display: 'flex', alignItems: 'center', gap: 6, textTransform: 'none', fontSize: 12 }}>
+      <input
+        type="checkbox"
+        style={{ width: 'auto' }}
+        checked={checked}
+        onChange={(e) => onChange(e.target.checked)}
+      />
+      {children}
+    </label>
+  );
+}
 
 export default function ExportPanel({
   map,
@@ -16,6 +39,12 @@ export default function ExportPanel({
   const [format, setFormat] = useState<'png' | 'svg'>('png');
   const [labels, setLabels] = useState(true);
   const [scale, setScale] = useState('2');
+  const [legend, setLegend] = useState(false);
+  const [legendTitle, setLegendTitle] = useState(DEFAULT_LEGEND_OPTIONS.title);
+  const [onlyUsed, setOnlyUsed] = useState(DEFAULT_LEGEND_OPTIONS.onlyUsed);
+  const [polityAreas, setPolityAreas] = useState(DEFAULT_LEGEND_OPTIONS.polityAreas);
+  // Stored as exclusions so a layer switched on later is in the legend by default.
+  const [legendExclude, setLegendExclude] = useState<LayerId[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   const run = (fn: () => Promise<void>) => {
@@ -29,7 +58,12 @@ export default function ExportPanel({
     size: 32,
     scale: Number(scale) || 2,
     elevationStyle,
+    legend: legend
+      ? { exclude: legendExclude, onlyUsed, polityAreas, title: legendTitle }
+      : null,
   };
+
+  const legendChoices = legendLayers(map, visible, elevationStyle);
 
   const planned = plannedLayers(map);
   const visibleCount = planned.filter((id) => visible[id] && map.layers[id].data).length;
@@ -51,20 +85,57 @@ export default function ExportPanel({
             </select>
           )}
         </div>
-        <label style={{ display: 'flex', alignItems: 'center', gap: 6, textTransform: 'none', fontSize: 12 }}>
-          <input
-            type="checkbox"
-            style={{ width: 'auto' }}
-            checked={labels}
-            onChange={(e) => setLabels(e.target.checked)}
-          />
+        <Check checked={labels} onChange={setLabels}>
           Render city and polity name labels
-        </label>
+        </Check>
+
+        <Check checked={legend} onChange={setLegend}>
+          Include a legend
+        </Check>
+        {legend && (
+          <div className="stack" style={{ paddingLeft: 20 }}>
+            <Check checked={legendTitle} onChange={setLegendTitle}>
+              Map name as legend title
+            </Check>
+            <Check checked={onlyUsed} onChange={setOnlyUsed}>
+              Only values that appear on the map
+            </Check>
+            {legendChoices.includes('polities') && (
+              <Check checked={polityAreas} onChange={setPolityAreas}>
+                Polity land areas
+              </Check>
+            )}
+            <div>
+              <label>Legend sections</label>
+              {legendChoices.length === 0 ? (
+                <p className="hint">Nothing visible has data to describe.</p>
+              ) : (
+                legendChoices.map((id) => (
+                  <Check
+                    key={id}
+                    checked={!legendExclude.includes(id)}
+                    onChange={(on) =>
+                      setLegendExclude((prev) =>
+                        on ? prev.filter((x) => x !== id) : [...prev, id],
+                      )
+                    }
+                  >
+                    {LAYER_META[id].label}
+                  </Check>
+                ))
+              )}
+              <p className="hint" style={{ marginTop: 4 }}>
+                Sections follow the layers shown on the map. Single-layer exports get a legend for
+                that layer and its base geography.
+              </p>
+            </div>
+          </div>
+        )}
 
         <button
           className="primary"
           disabled={visibleCount === 0}
-          onClick={() => run(() => exportComposite(map, visible, { ...opts, labels }))}
+          onClick={() => run(() => exportComposite(map, visible, opts))}
         >
           Export composite ({visibleCount} visible layer{visibleCount === 1 ? '' : 's'})
         </button>
