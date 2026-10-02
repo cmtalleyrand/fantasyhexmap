@@ -8,7 +8,8 @@ import { LAYER_META } from '../../shared/layers.js';
 import { LAYER_ORDER } from '../../shared/types.js';
 import type { PolityNameMin } from './labels.js';
 import { renderToCanvas } from './canvas.js';
-import { buildScene, singleLayerVisibility, type VisibleLayers } from './scene.js';
+import { appendLegend, legendSections, type LegendOptions } from './legend.js';
+import { buildScene, singleLayerVisibility, type Scene, type VisibleLayers } from './scene.js';
 import { sceneToSvg } from './svg.js';
 
 export interface ExportOptions {
@@ -25,6 +26,8 @@ export interface ExportOptions {
   /** PNG pixel multiplier on top of `size`. */
   scale?: number;
   transparentBackground?: boolean;
+  /** Append a legend panel to the right of the map. Omit or null for a bare map. */
+  legend?: LegendOptions | null;
 }
 
 function download(blob: Blob, filename: string): void {
@@ -48,14 +51,11 @@ function slug(s: string): string {
   return s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'map';
 }
 
-async function emit(
-  map: MapState,
-  visible: VisibleLayers,
-  opts: ExportOptions,
-  nameSuffix: string,
-): Promise<void> {
+/** The scene an export draws: the map, plus its legend when one is requested. */
+export function buildExportScene(map: MapState, visible: VisibleLayers, opts: ExportOptions): Scene {
+  const size = opts.size ?? 32;
   const scene = buildScene(map, {
-    size: opts.size ?? 32,
+    size,
     visible,
     labels: opts.labels,
     riverNames: opts.riverNames,
@@ -68,6 +68,18 @@ async function emit(
     hover: null,
     transparentBackground: opts.transparentBackground ?? false,
   });
+  if (!opts.legend) return scene;
+  const sections = legendSections(map, visible, opts.elevationStyle ?? 'colour', opts.legend);
+  return appendLegend(scene, sections, opts.legend.title ? map.name : null, size);
+}
+
+async function emit(
+  map: MapState,
+  visible: VisibleLayers,
+  opts: ExportOptions,
+  nameSuffix: string,
+): Promise<void> {
+  const scene = buildExportScene(map, visible, opts);
   const filename = `${slug(map.name)}-${nameSuffix}.${opts.format}`;
   if (opts.format === 'svg') {
     download(new Blob([sceneToSvg(scene, `${map.name} - ${nameSuffix}`)], {
