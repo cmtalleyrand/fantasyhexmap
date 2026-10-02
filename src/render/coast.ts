@@ -82,35 +82,44 @@ export function coastEdges(base: ReadonlyArray<BaseGeo | null>, cols: number, ro
 }
 
 export function chainEdges(edges: CoastEdge[]): CoastChain[] {
-  const byStart = new Map<string, number>();
+  // Coast edges never share a start point, but other boundary sets (realm
+  // frontiers meeting at a three-way junction) can, so starts map to lists.
+  const byStart = new Map<string, number[]>();
   const ends = new Set<string>();
   edges.forEach((edge, i) => {
-    byStart.set(key(edge.from), i);
+    const k = key(edge.from);
+    byStart.set(k, [...(byStart.get(k) ?? []), i]);
     ends.add(key(edge.to));
   });
   const used = new Uint8Array(edges.length);
   const chains: CoastChain[] = [];
+  const next = (at: Point): number | undefined => byStart.get(key(at))?.find((j) => !used[j]);
   const follow = (start: number): CoastEdge[] => {
     const run: CoastEdge[] = [];
     let i: number | undefined = start;
     while (i !== undefined && !used[i]) {
       used[i] = 1;
       run.push(edges[i]!);
-      i = byStart.get(key(edges[i]!.to));
+      i = next(edges[i]!.to);
     }
     return run;
   };
-  // Open chains first: they start where no coast edge ends (at the map edge).
+  const push = (run: CoastEdge[]) => {
+    // A run is a loop only if it really comes back to where it began.
+    const closed = run.length > 2 && key(run[run.length - 1]!.to) === key(run[0]!.from);
+    chains.push(
+      closed
+        ? { points: run.map((e) => e.from), edges: run, closed: true }
+        : { points: [run[0]!.from, ...run.map((e) => e.to)], edges: run, closed: false },
+    );
+  };
+  // Open chains first: they start where no edge ends (at the map edge, or a junction).
   edges.forEach((edge, i) => {
     if (used[i] || ends.has(key(edge.from))) return;
-    const run = follow(i);
-    chains.push({ points: [run[0]!.from, ...run.map((e) => e.to)], edges: run, closed: false });
+    push(follow(i));
   });
-  // Everything left goes round a closed loop.
   edges.forEach((_, i) => {
-    if (used[i]) return;
-    const run = follow(i);
-    chains.push({ points: run.map((e) => e.from), edges: run, closed: true });
+    if (!used[i]) push(follow(i));
   });
   return chains;
 }

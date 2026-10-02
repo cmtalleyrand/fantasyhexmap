@@ -646,3 +646,19 @@ test('every preset names in its own ink, and dark styles stay legible', () => {
   const lum = (hex: string) => parseInt(hex.slice(1, 3), 16) + parseInt(hex.slice(3, 5), 16) + parseInt(hex.slice(5, 7), 16);
   assert.ok(lum(night.label) > lum(night.land) + 300);
 });
+
+test('boundary chains close only when they return to their start, even where edges share a start point', () => {
+  const P = (x: number, y: number) => ({ x, y });
+  const [A, B, C, D, E, F] = [P(0, 0), P(10, 0), P(20, 0), P(10, 10), P(30, 0), P(40, 0)];
+  const edge = (from: { x: number; y: number }, to: { x: number; y: number }) => ({ from, to, land: 0, water: 0 });
+  // A loop A-B-D-A, and a branch B-C-E-F leaving the same vertex B.
+  const edges = [edge(A, B), edge(B, C), edge(B, D), edge(D, A), edge(C, E), edge(E, F)];
+  const chains = chainEdges(edges);
+  assert.equal(chains.reduce((n, c) => n + c.edges.length, 0), edges.length, 'every edge used once');
+  for (const c of chains) {
+    if (c.closed) {
+      const last = c.edges.at(-1)!.to;
+      assert.deepEqual(last, c.edges[0]!.from, 'a closed chain returns to its start');
+    }
+  }
+});

@@ -432,7 +432,7 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
       prims.push({
         kind: 'polygon',
         points: hexCorners(col, row, size),
-        fill: withAlpha(v > 0 ? '#ffffff' : palette.ink, Math.min(0.4, Math.abs(v) * 0.24)),
+        fill: withAlpha(v > 0 ? '#ffffff' : palette.ink, Math.min(0.22, Math.abs(v) * 0.13)),
       });
     }
   }
