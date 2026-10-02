@@ -2,7 +2,14 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createMapState } from '../shared/layers.ts';
 import { edgeBetween, hexLine } from '../shared/hex.ts';
-import { moveRiverSegment, removeRiverSegment, setRiverNavigability } from '../shared/riverEdit.ts';
+import {
+  buildBranch,
+  detachOrphanBranches,
+  extendRiver,
+  moveRiverSegment,
+  removeRiverSegment,
+  setRiverNavigability,
+} from '../shared/riverEdit.ts';
 import { buildRiverFromPath } from '../shared/validate.ts';
 import { reducer } from '../src/state/store.ts';
 import type { BaseData, River } from '../shared/types.ts';
@@ -110,4 +117,66 @@ test('a navigability stroke is a single undoable change', () => {
 
   const undone = reducer(painted, { type: 'undo', layer: 'rivers' });
   assert.ok(undone.layers.rivers.data?.rivers[0]?.segments.every((s) => !s.navigable));
+});
+
+test('extending at the source adds the straight run of hexes in between', () => {
+  const r = river([[3, 2], [4, 2], [5, 2]], [false, true, true]);
+  const result = extendRiver(r, { col: 0, row: 2 }, base, null, COLS, ROWS);
+  assert.ok(!('error' in result));
+  assertConnected(result.river);
+  const first = result.river.segments[0]!;
+  assert.deepEqual([first.col, first.row], [0, 2]);
+  assert.equal(first.entryEdge, null);
+  assert.equal(result.river.segments.length, 6);
+  assert.equal(result.river.segments[3]!.navigable, false, 'new hexes inherit the end they extend');
+});
+
+test('extending at the mouth reaches new water or inland ground', () => {
+  const r = river([[1, 2], [2, 2], [3, 2]], [true, true, true]);
+  assert.equal(r.terminus, 'Unresolved');
+  const toSea = extendRiver(r, { col: 7, row: 2 }, base, null, COLS, ROWS);
+  assert.ok(!('error' in toSea));
+  assertConnected(toSea.river);
+  assert.equal(toSea.river.terminus, 'Sea');
+  assert.equal(toSea.river.segments.length, 6);
+
+  const refused = extendRiver(r, { col: 2, row: 2 }, base, null, COLS, ROWS);
+  assert.ok('error' in refused, 'cannot extend onto itself');
+});
+
+test('a branch leaves from a river hex and a river can have several', () => {
+  const main = river([[1, 2], [2, 2], [3, 2], [4, 2], [7, 2]], [true, true, true, true, false]);
+  const fork = { col: 4, row: 2 };
+  const north = buildBranch(main, fork, hexLine(fork, { col: 7, row: 0 }), 'b1', base, null, COLS, ROWS);
+  const south = buildBranch(main, fork, hexLine(fork, { col: 7, row: 4 }), 'b2', base, null, COLS, ROWS);
+  assert.ok(!('error' in north) && !('error' in south));
+  assert.equal(north.river.branchOf, 'r1');
+  assert.equal(south.river.branchOf, 'r1');
+  assert.equal(north.river.terminus, 'Sea');
+  assert.equal(north.river.segments[0]!.entryEdge, null);
+  assert.ok(north.river.segments[0]!.navigable, 'inherits navigability at the fork');
+  assertConnected(north.river);
+
+  const away = buildBranch(main, { col: 0, row: 0 }, [{ col: 0, row: 0 }, { col: 1, row: 0 }], 'b3', base, null, COLS, ROWS);
+  assert.ok('error' in away, 'the fork must be one of the parent\'s hexes');
+});
+
+test('branches detach when their fork leaves the parent, and survive otherwise', () => {
+  const main = river([[1, 2], [2, 2], [3, 2], [4, 2], [7, 2]], [true, true, true, true, false]);
+  const fork = { col: 4, row: 2 };
+  const built = buildBranch(main, fork, hexLine(fork, { col: 7, row: 0 }), 'b1', base, null, COLS, ROWS);
+  assert.ok(!('error' in built));
+  const rivers = [main, built.river];
+  assert.equal(detachOrphanBranches(rivers), rivers, 'untouched when still forked');
+
+  const map = createMapState('Rivers', COLS, ROWS);
+  map.layers.base.data = base;
+  map.layers.rivers.data = { rivers };
+  const removed = reducer(map, { type: 'removeRiver', id: 'r1' });
+  assert.equal(removed.layers.rivers.data?.rivers[0]?.branchOf, undefined);
+
+  const moved = moveRiverSegment(main, 3, { col: 4, row: 4 }, base, null, COLS, ROWS);
+  assert.ok(!('error' in moved));
+  const after = reducer(map, { type: 'updateRiver', river: moved.river });
+  assert.equal(after.layers.rivers.data?.rivers.find((r) => r.id === 'b1')?.branchOf, undefined);
 });

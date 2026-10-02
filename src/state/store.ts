@@ -21,7 +21,7 @@ import {
   riversWithoutHexes,
 } from '../../shared/landChange.js';
 import { isLayerEnabled } from '../../shared/layers.js';
-import { setRiverNavigability } from '../../shared/riverEdit.js';
+import { detachOrphanBranches, setRiverNavigability } from '../../shared/riverEdit.js';
 import { currentDepVersions, trimHistory } from '../../shared/layers.js';
 import { LAYER_META, normaliseSelection } from '../../shared/layers.js';
 import type {
@@ -267,7 +267,7 @@ function propagateBaseEdit(
     }
     const rivers = next.layers.rivers.data;
     if (rivers) {
-      const kept = riversWithoutHexes(rivers.rivers, new Set(toWater), after, cols, rows);
+      const kept = detachOrphanBranches(riversWithoutHexes(rivers.rivers, new Set(toWater), after, cols, rows));
       const changed =
         kept.length !== rivers.rivers.length ||
         kept.some((r, i) => r !== rivers.rivers[i]);
@@ -553,7 +553,9 @@ export function reducer(map: MapState, action: Action): MapState {
           'rivers',
           commit(layer, {
             data: {
-              rivers: layer.data.rivers.map((r) => (r.id === action.river.id ? action.river : r)),
+              rivers: detachOrphanBranches(
+                layer.data.rivers.map((r) => (r.id === action.river.id ? action.river : r)),
+              ),
             },
           }),
         ),
@@ -593,7 +595,9 @@ export function reducer(map: MapState, action: Action): MapState {
         withLayer(
           map,
           'rivers',
-          commit(layer, { data: { rivers: layer.data.rivers.filter((r) => r.id !== action.id) } }),
+          commit(layer, {
+            data: { rivers: detachOrphanBranches(layer.data.rivers.filter((r) => r.id !== action.id)) },
+          }),
         ),
         manualEntry('rivers', `Removed the river "${dropped}" by hand.`),
       );

@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { hexIndex, indexToOffset } from '../../shared/hex.js';
 import { canHoldSettlement } from '../../shared/derive.js';
 import { buildRiverFromPath } from '../../shared/validate.js';
-import { removeRiverSegment } from '../../shared/riverEdit.js';
+import { buildBranch, removeRiverSegment } from '../../shared/riverEdit.js';
 import type { RiverTool } from '../state/riverTools.js';
 import { LAYER_META, stalenessOf } from '../../shared/layers.js';
 import {
@@ -45,6 +45,9 @@ export interface InspectorProps {
   busy: boolean;
   riverDraft: number[] | null;
   setRiverDraft: (next: number[] | null) => void;
+  /** Set while the draft is a distributary leaving this river. */
+  riverDraftParent: string | null;
+  setRiverDraftParent: (next: string | null) => void;
   riverTool: RiverTool;
   setRiverTool: (next: RiverTool) => void;
   onOpenDecisionLog: () => void;
@@ -598,20 +601,46 @@ function RiverEditor(props: SubProps) {
   const [openId, setOpenId] = useState<string | null>(null);
   const draft = props.riverDraft;
 
+  const parent = props.riverDraftParent
+    ? data.rivers.find((r) => r.id === props.riverDraftParent) ?? null
+    : null;
+
+  const endDraft = () => {
+    props.setRiverDraft(null);
+    props.setRiverDraftParent(null);
+  };
+
   const finishDraft = () => {
     if (!draft || draft.length < 2 || !map.layers.base.data) return;
-    const warnings: string[] = [];
     const path = draft.map((i) => indexToOffset(map.cols, i));
+    const id = `riv_${Date.now().toString(36)}`;
+    if (parent) {
+      const result = buildBranch(
+        parent,
+        path[0]!,
+        path,
+        id,
+        map.layers.base.data,
+        map.layers.elevation.data,
+        map.cols,
+        map.rows,
+      );
+      endDraft();
+      if ('error' in result) return;
+      const siblings = data.rivers.filter((r) => r.branchOf === parent.id).length;
+      dispatch({ type: 'addRiver', river: { ...result.river, name: `${parent.name} (branch ${siblings + 1})` } });
+      return;
+    }
     const river = buildRiverFromPath(
       { name: `New river ${data.rivers.length + 1}`, path, navigable: path.map(() => false) },
-      `riv_${Date.now().toString(36)}`,
+      id,
       map.layers.base.data,
       map.layers.elevation.data,
       map.cols,
       map.rows,
-      warnings,
+      [],
     );
-    props.setRiverDraft(null);
+    endDraft();
     if (!river) return;
     dispatch({ type: 'addRiver', river });
   };
@@ -619,11 +648,20 @@ function RiverEditor(props: SubProps) {
   return (
     <div className="stack">
       {draft === null ? (
-        <button onClick={() => props.setRiverDraft([])}>Draw a new river</button>
+        <button
+          onClick={() => {
+            props.setRiverDraftParent(null);
+            props.setRiverDraft([]);
+          }}
+        >
+          Draw a new river
+        </button>
       ) : (
         <div className="notice info">
-          Click hexes from source to mouth - each must touch the previous one. End on the Sea or Lake
-          hex it empties into, or on a border hex.
+          {parent
+            ? `Branching from ${parent.name}. Click where the branch should go, down to the Sea or Lake hex it empties into or a border hex.`
+            : 'Click hexes from source to mouth. End on the Sea or Lake hex it empties into, or on a border hex.'}{' '}
+          Hexes that do not touch are joined by a straight run.
           <div className="hint" style={{ marginTop: 4 }}>
             {draft.length} hexes: {draft.map((i) => coordLabel(map, i)).join(' → ') || '(none yet)'}
           </div>
@@ -634,7 +672,7 @@ function RiverEditor(props: SubProps) {
             <button className="tiny" disabled={draft.length === 0} onClick={() => props.setRiverDraft(draft.slice(0, -1))}>
               undo point
             </button>
-            <button className="tiny" onClick={() => props.setRiverDraft(null)}>
+            <button className="tiny" onClick={endDraft}>
               cancel
             </button>
           </div>
@@ -653,7 +691,10 @@ function RiverEditor(props: SubProps) {
               value={r.name}
               onChange={(e) => dispatch({ type: 'updateRiver', river: { ...r, name: e.target.value } })}
             />
-            <span className="hint">{r.segments.length} hexes · {r.terminus}</span>
+            <span className="hint">
+              {r.segments.length} hexes · {r.terminus}
+              {r.branchOf ? ` · branch of ${data.rivers.find((p) => p.id === r.branchOf)?.name ?? '?'}` : ''}
+            </span>
             <button className="tiny" onClick={() => props.setRiverTool({ ...props.riverTool, selectedId: r.id })}>
               select
             </button>
@@ -678,6 +719,11 @@ const RIVER_TOOLS: { kind: RiverTool['kind']; label: string; hint: string }[] = 
     kind: 'move',
     label: 'move',
     hint: 'Drag one of a river\'s hexes to another land hex. The river stays connected, stretching along a straight run of hexes if needed.',
+  },
+  {
+    kind: 'extend',
+    label: 'add hexes',
+    hint: 'Select a river, then click a hex to extend its nearer end there. Hexes in between are filled in with a straight run; click water to give it a new mouth.',
   },
   {
     kind: 'navigability',
@@ -792,6 +838,17 @@ function RiverToolPanel(props: SubProps) {
               }
             >
               none navigable
+            </button>
+            <button
+              className="tiny"
+              disabled={pickedIndex < 0}
+              title="Start a distributary that leaves this river at the selected hex. Use it more than once for a delta that splits in three or more."
+              onClick={() => {
+                props.setRiverDraftParent(river.id);
+                props.setRiverDraft([picked!]);
+              }}
+            >
+              branch from selected hex
             </button>
             <button className="tiny danger" disabled={pickedIndex < 0} onClick={removePicked}>
               remove selected hex

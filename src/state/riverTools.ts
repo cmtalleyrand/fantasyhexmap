@@ -1,5 +1,5 @@
 /** How the Rivers layer responds to the pointer when no river is being drawn. */
-export type RiverToolKind = 'select' | 'move' | 'navigability';
+export type RiverToolKind = 'select' | 'move' | 'extend' | 'navigability';
 
 export interface RiverTool {
   kind: RiverToolKind;

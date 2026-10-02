@@ -399,6 +399,14 @@ export function validateRivers(
     }
     out.push({ ...r, segments: segs });
   }
+  // A branch must name a river that survived; otherwise it is just a river.
+  for (let i = 0; i < out.length; i++) {
+    const r = out[i]!;
+    if (r.branchOf !== undefined && (r.branchOf === r.id || !out.some((p) => p.id === r.branchOf))) {
+      const { branchOf: _gone, ...rest } = r;
+      out[i] = rest;
+    }
+  }
   summarise(warnings, overWater, (n) => `${n} river segments run across water hexes`);
   return { data: out, warnings };
 }
