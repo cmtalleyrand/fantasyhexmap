@@ -3,7 +3,7 @@ import { hexIndex, hexLine, indexToOffset } from '../shared/hex.js';
 import { canHoldSettlement, riversThroughHex } from '../shared/derive.js';
 import { extendRiver, moveRiverSegment } from '../shared/riverEdit.js';
 import { LAYER_META, createMapState } from '../shared/layers.js';
-import { nextGenerationWave } from '../shared/generationQueue.js';
+import { generationOrder, nextGenerationWave } from '../shared/generationQueue.js';
 import { instructionForLayer, planMultiLayerEdit } from '../shared/multiEdit.js';
 import { LAYER_ORDER, type LayerId, type MapState } from '../shared/types.js';
 import {
@@ -217,7 +217,7 @@ export default function App() {
   const generateSelected = useCallback(async () => {
     if (!mapRef.current || abortRef.current.size > 0) return;
     batchCancelled.current = false;
-    let pending = LAYER_ORDER.filter((id) => selectedLayers.has(id));
+    let pending = generationOrder(selectedLayers);
     let requestFailed = false;
     while (pending.length > 0) {
       const wave = nextGenerationWave(pending, mapRef.current, concurrency);
@@ -286,6 +286,18 @@ export default function App() {
   const onStrokeEnd = useCallback(
     (indices: number[]) => {
       if (!map || !brushMode || indices.length === 0) return;
+      if (activeLayer === 'polities') {
+        const data = map.layers.polities.data;
+        if (!data) return;
+        // One stroke is one assignment, so one undo entry. '' is unclaimed wilderness.
+        const target = brush.polities || null;
+        if (target && !data.polities.some((p) => p.id === target)) {
+          setError('The polity chosen for the brush no longer exists. Pick another in the inspector.');
+          return;
+        }
+        dispatch({ type: 'setPolityOwner', indices, polityId: target });
+        return;
+      }
       if (PER_HEX.includes(activeLayer)) {
         if (!map.layers[activeLayer].data) return;
         const raw = brush[activeLayer];

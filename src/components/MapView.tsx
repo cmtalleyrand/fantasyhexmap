@@ -7,6 +7,7 @@ import { buildScene, type VisibleLayers } from '../render/scene.js';
 import { MAP_COLOURS } from '../render/palette.js';
 import { riversThroughHex } from '../../shared/derive.js';
 import type { RiverTool } from '../state/riverTools.js';
+import { zoomAt, type View } from '../render/view.js';
 
 const HEX_SIZE = 26;
 
@@ -40,12 +41,6 @@ export interface MapViewProps {
   onRiverExtend: (index: number) => void;
   /** A navigability stroke finished over these hexes. */
   onRiverPaint: (indices: number[]) => void;
-}
-
-interface View {
-  scale: number;
-  x: number;
-  y: number;
 }
 
 export default function MapView(props: MapViewProps) {
@@ -82,8 +77,12 @@ export default function MapView(props: MapViewProps) {
     });
   }, [map, visible, labels, riverNames, rangeNames, polityNames, elevationStyle, polityOpacity, uniformLand, selection, hover, props.riverDraft, props.riverTool?.selectedId]);
 
-  // Fit the map into the viewport the first time it is laid out.
+  // Fit the map into the viewport the first time it is laid out, and again
+  // whenever a different map (a load, an import, a new map) takes its place.
   const fitted = useRef(false);
+  useEffect(() => {
+    fitted.current = false;
+  }, [map.id, map.cols, map.rows]);
   useEffect(() => {
     const wrap = wrapRef.current;
     if (!wrap) return;
@@ -114,7 +113,7 @@ export default function MapView(props: MapViewProps) {
       fitted.current = true;
       fit();
     }
-  }, [fit, size.width]);
+  }, [fit, size.width, map.id]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -279,12 +278,7 @@ export default function MapView(props: MapViewProps) {
     const rect = canvas.getBoundingClientRect();
     const px = e.clientX - rect.left;
     const py = e.clientY - rect.top;
-    setView((v) => {
-      const factor = Math.exp(-e.deltaY * 0.0015);
-      const scale = Math.max(0.12, Math.min(6, v.scale * factor));
-      const k = scale / v.scale;
-      return { scale, x: px - (px - v.x) * k, y: py - (py - v.y) * k };
-    });
+    setView((v) => zoomAt(v, Math.exp(-e.deltaY * 0.0015), px, py));
   };
 
   const hoverText = () => {
@@ -340,8 +334,20 @@ export default function MapView(props: MapViewProps) {
       />
       <div className="maphud">{hoverText()}</div>
       <div className="mapzoom">
-        <button className="tiny" onClick={() => setView((v) => ({ ...v, scale: Math.min(6, v.scale * 1.2) }))}>+</button>
-        <button className="tiny" onClick={() => setView((v) => ({ ...v, scale: Math.max(0.12, v.scale / 1.2) }))}>−</button>
+        <button
+          className="tiny"
+          aria-label="Zoom in"
+          onClick={() => setView((v) => zoomAt(v, 1.2, size.width / 2, size.height / 2))}
+        >
+          +
+        </button>
+        <button
+          className="tiny"
+          aria-label="Zoom out"
+          onClick={() => setView((v) => zoomAt(v, 1 / 1.2, size.width / 2, size.height / 2))}
+        >
+          −
+        </button>
         <button className="tiny" onClick={fit}>fit</button>
       </div>
     </div>

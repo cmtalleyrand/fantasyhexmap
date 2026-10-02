@@ -1,8 +1,9 @@
 import { LAYER_META, hasData, isLayerEnabled } from './layers.js';
-import { LAYER_ORDER, type LayerId, type MapState } from './types.js';
+import { generationOrder } from './generationQueue.js';
+import type { LayerId, MapState } from './types.js';
 
 export interface MultiEditPlan {
-  /** Layers that will be rewritten, in pipeline order. */
+  /** Layers that will be rewritten, each after everything it reads (see `generationOrder`). */
   layers: LayerId[];
   /** Selected layers that cannot be edited, because they are not planned or hold no data yet. */
   skipped: LayerId[];
@@ -11,16 +12,15 @@ export interface MultiEditPlan {
 /**
  * Which of the selected layers one instruction can be applied to.
  *
- * Order is the pipeline's, not the order of selection: each layer is rewritten
- * against the layers before it as they stand after their own rewrite, so an
- * upstream change reaches the layers that read it within the same run.
+ * Order is dependency order, not the order of selection: each layer is
+ * rewritten after the layers it reads, as they stand after their own rewrite,
+ * so an upstream change reaches the layers that read it within the same run.
  */
 export function planMultiLayerEdit(map: MapState, selected: Iterable<LayerId>): MultiEditPlan {
   const chosen = new Set(selected);
   const layers: LayerId[] = [];
   const skipped: LayerId[] = [];
-  for (const id of LAYER_ORDER) {
-    if (!chosen.has(id)) continue;
+  for (const id of generationOrder(chosen)) {
     (isLayerEnabled(map, id) && hasData(map, id) ? layers : skipped).push(id);
   }
   return { layers, skipped };
