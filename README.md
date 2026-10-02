@@ -310,11 +310,30 @@ the exported legend.
 the whole layer, plus the layers it depends on, is sent to Claude, which returns a complete
 replacement. One instruction can therefore change the map anywhere, not just one hex.
 
-Both paths push onto the same per-layer undo stack (40 entries deep, with redo).
+Both paths push onto the same per-layer undo stack (40 entries deep, with redo). When one action
+changes several layers (a multi-layer rewrite, or several layers imported from one chat reply), a
+message over the map offers to undo all of them at once.
+
+**Keyboard.** Ctrl+Z (⌘Z) undoes the change on the active layer, Ctrl+Shift+Z or Ctrl+Y redoes it,
+Ctrl+A selects every hex, and Esc clears the selection or closes the open dialog. Hold Space and drag
+to pan. While drawing a river, Enter finishes it, Backspace takes back the last click, and Esc
+cancels it. Shortcuts are ignored while you are typing in a field.
+
+**Selecting by value.** On a per-hex layer, "select every hex that is …" selects all hexes holding the
+value chosen to apply. On Polities, the hex count beside each polity selects its territory.
+
+**Files.** The **File** menu holds everything that moves a map in or out: new map, saved maps,
+import, image export, JSON export (with or without undo history) and the decision record. Starting a
+new map offers to save or download the current one first, because the autosave only keeps one map.
+Click the map's name in the top bar to rename it.
+
+**Feedback.** Errors and outcomes appear at the top of the map. Each generation reports how long it
+took and how many tokens it used (and how many of them were reasoning). When the model's price is
+known, it also gives a rough cost; the decision record keeps the same figures.
 
 ## Exports
 
-- **Image.** Any single layer on its own, or a composite of whichever layers are currently toggled
+- **Image** (File → Export image). Any single layer on its own, or a composite of whichever layers are currently toggled
   visible, as **PNG** or **SVG**, with a toggle for city and polity name labels. Single-layer
   exports keep base geography as a substrate — a land-only layer is unreadable without knowing where
   the land is — and drop labels unless the layer is cities or polities.
@@ -324,7 +343,7 @@ Both paths push onto the same per-layer undo stack (40 entries deep, with redo).
   the map (or every value a layer can take), show polity land areas, list each river with its
   length, and head the legend with the map's name. Long legends continue in further columns. The panel is built from the same scene
   primitives as the map, so PNG and SVG legends are identical.
-- **Markdown.** The decision record: what the model chose, why, and what you changed by hand.
+- **Markdown** (File menu, or the decisions dialog). The decision record: what the model chose, why, and what you changed by hand.
 - **JSON.** The full map state including the decision record, with or without undo history, and a
   matching import.
 

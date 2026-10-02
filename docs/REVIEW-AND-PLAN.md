@@ -111,6 +111,18 @@ The owner also asked for three river changes, now done.
 - **Length:** each river's length is calculated from the hex size and shown in the list, on the selected river's card (with and without its branches), in the hover readout and, optionally, in the exported legend.
 - **Simpler editing:** select and move are now one tool. Each tool's hint sits next to the controls. The selected river gets one card with all of its actions, including reversing its flow. The list nests branches under their parent rivers. Drawing works from the keyboard: Enter finishes, Backspace takes back a whole click, Esc cancels. River errors appear in the river panel, not the far sidebar.
 
+Phase 3 is done.
+- **Messages:** errors and outcomes appear at the top of the map; river errors appear in the river panel.
+- **Shortcuts:** Ctrl/Cmd+Z, Shift+Ctrl/Cmd+Z, Ctrl+Y and Ctrl/Cmd+A work on the map, and Escape clears the selection.
+- **Dialogs:** every dialog closes on Escape, keeps keyboard focus inside while open, and hands it back on closing.
+- **Undo all:** a multi-layer rewrite or import offers to undo all of its layers at once.
+- **New map:** it offers to save or download the current map first, and clearing a layer asks for confirmation.
+- **Map name:** it can be renamed in the top bar.
+- **File menu:** it replaces seven loose buttons and the export panel in the sidebar.
+- **Select by value:** per-hex values and polity territories can be selected in one click.
+- **Generation feedback:** each generation reports elapsed time, tokens (including reasoning) and an estimated cost, and the decision record keeps them.
+- **Export options:** the export dialog starts from the current display settings.
+
 ## Plan
 
 Each phase can ship on its own as one PR, with tests added to the existing `test/*.test.ts` suite (`npm test` runs them with `tsx --test`).
@@ -145,7 +157,7 @@ Fix the contradictory instruction hint (B4) by rewriting it to name the buttons 
 
 Touch and pan: plain drag on empty map space pans when no editing tool needs a drag (i.e. not brush mode, not river tools), and selection becomes click/shift-click plus a "box/sweep select" mode — or, lower-risk alternative, keep drag-to-select and add Space-drag pan plus two-pointer pan/pinch-zoom via tracked `pointerdown` events. Recommendation: the lower-risk alternative, since drag-sweep selection is a documented feature; add a HUD line explaining Space/right-drag.
 
-### Phase 3: workflow friction (C1–C8, C10)
+### Phase 3: workflow friction (C1–C8, C10) — done
 
 Errors: render errors as a dismissible toast/banner anchored above the map (top of `.mapwrap`), and tool-specific errors (river move/extend, city on water) inline in the relevant inspector panel. Keep generation errors also listed against the layer row.
 

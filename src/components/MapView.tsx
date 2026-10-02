@@ -45,6 +45,8 @@ export interface MapViewProps {
   onRiverPaint: (indices: number[]) => void;
   /** Shown over the middle of the map, such as the first step on an empty map. */
   overlay?: React.ReactNode;
+  /** Messages pinned to the top of the map: errors and the outcome of the last action. */
+  banner?: React.ReactNode;
 }
 
 export default function MapView(props: MapViewProps) {
@@ -400,6 +402,7 @@ export default function MapView(props: MapViewProps) {
         onContextMenu={(e) => e.preventDefault()}
       />
       {props.overlay && <div className="map-overlay">{props.overlay}</div>}
+      {props.banner}
       <div className="maphud">{hoverText()}</div>
       <div className="mapzoom">
         <button

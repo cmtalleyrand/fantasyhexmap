@@ -431,6 +431,20 @@ function PerHexEditor(props: SubProps) {
           </select>
         )}
       </div>
+      {!isPopulation && (
+        <button
+          className="linkish"
+          style={{ alignSelf: 'flex-start' }}
+          onClick={() => {
+            const data = map.layers[activeLayer].data as unknown[] | null;
+            const want = current === '' ? null : current;
+            const matches = (data ?? []).flatMap((v, i) => ((v ?? null) === want ? [i] : []));
+            props.setSelection(new Set(matches));
+          }}
+        >
+          select every hex that is {options.find((o) => o.value === current)?.label ?? current}
+        </button>
+      )}
       <div className="row">
         <button className="primary grow" disabled={selected.length === 0} onClick={() => apply(selected)}>
           Apply to {selected.length} selected
@@ -448,6 +462,9 @@ function PerHexEditor(props: SubProps) {
         />
         Brush mode - apply the value as you drag across the map
       </label>
+      <p className="hint" style={{ margin: 0 }}>
+        Shift-click or shift-drag adds to the selection. Ctrl+A (⌘A) selects every hex, Esc clears.
+      </p>
       {selected.length > 0 && (
         <div className="hint">
           Selected: {selected.slice(0, 8).map((i) => coordLabel(map, i)).join(' ')}
@@ -647,7 +664,16 @@ function PolityEditor(props: SubProps) {
                 value={p.colour}
                 onCommit={(colour) => dispatch({ type: 'upsertPolity', polity: { ...p, colour } })}
               />
-              <span className="hint">{count}</span>
+              <button
+                className="tiny"
+                title={`Select the ${count} hexes ${p.name} holds`}
+                onClick={() => {
+                  props.setSelection(new Set(data.owner.flatMap((id, i) => (id === p.id ? [i] : []))));
+                  setTarget(p.id);
+                }}
+              >
+                {count}
+              </button>
               <button className="tiny danger" onClick={() => dispatch({ type: 'removePolity', id: p.id })}>
                 ×
               </button>

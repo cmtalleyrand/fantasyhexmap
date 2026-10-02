@@ -39,6 +39,7 @@ import type {
   MountainRange,
   Polity,
   River,
+  TokenUsage,
 } from '../../shared/types.js';
 
 export type Action =
@@ -64,6 +65,8 @@ export type Action =
       imported?: boolean;
       /** Omit the journal entry for changes that are not a generation (a hand-built river). */
       journal?: false;
+      usage?: TokenUsage | null;
+      elapsedMs?: number;
     }
   | { type: 'setHexValues'; layer: 'base' | 'elevation' | 'climate' | 'vegetation' | 'population'; indices: number[]; value: unknown }
   | { type: 'setPolityOwner'; indices: number[]; polityId: string | null }
@@ -415,6 +418,8 @@ export function reducer(map: MapState, action: Action): MapState {
           decisions: action.decisions ?? [],
           model: action.model ?? null,
           warnings: action.warnings.length,
+          ...(action.usage ? { usage: action.usage } : {}),
+          ...(action.elapsedMs !== undefined ? { elapsedMs: action.elapsedMs } : {}),
         });
       }
       return action.layer === 'base' || action.layer === 'rivers' ? reconcile(next) : next;
