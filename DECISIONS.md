@@ -589,3 +589,11 @@ result and their own undo entry.
 
 **What it costs.** One request per layer, each over the whole grid, so the cost is the sum. Layers
 without data, or left out of the plan, are skipped and named. Undo stays per layer.
+
+**Webchat.** The same instruction works through "Prompt for webchat…". With two or more layers ticked
+the dialog opens in several-layer mode, and with an instruction present the prompt becomes an edit:
+every layer shown as it stands, the instruction stated once, and the reply asked to return each layer
+complete, in pipeline order, later layers consistent with the earlier ones as just changed. Each
+layer must already have data (the dialog says which do not). One reply is one round trip, so unlike
+the in-app run it is all-or-nothing on import, and each layer runs as a single pass. The journal
+records the instruction against each imported layer.

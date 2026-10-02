@@ -164,6 +164,13 @@ export function orderLayers(layers: LayerId[]): LayerId[] {
  */
 export function multiLayerProblem(layers: LayerId[], ctx: PromptContext): string | null {
   if (layers.length === 0) return 'Choose at least one layer.';
+  // With an instruction the layers are edited, so each has to exist already.
+  if (ctx.instruction?.trim()) {
+    const absent = orderLayers(layers).filter((id) => !ctx[id as keyof PromptContext]);
+    if (absent.length > 0) {
+      return `There is an edit instruction, and ${absent.map((id) => LAYER_META[id].label).join(', ')} ${absent.length === 1 ? 'has' : 'have'} no data to edit yet. Deselect ${absent.length === 1 ? 'it' : 'them'}, or clear the instruction to generate instead.`;
+    }
+  }
   for (const layer of orderLayers(layers)) {
     for (const dep of LAYER_META[layer].requires) {
       if (!layers.includes(dep) && !ctx[dep as keyof PromptContext]) {
@@ -187,13 +194,18 @@ export function multiLayerProblem(layers: LayerId[], ctx: PromptContext): string
 export function buildMultiWebchatPrompt(options: MultiWebchatPromptOptions): string {
   const style = options.style ?? 'full';
   const layers = orderLayers(options.layers);
-  const ctx = chatContext({ ...options.ctx, instruction: null }, style);
+  // An instruction turns this into an edit of layers that already exist: they
+  // are shown as they stand, and the instruction is stated once for all of them.
+  const instruction = options.ctx.instruction?.trim() || null;
+  const ctx = chatContext({ ...options.ctx, instruction }, style);
   const labels = layers.map((id) => `${LAYER_META[id].label} ("${id}")`);
-  const existing = existingContext(ctx, layers);
+  const existing = existingContext(ctx, instruction ? [] : layers);
   const excluded = (ctx.excluded ?? []).filter((id) => !layers.includes(id));
 
   const parts: string[] = [
-    `You are generating ${layers.length} layers of a fantasy hex map in a single reply: ${labels.join(', ')}.`,
+    instruction
+      ? `You are editing ${layers.length} layers of a fantasy hex map in a single reply: ${labels.join(', ')}.`
+      : `You are generating ${layers.length} layers of a fantasy hex map in a single reply: ${labels.join(', ')}.`,
     'Produce them in that order. Each layer must be consistent with every layer before it, including the ones you',
     'write earlier in this same reply: treat those as the context grids you would otherwise be shown.',
     '',
@@ -206,7 +218,31 @@ export function buildMultiWebchatPrompt(options: MultiWebchatPromptOptions): str
   });
   parts.push('', divider(), '', recordDecisions(ctx), '', divider(), '', descriptionBlock(ctx.description));
   if (existing.length > 0) {
-    parts.push('', 'THE MAP SO FAR (layers you are not regenerating)', ...existing);
+    parts.push(
+      '',
+      instruction
+        ? 'THE MAP AS IT STANDS (the layers you are editing, and the others they sit among)'
+        : 'THE MAP SO FAR (layers you are not regenerating)',
+      ...existing,
+    );
+  }
+  if (instruction) {
+    parts.push(
+      '',
+      divider(),
+      '',
+      'EDIT INSTRUCTION',
+      `The layers named above already exist and are shown above as they stand. The user asks for this change:`,
+      '<instruction>',
+      instruction,
+      '</instruction>',
+      '',
+      `Apply it across ${layers.map((id) => LAYER_META[id].label).join(', ')}, in that order, and return the COMPLETE updated`,
+      'layer for every one of them, not only the hexes you changed. A layer is updated against the layers before it',
+      'as you have just changed them, so a change made early reaches the later layers in this reply. Make only the',
+      'part of the instruction that belongs in each layer, change nothing it does not touch, and where none of it',
+      'belongs in a layer, return that layer exactly as it stands.',
+    );
   }
   if (excluded.length > 0) {
     parts.push(

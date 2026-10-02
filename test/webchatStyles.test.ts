@@ -137,3 +137,35 @@ test('a compact multi-layer reply shares its chat prose as notes', () => {
   const results = importMultiWebchatResponse({ layers: ['base', 'elevation'], ctx, text: reply });
   for (const { result } of results) assert.match(result.notes ?? '', /Base: one island[\s\S]*Elevation: all low/);
 });
+
+/* ------------------------------------------------- several layers: editing */
+
+function withBaseAndElevation(cols: number, rows: number): PromptContext {
+  const ctx = withBase(cols, rows);
+  return { ...ctx, elevation: decodeLayer('elevation', mockLayer('elevation', ctx), ctx).data as PromptContext['elevation'] };
+}
+
+test('an instruction turns a several-layer prompt into an edit of the layers as they stand', () => {
+  const ctx = { ...withBaseAndElevation(10, 8), instruction: '  Raise a mountain range in the east.  ' };
+  const prompt = buildMultiWebchatPrompt({ layers: ['elevation', 'base'], ctx });
+
+  assert.match(prompt, /You are editing 2 layers/);
+  assert.match(prompt, /THE MAP AS IT STANDS/);
+  assert.match(prompt, /<instruction>\nRaise a mountain range in the east\.\n<\/instruction>/);
+  assert.match(prompt, /Base Geography, Elevation \/ Ruggedness, in that order/);
+  // Both layers are shown as they stand rather than withheld for regeneration.
+  assert.match(prompt, /CURRENT BASE|BASE GEOGRAPHY/i);
+  assert.match(prompt, /ELEVATION/);
+
+  const fresh = buildMultiWebchatPrompt({ layers: ['elevation', 'base'], ctx: { ...ctx, instruction: null } });
+  assert.match(fresh, /You are generating 2 layers/);
+  assert.doesNotMatch(fresh, /EDIT INSTRUCTION/);
+});
+
+test('editing several layers needs each to have data', () => {
+  const ctx = { ...withBase(10, 8), instruction: 'Raise a mountain range.' };
+  const problem = multiLayerProblem(['base', 'elevation'], ctx);
+  assert.match(problem ?? '', /Elevation \/ Ruggedness has no data to edit/);
+  assert.equal(multiLayerProblem(['base'], ctx), null);
+  assert.equal(multiLayerProblem(['base', 'elevation'], { ...ctx, instruction: null }), null);
+});

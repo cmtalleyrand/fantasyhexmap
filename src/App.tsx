@@ -423,7 +423,7 @@ export default function App() {
   }, []);
 
   /** Several layers from one webchat reply, applied in pipeline order, each its own undo entry. */
-  const applyWebchatMany = useCallback((results: MultiWebchatImportResult[], source: string) => {
+  const applyWebchatMany = useCallback((results: MultiWebchatImportResult[], source: string, instructionText: string | null) => {
     for (const { layer, result } of results) {
       const action: Action = {
         type: 'applyGeneration',
@@ -434,11 +434,12 @@ export default function App() {
         decisions: result.decisions,
         model: source || null,
         imported: true,
-        instruction: null,
+        instruction: instructionText,
       };
       mapRef.current = reducer(mapRef.current!, action);
       dispatch(action);
     }
+    if (instructionText) setInstruction('');
     const shown = results.map((r) => r.layer);
     setVisible((v) => ({ ...v, ...Object.fromEntries(shown.map((id) => [id, true])) }));
     if (shown.length > 0) setActiveLayer(shown[shown.length - 1]!);
@@ -464,6 +465,7 @@ export default function App() {
           map={map}
           layer={webchatLayer}
           instruction={instruction.trim() || null}
+          initialLayers={[...selectedLayers]}
           onApply={(result) => applyWebchat(webchatLayer, result)}
           onApplyMany={applyWebchatMany}
           onClose={() => setWebchatLayer(null)}
