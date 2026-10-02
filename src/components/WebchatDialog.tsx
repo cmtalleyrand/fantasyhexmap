@@ -32,9 +32,11 @@ interface Props {
   map: MapState;
   layer: LayerId;
   instruction: string | null;
+  /** Layers ticked in the pipeline list; two or more open the dialog in several-layer mode. */
+  initialLayers?: readonly LayerId[];
   onApply: (result: WebchatApplied) => void;
   /** Several layers from one reply, in pipeline order, applied together. */
-  onApplyMany: (results: MultiWebchatImportResult[], source: string) => void;
+  onApplyMany: (results: MultiWebchatImportResult[], source: string, instruction: string | null) => void;
   onClose: () => void;
 }
 
@@ -49,10 +51,21 @@ type Scope = 'one' | 'several';
  * to be worth a subscription rather than metered tokens, or simply wanting to
  * argue with the model about the borders before committing them.
  */
-export default function WebchatDialog({ map, layer, instruction, onApply, onApplyMany, onClose }: Props) {
-  const [scope, setScope] = useState<Scope>('one');
+export default function WebchatDialog({
+  map,
+  layer,
+  instruction,
+  initialLayers = [],
+  onApply,
+  onApplyMany,
+  onClose,
+}: Props) {
+  const [ticked] = useState(() =>
+    orderLayers(initialLayers.filter((id) => map.enabledLayers.includes(id))),
+  );
+  const [scope, setScope] = useState<Scope>(ticked.length > 1 ? 'several' : 'one');
   const [style, setStyle] = useState<WebchatStyle>('full');
-  const [selected, setSelected] = useState<LayerId[]>([layer]);
+  const [selected, setSelected] = useState<LayerId[]>(ticked.length > 1 ? ticked : [layer]);
   const splittable = canSplit(layer) && scope === 'one';
   const [pass, setPass] = useState<PassId>(splittable ? 'roster' : 'full');
   const [rosterSource, setRosterSource] = useState<RosterSource>('existing');
@@ -139,7 +152,7 @@ export default function WebchatDialog({ map, layer, instruction, onApply, onAppl
           text: reply,
           existing: existingFeatures(ctx),
         });
-        onApplyMany(results, source.trim());
+        onApplyMany(results, source.trim(), instruction);
         return;
       }
       const result = importWebchatResponse({
@@ -219,8 +232,10 @@ export default function WebchatDialog({ map, layer, instruction, onApply, onAppl
             <p className="hint" style={{ margin: 0 }}>
               One prompt, one reply. The layers are written in pipeline order, each built on the ones
               before it in the same reply, and imported together - or not at all if any of them is
-              malformed. Each runs as a single pass{instruction ? ', and the edit instruction is not used' : ''}.
-              Selected layers that already exist are replaced.
+              malformed. Each runs as a single pass.{' '}
+              {instruction
+                ? 'Your edit instruction is applied to every selected layer, each of which must already have data; they are rewritten from the state shown in the prompt.'
+                : 'Selected layers that already exist are replaced.'}
             </p>
           </div>
         )}

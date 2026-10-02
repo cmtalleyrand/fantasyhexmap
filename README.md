@@ -3,7 +3,7 @@
 A local web application that turns a long-form description of a fantasy world into a layered hex
 map. You describe the geography in prose, choose a grid up to 50×50, and then build the map up one
 layer at a time — base geography, elevation, climate, vegetation, rivers, cities, polities,
-population. Every layer can be edited hex by hex, rewritten wholesale by a free-text instruction to
+population. Every layer can be edited hex by hex, rewritten wholesale by a free-text instruction (one instruction can span several ticked layers) to
 Claude, undone and redone independently, and exported as PNG or SVG.
 
 Nothing regenerates behind your back. Changing an upstream layer marks the layers below it **stale**
