@@ -262,13 +262,16 @@ export function buildScene(map: MapState, opts: SceneOptions): Scene {
       if (polities) {
         const owner = polities.owner[i];
         if (owner) {
-          prims.push({
-            kind: 'polygon',
-            points: corners,
-            // Polity colours are categorical data, not a tint. An opaque fill
-            // keeps a realm's colour invariant when substrate layers change.
-            fill: polityColour.get(owner) ?? '#777777',
-          });
+          // Polity colours are categorical data, not a tint. An opaque fill
+          // keeps a realm's colour invariant when substrate layers change.
+          const fill = polityColour.get(owner) ?? '#777777';
+          if (baseValue === 'Island') {
+            // Only the landmass belongs to the polity; the surrounding sea
+            // stays sea-coloured, matching the island dot's footprint.
+            prims.push({ kind: 'circle', c: hexCenter(col, row, size), r: size * 0.34, fill });
+          } else {
+            prims.push({ kind: 'polygon', points: corners, fill });
+          }
         }
       }
     }
