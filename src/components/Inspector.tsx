@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { hexIndex, indexToOffset } from '../../shared/hex.js';
 import { canHoldSettlement } from '../../shared/derive.js';
 import { buildRiverFromPath } from '../../shared/validate.js';
@@ -22,6 +22,7 @@ import { canSplit, passLabel, type PassSelection } from '../../core/rosters.js';
 import type { Action } from '../state/store.js';
 import { contrastingPolityColours } from '../render/palette.js';
 import Legend from './Legend.js';
+import CommitInput, { CommitColour } from './CommitInput.js';
 
 const PER_HEX: LayerId[] = ['base', 'elevation', 'climate', 'vegetation', 'population'];
 
@@ -393,25 +394,6 @@ function PerHexEditor(props: SubProps) {
   );
 }
 
-/** Edits a range name locally and commits once on blur or Enter, so a rename is one journal entry. */
-function RangeNameInput({ name, onCommit }: { name: string; onCommit: (name: string) => void }) {
-  const [draft, setDraft] = useState(name);
-  useEffect(() => setDraft(name), [name]);
-  const commit = () => {
-    if (draft.trim() && draft.trim() !== name) onCommit(draft);
-    else setDraft(name);
-  };
-  return (
-    <input
-      className="grow"
-      value={draft}
-      onChange={(e) => setDraft(e.target.value)}
-      onBlur={commit}
-      onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
-    />
-  );
-}
-
 /** Name groups of Mountains hexes so they can be labelled as ranges. */
 function MountainRangePanel(props: SubProps) {
   const { map, dispatch, selected } = props;
@@ -476,7 +458,12 @@ function MountainRangePanel(props: SubProps) {
       <div className="list">
         {ranges.map((r) => (
           <div key={r.id} className="entry" style={{ flexWrap: 'wrap' }}>
-            <RangeNameInput name={r.name} onCommit={(name) => dispatch({ type: 'renameMountainRange', id: r.id, name })} />
+            <CommitInput
+              className="grow"
+              aria-label="Range name"
+              value={r.name}
+              onCommit={(name) => dispatch({ type: 'renameMountainRange', id: r.id, name })}
+            />
             <span className="hint">{liveCount(r.hexes)} hexes</span>
             <button
               className="tiny"
@@ -503,7 +490,9 @@ function PolityEditor(props: SubProps) {
   const data = map.layers.polities.data!;
   const [name, setName] = useState('');
   const [colour, setColour] = useState('#b5533c');
-  const [target, setTarget] = useState<string>('');
+  // Kept with the other brush values in App, so a brush stroke on the map assigns to it.
+  const target = props.brush.polities ?? '';
+  const setTarget = (id: string) => props.setBrush('polities', id);
 
   const assignContrastingColours = () => {
     const colours = contrastingPolityColours(data.polities.map((p) => p.id), data.owner, map.cols, map.rows);
@@ -568,29 +557,28 @@ function PolityEditor(props: SubProps) {
           return (
             <div key={p.id} className="entry">
               <span className="swatch-dot" style={{ background: p.colour }} />
-              <input
+              <CommitInput
                 className="grow"
+                aria-label="Polity name"
                 value={p.name}
-                onChange={(e) => dispatch({ type: 'upsertPolity', polity: { ...p, name: e.target.value } })}
+                onCommit={(name) => dispatch({ type: 'upsertPolity', polity: { ...p, name } })}
               />
-              <input
+              <CommitInput
                 aria-label={`Short map name for ${p.name}`}
                 title="Short map name"
                 style={{ width: 90 }}
                 placeholder="map name"
+                allowEmpty
                 value={p.shortName ?? ''}
-                onChange={(e) =>
-                  dispatch({
-                    type: 'upsertPolity',
-                    polity: { ...p, shortName: e.target.value || undefined },
-                  })
+                onCommit={(shortName) =>
+                  dispatch({ type: 'upsertPolity', polity: { ...p, shortName: shortName || undefined } })
                 }
               />
-              <input
-                type="color"
+              <CommitColour
+                aria-label={`Colour of ${p.name}`}
                 style={{ width: 32, padding: 0, height: 24 }}
                 value={p.colour}
-                onChange={(e) => dispatch({ type: 'upsertPolity', polity: { ...p, colour: e.target.value } })}
+                onCommit={(colour) => dispatch({ type: 'upsertPolity', polity: { ...p, colour } })}
               />
               <span className="hint">{count}</span>
               <button className="tiny danger" onClick={() => dispatch({ type: 'removePolity', id: p.id })}>
@@ -688,19 +676,22 @@ function CityEditor(props: SubProps) {
         <div className="list">
           {here.map((c) => (
             <div key={c.id} className="entry" style={{ flexWrap: 'wrap' }}>
-              <input
+              <CommitInput
                 className="grow"
+                aria-label="City name"
                 value={c.name}
-                onChange={(e) => dispatch({ type: 'upsertCity', city: { ...c, name: e.target.value } })}
+                onCommit={(name) => dispatch({ type: 'upsertCity', city: { ...c, name } })}
               />
-              <input
+              <CommitInput
                 type="number"
+                min={0}
+                aria-label={`Population of ${c.name}`}
                 style={{ width: 90 }}
                 value={c.population}
-                onChange={(e) =>
+                onCommit={(raw) =>
                   dispatch({
                     type: 'upsertCity',
-                    city: { ...c, population: Math.max(0, Math.round(Number(e.target.value) || 0)) },
+                    city: { ...c, population: Math.max(0, Math.round(Number(raw) || 0)) },
                   })
                 }
               />
@@ -819,10 +810,11 @@ function RiverEditor(props: SubProps) {
           <div
             key={r.id}
             className={`entry ${openId === r.id || props.riverTool.selectedId === r.id ? 'selected' : ''}`} style={{ flexWrap: 'wrap' }}>
-            <input
+            <CommitInput
               className="grow"
+              aria-label="River name"
               value={r.name}
-              onChange={(e) => dispatch({ type: 'updateRiver', river: { ...r, name: e.target.value } })}
+              onCommit={(name) => dispatch({ type: 'updateRiver', river: { ...r, name } })}
             />
             <span className="hint">
               {r.segments.length} hexes · {r.terminus}
