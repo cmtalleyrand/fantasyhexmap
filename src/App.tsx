@@ -43,16 +43,26 @@ import Inspector from './components/Inspector.js';
 import LayerPipeline from './components/LayerPipeline.js';
 import MapView from './components/MapView.js';
 import SetupScreen from './components/SetupScreen.js';
-import { exportJson } from './render/export.js';
+import { exportDecisions, exportJson } from './render/export.js';
 import { defaultVisibility, type VisibleLayers } from './render/scene.js';
 import { clearMap, loadMap, makeAutosaver } from './state/persistence.js';
 import { parseMapImport, prepareLoadedMap } from './state/import.js';
 import SavesDialog from './components/SavesDialog.js';
+import FileMenu from './components/FileMenu.js';
+import Modal from './components/Modal.js';
+import NewMapDialog from './components/NewMapDialog.js';
+import CommitInput from './components/CommitInput.js';
 import { reducer, type Action } from './state/store.js';
 import { DEFAULT_RIVER_TOOL, type RiverNotice, type RiverTool } from './state/riverTools.js';
 import { normaliseHexDimensions } from '../shared/surfaceArea.js';
+import { describeUsage, formatDuration } from './api/usageText.js';
 
 const PER_HEX: LayerId[] = ['base', 'elevation', 'climate', 'vegetation', 'population'];
+
+interface Toast {
+  text: string;
+  action?: { label: string; run: () => void };
+}
 
 export default function App() {
   const [map, dispatch] = useReducer(
@@ -73,6 +83,8 @@ export default function App() {
   const [showDecisions, setShowDecisions] = useState(false);
   const [showPlan, setShowPlan] = useState(false);
   const [showSaves, setShowSaves] = useState(false);
+  const [showExport, setShowExport] = useState(false);
+  const [showNewMap, setShowNewMap] = useState(false);
   const [webchatLayer, setWebchatLayer] = useState<LayerId | null>(null);
   // A passphrase-protected key lives on disk as ciphertext; the plaintext only
   // ever exists in `apiKey`, for this page load.
@@ -90,6 +102,11 @@ export default function App() {
   const [concurrency, setConcurrency] = useState(1);
   const [progress, setProgress] = useState<Partial<Record<LayerId, ProgressEvent>>>({});
   const [error, setError] = useState<string | null>(null);
+  /** A passing message over the map: what a generation took, or a way to undo a multi-layer change. */
+  const [toast, setToast] = useState<Toast | null>(null);
+  /** When each running generation started, for the elapsed time shown while it runs. */
+  const startedAt = useRef(new Map<LayerId, number>());
+  const [, setTick] = useState(0);
   const [riverDraft, setRiverDraftState] = useState<number[] | null>(null);
   /**
    * The draft's length after each click. One click can lay down a whole
@@ -149,6 +166,55 @@ export default function App() {
     return () => window.removeEventListener('beforeunload', flush);
   }, [autosave]);
 
+  // Keyboard shortcuts for the map. Keys typed into a field, or while a dialog
+  // is open, are left alone.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT' || target.isContentEditable)) return;
+      if (document.querySelector('[aria-modal="true"]')) return;
+      const current = mapRef.current;
+      if (!current) return;
+      const mod = e.ctrlKey || e.metaKey;
+      const key = e.key.toLowerCase();
+      if (mod && key === 'z') {
+        e.preventDefault();
+        dispatch({ type: e.shiftKey ? 'redo' : 'undo', layer: activeLayer });
+      } else if (mod && key === 'y') {
+        e.preventDefault();
+        dispatch({ type: 'redo', layer: activeLayer });
+      } else if (mod && key === 'a') {
+        e.preventDefault();
+        setSelection(new Set(Array.from({ length: current.cols * current.rows }, (_, i) => i)));
+      } else if (e.key === 'Escape' && riverDraft === null) {
+        // A river being drawn handles its own Escape.
+        setSelection(new Set());
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [activeLayer, riverDraft]);
+
+  // Tick once a second while anything is generating, so elapsed times stay current.
+  useEffect(() => {
+    if (busyLayers.size === 0) return;
+    const timer = window.setInterval(() => setTick((t) => t + 1), 1000);
+    return () => window.clearInterval(timer);
+  }, [busyLayers.size]);
+
+  // A plain report fades after a while; one that offers an undo stays until used or dismissed.
+  useEffect(() => {
+    if (!toast || toast.action) return;
+    const timer = window.setTimeout(() => setToast(null), 9000);
+    return () => window.clearTimeout(timer);
+  }, [toast]);
+
+  /** Undo the latest change on each of these layers, newest first. */
+  const undoLayers = useCallback((layers: LayerId[]) => {
+    for (const id of [...layers].reverse()) dispatch({ type: 'undo', layer: id });
+    setToast(null);
+  }, []);
+
   // Keep the active layer visible so edits are actually seen.
   useEffect(() => {
     setVisible((v) => (v[activeLayer] ? v : { ...v, [activeLayer]: true }));
@@ -169,6 +235,7 @@ export default function App() {
       const requestMap = mapRef.current;
       if (!requestMap || abortRef.current.has(layer)) return false;
       setBusyLayers((current) => new Set(current).add(layer));
+      startedAt.current.set(layer, Date.now());
       setError(null);
       setProgress((current) => ({ ...current, [layer]: { phase: 'starting' } }));
       const controller = new AbortController();
@@ -200,11 +267,17 @@ export default function App() {
           decisions: result.decisions,
           model: result.model,
           instruction: instructionText,
+          usage: result.usage,
+          elapsedMs: result.elapsedMs,
         };
         mapRef.current = reducer(mapRef.current!, action);
         dispatch(action);
         setVisible((v) => ({ ...v, [layer]: true }));
         setActiveLayer(layer);
+        const spent = describeUsage(result.model, result.usage, result.elapsedMs);
+        setToast({
+          text: `${LAYER_META[layer].label} ${instructionText ? 'rewritten' : 'generated'}${spent ? ` · ${spent}` : ''}.`,
+        });
         if (instructionText && !options.keepInstruction) setInstruction('');
         return true;
       } catch (e) {
@@ -224,6 +297,7 @@ export default function App() {
           return next;
         });
         abortRef.current.delete(layer);
+        startedAt.current.delete(layer);
       }
     },
     [transport.mode, apiKey, prefs],
@@ -283,21 +357,33 @@ export default function App() {
           if (!batchCancelled.current) {
             setError((prev) =>
               `${prev ?? 'The edit failed.'} Stopped after ${done.length} of ${layers.length} layers` +
-              `${done.length > 0 ? ` (${done.map((d) => LAYER_META[d].label).join(', ')} already changed; undo is per layer)` : ''}.`,
+              `${done.length > 0 ? ` (${done.map((d) => LAYER_META[d].label).join(', ')} already changed)` : ''}.`,
             );
+          }
+          if (done.length > 0) {
+            setToast({
+              text: `${done.map((d) => LAYER_META[d].label).join(', ')} ${done.length === 1 ? 'was' : 'were'} changed before the run stopped.`,
+              action: { label: `undo ${done.length === 1 ? 'it' : `all ${done.length}`}`, run: () => undoLayers(done) },
+            });
           }
           return;
         }
         done.push(id);
       }
       setInstruction('');
+      if (done.length > 1) {
+        setToast({
+          text: `Rewrote ${done.map((d) => LAYER_META[d].label).join(', ')}.`,
+          action: { label: `undo all ${done.length}`, run: () => undoLayers(done) },
+        });
+      }
       if (skipped.length > 0) {
         setError(
           `${skipped.map((d) => LAYER_META[d].label).join(', ')} had no data to edit and ${skipped.length === 1 ? 'was' : 'were'} skipped.`,
         );
       }
     },
-    [runGeneration, selectedLayers],
+    [runGeneration, selectedLayers, undoLayers],
   );
 
   const onStrokeEnd = useCallback(
@@ -504,11 +590,17 @@ export default function App() {
     }
     if (instructionText) setInstruction('');
     const shown = results.map((r) => r.layer);
+    if (shown.length > 1) {
+      setToast({
+        text: `Imported ${shown.map((id) => LAYER_META[id].label).join(', ')} from the chat reply.`,
+        action: { label: `undo all ${shown.length}`, run: () => undoLayers(shown) },
+      });
+    }
     setVisible((v) => ({ ...v, ...Object.fromEntries(shown.map((id) => [id, true])) }));
     if (shown.length > 0) setActiveLayer(shown[shown.length - 1]!);
     setWebchatLayer(null);
     setError(null);
-  }, []);
+  }, [undoLayers]);
 
   const handleImport = useCallback((file: File) => {
     file
@@ -653,10 +745,40 @@ export default function App() {
   };
 
   const plannedNow = LAYER_ORDER.filter((id) => map.enabledLayers.includes(id));
-  const describeProgress = (layer: LayerId) =>
-    `${progress[layer]?.phase ? ` - ${progress[layer]?.phase}` : ''}${
+  const describeProgress = (layer: LayerId) => {
+    const started = startedAt.current.get(layer);
+    return `${progress[layer]?.phase ? ` - ${progress[layer]?.phase}` : ''}${
       progress[layer]?.chars ? ` (${progress[layer]?.chars?.toLocaleString()} chars)` : ''
-    }`;
+    }${started ? ` · ${formatDuration(Date.now() - started)}` : ''}`;
+  };
+
+  // Messages sit at the top of the map, where the work is, rather than in a side panel.
+  const banner =
+    error || toast ? (
+      <div className="map-messages">
+        {error && (
+          <div className="notice error" role="alert">
+            <span>{error}</span>
+            <button className="linkish" onClick={() => setError(null)}>
+              dismiss
+            </button>
+          </div>
+        )}
+        {toast && (
+          <div className="notice info" role="status">
+            <span>{toast.text}</span>
+            {toast.action && (
+              <button className="tiny" onClick={toast.action.run}>
+                {toast.action.label}
+              </button>
+            )}
+            <button className="linkish" onClick={() => setToast(null)}>
+              dismiss
+            </button>
+          </div>
+        )}
+      </div>
+    ) : null;
   // An empty map says what to do first, or what is happening while it does it.
   const emptyMapOverlay = map.layers.base.data ? null : busyLayers.size > 0 ? (
     <div className="card map-empty" role="status">
@@ -720,9 +842,45 @@ export default function App() {
       )}
       {decisionLog}
       {webchat}
+      {showExport && (
+        <Modal label="Export image" className="wide" onClose={() => setShowExport(false)}>
+          <ExportPanel
+            map={map}
+            visible={visible}
+            labels={labels}
+            elevationStyle={elevationStyle}
+            polityOpacity={polityOpacity}
+            uniformLand={uniformLand}
+            riverNames={riverNames}
+            rangeNames={rangeNames}
+            polityNames={polityNames}
+          />
+          <div className="row" style={{ marginTop: 14, justifyContent: 'flex-end' }}>
+            <button onClick={() => setShowExport(false)}>close</button>
+          </div>
+        </Modal>
+      )}
+      {showNewMap && (
+        <NewMapDialog
+          map={map}
+          onClose={() => setShowNewMap(false)}
+          onConfirmed={() => {
+            setShowNewMap(false);
+            void clearMap().then(() => dispatch({ type: 'reset' }));
+          }}
+        />
+      )}
       <div className="topbar">
         <span className="brand" aria-hidden="true">⬡</span>
-        <h1>{map.name}</h1>
+        <h1>
+          <CommitInput
+            className="map-name"
+            aria-label="Map name"
+            title="Rename the map"
+            value={map.name}
+            onCommit={(name) => dispatch({ type: 'setMeta', name })}
+          />
+        </h1>
         <span className="meta">
           {map.cols}×{map.rows} · {(map.cols * map.rows).toLocaleString()} hexes
         </span>
@@ -769,37 +927,14 @@ export default function App() {
         >
           ⚙ settings
         </button>
-        <button className="tiny" onClick={() => setShowSaves(true)} title="Named saves kept in this browser">
-          saves
-        </button>
-        <button className="tiny" onClick={() => exportJson(map, false)}>
-          export JSON
-        </button>
-        <button className="tiny" onClick={() => exportJson(map, true)} title="Includes undo history">
-          export JSON + history
-        </button>
-        <label className="file-button tiny">
-          import JSON
-          <input
-            type="file"
-            accept="application/json,.json"
-            className="visually-hidden"
-            onChange={(e) => {
-              const file = e.target.files?.[0];
-              if (file) handleImport(file);
-              e.target.value = '';
-            }}
-          />
-        </label>
-        <button
-          className="tiny danger"
-          onClick={() => {
-            if (!window.confirm('Discard this map and start a new one? The autosave will be erased.')) return;
-            void clearMap().then(() => dispatch({ type: 'reset' }));
-          }}
-        >
-          new map
-        </button>
+        <FileMenu
+          onNewMap={() => setShowNewMap(true)}
+          onSaves={() => setShowSaves(true)}
+          onImport={handleImport}
+          onExportJson={(withHistory) => exportJson(map, withHistory)}
+          onExportImage={() => setShowExport(true)}
+          onExportDecisions={() => exportDecisions(map, { aiOnly: false })}
+        />
       </div>
 
       <div className="workspace">
@@ -854,29 +989,6 @@ export default function App() {
             </div>
           )}
 
-          {error && (
-            <div className="section">
-              <div className="notice error">
-                {error}
-                <div style={{ marginTop: 6 }}>
-                  <button className="tiny" onClick={() => setError(null)}>
-                    dismiss
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
-
-          <ExportPanel
-            map={map}
-            visible={visible}
-            elevationStyle={elevationStyle}
-            polityOpacity={polityOpacity}
-            uniformLand={uniformLand}
-            riverNames={riverNames}
-            rangeNames={rangeNames}
-            polityNames={polityNames}
-          />
 
           <div className="section">
             <h2>Description</h2>
@@ -914,6 +1026,7 @@ export default function App() {
           onRiverExtend={onRiverExtend}
           onRiverPaint={onRiverPaint}
           overlay={emptyMapOverlay}
+          banner={banner}
         />
 
         <Inspector

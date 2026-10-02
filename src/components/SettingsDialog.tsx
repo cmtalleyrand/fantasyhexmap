@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import Modal from './Modal.js';
 import {
   clampTaskBudget,
   MAX_TASK_BUDGET,
@@ -91,387 +92,380 @@ export default function SettingsDialog(props: SettingsDialogProps) {
   };
 
   return (
-    <div className="modal-backdrop" onClick={props.onClose}>
-      <div
-        className="modal settings"
-        role="dialog"
-        aria-label="Settings"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <header className="modal-head">
-          <h2>Settings</h2>
-          <button className="icon-btn" aria-label="Close settings" onClick={props.onClose}>
-            ×
+    <Modal label="Settings" className="settings" onClose={props.onClose}>
+      <header className="modal-head">
+        <h2>Settings</h2>
+        <button className="icon-btn" aria-label="Close settings" onClick={props.onClose}>
+          ×
+        </button>
+      </header>
+
+      <div className="tabs" role="tablist">
+        {tabs.map((t) => (
+          <button
+            key={t.id}
+            role="tab"
+            aria-selected={tab === t.id}
+            className={tab === t.id ? 'tab active' : 'tab'}
+            onClick={() => setTab(t.id)}
+          >
+            {t.label}
           </button>
-        </header>
+        ))}
+      </div>
 
-        <div className="tabs" role="tablist">
-          {tabs.map((t) => (
-            <button
-              key={t.id}
-              role="tab"
-              aria-selected={tab === t.id}
-              className={tab === t.id ? 'tab active' : 'tab'}
-              onClick={() => setTab(t.id)}
-            >
-              {t.label}
-            </button>
-          ))}
-        </div>
+      <div className="modal-body">
+        {!browserMode && (
+          <div className="notice info" style={{ marginBottom: 14 }}>
+            <b>A generation server is answering.</b> It holds the API key and model settings;
+            this page never sees a key, so there is nothing to enter for generation.
+          </div>
+        )}
 
-        <div className="modal-body">
-          {!browserMode && (
-            <div className="notice info" style={{ marginBottom: 14 }}>
-              <b>A generation server is answering.</b> It holds the API key and model settings;
-              this page never sees a key, so there is nothing to enter for generation.
+        {tab === 'map' && hex && (
+          <div className="stack">
+            <h3>Hex size</h3>
+            <HexSizeInput value={hex} onChange={setHex} />
+            {underwater !== null && (
+              <>
+                <h3>Water</h3>
+                <label className="check">
+                  <input
+                    type="checkbox"
+                    checked={underwater}
+                    onChange={(e) => setUnderwater(e.target.checked)}
+                  />
+                  Allow underwater cities and polities
+                </label>
+                <p className="hint">
+                  Off by default: cities stand on land and polities partition only land, so
+                  anything on a Sea or Lake hex is removed when the geography changes. Turning
+                  this off removes any underwater cities and claims the map already has (each
+                  layer can undo it).
+                </p>
+              </>
+            )}
+          </div>
+        )}
+
+        {tab === 'display' && (
+          <div className="stack">
+            <h3>Elevation</h3>
+            <div className="segmented" role="radiogroup" aria-label="Elevation representation">
+              {ELEVATION_STYLES.map((o) => (
+                <button
+                  key={o.id}
+                  type="button"
+                  role="radio"
+                  aria-checked={prefs.elevationStyle === o.id}
+                  className={prefs.elevationStyle === o.id ? 'seg active' : 'seg'}
+                  onClick={() => setPrefs({ ...prefs, elevationStyle: o.id })}
+                >
+                  {o.label}
+                </button>
+              ))}
             </div>
-          )}
-
-          {tab === 'map' && hex && (
-            <div className="stack">
-              <h3>Hex size</h3>
-              <HexSizeInput value={hex} onChange={setHex} />
-              {underwater !== null && (
-                <>
-                  <h3>Water</h3>
-                  <label className="check">
-                    <input
-                      type="checkbox"
-                      checked={underwater}
-                      onChange={(e) => setUnderwater(e.target.checked)}
-                    />
-                    Allow underwater cities and polities
-                  </label>
-                  <p className="hint">
-                    Off by default: cities stand on land and polities partition only land, so
-                    anything on a Sea or Lake hex is removed when the geography changes. Turning
-                    this off removes any underwater cities and claims the map already has (each
-                    layer can undo it).
-                  </p>
-                </>
-              )}
-            </div>
-          )}
-
-          {tab === 'display' && (
-            <div className="stack">
-              <h3>Elevation</h3>
-              <div className="segmented" role="radiogroup" aria-label="Elevation representation">
-                {ELEVATION_STYLES.map((o) => (
-                  <button
-                    key={o.id}
-                    type="button"
-                    role="radio"
-                    aria-checked={prefs.elevationStyle === o.id}
-                    className={prefs.elevationStyle === o.id ? 'seg active' : 'seg'}
-                    onClick={() => setPrefs({ ...prefs, elevationStyle: o.id })}
-                  >
-                    {o.label}
-                  </button>
-                ))}
-              </div>
-              <p className="hint">
-                {ELEVATION_STYLES.find((o) => o.id === prefs.elevationStyle)?.hint}.
-              </p>
-              <h3>Labels</h3>
-              <label className="check">
-                <input
-                  type="checkbox"
-                  checked={prefs.labels}
-                  onChange={(e) => setPrefs({ ...prefs, labels: e.target.checked })}
-                />
-                Show city and polity names on the map
-              </label>
-              <h3>Polities</h3>
-              <label>Polity layer opacity ({Math.round(prefs.polityOpacity * 100)}%)</label>
+            <p className="hint">
+              {ELEVATION_STYLES.find((o) => o.id === prefs.elevationStyle)?.hint}.
+            </p>
+            <h3>Labels</h3>
+            <label className="check">
               <input
-                type="range"
-                aria-label="Polity layer opacity"
-                min={10}
-                max={100}
-                step={5}
-                value={Math.round(prefs.polityOpacity * 100)}
-                onChange={(e) =>
-                  setPrefs({ ...prefs, polityOpacity: clampPolityOpacity(Number(e.target.value) / 100) })
-                }
+                type="checkbox"
+                checked={prefs.labels}
+                onChange={(e) => setPrefs({ ...prefs, labels: e.target.checked })}
               />
-              <p className="hint">
-                Below 100% the terrain under each realm shows through its colour. Borders stay solid.
-              </p>
-              <h3>Base geography</h3>
-              <label className="check">
-                <input
-                  type="checkbox"
-                  checked={prefs.uniformLand}
-                  onChange={(e) => setPrefs({ ...prefs, uniformLand: e.target.checked })}
-                />
-                Draw all land the same colour (coastal and inland alike)
-              </label>
-              <label className="check">
-                <input
-                  type="checkbox"
-                  checked={prefs.riverNames}
-                  onChange={(e) => setPrefs({ ...prefs, riverNames: e.target.checked })}
-                />
-                Show river names (when the Rivers layer is visible)
-              </label>
-              <label className="check">
-                <input
-                  type="checkbox"
-                  checked={prefs.rangeNames}
-                  onChange={(e) => setPrefs({ ...prefs, rangeNames: e.target.checked })}
-                />
-                Show mountain range names (when the Elevation layer is visible)
-              </label>
-              <p className="hint">
-                Name a range by selecting its Mountains hexes with the Elevation layer active.
-              </p>
-              <label>Polity names</label>
-              <select
-                value={String(prefs.polityNames)}
-                disabled={!prefs.labels}
-                onChange={(e) =>
-                  setPrefs({
-                    ...prefs,
-                    polityNames: parsePolityNameMin(e.target.value === 'auto' ? 'auto' : Number(e.target.value)),
-                  })
-                }
-              >
-                {POLITY_NAME_MIN_OPTIONS.map((o) => (
-                  <option key={o} value={String(o)}>
-                    {o === 'auto'
-                      ? 'Automatic (name small polities only where the name fits)'
-                      : o === 0
-                        ? 'Name every polity'
-                        : `Only polities of ${o}+ hexes`}
-                  </option>
-                ))}
-              </select>
-              <p className="hint">
-                Smaller polities are keyed by colour in the legend. Automatic names a small polity
-                only when its name fits inside it without covering cities or other names.
-              </p>
-            </div>
-          )}
+              Show city and polity names on the map
+            </label>
+            <h3>Polities</h3>
+            <label>Polity layer opacity ({Math.round(prefs.polityOpacity * 100)}%)</label>
+            <input
+              type="range"
+              aria-label="Polity layer opacity"
+              min={10}
+              max={100}
+              step={5}
+              value={Math.round(prefs.polityOpacity * 100)}
+              onChange={(e) =>
+                setPrefs({ ...prefs, polityOpacity: clampPolityOpacity(Number(e.target.value) / 100) })
+              }
+            />
+            <p className="hint">
+              Below 100% the terrain under each realm shows through its colour. Borders stay solid.
+            </p>
+            <h3>Base geography</h3>
+            <label className="check">
+              <input
+                type="checkbox"
+                checked={prefs.uniformLand}
+                onChange={(e) => setPrefs({ ...prefs, uniformLand: e.target.checked })}
+              />
+              Draw all land the same colour (coastal and inland alike)
+            </label>
+            <label className="check">
+              <input
+                type="checkbox"
+                checked={prefs.riverNames}
+                onChange={(e) => setPrefs({ ...prefs, riverNames: e.target.checked })}
+              />
+              Show river names (when the Rivers layer is visible)
+            </label>
+            <label className="check">
+              <input
+                type="checkbox"
+                checked={prefs.rangeNames}
+                onChange={(e) => setPrefs({ ...prefs, rangeNames: e.target.checked })}
+              />
+              Show mountain range names (when the Elevation layer is visible)
+            </label>
+            <p className="hint">
+              Name a range by selecting its Mountains hexes with the Elevation layer active.
+            </p>
+            <label>Polity names</label>
+            <select
+              value={String(prefs.polityNames)}
+              disabled={!prefs.labels}
+              onChange={(e) =>
+                setPrefs({
+                  ...prefs,
+                  polityNames: parsePolityNameMin(e.target.value === 'auto' ? 'auto' : Number(e.target.value)),
+                })
+              }
+            >
+              {POLITY_NAME_MIN_OPTIONS.map((o) => (
+                <option key={o} value={String(o)}>
+                  {o === 'auto'
+                    ? 'Automatic (name small polities only where the name fits)'
+                    : o === 0
+                      ? 'Name every polity'
+                      : `Only polities of ${o}+ hexes`}
+                </option>
+              ))}
+            </select>
+            <p className="hint">
+              Smaller polities are keyed by colour in the legend. Automatic names a small polity
+              only when its name fits inside it without covering cities or other names.
+            </p>
+          </div>
+        )}
 
-          {tab === 'generation' && browserMode && (
-            <div className="stack">
-              <label className="check">
-                <input
-                  type="checkbox"
-                  checked={prefs.offline}
-                  onChange={(e) => setPrefs({ ...prefs, offline: e.target.checked })}
-                />
-                Use the offline procedural generator instead of the API (no key needed, much worse
-                maps)
-              </label>
+        {tab === 'generation' && browserMode && (
+          <div className="stack">
+            <label className="check">
+              <input
+                type="checkbox"
+                checked={prefs.offline}
+                onChange={(e) => setPrefs({ ...prefs, offline: e.target.checked })}
+              />
+              Use the offline procedural generator instead of the API (no key needed, much worse
+              maps)
+            </label>
 
-              <div className="row">
-                <div className="grow">
-                  <label>Model</label>
-                  <select
-                    value={prefs.model}
-                    onChange={(e) => {
-                      // Keep the effort to one the new model accepts.
-                      const next = modelInfo(e.target.value);
-                      setPrefs({ ...prefs, model: next.id, effort: effortFor(next, prefs.effort) ?? prefs.effort });
-                    }}
-                  >
-                    {MODELS.map((m) => (
-                      <option key={m.id} value={m.id}>
-                        {m.label}
+            <div className="row">
+              <div className="grow">
+                <label>Model</label>
+                <select
+                  value={prefs.model}
+                  onChange={(e) => {
+                    // Keep the effort to one the new model accepts.
+                    const next = modelInfo(e.target.value);
+                    setPrefs({ ...prefs, model: next.id, effort: effortFor(next, prefs.effort) ?? prefs.effort });
+                  }}
+                >
+                  {MODELS.map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.label}
+                    </option>
+                  ))}
+                  {!MODELS.some((m) => m.id === prefs.model) && (
+                    <option value={prefs.model}>{prefs.model}</option>
+                  )}
+                </select>
+              </div>
+              <div style={{ width: 120 }}>
+                <label>Effort</label>
+                <select
+                  value={model.efforts ? (effortFor(model, prefs.effort) ?? prefs.effort) : ''}
+                  disabled={!model.efforts}
+                  title={model.efforts ? undefined : 'This model takes no effort setting'}
+                  onChange={(e) => setPrefs({ ...prefs, effort: e.target.value as Effort })}
+                >
+                  {model.efforts ? (
+                    model.efforts.map((e) => (
+                      <option key={e} value={e}>
+                        {e}
                       </option>
-                    ))}
-                    {!MODELS.some((m) => m.id === prefs.model) && (
-                      <option value={prefs.model}>{prefs.model}</option>
-                    )}
-                  </select>
-                </div>
-                <div style={{ width: 120 }}>
-                  <label>Effort</label>
-                  <select
-                    value={model.efforts ? (effortFor(model, prefs.effort) ?? prefs.effort) : ''}
-                    disabled={!model.efforts}
-                    title={model.efforts ? undefined : 'This model takes no effort setting'}
-                    onChange={(e) => setPrefs({ ...prefs, effort: e.target.value as Effort })}
-                  >
-                    {model.efforts ? (
-                      model.efforts.map((e) => (
-                        <option key={e} value={e}>
-                          {e}
-                        </option>
-                      ))
-                    ) : (
-                      <option value="">n/a</option>
-                    )}
-                  </select>
-                </div>
+                    ))
+                  ) : (
+                    <option value="">n/a</option>
+                  )}
+                </select>
               </div>
-              <p className="hint" style={{ margin: 0 }}>{model.note}</p>
+            </div>
+            <p className="hint" style={{ margin: 0 }}>{model.note}</p>
+            <div className="row">
+              <div style={{ width: 160 }}>
+                <label>Token budget</label>
+                <input
+                  type="number"
+                  min={MIN_TASK_BUDGET}
+                  max={MAX_TASK_BUDGET}
+                  step={5000}
+                  value={prefs.taskBudget}
+                  onChange={(e) =>
+                    setPrefs({ ...prefs, taskBudget: clampTaskBudget(Number(e.target.value)) })
+                  }
+                />
+              </div>
+            </div>
+            <p className="hint">
+              Lower effort is cheaper and faster; coastlines, ranges and climate belts get less
+              coherent. A 50×50 layer at high effort is a few minutes of thinking.
+            </p>
+            <p className="hint">
+              The model reasons and writes out of one budget, and on a hard layer almost all of it
+              goes on reasoning — a big polity map can spend tens of thousands of tokens deciding
+              before it writes a single row.{' '}
+              {model.thinking === 'budget'
+                ? `${model.label} has no task budget: this number is used as its thinking budget instead, capped to leave room for the answer. Lower it to spend less.`
+                : model.taskBudget
+                  ? 'The budget is what it paces itself against: raise it if a layer keeps running out of room, lower it to spend less.'
+                  : `${model.label} does not accept a token budget, so this setting is not used with it; control its spend with effort.`}{' '}
+              Between {MIN_TASK_BUDGET.toLocaleString()} and {MAX_TASK_BUDGET.toLocaleString()}.
+            </p>
+          </div>
+        )}
+
+        {tab === 'key' && browserMode && (
+          <div className="stack">
+            <div className="notice info">
+              <b>This page has no server.</b> It calls the Anthropic API directly from your
+              browser using a key you provide below. The key is stored only in this browser, is
+              sent only to api.anthropic.com, and is not part of the site anyone else downloads.
+            </div>
+
+            <div>
+              <label>Anthropic API key</label>
               <div className="row">
-                <div style={{ width: 160 }}>
-                  <label>Token budget</label>
-                  <input
-                    type="number"
-                    min={MIN_TASK_BUDGET}
-                    max={MAX_TASK_BUDGET}
-                    step={5000}
-                    value={prefs.taskBudget}
-                    onChange={(e) =>
-                      setPrefs({ ...prefs, taskBudget: clampTaskBudget(Number(e.target.value)) })
-                    }
-                  />
-                </div>
+                <input
+                  type={reveal ? 'text' : 'password'}
+                  placeholder="sk-ant-..."
+                  autoComplete="off"
+                  spellCheck={false}
+                  value={key}
+                  onChange={(e) => setKey(e.target.value)}
+                />
+                <button className="tiny" onClick={() => setReveal(!reveal)}>
+                  {reveal ? 'hide' : 'show'}
+                </button>
               </div>
+              {suspect && (
+                <p className="hint" style={{ color: 'var(--warn)' }}>
+                  That does not look like an Anthropic key (they start with <code>sk-ant-</code>).
+                </p>
+              )}
               <p className="hint">
-                Lower effort is cheaper and faster; coastlines, ranges and climate belts get less
-                coherent. A 50×50 layer at high effort is a few minutes of thinking.
-              </p>
-              <p className="hint">
-                The model reasons and writes out of one budget, and on a hard layer almost all of it
-                goes on reasoning — a big polity map can spend tens of thousands of tokens deciding
-                before it writes a single row.{' '}
-                {model.thinking === 'budget'
-                  ? `${model.label} has no task budget: this number is used as its thinking budget instead, capped to leave room for the answer. Lower it to spend less.`
-                  : model.taskBudget
-                    ? 'The budget is what it paces itself against: raise it if a layer keeps running out of room, lower it to spend less.'
-                    : `${model.label} does not accept a token budget, so this setting is not used with it; control its spend with effort.`}{' '}
-                Between {MIN_TASK_BUDGET.toLocaleString()} and {MAX_TASK_BUDGET.toLocaleString()}.
+                Get one at console.anthropic.com. Use a key with a spend limit set - it is the
+                only thing standing between a typo in a 50×50 grid and a surprising bill.
               </p>
             </div>
-          )}
 
-          {tab === 'key' && browserMode && (
-            <div className="stack">
-              <div className="notice info">
-                <b>This page has no server.</b> It calls the Anthropic API directly from your
-                browser using a key you provide below. The key is stored only in this browser, is
-                sent only to api.anthropic.com, and is not part of the site anyone else downloads.
+            {insecureOrigin() && (
+              <div className="notice error">
+                This page is not on a secure origin. Do not enter a real key: it cannot be
+                protected in transit or at rest here.
               </div>
+            )}
 
-              <div>
-                <label>Anthropic API key</label>
-                <div className="row">
+            <label className="check">
+              <input
+                type="checkbox"
+                checked={prefs.remember}
+                onChange={(e) => setPrefs({ ...prefs, remember: e.target.checked })}
+              />
+              Remember the key in this browser (otherwise it is forgotten when the tab closes)
+            </label>
+
+            {prefs.remember && canEncrypt && (
+              <div className="stack" style={{ gap: 6 }}>
+                <label className="check">
                   <input
-                    type={reveal ? 'text' : 'password'}
-                    placeholder="sk-ant-..."
-                    autoComplete="off"
-                    spellCheck={false}
-                    value={key}
-                    onChange={(e) => setKey(e.target.value)}
+                    type="checkbox"
+                    checked={protect}
+                    onChange={(e) => setProtect(e.target.checked)}
                   />
-                  <button className="tiny" onClick={() => setReveal(!reveal)}>
-                    {reveal ? 'hide' : 'show'}
-                  </button>
-                </div>
-                {suspect && (
-                  <p className="hint" style={{ color: 'var(--warn)' }}>
-                    That does not look like an Anthropic key (they start with <code>sk-ant-</code>).
+                  Protect the stored key with a passphrase
+                </label>
+                {protect && !needsEncrypt && (
+                  <p className="hint" style={{ margin: 0 }}>
+                    The stored key is already encrypted. Change the key above to set a new
+                    passphrase.
                   </p>
                 )}
-                <p className="hint">
-                  Get one at console.anthropic.com. Use a key with a spend limit set - it is the
-                  only thing standing between a typo in a 50×50 grid and a surprising bill.
-                </p>
-              </div>
-
-              {insecureOrigin() && (
-                <div className="notice error">
-                  This page is not on a secure origin. Do not enter a real key: it cannot be
-                  protected in transit or at rest here.
-                </div>
-              )}
-
-              <label className="check">
-                <input
-                  type="checkbox"
-                  checked={prefs.remember}
-                  onChange={(e) => setPrefs({ ...prefs, remember: e.target.checked })}
-                />
-                Remember the key in this browser (otherwise it is forgotten when the tab closes)
-              </label>
-
-              {prefs.remember && canEncrypt && (
-                <div className="stack" style={{ gap: 6 }}>
-                  <label className="check">
-                    <input
-                      type="checkbox"
-                      checked={protect}
-                      onChange={(e) => setProtect(e.target.checked)}
-                    />
-                    Protect the stored key with a passphrase
-                  </label>
-                  {protect && !needsEncrypt && (
-                    <p className="hint" style={{ margin: 0 }}>
-                      The stored key is already encrypted. Change the key above to set a new
-                      passphrase.
-                    </p>
-                  )}
-                  {protect && needsEncrypt && (
-                    <>
-                      <div className="row">
-                        <input
-                          type="password"
-                          placeholder="Passphrase"
-                          autoComplete="new-password"
-                          value={passphrase}
-                          onChange={(e) => setPassphrase(e.target.value)}
-                        />
-                        <input
-                          type="password"
-                          placeholder="Confirm"
-                          autoComplete="new-password"
-                          value={confirm}
-                          onChange={(e) => setConfirm(e.target.value)}
-                        />
-                      </div>
-                      {passTooShort && (
-                        <p className="hint" style={{ color: 'var(--warn)' }}>
-                          Use at least 8 characters.
-                        </p>
-                      )}
-                      {passMismatch && (
-                        <p className="hint" style={{ color: 'var(--warn)' }}>
-                          The two passphrases differ.
-                        </p>
-                      )}
-                      <p className="hint" style={{ margin: 0 }}>
-                        The key is stored as AES-GCM ciphertext and unlocked once per session. The
-                        passphrase itself is never stored, so it cannot be recovered - if you
-                        forget it, delete the key and paste a new one. This protects the key
-                        against someone reading this browser's storage; it cannot protect it from
-                        script running on this page while it is unlocked.
+                {protect && needsEncrypt && (
+                  <>
+                    <div className="row">
+                      <input
+                        type="password"
+                        placeholder="Passphrase"
+                        autoComplete="new-password"
+                        value={passphrase}
+                        onChange={(e) => setPassphrase(e.target.value)}
+                      />
+                      <input
+                        type="password"
+                        placeholder="Confirm"
+                        autoComplete="new-password"
+                        value={confirm}
+                        onChange={(e) => setConfirm(e.target.value)}
+                      />
+                    </div>
+                    {passTooShort && (
+                      <p className="hint" style={{ color: 'var(--warn)' }}>
+                        Use at least 8 characters.
                       </p>
-                    </>
-                  )}
-                </div>
-              )}
+                    )}
+                    {passMismatch && (
+                      <p className="hint" style={{ color: 'var(--warn)' }}>
+                        The two passphrases differ.
+                      </p>
+                    )}
+                    <p className="hint" style={{ margin: 0 }}>
+                      The key is stored as AES-GCM ciphertext and unlocked once per session. The
+                      passphrase itself is never stored, so it cannot be recovered - if you
+                      forget it, delete the key and paste a new one. This protects the key
+                      against someone reading this browser's storage; it cannot protect it from
+                      script running on this page while it is unlocked.
+                    </p>
+                  </>
+                )}
+              </div>
+            )}
 
-              {(key.trim().length > 0 || props.locked) && (
-                <div>
-                  <button
-                    className="danger"
-                    onClick={() => {
-                      setKey('');
-                      props.onForget();
-                    }}
-                  >
-                    forget key
-                  </button>
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-
-        <footer className="modal-foot row">
-          <span className="grow" />
-          <button onClick={props.onClose}>cancel</button>
-          <button className="primary" disabled={blocked} onClick={save}>
-            save
-          </button>
-        </footer>
+            {(key.trim().length > 0 || props.locked) && (
+              <div>
+                <button
+                  className="danger"
+                  onClick={() => {
+                    setKey('');
+                    props.onForget();
+                  }}
+                >
+                  forget key
+                </button>
+              </div>
+            )}
+          </div>
+        )}
       </div>
-    </div>
+
+      <footer className="modal-foot row">
+        <span className="grow" />
+        <button onClick={props.onClose}>cancel</button>
+        <button className="primary" disabled={blocked} onClick={save}>
+          save
+        </button>
+      </footer>
+    </Modal>
   );
 }

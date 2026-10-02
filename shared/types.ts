@@ -245,6 +245,14 @@ export interface Decision {
   hexes?: string[];
 }
 
+/** Token counts reported for one generation; `thinking` is the part of `output` spent reasoning. */
+export interface TokenUsage {
+  input: number;
+  output: number;
+  cacheRead: number;
+  thinking: number;
+}
+
 export type JournalKind = 'generate' | 'instruct' | 'manual' | 'import' | 'undo' | 'redo';
 
 /**
@@ -271,6 +279,10 @@ export interface JournalEntry {
    */
   model: string | null;
   warnings: number;
+  /** Tokens the generation used, when the API reported them. Absent on older entries. */
+  usage?: TokenUsage | null;
+  /** How long the generation took, in milliseconds. */
+  elapsedMs?: number;
 }
 
 export interface MapState {

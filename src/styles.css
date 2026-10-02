@@ -109,7 +109,7 @@ label { display: block; font-size: 11px; text-transform: uppercase; letter-spaci
 .card {
   background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px;
 }
-.section > h2 {
+.section > h2, .inspector .stack > h2 {
   font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em;
   color: var(--ink-faint); margin: 0 0 8px; font-weight: 600;
 }
@@ -267,7 +267,7 @@ label.check input { width: auto; margin-top: 2px; }
   .mapwrap { order: -1; flex: none; height: 62vh; min-height: 320px; }
   .sidebar, .inspector { width: auto; flex: none; border: none; overflow: visible; }
   .sidebar { border-top: 1px solid var(--line); }
-  .topbar { flex-wrap: nowrap; overflow-x: auto; gap: 8px; }
+  .topbar { gap: 6px; }
   .topbar .meta { display: none; }
   .maphud { display: none; }
 }
@@ -329,3 +329,37 @@ button.eye:hover:not(:disabled) { border-color: var(--line); }
   position: absolute !important; width: 1px; height: 1px; padding: 0; margin: -1px;
   overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
 }
+.modal.narrow { width: min(420px, 100%); }
+
+/* Errors and outcomes, pinned to the top of the map. */
+.map-messages {
+  position: absolute; top: 10px; left: 50%; transform: translateX(-50%);
+  width: min(640px, calc(100% - 20px)); display: flex; flex-direction: column; gap: 6px; z-index: 3;
+}
+.map-messages .notice {
+  display: flex; align-items: flex-start; gap: 10px; box-shadow: var(--shadow);
+  background-color: rgba(20,26,33,0.97);
+}
+.map-messages .notice > span { flex: 1; }
+.map-messages .notice.error { background-color: rgba(43,22,20,0.97); }
+
+/* ---- top bar: editable name and File menu ---- */
+.topbar h1 { min-width: 0; }
+.topbar input.map-name {
+  font: inherit; font-weight: 600; background: transparent; border: 1px solid transparent;
+  padding: 2px 6px; width: auto; min-width: 8ch; field-sizing: content; max-width: 32ch;
+}
+.topbar input.map-name:hover { border-color: var(--line); }
+.topbar input.map-name:focus { background: #0e141a; border-color: var(--accent-2); }
+.menu-wrap { position: relative; }
+.menu {
+  position: absolute; right: 0; top: calc(100% + 4px); z-index: 20; min-width: 250px;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 4px;
+  box-shadow: var(--shadow); display: flex; flex-direction: column;
+}
+.menu [role='menuitem'] {
+  text-align: left; background: transparent; border: 1px solid transparent; padding: 6px 10px; border-radius: 5px;
+}
+.menu [role='menuitem']:hover, .menu [role='menuitem']:focus-visible { background: var(--panel-2); border-color: var(--line); outline: none; }
+.menu hr { border: none; border-top: 1px solid var(--line); margin: 4px 0; width: 100%; }
+.modal .section:last-child { margin-bottom: 0; }

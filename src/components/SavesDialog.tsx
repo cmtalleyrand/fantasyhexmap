@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import Modal from './Modal.js';
 import type { MapState } from '../../shared/types.js';
 import { deleteSave, listSaves, loadSave, putSave, type SavedMapSummary } from '../state/persistence.js';
 import { prepareLoadedMap } from '../state/import.js';
@@ -30,75 +31,73 @@ export default function SavesDialog({
   };
 
   return (
-    <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal" onClick={(e) => e.stopPropagation()}>
-        <h2>Saved maps</h2>
-        <p className="hint" style={{ marginTop: 0 }}>
-          Saves live in this browser only (IndexedDB) and include undo history. Clearing site data
-          removes them — use export JSON for a copy you can keep elsewhere.
-        </p>
-        <div className="row">
-          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Save name" />
-          <button className="primary" onClick={() => run(() => putSave(map, name).then(() => undefined))}>
-            save current
-          </button>
-        </div>
-        {error && <div className="notice error" style={{ marginTop: 8 }}>{error}</div>}
-        <div className="stack" style={{ marginTop: 12 }}>
-          {saves === null ? (
-            <span className="hint">Loading…</span>
-          ) : saves.length === 0 ? (
-            <span className="hint">No saves yet.</span>
-          ) : (
-            saves.map((save) => (
-              <div className="row" key={save.id} style={{ alignItems: 'center' }}>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div>{save.name}</div>
-                  <div className="hint">
-                    {save.cols}×{save.rows} · {new Date(save.savedAt).toLocaleString()}
-                  </div>
-                </div>
-                <button
-                  className="tiny"
-                  title="Overwrite this save with the current map"
-                  onClick={() => {
-                    if (window.confirm(`Overwrite “${save.name}” with the current map?`)) {
-                      run(() => putSave(map, save.name, save.id).then(() => undefined));
-                    }
-                  }}
-                >
-                  overwrite
-                </button>
-                <button
-                  className="tiny"
-                  onClick={() => {
-                    if (!window.confirm(`Load “${save.name}”? The current map is replaced (it stays in the autosave until you edit).`)) return;
-                    run(async () => {
-                      const loaded = await loadSave(save.id);
-                      if (!loaded) throw new Error('That save no longer exists.');
-                      onLoad(prepareLoadedMap(loaded));
-                      onClose();
-                    });
-                  }}
-                >
-                  load
-                </button>
-                <button
-                  className="tiny danger"
-                  onClick={() => {
-                    if (window.confirm(`Delete “${save.name}”?`)) run(() => deleteSave(save.id));
-                  }}
-                >
-                  delete
-                </button>
-              </div>
-            ))
-          )}
-        </div>
-        <div className="row" style={{ marginTop: 14, justifyContent: 'flex-end' }}>
-          <button onClick={onClose}>close</button>
-        </div>
+    <Modal label="Saved maps" onClose={onClose}>
+      <h2>Saved maps</h2>
+      <p className="hint" style={{ marginTop: 0 }}>
+        Saves live in this browser only (IndexedDB) and include undo history. Clearing site data
+        removes them — use export JSON for a copy you can keep elsewhere.
+      </p>
+      <div className="row">
+        <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Save name" />
+        <button className="primary" onClick={() => run(() => putSave(map, name).then(() => undefined))}>
+          save current
+        </button>
       </div>
-    </div>
+      {error && <div className="notice error" style={{ marginTop: 8 }}>{error}</div>}
+      <div className="stack" style={{ marginTop: 12 }}>
+        {saves === null ? (
+          <span className="hint">Loading…</span>
+        ) : saves.length === 0 ? (
+          <span className="hint">No saves yet.</span>
+        ) : (
+          saves.map((save) => (
+            <div className="row" key={save.id} style={{ alignItems: 'center' }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div>{save.name}</div>
+                <div className="hint">
+                  {save.cols}×{save.rows} · {new Date(save.savedAt).toLocaleString()}
+                </div>
+              </div>
+              <button
+                className="tiny"
+                title="Overwrite this save with the current map"
+                onClick={() => {
+                  if (window.confirm(`Overwrite “${save.name}” with the current map?`)) {
+                    run(() => putSave(map, save.name, save.id).then(() => undefined));
+                  }
+                }}
+              >
+                overwrite
+              </button>
+              <button
+                className="tiny"
+                onClick={() => {
+                  if (!window.confirm(`Load “${save.name}”? The current map is replaced (it stays in the autosave until you edit).`)) return;
+                  run(async () => {
+                    const loaded = await loadSave(save.id);
+                    if (!loaded) throw new Error('That save no longer exists.');
+                    onLoad(prepareLoadedMap(loaded));
+                    onClose();
+                  });
+                }}
+              >
+                load
+              </button>
+              <button
+                className="tiny danger"
+                onClick={() => {
+                  if (window.confirm(`Delete “${save.name}”?`)) run(() => deleteSave(save.id));
+                }}
+              >
+                delete
+              </button>
+            </div>
+          ))
+        )}
+      </div>
+      <div className="row" style={{ marginTop: 14, justifyContent: 'flex-end' }}>
+        <button onClick={onClose}>close</button>
+      </div>
+    </Modal>
   );
 }

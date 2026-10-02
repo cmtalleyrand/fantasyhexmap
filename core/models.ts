@@ -18,6 +18,7 @@ import {
   TASK_BUDGET_BETA,
   type Effort,
 } from './config.js';
+import type { TokenUsage } from '../shared/types.js';
 
 export interface ModelInfo {
   id: string;
@@ -37,6 +38,8 @@ export interface ModelInfo {
   thinking: 'adaptive' | 'budget' | 'default';
   /** Largest `max_tokens` it accepts. */
   maxOutput: number;
+  /** US dollars per million input and output tokens, for estimating what a generation cost. */
+  price: { input: number; output: number } | null;
 }
 
 const ALL_EFFORTS = EFFORT_LEVELS;
@@ -50,6 +53,7 @@ export const MODELS: ModelInfo[] = [
     taskBudget: true,
     thinking: 'adaptive',
     maxOutput: 128000,
+    price: { input: 10, output: 50 },
   },
   {
     id: 'claude-opus-5-5',
@@ -59,6 +63,7 @@ export const MODELS: ModelInfo[] = [
     taskBudget: true,
     thinking: 'adaptive',
     maxOutput: 128000,
+    price: { input: 4, output: 20 },
   },
   {
     id: 'claude-opus-5',
@@ -68,6 +73,7 @@ export const MODELS: ModelInfo[] = [
     taskBudget: true,
     thinking: 'adaptive',
     maxOutput: 128000,
+    price: { input: 5, output: 25 },
   },
   {
     id: 'claude-opus-4-8',
@@ -77,6 +83,7 @@ export const MODELS: ModelInfo[] = [
     taskBudget: true,
     thinking: 'adaptive',
     maxOutput: 128000,
+    price: { input: 5, output: 25 },
   },
   {
     id: 'claude-sonnet-5-5',
@@ -86,6 +93,7 @@ export const MODELS: ModelInfo[] = [
     taskBudget: true,
     thinking: 'adaptive',
     maxOutput: 128000,
+    price: { input: 2, output: 10 },
   },
   {
     id: 'claude-sonnet-5',
@@ -95,6 +103,7 @@ export const MODELS: ModelInfo[] = [
     taskBudget: false,
     thinking: 'adaptive',
     maxOutput: 128000,
+    price: { input: 2, output: 10 },
   },
   {
     id: 'claude-sonnet-4-6',
@@ -104,6 +113,7 @@ export const MODELS: ModelInfo[] = [
     taskBudget: false,
     thinking: 'adaptive',
     maxOutput: 128000,
+    price: { input: 3, output: 15 },
   },
   {
     id: 'claude-haiku-4-5',
@@ -113,6 +123,7 @@ export const MODELS: ModelInfo[] = [
     taskBudget: false,
     thinking: 'budget',
     maxOutput: 64000,
+    price: { input: 1, output: 5 },
   },
 ];
 
@@ -131,6 +142,7 @@ function unknownModel(id: string): ModelInfo {
     taskBudget: true,
     thinking: 'default',
     maxOutput: MAX_TOKENS,
+    price: null,
   };
 }
 
@@ -205,4 +217,19 @@ export function requestShape(
     shape.thinking = { type: 'enabled', budget_tokens: thinkingBudgetFor(model, taskBudget) };
   }
   return shape;
+}
+
+
+/**
+ * Roughly what a generation cost, in US dollars, from the token counts and the
+ * model's list price; null for a model whose price is not known. Cache reads
+ * are billed at a tenth of the input price. Cache writes are a little dearer
+ * than plain input but are not reported separately, so this slightly
+ * understates the cost of a first call.
+ */
+export function estimateCost(modelId: string | null, usage: TokenUsage | null): number | null {
+  if (!modelId || !usage) return null;
+  const price = modelInfo(modelId).price;
+  if (!price) return null;
+  return (usage.input * price.input + usage.cacheRead * price.input * 0.1 + usage.output * price.output) / 1e6;
 }

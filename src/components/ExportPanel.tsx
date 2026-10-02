@@ -28,9 +28,15 @@ function Check({
   );
 }
 
+/**
+ * Image export. It opens from the File menu, and its label options start from
+ * the current display settings each time it opens, so what is exported matches
+ * what is on screen unless changed here.
+ */
 export default function ExportPanel({
   map,
   visible,
+  labels: initialLabels,
   elevationStyle,
   polityOpacity,
   uniformLand,
@@ -40,6 +46,7 @@ export default function ExportPanel({
 }: {
   map: MapState;
   visible: VisibleLayers;
+  labels: boolean;
   elevationStyle: 'colour' | 'contours';
   polityOpacity: number;
   uniformLand: boolean;
@@ -48,7 +55,7 @@ export default function ExportPanel({
   polityNames: PolityNameMin;
 }) {
   const [format, setFormat] = useState<'png' | 'svg'>('png');
-  const [labels, setLabels] = useState(true);
+  const [labels, setLabels] = useState(initialLabels);
   const [riverNames, setRiverNames] = useState(initialRiverNames);
   const [rangeNames, setRangeNames] = useState(initialRangeNames);
   const [scale, setScale] = useState('2');

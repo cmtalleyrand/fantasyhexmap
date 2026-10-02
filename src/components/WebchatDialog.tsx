@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import Modal from './Modal.js';
 import { LAYER_META } from '../../shared/layers.js';
 import { LAYER_ORDER, type LayerId, type MapState } from '../../shared/types.js';
 import { contextFromMap, existingFeatures } from '../../core/context.js';
@@ -172,172 +173,170 @@ export default function WebchatDialog({
   };
 
   return (
-    <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal wide stack" onClick={(e) => e.stopPropagation()}>
-        <h2>
-          {scope === 'several'
-            ? `${orderLayers(selected).length} layers`
-            : webchatPromptTitle(layer, effectivePass)}{' '}
-          — by webchat
-        </h2>
-        <p className="hint">
-          Copy the prompt into any chat window, then paste the JSON it replies with back here. It
-          goes through the same checks and the same undo stack as a generation made from inside the
-          app, and is recorded as imported so the decision log does not credit this app&rsquo;s model
-          for it.
-        </p>
+    <Modal label="Generate by webchat" className="wide stack" onClose={onClose}>
+      <h2>
+        {scope === 'several'
+          ? `${orderLayers(selected).length} layers`
+          : webchatPromptTitle(layer, effectivePass)}{' '}
+        — by webchat
+      </h2>
+      <p className="hint">
+        Copy the prompt into any chat window, then paste the JSON it replies with back here. It
+        goes through the same checks and the same undo stack as a generation made from inside the
+        app, and is recorded as imported so the decision log does not credit this app&rsquo;s model
+        for it.
+      </p>
 
-        <div className="row" style={{ gap: 12, alignItems: 'flex-start' }}>
-          <div className="stack" style={{ gap: 4, flex: 1 }}>
-            <label>Layers</label>
-            <select value={scope} onChange={(e) => setScope(e.target.value as Scope)}>
-              <option value="one">{LAYER_META[layer].label} only</option>
-              <option value="several">Several layers in one reply</option>
-            </select>
-          </div>
-          <div className="stack" style={{ gap: 4, flex: 1 }}>
-            <label>Reply style</label>
-            <select value={style} onChange={(e) => setStyle(e.target.value as WebchatStyle)}>
-              <option value="full">Everything in the JSON</option>
-              <option value="compact">JSON for the data, decisions in the chat</option>
-            </select>
-          </div>
+      <div className="row" style={{ gap: 12, alignItems: 'flex-start' }}>
+        <div className="stack" style={{ gap: 4, flex: 1 }}>
+          <label>Layers</label>
+          <select value={scope} onChange={(e) => setScope(e.target.value as Scope)}>
+            <option value="one">{LAYER_META[layer].label} only</option>
+            <option value="several">Several layers in one reply</option>
+          </select>
         </div>
-        <p className="hint" style={{ margin: 0 }}>
-          {style === 'compact'
-            ? 'A shorter prompt: the model replies with the layer data as JSON and explains its plan and decisions in ordinary chat around it. That explanation is kept as the layer notes when you import the whole reply.'
-            : 'The model replies with one JSON object that also carries its notes and decisions, which go into the decision log.'}
-        </p>
-
-        {scope === 'several' && (
-          <div className="stack" style={{ gap: 4 }}>
-            <label>Generate together</label>
-            <div className="row" style={{ flexWrap: 'wrap', gap: 12 }}>
-              {choosable.map((id) => (
-                <label
-                  key={id}
-                  className="row"
-                  style={{ gap: 6, margin: 0, cursor: 'pointer', textTransform: 'none', letterSpacing: 0, fontSize: 13 }}
-                >
-                  <input
-                    type="checkbox"
-                    style={{ width: 'auto' }}
-                    checked={selected.includes(id)}
-                    onChange={() => toggle(id)}
-                  />
-                  {LAYER_META[id].label}
-                </label>
-              ))}
-            </div>
-            <p className="hint" style={{ margin: 0 }}>
-              One prompt, one reply. The layers are written in pipeline order, each built on the ones
-              before it in the same reply, and imported together - or not at all if any of them is
-              malformed. Each runs as a single pass.{' '}
-              {instruction
-                ? 'Your edit instruction is applied to every selected layer, each of which must already have data; they are rewritten from the state shown in the prompt.'
-                : 'Selected layers that already exist are replaced.'}
-            </p>
-          </div>
-        )}
-
-        {splittable && (
-          <div className="stack" style={{ gap: 4 }}>
-            <label>Which pass</label>
-            <select value={pass} onChange={(e) => setPass(e.target.value as PassId)}>
-              <option value="roster">{passLabel(layer, 'roster')} — who and what exists</option>
-              <option value="paint">{passLabel(layer, 'paint')} — against a fixed roster</option>
-              <option value="full">{passLabel(layer, 'full')} — both at once</option>
-            </select>
-            <p className="hint" style={{ margin: 0 }}>
-              Two smaller passes beat one large one on a big grid: deciding the cast and placing it
-              constrain each other, and separating them is most of why this layer is expensive.
-            </p>
-          </div>
-        )}
-
-        {splittable && pass === 'paint' && (
-          <div className="stack" style={{ gap: 4 }}>
-            <label>Roster to draw against</label>
-            <select
-              value={rosterSource}
-              onChange={(e) => {
-                const next = e.target.value as RosterSource;
-                setRosterSource(next);
-                if (next === 'typed' && !rosterText && existingRoster) {
-                  setRosterText(rosterToLines(existingRoster));
-                }
-              }}
-            >
-              <option value="existing">The one this map already has</option>
-              <option value="typed">One I supply</option>
-            </select>
-            {rosterSource === 'typed' && (
-              <textarea
-                rows={5}
-                value={rosterText}
-                spellCheck={false}
-                placeholder={
-                  layer === 'polities'
-                    ? 'One per line:\nThe Ardhic League | #b5533c\nBrennmark | #3f7a8c'
-                    : 'One per line:\nKelder | rises on the Spine, runs south into the bay'
-                }
-                onChange={(e) => setRosterText(e.target.value)}
-              />
-            )}
-          </div>
-        )}
-
-        {problem ? (
-          <div className="notice warn">{problem}</div>
-        ) : (
-          <div className="stack" style={{ gap: 4 }}>
-            <div className="row">
-              <label style={{ flex: 1 }}>The prompt</label>
-              <button className="tiny" onClick={copy} disabled={!prompt}>
-                {copied ? 'copied' : 'copy'}
-              </button>
-            </div>
-            <textarea readOnly rows={8} value={prompt ?? ''} spellCheck={false} />
-          </div>
-        )}
-
-        <div className="stack" style={{ gap: 4 }}>
-          <label>The reply</label>
-          <textarea
-            rows={8}
-            value={reply}
-            spellCheck={false}
-            placeholder="Paste the whole reply here. Surrounding prose and code fences are fine."
-            onChange={(e) => setReply(e.target.value)}
-          />
-        </div>
-
-        <div className="stack" style={{ gap: 4 }}>
-          <label>What produced it (optional)</label>
-          <input
-            type="text"
-            value={source}
-            placeholder="e.g. Claude, via claude.ai"
-            onChange={(e) => setSource(e.target.value)}
-          />
-          <p className="hint" style={{ margin: 0 }}>
-            Recorded in the decision log so the record stays honest.
-          </p>
-        </div>
-
-        {error && (
-          <div className="notice error" style={{ whiteSpace: 'pre-wrap' }}>
-            {error}
-          </div>
-        )}
-
-        <div className="row" style={{ justifyContent: 'flex-end' }}>
-          <button onClick={onClose}>Cancel</button>
-          <button className="primary" onClick={apply} disabled={!reply.trim() || Boolean(problem)}>
-            Import
-          </button>
+        <div className="stack" style={{ gap: 4, flex: 1 }}>
+          <label>Reply style</label>
+          <select value={style} onChange={(e) => setStyle(e.target.value as WebchatStyle)}>
+            <option value="full">Everything in the JSON</option>
+            <option value="compact">JSON for the data, decisions in the chat</option>
+          </select>
         </div>
       </div>
-    </div>
+      <p className="hint" style={{ margin: 0 }}>
+        {style === 'compact'
+          ? 'A shorter prompt: the model replies with the layer data as JSON and explains its plan and decisions in ordinary chat around it. That explanation is kept as the layer notes when you import the whole reply.'
+          : 'The model replies with one JSON object that also carries its notes and decisions, which go into the decision log.'}
+      </p>
+
+      {scope === 'several' && (
+        <div className="stack" style={{ gap: 4 }}>
+          <label>Generate together</label>
+          <div className="row" style={{ flexWrap: 'wrap', gap: 12 }}>
+            {choosable.map((id) => (
+              <label
+                key={id}
+                className="row"
+                style={{ gap: 6, margin: 0, cursor: 'pointer', textTransform: 'none', letterSpacing: 0, fontSize: 13 }}
+              >
+                <input
+                  type="checkbox"
+                  style={{ width: 'auto' }}
+                  checked={selected.includes(id)}
+                  onChange={() => toggle(id)}
+                />
+                {LAYER_META[id].label}
+              </label>
+            ))}
+          </div>
+          <p className="hint" style={{ margin: 0 }}>
+            One prompt, one reply. The layers are written in pipeline order, each built on the ones
+            before it in the same reply, and imported together - or not at all if any of them is
+            malformed. Each runs as a single pass.{' '}
+            {instruction
+              ? 'Your edit instruction is applied to every selected layer, each of which must already have data; they are rewritten from the state shown in the prompt.'
+              : 'Selected layers that already exist are replaced.'}
+          </p>
+        </div>
+      )}
+
+      {splittable && (
+        <div className="stack" style={{ gap: 4 }}>
+          <label>Which pass</label>
+          <select value={pass} onChange={(e) => setPass(e.target.value as PassId)}>
+            <option value="roster">{passLabel(layer, 'roster')} — who and what exists</option>
+            <option value="paint">{passLabel(layer, 'paint')} — against a fixed roster</option>
+            <option value="full">{passLabel(layer, 'full')} — both at once</option>
+          </select>
+          <p className="hint" style={{ margin: 0 }}>
+            Two smaller passes beat one large one on a big grid: deciding the cast and placing it
+            constrain each other, and separating them is most of why this layer is expensive.
+          </p>
+        </div>
+      )}
+
+      {splittable && pass === 'paint' && (
+        <div className="stack" style={{ gap: 4 }}>
+          <label>Roster to draw against</label>
+          <select
+            value={rosterSource}
+            onChange={(e) => {
+              const next = e.target.value as RosterSource;
+              setRosterSource(next);
+              if (next === 'typed' && !rosterText && existingRoster) {
+                setRosterText(rosterToLines(existingRoster));
+              }
+            }}
+          >
+            <option value="existing">The one this map already has</option>
+            <option value="typed">One I supply</option>
+          </select>
+          {rosterSource === 'typed' && (
+            <textarea
+              rows={5}
+              value={rosterText}
+              spellCheck={false}
+              placeholder={
+                layer === 'polities'
+                  ? 'One per line:\nThe Ardhic League | #b5533c\nBrennmark | #3f7a8c'
+                  : 'One per line:\nKelder | rises on the Spine, runs south into the bay'
+              }
+              onChange={(e) => setRosterText(e.target.value)}
+            />
+          )}
+        </div>
+      )}
+
+      {problem ? (
+        <div className="notice warn">{problem}</div>
+      ) : (
+        <div className="stack" style={{ gap: 4 }}>
+          <div className="row">
+            <label style={{ flex: 1 }}>The prompt</label>
+            <button className="tiny" onClick={copy} disabled={!prompt}>
+              {copied ? 'copied' : 'copy'}
+            </button>
+          </div>
+          <textarea readOnly rows={8} value={prompt ?? ''} spellCheck={false} />
+        </div>
+      )}
+
+      <div className="stack" style={{ gap: 4 }}>
+        <label>The reply</label>
+        <textarea
+          rows={8}
+          value={reply}
+          spellCheck={false}
+          placeholder="Paste the whole reply here. Surrounding prose and code fences are fine."
+          onChange={(e) => setReply(e.target.value)}
+        />
+      </div>
+
+      <div className="stack" style={{ gap: 4 }}>
+        <label>What produced it (optional)</label>
+        <input
+          type="text"
+          value={source}
+          placeholder="e.g. Claude, via claude.ai"
+          onChange={(e) => setSource(e.target.value)}
+        />
+        <p className="hint" style={{ margin: 0 }}>
+          Recorded in the decision log so the record stays honest.
+        </p>
+      </div>
+
+      {error && (
+        <div className="notice error" style={{ whiteSpace: 'pre-wrap' }}>
+          {error}
+        </div>
+      )}
+
+      <div className="row" style={{ justifyContent: 'flex-end' }}>
+        <button onClick={onClose}>Cancel</button>
+        <button className="primary" onClick={apply} disabled={!reply.trim() || Boolean(problem)}>
+          Import
+        </button>
+      </div>
+    </Modal>
   );
 }
