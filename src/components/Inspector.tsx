@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { hexIndex, indexToOffset } from '../../shared/hex.js';
 import { canHoldSettlement } from '../../shared/derive.js';
 import { buildRiverFromPath } from '../../shared/validate.js';
@@ -388,6 +388,110 @@ function PerHexEditor(props: SubProps) {
           Current values: {[...distinct].slice(0, 6).join(', ')}
         </div>
       )}
+      {activeLayer === 'elevation' && <MountainRangePanel {...props} />}
+    </div>
+  );
+}
+
+/** Edits a range name locally and commits once on blur or Enter, so a rename is one journal entry. */
+function RangeNameInput({ name, onCommit }: { name: string; onCommit: (name: string) => void }) {
+  const [draft, setDraft] = useState(name);
+  useEffect(() => setDraft(name), [name]);
+  const commit = () => {
+    if (draft.trim() && draft.trim() !== name) onCommit(draft);
+    else setDraft(name);
+  };
+  return (
+    <input
+      className="grow"
+      value={draft}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
+    />
+  );
+}
+
+/** Name groups of Mountains hexes so they can be labelled as ranges. */
+function MountainRangePanel(props: SubProps) {
+  const { map, dispatch, selected } = props;
+  const [name, setName] = useState('');
+  const [target, setTarget] = useState('');
+  const ranges = map.mountainRanges ?? [];
+  const elevation = map.layers.elevation.data;
+  const mountains = selected.filter((i) => elevation?.[i] === 'Mountains');
+  const liveCount = (hexes: number[]) => hexes.filter((i) => elevation?.[i] === 'Mountains').length;
+  const existing = ranges.find((r) => r.id === target) ?? null;
+
+  const assign = () => {
+    const trimmed = (existing ? existing.name : name).trim();
+    if (!trimmed || mountains.length === 0) return;
+    dispatch({
+      type: 'nameMountainRange',
+      id: existing?.id ?? `range_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`,
+      name: trimmed,
+      indices: mountains,
+    });
+    setName('');
+    setTarget('');
+  };
+
+  return (
+    <div className="stack" style={{ marginTop: 8 }}>
+      <h2>Mountain ranges</h2>
+      <p className="hint" style={{ marginTop: 0 }}>
+        Select Mountains hexes on the map, then name them as a range. Turn on{' '}
+        <b>Show mountain range names</b> in Settings → Display to see the names.
+      </p>
+      <div className="row">
+        <select value={target} onChange={(e) => setTarget(e.target.value)} style={{ flex: 1 }}>
+          <option value="">New range…</option>
+          {ranges.map((r) => (
+            <option key={r.id} value={r.id}>
+              Add to {r.name}
+            </option>
+          ))}
+        </select>
+      </div>
+      {!existing && (
+        <input
+          placeholder="Range name, e.g. The Kelder Spine"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && assign()}
+        />
+      )}
+      <button
+        className="primary"
+        disabled={mountains.length === 0 || (!existing && name.trim().length === 0)}
+        onClick={assign}
+      >
+        {existing ? `Add ${mountains.length} hexes to ${existing.name}` : `Name ${mountains.length} selected Mountains hexes`}
+      </button>
+      {selected.length > 0 && mountains.length < selected.length && (
+        <p className="hint" style={{ margin: 0 }}>
+          {selected.length - mountains.length} selected hex(es) are not Mountains and are ignored.
+        </p>
+      )}
+      <div className="list">
+        {ranges.map((r) => (
+          <div key={r.id} className="entry" style={{ flexWrap: 'wrap' }}>
+            <RangeNameInput name={r.name} onCommit={(name) => dispatch({ type: 'renameMountainRange', id: r.id, name })} />
+            <span className="hint">{liveCount(r.hexes)} hexes</span>
+            <button
+              className="tiny"
+              title="Select this range's hexes"
+              onClick={() => props.setSelection(new Set(r.hexes.filter((i) => elevation?.[i] === 'Mountains')))}
+            >
+              select
+            </button>
+            <button className="tiny danger" onClick={() => dispatch({ type: 'removeMountainRange', id: r.id })}>
+              ×
+            </button>
+          </div>
+        ))}
+      </div>
+      {ranges.length === 0 && <p className="hint">No named ranges yet.</p>}
     </div>
   );
 }

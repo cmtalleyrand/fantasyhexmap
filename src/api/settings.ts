@@ -19,6 +19,11 @@ import {
   type Effort,
 } from '../../core/config.js';
 
+import {
+  DEFAULT_POLITY_NAME_MIN,
+  parsePolityNameMin,
+  type PolityNameMin,
+} from '../render/labels.js';
 import type { EncryptedKey } from './keyvault.js';
 
 const KEY_NAME = 'fantasyhexmap.apiKey';
@@ -45,6 +50,12 @@ export interface Prefs {
   polityOpacity: number;
   /** Draw coastal and inland land in the same base colour. */
   uniformLand: boolean;
+  /** Draw river names (with the Rivers layer visible). */
+  riverNames: boolean;
+  /** Draw mountain range names (with the Elevation layer visible). */
+  rangeNames: boolean;
+  /** Smallest polity, in hexes, that is named on the map; `auto` lets the placer decide. */
+  polityNames: PolityNameMin;
   /**
    * Which generation of defaults these prefs were saved under. Prefs saved
    * before this existed carry the old effort and budget whether or not anyone
@@ -66,6 +77,9 @@ export const DEFAULT_PREFS: Prefs = {
   labels: true,
   polityOpacity: 1,
   uniformLand: false,
+  riverNames: false,
+  rangeNames: false,
+  polityNames: DEFAULT_POLITY_NAME_MIN,
   defaultsVersion: DEFAULTS_VERSION,
 };
 
@@ -161,6 +175,9 @@ export function loadPrefs(): Prefs {
       labels: stored.labels !== false,
       polityOpacity: clampPolityOpacity(stored.polityOpacity),
       uniformLand: stored.uniformLand === true,
+      riverNames: stored.riverNames === true,
+      rangeNames: stored.rangeNames === true,
+      polityNames: parsePolityNameMin(stored.polityNames),
       defaultsVersion: DEFAULTS_VERSION,
     };
   } catch {

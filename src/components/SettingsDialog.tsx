@@ -9,6 +9,7 @@ import { clampPolityOpacity, insecureOrigin, looksLikeKey, type Prefs } from '..
 import { cryptoAvailable } from '../api/keyvault.js';
 import type { TransportMode } from '../api/client.js';
 import type { HexDimensions } from '../../shared/types.js';
+import { POLITY_NAME_MIN_OPTIONS, parsePolityNameMin } from '../render/labels.js';
 import HexSizeInput from './HexSizeInput.js';
 
 export type SettingsTab = 'map' | 'display' | 'generation' | 'key';
@@ -184,7 +185,7 @@ export default function SettingsDialog(props: SettingsDialogProps) {
                   checked={prefs.labels}
                   onChange={(e) => setPrefs({ ...prefs, labels: e.target.checked })}
                 />
-                Show names on the map
+                Show city and polity names on the map
               </label>
               <h3>Polities</h3>
               <label>Polity layer opacity ({Math.round(prefs.polityOpacity * 100)}%)</label>
@@ -211,6 +212,50 @@ export default function SettingsDialog(props: SettingsDialogProps) {
                 />
                 Draw all land the same colour (coastal and inland alike)
               </label>
+              <label className="check">
+                <input
+                  type="checkbox"
+                  checked={prefs.riverNames}
+                  onChange={(e) => setPrefs({ ...prefs, riverNames: e.target.checked })}
+                />
+                Show river names (when the Rivers layer is visible)
+              </label>
+              <label className="check">
+                <input
+                  type="checkbox"
+                  checked={prefs.rangeNames}
+                  onChange={(e) => setPrefs({ ...prefs, rangeNames: e.target.checked })}
+                />
+                Show mountain range names (when the Elevation layer is visible)
+              </label>
+              <p className="hint">
+                Name a range by selecting its Mountains hexes with the Elevation layer active.
+              </p>
+              <label>Polity names</label>
+              <select
+                value={String(prefs.polityNames)}
+                disabled={!prefs.labels}
+                onChange={(e) =>
+                  setPrefs({
+                    ...prefs,
+                    polityNames: parsePolityNameMin(e.target.value === 'auto' ? 'auto' : Number(e.target.value)),
+                  })
+                }
+              >
+                {POLITY_NAME_MIN_OPTIONS.map((o) => (
+                  <option key={o} value={String(o)}>
+                    {o === 'auto'
+                      ? 'Automatic (name small polities only where the name fits)'
+                      : o === 0
+                        ? 'Name every polity'
+                        : `Only polities of ${o}+ hexes`}
+                  </option>
+                ))}
+              </select>
+              <p className="hint">
+                Smaller polities are keyed by colour in the legend. Automatic names a small polity
+                only when its name fits inside it without covering cities or other names.
+              </p>
             </div>
           )}
 

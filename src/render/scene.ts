@@ -39,7 +39,14 @@ import {
   populationColour,
   withAlpha,
 } from './palette.js';
-import { LABEL_LINE_EM, placePolityLabels, type LabelObstacle, type PolityLabel } from './labels.js';
+import { placeRangeLabels, placeRiverLabels } from './featureLabels.js';
+import {
+  LABEL_LINE_EM,
+  placePolityLabels,
+  type LabelObstacle,
+  type PolityLabel,
+  type PolityNameMin,
+} from './labels.js';
 
 export type Prim =
   | {
@@ -77,6 +84,7 @@ export type Prim =
       anchor?: 'start' | 'middle' | 'end';
       maxWidth?: number;
       fantasy?: boolean;
+      italic?: boolean;
       rotation?: number;
     }
   | {
@@ -109,6 +117,12 @@ export interface SceneOptions {
   size: number;
   visible: VisibleLayers;
   labels: boolean;
+  /** Name rivers (needs the Rivers layer visible). */
+  riverNames?: boolean;
+  /** Name mountain ranges (needs the Elevation layer visible). */
+  rangeNames?: boolean;
+  /** Smallest polity, in hexes, that is named; default 4. */
+  polityNames?: PolityNameMin;
   elevationStyle?: 'colour' | 'contours';
   /** Opacity of polity fills, 0-1 (default 1); lower values let terrain show through. */
   polityOpacity?: number;
@@ -133,6 +147,20 @@ export function defaultVisibility(): VisibleLayers {
 const FILL_PRECEDENCE: LayerId[] = ['vegetation', 'climate', 'elevation'];
 
 /**
+ * The one layer whose values paint the hex fills, or null. Exported so the legend
+ * describes what is actually drawn rather than everything that is switched on.
+ */
+export function thematicLayer(
+  map: MapState,
+  visible: VisibleLayers,
+  elevationStyle: 'colour' | 'contours' = 'colour',
+): LayerId | null {
+  return FILL_PRECEDENCE.find(
+    (id) => visible[id] && map.layers[id].data && (id !== 'elevation' || elevationStyle === 'colour'),
+  ) ?? null;
+}
+
+/**
  * Placement is a search over the territory, and the scene is rebuilt on every
  * hover and selection change, so the result is remembered per data identity.
  * Layer edits are immutable (a new `owner` array / cities object each time).
@@ -149,8 +177,9 @@ function cachedPolityLabels(
   rows: number,
   size: number,
   obstacles: LabelObstacle[],
+  minHexes: PolityNameMin | undefined,
 ): PolityLabel[] {
-  const key = `${cols}x${rows}@${size}`;
+  const key = `${cols}x${rows}@${size}/${minHexes ?? ''}`;
   const hit = labelCache.get(data.owner);
   if (hit && hit.key === key && hit.cities === cities && hit.polities === data.polities) return hit.labels;
   const labels = placePolityLabels({
@@ -160,6 +189,7 @@ function cachedPolityLabels(
     owner: data.owner,
     polities: data.polities,
     obstacles,
+    minHexes,
   });
   labelCache.set(data.owner, { cities, polities: data.polities, key, labels });
   return labels;
@@ -173,9 +203,7 @@ export function buildScene(map: MapState, opts: SceneOptions): Scene {
 
   const base = opts.visible.base ? layers.base.data : null;
   const elevationStyle = opts.elevationStyle ?? 'colour';
-  const thematic = FILL_PRECEDENCE.find(
-    (id) => opts.visible[id] && layers[id].data && (id !== 'elevation' || elevationStyle === 'colour'),
-  ) ?? null;
+  const thematic = thematicLayer(map, opts.visible, elevationStyle);
 
   const population = opts.visible.population ? layers.population.data : null;
   const maxPop = population ? Math.max(1, ...population.map((v) => v ?? 0)) : 1;
@@ -440,7 +468,7 @@ export function buildScene(map: MapState, opts: SceneOptions): Scene {
         const y = c.y + size * 0.95;
         obstacles.push({ left: c.x - halfWidth, right: c.x + halfWidth, top: y - fontSize * 0.6, bottom: y + fontSize * 0.6 });
       }
-      for (const label of cachedPolityLabels(polities, cities, cols, rows, size, obstacles)) {
+      for (const label of cachedPolityLabels(polities, cities, cols, rows, size, obstacles, opts.polityNames)) {
         // Lines are stacked perpendicular to the baseline so a wrapped,
         // rotated name stays a single rigid block.
         label.lines.forEach((line, k) => {
@@ -476,6 +504,41 @@ export function buildScene(map: MapState, opts: SceneOptions): Scene {
           anchor: 'middle',
         });
       }
+    }
+  }
+
+  // --- river and mountain range names -------------------------------------
+  if (rivers && opts.riverNames) {
+    for (const l of placeRiverLabels(rivers.rivers, size)) {
+      prims.push({
+        kind: 'text',
+        at: l.at,
+        text: l.text,
+        size: l.size,
+        fill: MAP_COLOURS.riverLabel,
+        halo: MAP_COLOURS.labelHalo,
+        weight: 600,
+        anchor: 'middle',
+        fantasy: true,
+        italic: true,
+        rotation: l.rotation,
+      });
+    }
+  }
+  if (opts.rangeNames && opts.visible.elevation && layers.elevation.data) {
+    for (const l of placeRangeLabels(map.mountainRanges ?? [], layers.elevation.data, cols, size)) {
+      prims.push({
+        kind: 'text',
+        at: l.at,
+        text: l.text,
+        size: l.size,
+        fill: MAP_COLOURS.rangeLabel,
+        halo: MAP_COLOURS.labelHalo,
+        weight: 700,
+        anchor: 'middle',
+        fantasy: true,
+        rotation: l.rotation,
+      });
     }
   }
 

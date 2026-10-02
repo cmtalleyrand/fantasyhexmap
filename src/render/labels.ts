@@ -37,6 +37,25 @@ export interface PolityLabel {
 
 export const LABEL_LINE_EM = 1.1;
 
+/**
+ * Smallest territory, in hexes, that gets a name on the map: a number from 0
+ * (every polity is named) to 5, or `auto`, where the placer names a small
+ * polity only if the name fits cleanly without covering anything else.
+ */
+export type PolityNameMin = 0 | 1 | 2 | 3 | 4 | 5 | 'auto';
+export const POLITY_NAME_MIN_OPTIONS: PolityNameMin[] = ['auto', 0, 1, 2, 3, 4, 5];
+export const DEFAULT_POLITY_NAME_MIN: PolityNameMin = 4;
+
+export function parsePolityNameMin(value: unknown): PolityNameMin {
+  if (value === 'auto') return 'auto';
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0 && value <= 5
+    ? (value as PolityNameMin)
+    : DEFAULT_POLITY_NAME_MIN;
+}
+
+/** Territories under this size are only named in `auto` mode when a clean fit exists. */
+const AUTO_CLEAN_FIT_BELOW = 4;
+
 export interface LabelObstacle extends LabelBox {}
 
 export interface LabelInput {
@@ -47,6 +66,8 @@ export interface LabelInput {
   polities: { id: string; name: string; shortName?: string }[];
   /** Markers and names already on the map that a polity name should not cover. */
   obstacles: LabelObstacle[];
+  /** Defaults to {@link DEFAULT_POLITY_NAME_MIN}. */
+  minHexes?: PolityNameMin;
 }
 
 const LABEL_HEIGHT_EM = LABEL_LINE_EM;
@@ -105,6 +126,7 @@ function textLayouts(text: string): TextLayout[] {
 export function placePolityLabels(input: LabelInput): PolityLabel[] {
   const { cols, rows, size, owner, polities } = input;
   const width = cols;
+  const minHexes = input.minHexes ?? DEFAULT_POLITY_NAME_MIN;
 
   const hexesByPolity = new Map<string, number[]>();
   owner.forEach((id, i) => {
@@ -128,9 +150,11 @@ export function placePolityLabels(input: LabelInput): PolityLabel[] {
 
   for (const polity of ordered) {
     const owned = hexesByPolity.get(polity.id) ?? [];
-    // Tiny territories are keyed by colour in the legend instead. A name
-    // cannot fit legibly inside one to three hexes at any useful zoom.
-    if (owned.length <= 3) continue;
+    // Tiny territories are keyed by colour in the legend instead; how tiny is
+    // the user's call. In auto mode a small polity is named only when a clean
+    // placement exists (see `small` below), so nothing is forced into a hex.
+    const small = owned.length < AUTO_CLEAN_FIT_BELOW;
+    if (minHexes !== 'auto' && owned.length < minHexes) continue;
 
     const centres = owned.map((i) => hexCenter(i % cols, Math.floor(i / cols), size));
     const mean = centres.reduce((sum, c) => ({ x: sum.x + c.x, y: sum.y + c.y }), { x: 0, y: 0 });
@@ -236,10 +260,13 @@ export function placePolityLabels(input: LabelInput): PolityLabel[] {
     const blockers = [...input.obstacles, ...claimed];
     // Prefer clean placements; relax in stages so a realm is named somewhere
     // sensible rather than not at all.
+    // A small polity in auto mode gets only the strictest attempt: clear of
+    // cities and other names, fully inside its territory.
     const label =
       attempt(blockers, GOOD_COVERAGE, MIN_FONT) ??
-      attempt(claimed, GOOD_COVERAGE, MIN_FONT) ??
-      attempt(claimed, FALLBACK_COVERAGE, MIN_FONT);
+      (minHexes === 'auto' && small
+        ? null
+        : (attempt(claimed, GOOD_COVERAGE, MIN_FONT) ?? attempt(claimed, FALLBACK_COVERAGE, MIN_FONT)));
     if (!label) continue;
     placed.push(label);
     const em = Math.max(...label.lines.map((line) => fantasyTextEm(line)));
