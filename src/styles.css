@@ -114,6 +114,8 @@ label { display: block; font-size: 11px; text-transform: uppercase; letter-spaci
   background: rgba(13,17,22,0.9); box-shadow: var(--shadow);
 }
 .map-tool-toggle { display: flex; gap: 2px; padding-right: 4px; border-right: 1px solid var(--line); }
+.map-expand { display: flex; align-items: center; gap: 2px; padding-right: 4px; border-right: 1px solid var(--line); }
+.map-expand > span { padding: 0 4px; color: var(--ink-faint); font-size: 10px; text-transform: uppercase; }
 .mapzoom button[aria-pressed='true'] { color: var(--accent); border-color: var(--accent-2); background: rgba(127,178,229,0.12); }
 .workspace-controls {
   display: flex; justify-content: center; gap: 6px; padding: 4px 8px;

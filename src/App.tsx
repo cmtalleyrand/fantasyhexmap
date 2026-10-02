@@ -1059,6 +1059,10 @@ export default function App() {
           onRiverMove={onRiverMove}
           onRiverExtend={onRiverExtend}
           onRiverPaint={onRiverPaint}
+          onExpand={(edge) => {
+            dispatch({ type: 'expandMap', edge });
+            setSelection(new Set());
+          }}
           overlay={emptyMapOverlay}
           banner={banner}
         />
