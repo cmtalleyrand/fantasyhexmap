@@ -473,7 +473,38 @@ function PerHexEditor(props: SubProps) {
           Current values: {[...distinct].slice(0, 6).join(', ')}
         </div>
       )}
+      {activeLayer === 'base' && <IslandSidePanel {...props} />}
       {activeLayer === 'elevation' && <MountainRangePanel {...props} />}
+    </div>
+  );
+}
+
+const SIDE_NAMES = ['east', 'south-east', 'south-west', 'west', 'north-west', 'north-east'];
+
+/** Choose which side of its hex a Coastal Island lies against. */
+function IslandSidePanel(props: SubProps) {
+  const { map, dispatch, selected } = props;
+  const base = map.layers.base.data;
+  const coastal = selected.filter((i) => base?.[i] === 'Coastal Island');
+  if (coastal.length === 0) return null;
+  const sides = new Set(coastal.map((i) => map.islandSides?.[String(i)] ?? -1));
+  const current = sides.size === 1 ? String([...sides][0]) : '';
+  return (
+    <div className="stack" style={{ marginTop: 8 }}>
+      <label htmlFor="island-side">Coastal island side ({coastal.length} selected)</label>
+      <select
+        id="island-side"
+        value={current}
+        onChange={(e) => dispatch({ type: 'setIslandSide', indices: coastal, edge: e.target.value === '-1' ? null : Number(e.target.value) })}
+      >
+        {current === '' && <option value="">Mixed</option>}
+        <option value="-1">Automatic (faces the nearest land)</option>
+        {SIDE_NAMES.map((name, e) => (
+          <option key={e} value={String(e)}>
+            Against the {name} side
+          </option>
+        ))}
+      </select>
     </div>
   );
 }

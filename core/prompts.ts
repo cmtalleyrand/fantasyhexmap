@@ -32,6 +32,7 @@ import { keyAt, type PassId, type Roster } from './rosters.js';
 import { gridView, tally } from './grid.js';
 import {
   BASE_GEO_VALUES,
+  LAND_LIKE,
   CLIMATE_VALUES,
   ELEVATION_VALUES,
   VEGETATION_GROUPS,
@@ -222,14 +223,14 @@ function measured<T extends string>(values: (T | null | undefined)[], order: rea
   return `Measured hex counts: ${parts.join(', ') || 'none'}.`;
 }
 
-const LAND_VALUES: BaseGeo[] = ['Land', 'Coastal Land', 'Island'];
+const LAND_VALUES: BaseGeo[] = LAND_LIKE;
 
 function baseGrid(ctx: PromptContext, title = 'BASE GEOGRAPHY'): string {
   const base = ctx.base!;
   const land = base.filter((v) => LAND_VALUES.includes(v)).length;
   return section(title, [
     BASE_LEGEND,
-    `${measured(base, BASE_GEO_VALUES)} Land-type hexes (Land + Coastal Land + Island): ${land} of ${base.length}.`,
+    `${measured(base, BASE_GEO_VALUES)} Land-type hexes (Land + Coastal Land + islands): ${land} of ${base.length}.`,
     ...gridView(encodeBase(base, ctx.cols, ctx.rows), 'char'),
   ]);
 }
@@ -348,8 +349,12 @@ function basePrompt(ctx: PromptContext): BuiltPrompt {
       'Lake   - fresh water fully enclosed by land; a lake never touches a Sea hex.',
       'Ice    - permanent ice sheet or shelf. Use only where the brief implies polar or glacial conditions.',
       'Island - a hex that is mostly sea but holds a small landmass;',
-      '         there is no mixed land+lake value. Use it for archipelagos, skerries and lone islets,',
-      '         not for large islands (a large island is Land hexes surrounded by Sea).',
+      '         there is no mixed land+lake value. Use it for skerries and lone islets,',
+      '         not for large islands (a large island spanning several hexes is Land hexes surrounded by Sea).',
+      'Coastal Island - a sea hex beside a coast whose islet lies close against the shore: an offshore island just off a headland or across a narrow sound.',
+      'Large Island - a sea hex almost filled by one island too small to need its own Land hexes.',
+      'Small Islands - a sea hex holding a scatter of several islets: an archipelago, a cluster of skerries.',
+      'Together these four are the island types. Wherever a rule below says "island", it means any of them.',
     ]),
     '',
     section('GEOGRAPHIC SENSE', [
@@ -357,7 +362,7 @@ function basePrompt(ctx: PromptContext): BuiltPrompt {
       '- Seas connect to the map edge. An enclosed body of water surrounded by land is a Lake, however large.',
       '- Lakes sit inland, usually in lowlands or between highlands, and are small - one to a few hexes - unless the brief makes one larger.',
       '- Ice belongs at the northern or southern edge of the map, or on high ground if the brief says so.',
-      '- Islands cluster: chains, arcs off a coast, scatterings in a strait. A lone Island hex in mid-ocean is rare.',
+      '- Islands cluster: chains, arcs off a coast, scatterings in a strait. A lone island hex in mid-ocean is rare.',
       '- If the brief gives no land/water balance, aim for roughly half the map as land.',
     ]),
     '',
@@ -418,12 +423,12 @@ function elevationPrompt(ctx: PromptContext): BuiltPrompt {
       '- A range grades outward: Mountains at the spine, Highland or Hills on the flanks, Rolling then Lowland beyond.',
       '- Hexes adjacent to Sea trend Lowland; a coast that rises straight to Mountains needs a reason in the brief.',
       '- Ice and Lake hexes get no value. Sea hexes get no value.',
-      '- Island hexes: use Lowland unless the brief describes those islands as mountainous.',
+      '- Island hexes (all four island types): use Lowland unless the brief describes those islands as mountainous.',
     ]),
     '',
     rowFormatRules(ctx.cols, ctx.rows, 'char', ctx.gridFormat),
     '',
-    'A hex that is not Land, Coastal Land or Island MUST be "." in your output.',
+    'A hex that is not Land, Coastal Land or island MUST be "." in your output.',
     '',
     houseStyle(ctx),
     '',
@@ -522,7 +527,7 @@ function climatePrompt(ctx: PromptContext): BuiltPrompt {
   return { system, user: parts.join('\n') };
 }
 
-const CLIMATE_EMPTY_NOTE = 'Use -- for any hex that is not Land, Coastal Land or Island (Sea, Lake and Ice hexes get no climate).';
+const CLIMATE_EMPTY_NOTE = 'Use -- for any hex that is not Land, Coastal Land or island (Sea, Lake and Ice hexes get no climate).';
 
 /* -------------------------------------------------------------- vegetation */
 
@@ -654,7 +659,7 @@ function riversPrompt(ctx: PromptContext): BuiltPrompt {
       'The list starts at the source hex (high ground) and ends either:',
       '  - with the Sea or Lake hex the river empties into (include that water hex as the final entry), or',
       '  - with the land hex on the map border through which the river leaves the map.',
-      'Apart from that final mouth hex, every hex in the path must be Land, Coastal Land or Island.',
+      'Apart from that final mouth hex, every hex in the path must be Land, Coastal Land or island.',
       '',
       'The "navigable" array has one entry per hex in the path, in the same order.',
     ]),
@@ -717,11 +722,11 @@ function citiesPrompt(ctx: PromptContext): BuiltPrompt {
     section('WHERE CITIES GO', [
       ...(ctx.allowUnderwater
         ? [
-            '- On Land, Coastal Land or Island hexes, or - since this world has submerged settlements - on Sea or Lake hexes',
+            '- On Land, Coastal Land or island hexes, or - since this world has submerged settlements - on Sea or Lake hexes',
             '  where the brief or the setting supports one (a drowned city, a merfolk reef-city, a pile-built lake town).',
             '  Never on Ice. Keep underwater cities rare and say why each exists in its "reason" field.',
           ]
-        : ['- On Land, Coastal Land or Island hexes only. Never on Sea, Lake or Ice.']),
+        : ['- On Land, Coastal Land or island hexes only. Never on Sea, Lake or Ice.']),
       '- Cities want water and traffic: river mouths, the lowest bridging point of a river, confluences, sheltered',
       '  bays, the neck of a peninsula, the pass through a range, the edge of a fertile plain.',
       '- Cities want food: cultivated or fertile hexes nearby. A great city in the middle of a desert needs a reason',
@@ -798,7 +803,7 @@ function politiesPrompt(ctx: PromptContext): BuiltPrompt {
     gridRules(ctx.cols, ctx.rows),
     '',
     section('THE PARTITION RULE', [
-      'Every Land, Coastal Land and Island hex belongs to exactly one polity, or to none (unclaimed wilderness). There are no',
+      'Every Land, Coastal Land and island hex belongs to exactly one polity, or to none (unclaimed wilderness). There are no',
       'overlapping claims, no condominiums and no disputed hexes in this model - pick an owner or leave it unclaimed.',
       ...(ctx.allowUnderwater
         ? [
@@ -881,7 +886,7 @@ function populationPrompt(ctx: PromptContext): BuiltPrompt {
     gridRules(ctx.cols, ctx.rows),
     '',
     section('WHAT YOU ARE COUNTING', [
-      'One integer per Land, Coastal Land or Island hex: the ordinary rural and small-village population living in that hex.',
+      'One integer per Land, Coastal Land or island hex: the ordinary rural and small-village population living in that hex.',
       'This EXCLUDES the population of any city in the hex - those are counted separately. A hex containing a great',
       'city still gets a rural figure for the farms and villages around it (usually a high one, because a city feeds',
       'itself from its own hinterland).',
@@ -1025,7 +1030,7 @@ function politiesPaintPrompt(ctx: PromptContext, roster: Roster | null): BuiltPr
     ]),
     '',
     section('THE PARTITION RULE', [
-      'Every Land, Coastal Land and Island hex belongs to exactly one polity, or to none (unclaimed wilderness). There are no',
+      'Every Land, Coastal Land and island hex belongs to exactly one polity, or to none (unclaimed wilderness). There are no',
       'overlapping claims, no condominiums and no disputed hexes in this model - pick an owner or leave it unclaimed.',
       ...(ctx.allowUnderwater
         ? [
@@ -1133,7 +1138,7 @@ function riversPathsPrompt(ctx: PromptContext, roster: Roster | null): BuiltProm
       'The list starts at the source hex (high ground) and ends either:',
       '  - with the Sea or Lake hex the river empties into (include that water hex as the final entry), or',
       '  - with the land hex on the map border through which the river leaves the map.',
-      'Apart from that final mouth hex, every hex in the path must be Land, Coastal Land or Island.',
+      'Apart from that final mouth hex, every hex in the path must be Land, Coastal Land or island.',
       '',
       'The "navigable" array has one entry per hex in the path, in the same order.',
     ]),

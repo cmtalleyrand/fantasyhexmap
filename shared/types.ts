@@ -39,11 +39,33 @@ export const LAYER_ORDER: LayerId[] = [
   'population',
 ];
 
-export type BaseGeo = 'Land' | 'Coastal Land' | 'Sea' | 'Lake' | 'Ice' | 'Island';
-export const BASE_GEO_VALUES: BaseGeo[] = ['Land', 'Coastal Land', 'Sea', 'Lake', 'Ice', 'Island'];
+export type BaseGeo =
+  | 'Land'
+  | 'Coastal Land'
+  | 'Sea'
+  | 'Lake'
+  | 'Ice'
+  | 'Island'
+  | 'Coastal Island'
+  | 'Large Island'
+  | 'Small Islands';
+export const BASE_GEO_VALUES: BaseGeo[] = [
+  'Land', 'Coastal Land', 'Sea', 'Lake', 'Ice', 'Island', 'Coastal Island', 'Large Island', 'Small Islands',
+];
+
+/**
+ * Sea hexes that hold land: one small islet, an islet lying against one side
+ * of the hex close to a coast, one island filling most of the hex, or a
+ * scatter of islets.
+ */
+export const ISLAND_TYPES: BaseGeo[] = ['Island', 'Coastal Island', 'Large Island', 'Small Islands'];
+
+export function isIslandType(value: BaseGeo | null | undefined): boolean {
+  return value === 'Island' || value === 'Coastal Island' || value === 'Large Island' || value === 'Small Islands';
+}
 
 /** Hex types that carry land-only layer values (elevation, climate, vegetation, population). */
-export const LAND_LIKE: BaseGeo[] = ['Land', 'Coastal Land', 'Island'];
+export const LAND_LIKE: BaseGeo[] = ['Land', 'Coastal Land', ...ISLAND_TYPES];
 
 export type Elevation =
   | 'Lowland'
@@ -311,6 +333,12 @@ export interface MapState {
   allowUnderwater?: boolean;
   /** Named mountain ranges, drawn as labels when the option is on. Absent on older maps. */
   mountainRanges?: MountainRange[];
+  /**
+   * For Coastal Island hexes: which edge (0-5, see the EDGES note above) the
+   * islet lies against, keyed by flat hex index. Absent means the side facing
+   * the nearest land.
+   */
+  islandSides?: Record<string, number>;
   layers: LayersState;
   /** Append-only record of every change, oldest first. */
   journal: JournalEntry[];

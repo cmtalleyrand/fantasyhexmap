@@ -276,6 +276,9 @@ export function serializeParseFriendlyExport(map: MapState): string {
     ...(map.mountainRanges?.length
       ? { mountainRangesNote: 'map.mountainRanges[].hexes are flat indices (row * cols + col).' }
       : {}),
+    ...(map.islandSides && Object.keys(map.islandSides).length
+      ? { islandSidesNote: 'map.islandSides maps a Coastal Island hex\'s flat index to the edge (0..5) its islet lies against; absent hexes face the nearest land.' }
+      : {}),
   };
 
   return JSON.stringify(

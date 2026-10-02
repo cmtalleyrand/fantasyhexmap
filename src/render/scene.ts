@@ -27,6 +27,7 @@ import {
 } from '../../shared/hex.js';
 import {
   LAYER_ORDER,
+  isIslandType,
   type BaseGeo,
   type CitiesData,
   type Climate,
@@ -55,6 +56,7 @@ import {
 import {
   blobPath,
   circlePath,
+  coastalIslandSide,
   coastGeometry,
   hexesPath,
   isletPath,
@@ -284,6 +286,9 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
     switch (value) {
       case 'Sea':
       case 'Island':
+      case 'Coastal Island':
+      case 'Large Island':
+      case 'Small Islands':
         return palette.sea;
       case 'Lake':
         return palette.lake;
@@ -385,7 +390,7 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
       if (!isWater(i)) continue;
       const fill = waterColour(i);
       prims.push({ kind: 'polygon', points: hexCorners(i % cols, Math.floor(i / cols), size), fill, stroke: fill, strokeWidth: seal });
-      if (base[i] === 'Island') islands.push(i);
+      if (isIslandType(base[i])) islands.push(i);
     }
     // Corners of land that the smoothed coast cuts off become water.
     for (const s of coast?.toWater ?? []) {
@@ -395,9 +400,43 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
   }
 
   const islandRand = (i: number) => (k: number) => unit(seed, 'islet', i, k);
+  /** The land in an island hex, as one or more closed paths. */
   const islandPath = (i: number): PathCmd[] => {
     const c = hexCenter(i % cols, Math.floor(i / cols), size);
-    return knobs.islands === 'blob' ? isletPath(c, size, islandRand(i)) : circlePath(c, size * 0.34);
+    const rand = islandRand(i);
+    const blob = knobs.islands === 'blob';
+    switch (base?.[i]) {
+      case 'Coastal Island': {
+        // Against one side of the hex, stretched along that side.
+        const stored = map.islandSides?.[String(i)];
+        const side = stored !== undefined && stored >= 0 && stored < 6 ? stored : coastalIslandSide(base, cols, rows, i);
+        const angle = (side * Math.PI) / 3;
+        const at = { x: c.x + Math.cos(angle) * size * 0.4, y: c.y + Math.sin(angle) * size * 0.4 };
+        return blob
+          ? blobPath(at, size * 0.44, size * 0.27, angle + Math.PI / 2, rand, 10)
+          : circlePath(at, size * 0.3);
+      }
+      case 'Large Island':
+        return blob
+          ? blobPath(c, size * 0.74, size * 0.62, rand(99) * Math.PI, rand, 12, 0.16)
+          : circlePath(c, size * 0.62);
+      case 'Small Islands': {
+        const count = 3 + Math.floor(rand(200) * 3);
+        const d: PathCmd[] = [];
+        for (let k = 0; k < count; k++) {
+          // Spread round the hex so the islets do not pile up in the middle.
+          const a = ((k + rand(300 + k) * 0.6) / count) * Math.PI * 2;
+          const r = size * (k === 0 && count > 3 ? 0.05 : 0.42 + rand(400 + k) * 0.1);
+          const at = { x: c.x + Math.cos(a) * r, y: c.y + Math.sin(a) * r };
+          const rr = size * (0.13 + rand(500 + k) * 0.07);
+          const sub = (q: number) => rand(1000 + k * 37 + q);
+          d.push(...(blob ? blobPath(at, rr * 1.25, rr, sub(99) * Math.PI, sub, 8, 0.18) : circlePath(at, rr)));
+        }
+        return d;
+      }
+      default:
+        return blob ? isletPath(c, size, rand) : circlePath(c, size * 0.34);
+    }
   };
   const shorelines: PathCmd[] = [...(coast?.paths.flat() ?? []), ...islands.flatMap(islandPath)];
 
@@ -457,7 +496,7 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
           return polityOpacity < 1 ? withAlpha(solid, polityOpacity) : solid;
         })()
       : null;
-    if (knobs.islands === 'blob') {
+    if (knobs.islands === 'blob' || base?.[i] !== 'Island') {
       const d = islandPath(i);
       prims.push({ kind: 'path', d, fill: islandLand });
       // Only the landmass belongs to the polity; the surrounding sea stays sea.
@@ -479,7 +518,7 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
   // Claims on water hexes (where the map allows them) sit over the sea's surface.
   if (base) {
     for (let i = 0; i < base.length; i++) {
-      if (!isWater(i) || base[i] === 'Island') continue;
+      if (!isWater(i) || isIslandType(base[i])) continue;
       for (const overlay of overlays(i)) {
         prims.push({ kind: 'polygon', points: hexCorners(i % cols, Math.floor(i / cols), size), fill: overlay });
       }

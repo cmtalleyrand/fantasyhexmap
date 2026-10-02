@@ -85,6 +85,8 @@ export type Action =
   | { type: 'nameMountainRange'; id: string; name: string; indices: number[] }
   | { type: 'renameMountainRange'; id: string; name: string }
   | { type: 'removeMountainRange'; id: string }
+  /** Which side of their hex Coastal Island hexes lie against; null restores the automatic side. */
+  | { type: 'setIslandSide'; indices: number[]; edge: number | null }
   | { type: 'clearLayer'; layer: LayerId }
   | { type: 'undo'; layer: LayerId }
   | { type: 'redo'; layer: LayerId };
@@ -693,6 +695,31 @@ export function reducer(map: MapState, action: Action): MapState {
       return journal(
         { ...map, mountainRanges: ranges.filter((r) => r.id !== action.id), updatedAt: Date.now() },
         manualEntry('elevation', `Removed the mountain range "${old.name}".`),
+      );
+    }
+
+    case 'setIslandSide': {
+      const base = map.layers.base.data;
+      if (!base) return map;
+      const sides = { ...(map.islandSides ?? {}) };
+      let changed = 0;
+      for (const i of action.indices) {
+        if (base[i] !== 'Coastal Island') continue;
+        const key = String(i);
+        if (action.edge === null) {
+          if (key in sides) {
+            delete sides[key];
+            changed++;
+          }
+        } else if (sides[key] !== action.edge) {
+          sides[key] = action.edge;
+          changed++;
+        }
+      }
+      if (changed === 0) return map;
+      return journal(
+        { ...map, islandSides: sides, updatedAt: Date.now() },
+        manualEntry('base', `Set the side ${changed} coastal island${changed === 1 ? '' : 's'} lie against by hand.`),
       );
     }
 

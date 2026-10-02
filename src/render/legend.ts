@@ -26,6 +26,7 @@ import { formatLength, riverLength } from '../../shared/riverLength.js';
 import { normaliseHexDimensions, politySurfaceAreas } from '../../shared/surfaceArea.js';
 import {
   BASE_GEO_VALUES,
+  isIslandType,
   CLIMATE_VALUES,
   ELEVATION_VALUES,
   LAYER_ORDER,
@@ -59,7 +60,7 @@ export const DEFAULT_LEGEND_OPTIONS: LegendOptions = {
 
 export type LegendSwatch =
   | { kind: 'fill'; colour: string }
-  | { kind: 'island'; sea: string; land: string }
+  | { kind: 'island'; sea: string; land: string; variant: 'one' | 'coastal' | 'large' | 'small' }
   | { kind: 'line'; colour: string; width: number }
   | { kind: 'coast' }
   | { kind: 'city'; symbol: CitySymbol; onRiver: boolean }
@@ -148,8 +149,16 @@ export function legendSections(
     switch (id) {
       case 'base':
         entries = keep(BASE_GEO_VALUES, usedValues(map.layers.base.data)).map((v) =>
-          v === 'Island'
-            ? { swatch: { kind: 'island', sea: palette.sea, land: palette.island }, label: 'Island' }
+          isIslandType(v)
+            ? {
+                swatch: {
+                  kind: 'island',
+                  sea: palette.sea,
+                  land: style.knobs.land === 'uniform' ? palette.land : palette.island,
+                  variant: v === 'Coastal Island' ? 'coastal' : v === 'Large Island' ? 'large' : v === 'Small Islands' ? 'small' : 'one',
+                },
+                label: v,
+              }
             : { swatch: { kind: 'fill', colour: baseColour[v] ?? BASE_COLOURS[v] }, label: v },
         );
         break;
@@ -301,7 +310,19 @@ function swatchPrims(swatch: LegendSwatch, x: number, cy: number, m: ReturnType<
     case 'fill':
       return [box(swatch.colour)];
     case 'island':
-      return [box(swatch.sea), { kind: 'circle', c: { x: cx, y: cy }, r: 4.6 * k, fill: swatch.land }];
+    {
+      const dot = (x0: number, y0: number, r: number): Prim => ({ kind: 'circle', c: { x: x0, y: y0 }, r, fill: swatch.land });
+      switch (swatch.variant) {
+        case 'coastal':
+          return [box(swatch.sea), dot(x + w - 5 * k, cy, 4 * k)];
+        case 'large':
+          return [box(swatch.sea), dot(cx, cy, 6.2 * k)];
+        case 'small':
+          return [box(swatch.sea), dot(cx - 5 * k, cy - 2 * k, 2.3 * k), dot(cx + 4 * k, cy - 3 * k, 2 * k), dot(cx + 1 * k, cy + 3.5 * k, 2.4 * k)];
+        default:
+          return [box(swatch.sea), dot(cx, cy, 4.6 * k)];
+      }
+    }
     case 'line':
       return [{
         kind: 'polyline',

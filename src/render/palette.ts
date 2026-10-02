@@ -12,6 +12,9 @@ export const BASE_COLOURS: Record<BaseGeo, string> = {
   'Coastal Land': '#d9c58f',
   Ice: '#e4eef3',
   Island: '#1d3b57', // sea substrate; the landmass is drawn as a dot on top
+  'Coastal Island': '#1d3b57',
+  'Large Island': '#1d3b57',
+  'Small Islands': '#1d3b57',
 };
 
 export const ISLAND_DOT = '#cbbd93';

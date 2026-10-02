@@ -341,3 +341,43 @@ test('a tributary ends on its parent river and a distributary starts on it', asy
   assert.ok(onLine(courses.get('trib')!.centreline.at(-1)!), 'the tributary meets the main river');
   assert.ok(onLine(courses.get('branch')!.centreline[0]!), 'the distributary leaves the main river');
 });
+
+test('the island types round-trip through the base codec and count as land', async () => {
+  const { encodeBase, decodeBase } = await import('../shared/codec.ts');
+  const { isLandLike } = await import('../shared/derive.ts');
+  const values: BaseGeo[] = ['Island', 'Coastal Island', 'Large Island', 'Small Islands'];
+  const decoded = decodeBase(encodeBase(values, 4, 1), 4, 1);
+  assert.deepEqual(decoded.data, values);
+  for (const v of values) assert.ok(isLandLike(v), `${v} carries land layers`);
+});
+
+test('each island type draws its land inside its own hex, and a coastal island faces the nearest land', async () => {
+  const { coastalIslandSide } = await import('../src/render/coast.ts');
+  const { hexCenter, pixelToOffset } = await import('../shared/hex.ts');
+  const size = 20;
+  for (const kind of ['Island', 'Coastal Island', 'Large Island', 'Small Islands'] as BaseGeo[]) {
+    const map = createMapState('Islands', 3, 3);
+    map.layers.base.data = ['Land', 'Sea', 'Sea', 'Land', kind, 'Sea', 'Sea', 'Sea', 'Sea'];
+    for (const preset of PRESET_ORDER) {
+      const style = resolveStyle({ preset, overrides: {} });
+      const prims = buildScene(map, { size, visible: defaultVisibility(), labels: false, style }).prims;
+      const land = prims.filter((p) => (p.kind === 'path' || p.kind === 'circle') && p.fill === style.palette.island);
+      assert.ok(land.length > 0, `${kind} (${preset}) draws land`);
+      for (const p of land) {
+        const pts = p.kind === 'circle'
+          ? [p.c]
+          : (p as { d: PathCmd[] }).d.filter((c) => c[0] !== 'Z').map((c) => ({ x: c.at(-2) as number, y: c.at(-1) as number }));
+        for (const q of pts) {
+          const { col, row } = pixelToOffset(q.x, q.y, size);
+          assert.deepEqual([col, row], [1, 1], `${kind} (${preset}) stays in its hex`);
+        }
+      }
+    }
+  }
+  // Hex (1,1) sits on an odd row; its land neighbours are west (0,1) and north-west (1,0)... here only (0,0) and (0,1).
+  const base: BaseGeo[] = ['Land', 'Sea', 'Sea', 'Land', 'Coastal Island', 'Sea', 'Sea', 'Sea', 'Sea'];
+  const side = coastalIslandSide(base, 3, 3, 4);
+  const c = hexCenter(1, 1, 1);
+  const towards = Math.atan2(hexCenter(0, 1, 1).y - c.y, hexCenter(0, 1, 1).x - c.x);
+  assert.ok(Math.abs(((side * Math.PI) / 3 - towards + 3 * Math.PI) % (2 * Math.PI) - Math.PI) <= Math.PI / 3 + 1e-9);
+});

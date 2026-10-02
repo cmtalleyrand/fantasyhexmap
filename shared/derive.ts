@@ -6,6 +6,7 @@
  */
 
 import { hexIndex, neighbourOf, inBounds } from './hex.js';
+import { isIslandType } from './types.js';
 import type {
   BaseData,
   BaseGeo,
@@ -21,7 +22,7 @@ export function isWater(v: BaseGeo | undefined): boolean {
 }
 
 export function isLandLike(v: BaseGeo | undefined): boolean {
-  return v === 'Land' || v === 'Coastal Land' || v === 'Island';
+  return v === 'Land' || v === 'Coastal Land' || isIslandType(v);
 }
 
 /**

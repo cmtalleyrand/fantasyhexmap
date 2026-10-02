@@ -18,15 +18,15 @@
  */
 
 import { hexCorners, hexEdgePoints, hexIndex, inBounds, neighbourOf, type Point } from '../../shared/hex.js';
-import type { BaseGeo } from '../../shared/types.js';
+import { isIslandType, type BaseGeo } from '../../shared/types.js';
 import type { PathCmd } from './prims.js';
 
 export type Side = 'land' | 'water';
 
-/** Which side of the coast a hex is on. Island hexes are sea with an islet drawn on top. */
+/** Which side of the coast a hex is on. Island hexes of every kind are sea with land drawn on top. */
 export function sideOf(value: BaseGeo | null | undefined): Side | null {
   if (!value) return null;
-  return value === 'Sea' || value === 'Lake' || value === 'Island' ? 'water' : 'land';
+  return value === 'Sea' || value === 'Lake' || isIslandType(value) ? 'water' : 'land';
 }
 
 interface CoastEdge {
@@ -296,4 +296,54 @@ export function blobPath(
     });
   }
   return smoothPath(points, true);
+}
+
+/**
+ * The edge a Coastal Island lies against when the map does not say: the one
+ * pointing most nearly at the nearest land hex (searched out to four hexes),
+ * or edge 0 when there is no land that close.
+ */
+export function coastalIslandSide(
+  base: ReadonlyArray<BaseGeo | null>,
+  cols: number,
+  rows: number,
+  i: number,
+  size = 1,
+): number {
+  const col = i % cols;
+  const row = Math.floor(i / cols);
+  const seen = new Set([i]);
+  let frontier = [i];
+  for (let ring = 0; ring < 4 && frontier.length > 0; ring++) {
+    const next: number[] = [];
+    const land: number[] = [];
+    for (const h of frontier) {
+      for (let e = 0; e < 6; e++) {
+        const n = neighbourOf(h % cols, Math.floor(h / cols), e);
+        if (!inBounds(cols, rows, n.col, n.row)) continue;
+        const j = hexIndex(cols, n.col, n.row);
+        if (seen.has(j)) continue;
+        seen.add(j);
+        if (sideOf(base[j]) === 'land') land.push(j);
+        next.push(j);
+      }
+    }
+    if (land.length > 0) {
+      const here = hexCorners(col, row, size);
+      const cx = here.reduce((s, p) => s + p.x, 0) / 6;
+      const cy = here.reduce((s, p) => s + p.y, 0) / 6;
+      let dx = 0;
+      let dy = 0;
+      for (const j of land) {
+        const c = hexCorners(j % cols, Math.floor(j / cols), size);
+        dx += c.reduce((s, p) => s + p.x, 0) / 6 - cx;
+        dy += c.reduce((s, p) => s + p.y, 0) / 6 - cy;
+      }
+      // Edge e's midpoint lies at angle 60e degrees from the centre.
+      const angle = Math.atan2(dy, dx);
+      return ((Math.round(angle / (Math.PI / 3)) % 6) + 6) % 6;
+    }
+    frontier = next;
+  }
+  return 0;
 }
