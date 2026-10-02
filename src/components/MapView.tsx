@@ -1,7 +1,7 @@
 import type { PolityNameMin } from '../render/labels.js';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { hexIndex, pixelToOffset, gridPixelSize, inBounds } from '../../shared/hex.js';
-import { MAX_DIM, type LayerId, type MapState } from '../../shared/types.js';
+import type { LayerId, MapState } from '../../shared/types.js';
 import { drawPrims, drawScene } from '../render/canvas.js';
 import { buildStaticScene, decorationPrims, type VisibleLayers } from '../render/scene.js';
 import type { MapStyle } from '../render/styles.js';
@@ -45,7 +45,6 @@ export interface MapViewProps {
   onRiverExtend: (index: number) => void;
   /** A navigability stroke finished over these hexes. */
   onRiverPaint: (indices: number[]) => void;
-  onExpand: (edge: 'top' | 'bottom' | 'left' | 'right') => void;
   /** Shown over the middle of the map, such as the first step on an empty map. */
   overlay?: React.ReactNode;
   /** Messages pinned to the top of the map: errors and the outcome of the last action. */
@@ -428,13 +427,6 @@ export default function MapView(props: MapViewProps) {
       {props.banner}
       <div className="maphud">{hoverText()}</div>
       <div className="mapzoom" role="toolbar" aria-label="Map navigation">
-        <div className="map-expand" aria-label="Expand map">
-          <span>add</span>
-          <button className="tiny" disabled={map.rows >= MAX_DIM} onClick={() => props.onExpand('top')} title="Add a row at the top">↑ row</button>
-          <button className="tiny" disabled={map.rows >= MAX_DIM} onClick={() => props.onExpand('bottom')} title="Add a row at the bottom">↓ row</button>
-          <button className="tiny" disabled={map.cols >= MAX_DIM} onClick={() => props.onExpand('left')} title="Add a column at the left">← col</button>
-          <button className="tiny" disabled={map.cols >= MAX_DIM} onClick={() => props.onExpand('right')} title="Add a column at the right">→ col</button>
-        </div>
         <div className="map-tool-toggle" aria-label="Pointer tool">
           <button
             className="tiny"
