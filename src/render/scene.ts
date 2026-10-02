@@ -66,6 +66,7 @@ import {
 } from './coast.js';
 import type { CitySymbol, PathCmd, Prim } from './prims.js';
 import { riverCourses, type RiverCourse } from './rivers.js';
+import { citySite } from './sites.js';
 import { signed, unit } from './seed.js';
 import { CLASSIC_STYLE, type MapStyle } from './styles.js';
 import { grainTile } from './texture.js';
@@ -400,6 +401,17 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
   }
 
   const islandRand = (i: number) => (k: number) => unit(seed, 'islet', i, k);
+  const coastalSide = (i: number): number => {
+    const stored = map.islandSides?.[String(i)];
+    return stored !== undefined && stored >= 0 && stored < 6 ? stored : coastalIslandSide(base!, cols, rows, i);
+  };
+  /** Where the land of an island hex is centred: off-centre only for a coastal island. */
+  const islandCentre = (i: number): Point => {
+    const c = hexCenter(i % cols, Math.floor(i / cols), size);
+    if (base?.[i] !== 'Coastal Island') return c;
+    const angle = (coastalSide(i) * Math.PI) / 3;
+    return { x: c.x + Math.cos(angle) * size * 0.4, y: c.y + Math.sin(angle) * size * 0.4 };
+  };
   /** The land in an island hex, as one or more closed paths. */
   const islandPath = (i: number): PathCmd[] => {
     const c = hexCenter(i % cols, Math.floor(i / cols), size);
@@ -408,10 +420,8 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
     switch (base?.[i]) {
       case 'Coastal Island': {
         // Against one side of the hex, stretched along that side.
-        const stored = map.islandSides?.[String(i)];
-        const side = stored !== undefined && stored >= 0 && stored < 6 ? stored : coastalIslandSide(base, cols, rows, i);
-        const angle = (side * Math.PI) / 3;
-        const at = { x: c.x + Math.cos(angle) * size * 0.4, y: c.y + Math.sin(angle) * size * 0.4 };
+        const angle = (coastalSide(i) * Math.PI) / 3;
+        const at = islandCentre(i);
         return blob
           ? blobPath(at, size * 0.44, size * 0.27, angle + Math.PI / 2, rand, 10)
           : circlePath(at, size * 0.3);
@@ -701,9 +711,22 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
 
   // --- cities --------------------------------------------------------------
   const cities = opts.visible.cities ? layers.cities.data : null;
+  const sites = new Map<string, Point>(
+    (cities?.cities ?? []).map((city) => [
+      city.id,
+      citySite(city, {
+        size,
+        base,
+        cols,
+        riverLine: (id) => courses.get(id) ?? null,
+        islandCentre: (i) => islandCentre(i),
+      }),
+    ]),
+  );
+  const siteOf = (city: { id: string; col: number; row: number }) => sites.get(city.id) ?? hexCenter(city.col, city.row, size);
   if (cities) {
     for (const city of cities.cities) {
-      const c = hexCenter(city.col, city.row, size);
+      const c = siteOf(city);
       const r = Math.max(size * 0.16, Math.min(size * 0.46, size * 0.1 * Math.log10(Math.max(10, city.population))));
       // Mark which edges are coastal, since "coastal" is edge-specific here.
       // Dashed and water-coloured so it never reads as a polity border.
@@ -735,7 +758,7 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
       // realm's name is steered away from them where it can be.
       const obstacles: LabelObstacle[] = [];
       for (const city of cities?.cities ?? []) {
-        const c = hexCenter(city.col, city.row, size);
+        const c = siteOf(city);
         const r = Math.max(size * 0.16, Math.min(size * 0.46, size * 0.1 * Math.log10(Math.max(10, city.population))));
         obstacles.push({ left: c.x - r, right: c.x + r, top: c.y - r, bottom: c.y + r });
         const fontSize = Math.max(8, size * 0.36);
@@ -767,7 +790,7 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
     }
     if (cities) {
       for (const city of cities.cities) {
-        const c = hexCenter(city.col, city.row, size);
+        const c = siteOf(city);
         prims.push({
           kind: 'text',
           at: { x: c.x, y: c.y + size * 0.95 },

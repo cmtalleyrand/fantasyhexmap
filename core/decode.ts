@@ -303,6 +303,11 @@ export function decodeLayer(
       const r = parsed as CitiesResponse;
       notes = r.notes;
       const cities: City[] = r.cities.map((c, i) => ({
+        // A city regenerated in the same hex keeps the site it was given by hand.
+        ...(() => {
+          const before = existing?.cities?.find((e) => e.name === c.name && e.col === c.col && e.row === c.row);
+          return before?.site ? { site: before.site } : {};
+        })(),
         id: reuseIdByName(existing?.cities, c.name) ?? stableId('city', c.name, i),
         col: c.col,
         row: c.row,

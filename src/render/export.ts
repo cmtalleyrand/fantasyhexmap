@@ -258,7 +258,7 @@ export function serializeParseFriendlyExport(map: MapState): string {
       rivers:
         'data.rivers: [{id, name, terminus, branchOf?, segments:[{col,row,entryEdge|null,exitEdge|null,navigable}]}]. Segments run source to mouth; entryEdge is null at the source.',
       cities:
-        'data.cities: [{id,col,row,name,population,onRiver,riverId|null,coastal,coastalEdges:number[]}]',
+        'data.cities: [{id,col,row,name,population,onRiver,riverId|null,coastal,coastalEdges:number[],site?}]. site is where the marker is drawn: "auto", "inland", "river" or {coast: edge}.',
       polities: 'data.polities: [{id,name,shortName?,colour}]; data.owner: array of hexCount polity ids or null',
     },
     values: {

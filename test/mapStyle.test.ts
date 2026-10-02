@@ -381,3 +381,37 @@ test('each island type draws its land inside its own hex, and a coastal island f
   const towards = Math.atan2(hexCenter(0, 1, 1).y - c.y, hexCenter(0, 1, 1).x - c.x);
   assert.ok(Math.abs(((side * Math.PI) / 3 - towards + 3 * Math.PI) % (2 * Math.PI) - Math.PI) <= Math.PI / 3 + 1e-9);
 });
+
+test('a city is drawn at its site: centre, river, or toward its chosen coast', async () => {
+  const { citySite, resolvedSite } = await import('../src/render/sites.ts');
+  const { hexCenter } = await import('../shared/hex.ts');
+  const size = 20;
+  const base: BaseGeo[] = Array(9).fill('Land');
+  const city = {
+    id: 'c', col: 1, row: 1, name: 'Port', population: 20_000,
+    onRiver: true, riverId: 'r', coastal: true, coastalEdges: [0, 1],
+  };
+  const centre = hexCenter(1, 1, size);
+  const line = [{ x: centre.x - 30, y: centre.y + 6 }, { x: centre.x, y: centre.y + 6 }, { x: centre.x + 30, y: centre.y + 6 }];
+  const ctx = { size, base, cols: 3, riverLine: () => line };
+  assert.deepEqual(citySite({ ...city, site: 'inland' }, ctx), centre);
+  assert.deepEqual(citySite({ ...city, site: 'river' }, ctx), line[1]);
+  assert.deepEqual(citySite(city, ctx), line[1], 'auto prefers the river');
+  const east = citySite({ ...city, site: { coast: 0 } }, ctx);
+  assert.ok(east.x > centre.x + size * 0.5 && Math.abs(east.y - centre.y) < 1e-9, 'toward the east edge');
+  assert.equal(resolvedSite({ ...city, site: { coast: 3 } }).kind, 'coast', 'an edge that is not coastal falls back to the coast');
+  assert.equal(resolvedSite({ ...city, onRiver: false, coastalEdges: [], site: 'river' }).kind, 'inland');
+});
+
+test('changing where a city is drawn marks nothing stale', async () => {
+  const { reducer } = await import('../src/state/store.ts');
+  const map = createMapState('Sites', 3, 1);
+  map.layers.base.data = ['Land', 'Land', 'Sea'];
+  const city = { id: 'c', col: 1, row: 0, name: 'Port', population: 5_000, onRiver: false, riverId: null, coastal: true, coastalEdges: [0] };
+  const added = reducer(map, { type: 'upsertCity', city });
+  const moved = reducer(added, { type: 'upsertCity', city: { ...added.layers.cities.data!.cities[0]!, site: { coast: 0 } } });
+  assert.equal(moved.layers.cities.version, added.layers.cities.version);
+  assert.deepEqual(moved.layers.cities.data!.cities[0]!.site, { coast: 0 });
+  const undone = reducer(moved, { type: 'undo', layer: 'cities' });
+  assert.equal(undone.layers.cities.data!.cities[0]!.site, undefined);
+});

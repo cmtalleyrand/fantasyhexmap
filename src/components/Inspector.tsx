@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { hexIndex, indexToOffset } from '../../shared/hex.js';
+import { hexIndex, indexToOffset, neighbourOf } from '../../shared/hex.js';
 import { canHoldSettlement } from '../../shared/derive.js';
 import type { RiverNotice, RiverTool } from '../state/riverTools.js';
 import RiverEditor from './RiverEditor.js';
@@ -481,6 +481,22 @@ function PerHexEditor(props: SubProps) {
 
 const SIDE_NAMES = ['east', 'south-east', 'south-west', 'west', 'north-west', 'north-east'];
 
+function siteValue(site: City['site']): string {
+  if (!site || site === 'auto') return 'auto';
+  return typeof site === 'object' ? `coast:${site.coast}` : site;
+}
+
+function parseSiteValue(value: string): City['site'] {
+  if (value.startsWith('coast:')) return { coast: Number(value.slice(6)) };
+  return value === 'inland' || value === 'river' ? value : 'auto';
+}
+
+/** "sea" or "lake": what lies across one of a city's coastal edges. */
+function waterNameAcross(map: MapState, city: City, edge: number): string {
+  const n = neighbourOf(city.col, city.row, edge);
+  return map.layers.base.data?.[n.row * map.cols + n.col] === 'Lake' ? 'lake' : 'sea';
+}
+
 /** Choose which side of its hex a Coastal Island lies against. */
 function IslandSidePanel(props: SubProps) {
   const { map, dispatch, selected } = props;
@@ -822,6 +838,24 @@ function CityEditor(props: SubProps) {
               <button className="tiny danger" onClick={() => dispatch({ type: 'removeCity', id: c.id })}>
                 ×
               </button>
+              <div className="row" style={{ flexBasis: '100%', alignItems: 'center' }}>
+                <label htmlFor={`site-${c.id}`} style={{ margin: 0 }}>Site</label>
+                <select
+                  id={`site-${c.id}`}
+                  className="grow"
+                  value={siteValue(c.site)}
+                  onChange={(e) => dispatch({ type: 'upsertCity', city: { ...c, site: parseSiteValue(e.target.value) } })}
+                >
+                  <option value="auto">Automatic (river, else coast, else centre)</option>
+                  <option value="inland">Inland, at the hex centre</option>
+                  {c.onRiver && <option value="river">On its river</option>}
+                  {c.coastalEdges.map((e) => (
+                    <option key={e} value={`coast:${e}`}>
+                      {waterNameAcross(map, c, e) === 'lake' ? 'Lakeshore' : 'Coast'}, {SIDE_NAMES[e]} side
+                    </option>
+                  ))}
+                </select>
+              </div>
               <div className="hint" style={{ flexBasis: '100%' }}>
                 {c.coastal ? `coastal on edges ${c.coastalEdges.join(', ')}` : 'inland'}
                 {c.onRiver
