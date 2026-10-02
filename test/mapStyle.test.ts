@@ -841,3 +841,14 @@ test('an SVG carries the font rules it is given, and measurements can be thrown 
   fonts.invalidateTextMeasures();
   assert.equal(fonts.measureEpoch, before + 1);
 });
+
+test('a river name moves along its river to keep clear of a realm name', async () => {
+  const { placeRiverLabels } = await import('../src/render/featureLabels.ts');
+  const river = { id: 'r', name: 'Wend', terminus: 'Sea', segments: [] } as never;
+  const line = Array.from({ length: 41 }, (_, i) => ({ x: i * 10, y: 100 }));
+  const free = placeRiverLabels([river], 20, () => line)[0]!;
+  assert.ok(Math.abs(free.at.x - 200) < 30, 'unobstructed, the name sits mid-river');
+  const realm = { cx: 200, cy: 95, halfW: 70, halfH: 12, rotation: 0 };
+  const moved = placeRiverLabels([river], 20, () => line, undefined, [realm])[0]!;
+  for (const g of moved.glyphs!) assert.ok(Math.abs(g.x - 200) > 70, `glyph ${g.ch} clears the realm name`);
+});

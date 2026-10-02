@@ -327,7 +327,7 @@ export interface OrientedBox {
   rotation: number;
 }
 
-function inside(box: OrientedBox, x: number, y: number): boolean {
+export function insideBox(box: OrientedBox, x: number, y: number): boolean {
   const dx = x - box.cx;
   const dy = y - box.cy;
   const c = Math.cos(-box.rotation);
@@ -406,7 +406,7 @@ export function placeCityNames(
           const px = slot.box.cx + ((i / 6) - 0.5) * 2 * slot.box.halfW;
           const py = slot.box.cy + ((j / 2) - 0.5) * 2 * slot.box.halfH * 0.8;
           total++;
-          if (px < 0 || py < 0 || px > bounds.width || py > bounds.height || blockers.some((b) => inside(b, px, py))) covered++;
+          if (px < 0 || py < 0 || px > bounds.width || py > bounds.height || blockers.some((b) => insideBox(b, px, py))) covered++;
         }
       }
       const cover = covered / total + k * 1e-3;

@@ -990,6 +990,7 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
   const lettering = LETTERINGS[knobs.lettering] ?? LETTERINGS.classic;
   const realmRole = lettering.realm;
   const subWeight = lighterWeight(realmRole);
+  // Names are placed on a realm's land: the lakes drawn as part of it are water.
   if (opts.labels && polities) {
     const obstacles: LabelObstacle[] = [];
     for (const city of cities?.cities ?? []) {
@@ -1004,7 +1005,7 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
     const maxDepth = Math.max(0, ...depths.values());
     const levels: Array<{ labels: PolityLabel[]; depth: number }> = [];
     if (maxDepth === 0) {
-      levels.push({ labels: cachedPolityLabels(polities, cities, cols, rows, size, obstacles, opts.polityNames, knobs.realmNames, realmRole, lettering.id), depth: 0 });
+      levels.push({ labels: cachedPolityLabels(rawPolities!, cities, cols, rows, size, obstacles, opts.polityNames, knobs.realmNames, realmRole, lettering.id), depth: 0 });
     } else {
       const claimed: LabelObstacle[] = [...obstacles];
       for (let depth = 0; depth <= maxDepth; depth++) {
@@ -1012,7 +1013,7 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
           cols,
           rows,
           size,
-          owner: ownersAtDepth(polities.polities, polities.owner, depth),
+          owner: ownersAtDepth(polities.polities, rawPolities!.owner, depth),
           polities: polities.polities.filter((p) => depths.get(p.id) === depth),
           obstacles: claimed,
           minHexes: opts.polityNames,
@@ -1070,7 +1071,7 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
   // --- river and mountain range names -------------------------------------
   if (rivers && opts.riverNames) {
     const pathFor = tapered ? (id: string) => courses.get(id) ?? null : undefined;
-    for (const l of placeRiverLabels(rivers.rivers, size, pathFor, lettering.river)) {
+    for (const l of placeRiverLabels(rivers.rivers, size, pathFor, lettering.river, taken)) {
       prims.push({
         kind: 'text',
         at: l.at,

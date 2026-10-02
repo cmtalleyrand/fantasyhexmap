@@ -10,6 +10,7 @@ import { hexCenter, hexEdgeMidpoint, type Point } from '../../shared/hex.js';
 import type { Elevation, MountainRange, River } from '../../shared/types.js';
 import type { FaceRole } from './lettering.js';
 import { LETTERINGS } from './lettering.js';
+import { insideBox, type OrientedBox } from './labels.js';
 import { glyphAdvances, glyphsAlong, glyphsStraight, type Glyph } from './glyphs.js';
 
 export interface FeatureLabel {
@@ -69,6 +70,7 @@ export function placeRiverLabels(
   size: number,
   pathFor?: (riverId: string) => Point[] | null,
   face: FaceRole = LETTERINGS.classic.river,
+  avoid: OrientedBox[] = [],
 ): FeatureLabel[] {
   const out: FeatureLabel[] = [];
   // Large enough to read against relief and polity colour; a river too
@@ -109,8 +111,26 @@ export function placeRiverLabels(
         );
       }
       const centreBias = Math.abs(start + width / 2 - total / 2) / total;
+      // Names already placed (realms) are avoided: the share of the text's
+      // length, sampled along its baseline and its top, that would fall on one.
+      let covered = 0;
+      if (avoid.length > 0) {
+        for (let j = 0; j <= 8; j++) {
+          const d = start + (width * j) / 8;
+          const p = pointAt(pts, cum, d);
+          const q = pointAt(pts, cum, d + font * 0.3);
+          const angle = Math.atan2(q.y - p.y, q.x - p.x);
+          const up = Math.cos(angle) >= 0 ? 1 : -1;
+          for (const lift of [font * 0.4, font * 1.2]) {
+            const x = p.x + Math.sin(angle) * lift * up;
+            const y = p.y - Math.cos(angle) * lift * up;
+            if (avoid.some((box) => insideBox(box, x, y))) covered++;
+          }
+        }
+        covered /= 18;
+      }
       // The name bends with the river, so a bend matters less than for straight type.
-      const score = (deviation / size) * 0.5 + centreBias * 0.3;
+      const score = (deviation / size) * 0.5 + centreBias * 0.3 + covered * 2;
       if (!best || score < best.score) best = { start, score };
     }
     const a = pointAt(pts, cum, best!.start);
