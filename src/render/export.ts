@@ -13,6 +13,8 @@ import { sceneToSvg } from './svg.js';
 export interface ExportOptions {
   format: 'png' | 'svg';
   labels: boolean;
+  riverNames?: boolean;
+  rangeNames?: boolean;
   elevationStyle?: 'colour' | 'contours';
   polityOpacity?: number;
   uniformLand?: boolean;
@@ -54,6 +56,8 @@ async function emit(
     size: opts.size ?? 32,
     visible,
     labels: opts.labels,
+    riverNames: opts.riverNames,
+    rangeNames: opts.rangeNames,
     elevationStyle: opts.elevationStyle,
     polityOpacity: opts.polityOpacity,
     uniformLand: opts.uniformLand,

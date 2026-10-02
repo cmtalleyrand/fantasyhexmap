@@ -89,6 +89,8 @@ export const MAP_COLOURS = {
   cityRing: '#f6f1e4',
   label: '#14100c',
   labelHalo: '#f7f3e7',
+  riverLabel: '#1f5f99',
+  rangeLabel: '#4a3a2c',
   selection: '#ffd166',
   hover: 'rgba(255,255,255,0.55)',
   stale: '#e6a33c',

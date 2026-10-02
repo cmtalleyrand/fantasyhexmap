@@ -45,6 +45,10 @@ export interface Prefs {
   polityOpacity: number;
   /** Draw coastal and inland land in the same base colour. */
   uniformLand: boolean;
+  /** Draw river names (with the Rivers layer visible). */
+  riverNames: boolean;
+  /** Draw mountain range names (with the Elevation layer visible). */
+  rangeNames: boolean;
   /**
    * Which generation of defaults these prefs were saved under. Prefs saved
    * before this existed carry the old effort and budget whether or not anyone
@@ -66,6 +70,8 @@ export const DEFAULT_PREFS: Prefs = {
   labels: true,
   polityOpacity: 1,
   uniformLand: false,
+  riverNames: false,
+  rangeNames: false,
   defaultsVersion: DEFAULTS_VERSION,
 };
 
@@ -161,6 +167,8 @@ export function loadPrefs(): Prefs {
       labels: stored.labels !== false,
       polityOpacity: clampPolityOpacity(stored.polityOpacity),
       uniformLand: stored.uniformLand === true,
+      riverNames: stored.riverNames === true,
+      rangeNames: stored.rangeNames === true,
       defaultsVersion: DEFAULTS_VERSION,
     };
   } catch {

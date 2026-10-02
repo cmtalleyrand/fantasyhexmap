@@ -39,6 +39,7 @@ export function prepareLoadedMap(map: MapState): MapState {
   map.journal ??= [];
   map.enabledLayers ??= [...LAYER_ORDER];
   map.allowUnderwater ??= false;
+  map.mountainRanges ??= [];
   map.hexDimensions = normaliseHexDimensions(map.hexDimensions);
   for (const id of LAYER_ORDER) {
     const layer = map.layers[id];
