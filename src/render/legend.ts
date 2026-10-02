@@ -15,11 +15,11 @@ import {
   BASE_COLOURS,
   CLIMATE_COLOURS,
   ELEVATION_COLOURS,
-  ISLAND_DOT,
   MAP_COLOURS,
   POPULATION_LEGEND_RAMP,
   VEGETATION_COLOURS,
 } from './palette.js';
+import { CLASSIC_STYLE, type MapStyle } from './styles.js';
 import { thematicLayer, type CitySymbol, type Prim, type Scene, type VisibleLayers } from './scene.js';
 import { LAYER_META } from '../../shared/layers.js';
 import { formatLength, riverLength } from '../../shared/riverLength.js';
@@ -59,7 +59,7 @@ export const DEFAULT_LEGEND_OPTIONS: LegendOptions = {
 
 export type LegendSwatch =
   | { kind: 'fill'; colour: string }
-  | { kind: 'island' }
+  | { kind: 'island'; sea: string; land: string }
   | { kind: 'line'; colour: string; width: number }
   | { kind: 'coast' }
   | { kind: 'city'; symbol: CitySymbol; onRiver: boolean }
@@ -126,7 +126,16 @@ export function legendSections(
   visible: VisibleLayers,
   elevationStyle: 'colour' | 'contours',
   options: LegendOptions,
+  style: MapStyle = CLASSIC_STYLE,
 ): LegendSection[] {
+  const { palette } = style;
+  const baseColour: Record<string, string> = {
+    Land: palette.land,
+    'Coastal Land': style.knobs.land === 'uniform' ? palette.land : palette.coastalLand,
+    Sea: palette.sea,
+    Lake: palette.lake,
+    Ice: palette.ice,
+  };
   const sections: LegendSection[] = [];
   const keep = <T>(all: readonly T[], used: Set<T>) =>
     options.onlyUsed ? all.filter((v) => used.has(v)) : [...all];
@@ -140,8 +149,8 @@ export function legendSections(
       case 'base':
         entries = keep(BASE_GEO_VALUES, usedValues(map.layers.base.data)).map((v) =>
           v === 'Island'
-            ? { swatch: { kind: 'island' }, label: 'Island' }
-            : { swatch: { kind: 'fill', colour: BASE_COLOURS[v] }, label: v },
+            ? { swatch: { kind: 'island', sea: palette.sea, land: palette.island }, label: 'Island' }
+            : { swatch: { kind: 'fill', colour: baseColour[v] ?? BASE_COLOURS[v] }, label: v },
         );
         break;
       case 'elevation':
@@ -171,11 +180,15 @@ export function legendSections(
       case 'rivers': {
         const segments = (map.layers.rivers.data?.rivers ?? []).flatMap((r) => r.segments);
         if (!options.onlyUsed || segments.some((s) => s.navigable)) {
-          entries.push({ swatch: { kind: 'line', colour: MAP_COLOURS.river, width: 3 }, label: 'Navigable river' });
+          entries.push({ swatch: { kind: 'line', colour: palette.river, width: 3 }, label: 'Navigable river' });
         }
         if (!options.onlyUsed || segments.some((s) => !s.navigable)) {
           entries.push({
-            swatch: { kind: 'line', colour: MAP_COLOURS.riverNonNavigable, width: 1.6 },
+            swatch: {
+              kind: 'line',
+              colour: style.knobs.rivers === 'tapered' ? palette.river : palette.riverNonNavigable,
+              width: 1.6,
+            },
             label: 'Non-navigable river',
           });
         }
@@ -183,7 +196,7 @@ export function legendSections(
           const dims = normaliseHexDimensions(map.hexDimensions);
           for (const river of map.layers.rivers.data?.rivers ?? []) {
             entries.push({
-              swatch: { kind: 'line', colour: MAP_COLOURS.river, width: 1.6 },
+              swatch: { kind: 'line', colour: palette.river, width: 1.6 },
               label: `${river.name} - ${formatLength(riverLength(river, dims), dims.unit)}`,
             });
           }
@@ -288,7 +301,7 @@ function swatchPrims(swatch: LegendSwatch, x: number, cy: number, m: ReturnType<
     case 'fill':
       return [box(swatch.colour)];
     case 'island':
-      return [box(BASE_COLOURS.Island), { kind: 'circle', c: { x: cx, y: cy }, r: 4.6 * k, fill: ISLAND_DOT }];
+      return [box(swatch.sea), { kind: 'circle', c: { x: cx, y: cy }, r: 4.6 * k, fill: swatch.land }];
     case 'line':
       return [{
         kind: 'polyline',

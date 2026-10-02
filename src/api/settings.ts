@@ -25,6 +25,11 @@ import {
   parsePolityNameMin,
   type PolityNameMin,
 } from '../render/labels.js';
+import {
+  DEFAULT_STYLE_CHOICE,
+  parseStyleChoice,
+  type MapStyleChoice,
+} from '../render/styles.js';
 import type { EncryptedKey } from './keyvault.js';
 
 const KEY_NAME = 'fantasyhexmap.apiKey';
@@ -49,8 +54,12 @@ export interface Prefs {
   labels: boolean;
   /** Opacity of the polity fill, 0.1-1; below 1 the terrain shows through. */
   polityOpacity: number;
-  /** Draw coastal and inland land in the same base colour. */
-  uniformLand: boolean;
+  /**
+   * The map style: a preset plus the knobs changed from it. Whether coastal
+   * land has its own colour is one of those knobs (it used to be a separate
+   * `uniformLand` setting, which version 4 folded in).
+   */
+  mapStyle: MapStyleChoice;
   /** Draw river names (with the Rivers layer visible). */
   riverNames: boolean;
   /** Draw mountain range names (with the Elevation layer visible). */
@@ -66,7 +75,7 @@ export interface Prefs {
   defaultsVersion?: number;
 }
 
-const DEFAULTS_VERSION = 3;
+const DEFAULTS_VERSION = 4;
 
 export const DEFAULT_PREFS: Prefs = {
   model: DEFAULT_MODEL,
@@ -77,7 +86,7 @@ export const DEFAULT_PREFS: Prefs = {
   elevationStyle: 'colour',
   labels: true,
   polityOpacity: 1,
-  uniformLand: false,
+  mapStyle: DEFAULT_STYLE_CHOICE,
   riverNames: false,
   rangeNames: false,
   polityNames: DEFAULT_POLITY_NAME_MIN,
@@ -159,7 +168,7 @@ export function loadPrefs(): Prefs {
   const raw = safeGet(window.localStorage, PREFS_NAME);
   if (!raw) return { ...DEFAULT_PREFS };
   try {
-    const stored = JSON.parse(raw) as Partial<Prefs>;
+    const stored = JSON.parse(raw) as Partial<Prefs> & { uniformLand?: unknown };
     if (
       // Version 2 restored high effort and a larger budget; prefs saved under
       // version 2 or later chose whatever they hold.
@@ -175,14 +184,21 @@ export function loadPrefs(): Prefs {
     if ((stored.defaultsVersion ?? 1) < 3 && stored.model === PREVIOUS_DEFAULT_MODEL) {
       delete stored.model;
     }
+    // Version 4 made "all land one colour" a knob of the map style. Someone
+    // who had it on keeps it, as an override of the Classic preset.
+    let mapStyle = parseStyleChoice(stored.mapStyle);
+    if (stored.mapStyle === undefined && stored.uniformLand === true) {
+      mapStyle = { preset: 'classic', overrides: { land: 'uniform' } };
+    }
+    delete stored.uniformLand;
     return {
       ...DEFAULT_PREFS,
       ...stored,
+      mapStyle,
       taskBudget: clampTaskBudget(stored.taskBudget ?? DEFAULT_PREFS.taskBudget),
       elevationStyle: stored.elevationStyle === 'contours' ? 'contours' : 'colour',
       labels: stored.labels !== false,
       polityOpacity: clampPolityOpacity(stored.polityOpacity),
-      uniformLand: stored.uniformLand === true,
       riverNames: stored.riverNames === true,
       rangeNames: stored.rangeNames === true,
       polityNames: parsePolityNameMin(stored.polityNames),

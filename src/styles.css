@@ -363,3 +363,9 @@ button.eye:hover:not(:disabled) { border-color: var(--line); }
 .menu [role='menuitem']:hover, .menu [role='menuitem']:focus-visible { background: var(--panel-2); border-color: var(--line); outline: none; }
 .menu hr { border: none; border-top: 1px solid var(--line); margin: 4px 0; width: 100%; }
 .modal .section:last-child { margin-bottom: 0; }
+
+/* Map style picker */
+.style-knobs { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 10px 16px; }
+.style-knob { display: flex; flex-direction: column; gap: 4px; }
+.style-knob .segmented .seg { padding: 5px 9px; font-size: 12px; }
+.knob-changed { color: var(--accent); text-transform: none; font-weight: 400; }

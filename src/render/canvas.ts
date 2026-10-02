@@ -1,14 +1,91 @@
 import { FANTASY_FONT_STACK, FONT_STACK } from './fonts.js';
-import type { Prim, Scene } from './scene.js';
+import type { PathCmd, Prim } from './prims.js';
+import type { Scene } from './scene.js';
 import { MAP_COLOURS } from './palette.js';
+import type { GrainTile } from './texture.js';
 
+type Ctx = CanvasRenderingContext2D;
 
-export function drawScene(ctx: CanvasRenderingContext2D, scene: Scene): void {
-  for (const prim of scene.prims) drawPrim(ctx, prim);
+export function drawScene(ctx: Ctx, scene: Scene): void {
+  drawPrims(ctx, scene.prims);
 }
 
-function drawPrim(ctx: CanvasRenderingContext2D, prim: Prim): void {
+export function drawPrims(ctx: Ctx, prims: Prim[]): void {
+  for (const prim of prims) drawPrim(ctx, prim);
+}
+
+function tracePath(ctx: Ctx, d: PathCmd[]): void {
+  ctx.beginPath();
+  for (const c of d) {
+    switch (c[0]) {
+      case 'M': ctx.moveTo(c[1], c[2]); break;
+      case 'L': ctx.lineTo(c[1], c[2]); break;
+      case 'Q': ctx.quadraticCurveTo(c[1], c[2], c[3], c[4]); break;
+      case 'C': ctx.bezierCurveTo(c[1], c[2], c[3], c[4], c[5], c[6]); break;
+      case 'Z': ctx.closePath(); break;
+    }
+  }
+}
+
+/** One canvas per tile, reused: building the pattern source is the expensive part. */
+const tileCanvases = new Map<string, HTMLCanvasElement | OffscreenCanvas>();
+
+function tileSource(tile: GrainTile): HTMLCanvasElement | OffscreenCanvas | null {
+  const hit = tileCanvases.get(tile.id);
+  if (hit) return hit;
+  let canvas: HTMLCanvasElement | OffscreenCanvas;
+  if (typeof OffscreenCanvas !== 'undefined') canvas = new OffscreenCanvas(tile.size, tile.size);
+  else if (typeof document !== 'undefined') {
+    canvas = document.createElement('canvas');
+    canvas.width = tile.size;
+    canvas.height = tile.size;
+  } else return null;
+  const tctx = canvas.getContext('2d') as CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null;
+  if (!tctx) return null;
+  tctx.putImageData(new ImageData(new Uint8ClampedArray(tile.rgba), tile.size, tile.size), 0, 0);
+  tileCanvases.set(tile.id, canvas);
+  return canvas;
+}
+
+function drawPrim(ctx: Ctx, prim: Prim): void {
   switch (prim.kind) {
+    case 'path': {
+      tracePath(ctx, prim.d);
+      if (prim.fill) {
+        ctx.fillStyle = prim.fill;
+        ctx.fill(prim.fillRule ?? 'nonzero');
+      }
+      if (prim.stroke) {
+        ctx.strokeStyle = prim.stroke;
+        ctx.lineWidth = prim.strokeWidth ?? 1;
+        ctx.lineJoin = prim.round ? 'round' : 'miter';
+        ctx.lineCap = prim.round ? 'round' : 'butt';
+        ctx.setLineDash(prim.dash ?? []);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.lineJoin = 'miter';
+        ctx.lineCap = 'butt';
+      }
+      break;
+    }
+    case 'group': {
+      ctx.save();
+      if (prim.clip) {
+        tracePath(ctx, prim.clip);
+        ctx.clip('nonzero');
+      }
+      drawPrims(ctx, prim.prims);
+      ctx.restore();
+      break;
+    }
+    case 'texture': {
+      const source = tileSource(prim.tile);
+      const pattern = source ? ctx.createPattern(source as CanvasImageSource, 'repeat') : null;
+      if (!pattern) break;
+      ctx.fillStyle = pattern;
+      ctx.fillRect(prim.x, prim.y, prim.width, prim.height);
+      break;
+    }
     case 'polygon': {
       ctx.beginPath();
       prim.points.forEach((p, i) => (i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y)));
@@ -84,8 +161,9 @@ function drawPrim(ctx: CanvasRenderingContext2D, prim: Prim): void {
     }
     case 'city': {
       const { c, r, symbol } = prim;
-      ctx.fillStyle = MAP_COLOURS.city;
-      ctx.strokeStyle = MAP_COLOURS.cityRing;
+      const ring = prim.ring ?? MAP_COLOURS.cityRing;
+      ctx.fillStyle = prim.fill ?? MAP_COLOURS.city;
+      ctx.strokeStyle = ring;
       ctx.lineWidth = Math.max(1, r * 0.16);
       ctx.lineJoin = 'round';
       ctx.beginPath();
@@ -122,7 +200,7 @@ function drawPrim(ctx: CanvasRenderingContext2D, prim: Prim): void {
       }
       ctx.beginPath();
       ctx.arc(c.x, c.y, Math.max(1.5, r * 0.2), 0, Math.PI * 2);
-      ctx.fillStyle = prim.onRiver ? MAP_COLOURS.river : MAP_COLOURS.cityRing;
+      ctx.fillStyle = prim.onRiver ? prim.riverDot ?? MAP_COLOURS.river : ring;
       ctx.fill();
       ctx.lineJoin = 'miter';
       break;

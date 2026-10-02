@@ -12,6 +12,7 @@ import type { TransportMode } from '../api/client.js';
 import type { HexDimensions } from '../../shared/types.js';
 import { POLITY_NAME_MIN_OPTIONS, parsePolityNameMin } from '../render/labels.js';
 import HexSizeInput from './HexSizeInput.js';
+import MapStylePicker from './MapStylePicker.js';
 import { MODELS, effortFor, modelInfo } from '../../core/models.js';
 
 export type SettingsTab = 'map' | 'display' | 'generation' | 'key';
@@ -150,6 +151,11 @@ export default function SettingsDialog(props: SettingsDialogProps) {
 
         {tab === 'display' && (
           <div className="stack">
+            <h3>Map style</h3>
+            <MapStylePicker
+              value={prefs.mapStyle}
+              onChange={(mapStyle) => setPrefs({ ...prefs, mapStyle })}
+            />
             <h3>Elevation</h3>
             <div className="segmented" role="radiogroup" aria-label="Elevation representation">
               {ELEVATION_STYLES.map((o) => (
@@ -193,15 +199,7 @@ export default function SettingsDialog(props: SettingsDialogProps) {
             <p className="hint">
               Below 100% the terrain under each realm shows through its colour. Borders stay solid.
             </p>
-            <h3>Base geography</h3>
-            <label className="check">
-              <input
-                type="checkbox"
-                checked={prefs.uniformLand}
-                onChange={(e) => setPrefs({ ...prefs, uniformLand: e.target.checked })}
-              />
-              Draw all land the same colour (coastal and inland alike)
-            </label>
+            <h3>Names</h3>
             <label className="check">
               <input
                 type="checkbox"

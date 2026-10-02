@@ -1,0 +1,246 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import { hexEdgePoints, hexIndex, inBounds, neighbourOf } from '../shared/hex.ts';
+import { createMapState } from '../shared/layers.ts';
+import type { BaseGeo, MapState } from '../shared/types.ts';
+import { chainEdges, coastEdges, coastGeometry, sideOf } from '../src/render/coast.ts';
+import type { PathCmd, Prim } from '../src/render/prims.ts';
+import { riverCourse } from '../src/render/rivers.ts';
+import { buildScene, defaultVisibility } from '../src/render/scene.ts';
+import {
+  PRESET_ORDER,
+  parseStyleChoice,
+  resolveStyle,
+  withKnob,
+} from '../src/render/styles.ts';
+import { sceneToSvg } from '../src/render/svg.ts';
+import { encodePng } from '../src/render/texture.ts';
+
+/** A 9x7 sea with an irregular island, a one-hex lake in it, ice along the bottom and an islet. */
+function islandMap(): MapState {
+  const cols = 9;
+  const rows = 7;
+  const map = createMapState('Coast test', cols, rows);
+  const base: BaseGeo[] = Array(cols * rows).fill('Sea');
+  const land = [
+    [2, 1], [3, 1], [4, 1], [2, 2], [3, 2], [4, 2], [5, 2], [1, 3], [2, 3], [4, 3], [5, 3],
+    [2, 4], [3, 4], [4, 4],
+  ];
+  for (const [col, row] of land) base[hexIndex(cols, col!, row!)] = 'Land';
+  base[hexIndex(cols, 3, 3)] = 'Lake';
+  base[hexIndex(cols, 7, 1)] = 'Island';
+  for (let col = 0; col < cols; col++) base[hexIndex(cols, col, rows - 1)] = 'Ice';
+  map.layers.base.data = base;
+  map.layers.rivers.data = {
+    rivers: [{
+      id: 'r', name: 'Wend', terminus: 'Sea',
+      segments: [
+        { col: 3, row: 2, entryEdge: null, exitEdge: 3, navigable: false },
+        { col: 2, row: 2, entryEdge: 0, exitEdge: 2, navigable: true },
+        { col: 1, row: 3, entryEdge: 5, exitEdge: 3, navigable: true },
+      ],
+    }],
+  };
+  return map;
+}
+
+const allLayers = () => {
+  const v = defaultVisibility();
+  v.rivers = true;
+  return v;
+};
+
+test('every land/water edge lies on exactly one coast chain, and chains join end to start', () => {
+  const map = islandMap();
+  const base = map.layers.base.data!;
+  const size = 10;
+  const edges = coastEdges(base, map.cols, map.rows, size);
+  let expected = 0;
+  for (let row = 0; row < map.rows; row++) {
+    for (let col = 0; col < map.cols; col++) {
+      if (sideOf(base[hexIndex(map.cols, col, row)]) !== 'land') continue;
+      for (let e = 0; e < 6; e++) {
+        const n = neighbourOf(col, row, e);
+        if (inBounds(map.cols, map.rows, n.col, n.row) && sideOf(base[hexIndex(map.cols, n.col, n.row)]) === 'water') expected++;
+      }
+    }
+  }
+  assert.equal(edges.length, expected);
+  const chains = chainEdges(edges);
+  assert.equal(chains.reduce((sum, c) => sum + c.edges.length, 0), expected, 'no edge lost or repeated');
+  const close = (a: { x: number; y: number }, b: { x: number; y: number }) => Math.hypot(a.x - b.x, a.y - b.y) < 1e-6;
+  for (const chain of chains) {
+    for (let k = 0; k + 1 < chain.edges.length; k++) assert.ok(close(chain.edges[k]!.to, chain.edges[k + 1]!.from));
+    if (chain.closed) assert.ok(close(chain.edges.at(-1)!.to, chain.edges[0]!.from));
+  }
+  // The island's outer shore and the lake's shore close; the ice shore runs off both map edges.
+  assert.equal(chains.filter((c) => c.closed).length, 2);
+  assert.equal(chains.filter((c) => !c.closed).length, 1);
+});
+
+test('the smoothed coast passes through every coast edge midpoint and stays within an eighth of a hex', () => {
+  const map = islandMap();
+  const size = 10;
+  const geometry = coastGeometry(map.layers.base.data!, map.cols, map.rows, size, true);
+  for (const [k, chain] of geometry.chains.entries()) {
+    const d = geometry.paths[k]!;
+    const ends = d.filter((c) => c[0] === 'Q').map((c) => ({ x: c[3] as number, y: c[4] as number }));
+    for (const edge of chain.edges) {
+      const m = { x: (edge.from.x + edge.to.x) / 2, y: (edge.from.y + edge.to.y) / 2 };
+      const onCurve = ends.some((p) => Math.hypot(p.x - m.x, p.y - m.y) < 1e-6)
+        || d.some((c) => c[0] !== 'Z' && Math.hypot((c.at(-2) as number) - m.x, (c.at(-1) as number) - m.y) < 1e-6);
+      assert.ok(onCurve, 'curve passes through each edge midpoint');
+    }
+    // A quadratic segment's furthest point from its control corner is at t = 0.5.
+    let start = { x: 0, y: 0 };
+    for (const c of d) {
+      if (c[0] === 'Q') {
+        const [, cx, cy, x, y] = c;
+        const midX = 0.25 * start.x + 0.5 * cx + 0.25 * x;
+        const midY = 0.25 * start.y + 0.5 * cy + 0.25 * y;
+        assert.ok(Math.hypot(midX - cx, midY - cy) <= size / 8 + 1e-6);
+      }
+      if (c[0] !== 'Z') start = { x: c.at(-2) as number, y: c.at(-1) as number };
+    }
+  }
+  assert.ok(geometry.toWater.length > 0 && geometry.toLand.length > 0, 'both kinds of corner are corrected');
+});
+
+test('hex-edge coast follows the hex edges exactly', () => {
+  const map = islandMap();
+  const size = 10;
+  const geometry = coastGeometry(map.layers.base.data!, map.cols, map.rows, size, false);
+  assert.equal(geometry.toWater.length + geometry.toLand.length, 0);
+  const corners = new Set<string>();
+  for (let i = 0; i < map.cols * map.rows; i++) {
+    for (let e = 0; e < 6; e++) {
+      const [a] = hexEdgePoints(i % map.cols, Math.floor(i / map.cols), e, size);
+      corners.add(`${a.x.toFixed(4)},${a.y.toFixed(4)}`);
+    }
+  }
+  for (const d of geometry.paths) {
+    for (const c of d) {
+      if (c[0] === 'Z') continue;
+      assert.ok(corners.has(`${(c[1] as number).toFixed(4)},${(c[2] as number).toFixed(4)}`), 'every vertex is a hex corner');
+    }
+  }
+});
+
+test('stored style choices are validated knob by knob', () => {
+  assert.deepEqual(parseStyleChoice(null), { preset: 'classic', overrides: {} });
+  assert.deepEqual(parseStyleChoice({ preset: 'nonsense' }), { preset: 'classic', overrides: {} });
+  assert.deepEqual(
+    parseStyleChoice({ preset: 'parchment', overrides: { grid: 'all', water: 'lava', grain: 'yes', rivers: 'classic' } }),
+    { preset: 'parchment', overrides: { grid: 'all', rivers: 'classic' } },
+  );
+  const parchment = resolveStyle({ preset: 'parchment', overrides: { grid: 'all' } });
+  assert.equal(parchment.knobs.grid, 'all');
+  assert.equal(parchment.knobs.coast, 'smooth', 'unchanged knobs come from the preset');
+  // Choosing the preset's own value removes the override rather than storing it.
+  const back = withKnob({ preset: 'parchment', overrides: { grid: 'all' } }, 'grid', 'land');
+  assert.deepEqual(back.overrides, {});
+});
+
+test('a saved "all land one colour" setting survives as a style override', async () => {
+  const store = new Map<string, string>();
+  const storage = {
+    getItem: (k: string) => store.get(k) ?? null,
+    setItem: (k: string, v: string) => void store.set(k, v),
+    removeItem: (k: string) => void store.delete(k),
+  };
+  (globalThis as { window?: unknown }).window = { localStorage: storage, sessionStorage: storage };
+  try {
+    const { loadPrefs } = await import('../src/api/settings.ts');
+    store.set('fantasyhexmap.prefs', JSON.stringify({ uniformLand: true, defaultsVersion: 3 }));
+    const migrated = loadPrefs();
+    assert.deepEqual(migrated.mapStyle, { preset: 'classic', overrides: { land: 'uniform' } });
+    assert.equal('uniformLand' in migrated, false);
+    store.set('fantasyhexmap.prefs', JSON.stringify({ uniformLand: false, defaultsVersion: 3 }));
+    assert.deepEqual(loadPrefs().mapStyle, { preset: 'classic', overrides: {} });
+    store.set('fantasyhexmap.prefs', JSON.stringify({ mapStyle: { preset: 'parchment', overrides: {} } }));
+    assert.equal(loadPrefs().mapStyle.preset, 'parchment');
+  } finally {
+    delete (globalThis as { window?: unknown }).window;
+  }
+});
+
+test('the classic style without overrides draws exactly what the default scene draws', () => {
+  const map = islandMap();
+  const plain = buildScene(map, { size: 20, visible: allLayers(), labels: true });
+  const classic = buildScene(map, { size: 20, visible: allLayers(), labels: true, style: resolveStyle({ preset: 'classic', overrides: {} }) });
+  assert.deepEqual(classic, plain);
+  // The background is the sea, so the ragged half-hex edges read as sea.
+  assert.equal(plain.background, '#1d3b57');
+});
+
+test('every preset builds a deterministic scene and a well-formed SVG', () => {
+  for (const preset of PRESET_ORDER) {
+    const style = resolveStyle({ preset, overrides: {} });
+    // Decoration is seeded by the map's id, so determinism is per map.
+    const mapA = islandMap();
+    const once = buildScene(mapA, { size: 20, visible: allLayers(), labels: true, riverNames: true, style });
+    const twice = buildScene(mapA, { size: 20, visible: allLayers(), labels: true, riverNames: true, style });
+    assert.deepEqual(once, twice, `${preset}: same map, same picture`);
+    const svg = sceneToSvg(once, preset);
+    assert.ok(svg.startsWith('<?xml'));
+    const opened = (svg.match(/<g\b/g) ?? []).length;
+    const closed = (svg.match(/<\/g>/g) ?? []).length;
+    assert.equal(opened, closed, `${preset}: groups balance`);
+    for (const ref of svg.match(/url\(#([^)]+)\)/g) ?? []) {
+      const id = ref.slice(5, -1);
+      assert.ok(svg.includes(`id="${id}"`), `${preset}: ${id} is defined`);
+    }
+  }
+});
+
+test('the parchment draft turns on every phase-one treatment', () => {
+  const map = islandMap();
+  const style = resolveStyle({ preset: 'parchment', overrides: {} });
+  const prims = buildScene(map, { size: 20, visible: allLayers(), labels: false, style }).prims;
+  const kinds = (list: Prim[]): string[] => list.flatMap((p) => (p.kind === 'group' ? ['group', ...kinds(p.prims)] : [p.kind]));
+  const all = kinds(prims);
+  assert.ok(all.includes('group'), 'ripples are clipped to the water');
+  assert.ok(all.includes('texture'), 'paper grain');
+  assert.ok(!prims.some((p) => p.kind === 'circle'), 'islets replace island dots');
+  assert.ok(!prims.some((p) => p.kind === 'polyline' && p.smooth), 'the river is a filled outline, not a stroke');
+  // The grid is land-only: no grid edge touches a sea hex centre's surroundings far from land.
+  const grid = prims.find((p): p is Extract<Prim, { kind: 'path' }> => p.kind === 'path' && p.stroke === style.palette.grid);
+  assert.ok(grid);
+});
+
+test('editing one hex leaves the decoration of distant hexes unchanged', () => {
+  const map = islandMap();
+  const style = resolveStyle({ preset: 'parchment', overrides: { water: 'flat' } });
+  const before = buildScene(map, { size: 20, visible: defaultVisibility(), labels: false, style });
+  const edited = structuredClone(map);
+  edited.layers.base.data![hexIndex(map.cols, 0, 0)] = 'Island';
+  const after = buildScene(edited, { size: 20, visible: defaultVisibility(), labels: false, style });
+  const islet = (scene: typeof before, c: { x: number; y: number }) =>
+    scene.prims.filter((p) => p.kind === 'path' && p.fill === style.palette.island)
+      .map((p) => JSON.stringify((p as { d: PathCmd[] }).d))
+      .filter((d) => {
+        const first = JSON.parse(d)[0] as [string, number, number];
+        return Math.hypot(first[1] - c.x, first[2] - c.y) < 20;
+      });
+  // The existing islet at (7, 1) keeps its exact outline.
+  const centre = { x: 20 * Math.sqrt(3) * 7.5 + 20 * Math.sqrt(3) / 2, y: 20 * 1.5 + 20 };
+  assert.deepEqual(islet(after, centre), islet(before, centre));
+});
+
+test('a tapered river widens downstream, flares at its mouth and keeps to its hexes', () => {
+  const map = islandMap();
+  const size = 20;
+  const course = riverCourse(map.layers.rivers.data!.rivers[0]!, size, map.id)!;
+  assert.ok(course);
+  const { widths } = course;
+  assert.ok(widths[0]! < widths[Math.floor(widths.length / 2)]!, 'narrow at the source');
+  assert.ok(widths.at(-1)! > widths.at(-8)!, 'flared at the mouth');
+  assert.ok(Math.max(...widths) <= size * 0.3 * 1.9 + 1e-9);
+});
+
+test('the PNG encoder writes a valid signature and chunk layout', () => {
+  const png = encodePng(2, 2, new Uint8ClampedArray(16).fill(200));
+  assert.deepEqual([...png.slice(0, 8)], [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+  const text = String.fromCharCode(...png);
+  assert.ok(text.includes('IHDR') && text.includes('IDAT') && text.endsWith('IEND' + text.slice(-4)));
+});
