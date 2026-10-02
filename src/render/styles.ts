@@ -42,6 +42,10 @@ export interface StyleKnobs {
   frontier: 'none' | 'solid' | 'dashed' | 'dashdot';
   /** Realm colours as chosen, lightened, or greyed. */
   polityTone: 'vivid' | 'pastel' | 'muted';
+  /** Realm names in moderate type, or grown to fill their territory. */
+  realmNames: 'moderate' | 'fill';
+  /** Where a city's name goes first: beside its marker or below it. */
+  cityNames: 'beside' | 'below';
   /** The dashed water-coloured marks on a city's coastal edges. */
   cityCoastMarks: boolean;
   /** Paper grain over the whole map. */
@@ -160,6 +164,8 @@ const CLASSIC: PresetInfo = {
     frontier: 'none',
     polityTone: 'vivid',
     cityCoastMarks: true,
+    realmNames: 'moderate',
+    cityNames: 'beside',
   },
 };
 
@@ -212,6 +218,8 @@ const PARCHMENT: PresetInfo = {
     frontier: 'solid',
     polityTone: 'vivid',
     cityCoastMarks: false,
+    realmNames: 'moderate',
+    cityNames: 'beside',
   },
 };
 
@@ -263,6 +271,8 @@ const ATLAS: PresetInfo = {
     frontier: 'solid',
     polityTone: 'vivid',
     cityCoastMarks: false,
+    realmNames: 'moderate',
+    cityNames: 'beside',
   },
 };
 
@@ -314,6 +324,8 @@ const NIGHT: PresetInfo = {
     frontier: 'solid',
     polityTone: 'muted',
     cityCoastMarks: false,
+    realmNames: 'moderate',
+    cityNames: 'beside',
   },
 };
 
@@ -425,6 +437,20 @@ export const KNOB_OPTIONS: {
       { value: 'muted', label: 'Muted' },
     ],
   },
+  realmNames: {
+    label: 'Realm names',
+    options: [
+      { value: 'moderate', label: 'Moderate size' },
+      { value: 'fill', label: 'Fill the territory' },
+    ],
+  },
+  cityNames: {
+    label: 'City names',
+    options: [
+      { value: 'beside', label: 'Beside the marker' },
+      { value: 'below', label: 'Below the marker' },
+    ],
+  },
   cityCoastMarks: {
     label: 'Coastal edge marks on cities',
     options: [
@@ -448,7 +474,7 @@ export const KNOB_OPTIONS: {
   },
 };
 
-export const KNOB_ORDER: KnobId[] = ['relief', 'water', 'ripples', 'coast', 'grid', 'land', 'islands', 'ice', 'rivers', 'polityStyle', 'frontier', 'polityTone', 'subPolities', 'cityCoastMarks', 'grain'];
+export const KNOB_ORDER: KnobId[] = ['relief', 'water', 'ripples', 'coast', 'grid', 'land', 'islands', 'ice', 'rivers', 'polityStyle', 'frontier', 'polityTone', 'subPolities', 'realmNames', 'cityNames', 'cityCoastMarks', 'grain'];
 
 export const DEFAULT_STYLE_CHOICE: MapStyleChoice = { preset: 'classic', overrides: {} };
 

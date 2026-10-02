@@ -70,12 +70,26 @@ export interface LabelInput {
   minHexes?: PolityNameMin;
   /** Type size relative to a top-level realm's: the parts of a realm are named smaller. */
   scale?: number;
+  /**
+   * 'moderate' (the default): type grows slowly with area and is capped near
+   * a hex, and a sizeable realm keeps legible type rather than shrinking to
+   * fit an awkward shape. 'fill': type grows to fill the territory.
+   */
+  sizing?: 'moderate' | 'fill';
 }
 
 const LABEL_HEIGHT_EM = LABEL_LINE_EM;
 /** Preference for keeping a name on one line when wrapping gains nothing. */
 const WRAP_PENALTY = 0.02;
 const MIN_FONT = 7;
+/** Moderate realm-name type, in hex sizes. */
+const MODERATE_MIN = 0.45;
+const MODERATE_MAX = 1.1;
+/** The smallest moderate type for a realm of FLOOR_FROM_HEXES hexes or more, in hex sizes. */
+const MODERATE_FLOOR = 0.42;
+const FLOOR_FROM_HEXES = 8;
+/** The coverage a sizeable realm accepts to keep its floor size: some of the name may lie over neighbours. */
+const LOOSE_COVERAGE = 0.66;
 const GOOD_COVERAGE = 0.92;
 /** Tried before the fallback, so a name shrinks before it is allowed over water. */
 const SECOND_COVERAGE = 0.86;
@@ -216,7 +230,16 @@ export function placePolityLabels(input: LabelInput): PolityLabel[] {
     // Capped, so the largest realms are named in large type rather than in
     // letters so big they cannot fit without crossing water and neighbours.
     const scale = input.scale ?? 1;
-    const idealSize = Math.min(size * MAX_FONT_HEXES * scale, size * 0.28 * scale * Math.sqrt(owned.length));
+    const moderate = (input.sizing ?? 'moderate') === 'moderate';
+    // Moderate type grows with the fourth root of the area (a realm sixteen
+    // times larger gets type twice the size), between about half a hex and a
+    // hex; filling type grows with the square root, up to 2.2 hexes.
+    const idealSize = moderate
+      ? size * scale * Math.min(MODERATE_MAX, Math.max(MODERATE_MIN, 0.36 * Math.sqrt(Math.sqrt(owned.length))))
+      : Math.min(size * MAX_FONT_HEXES * scale, size * 0.28 * scale * Math.sqrt(owned.length));
+    // A realm of any size keeps type at least this large, letting more of the
+    // name run over neighbouring land rather than shrinking to a footnote.
+    const floor = moderate && owned.length >= FLOOR_FROM_HEXES ? Math.max(MIN_FONT, size * scale * MODERATE_FLOOR) : MIN_FONT;
 
     const attempt = (
       obstacles: LabelBox[],
@@ -272,12 +295,15 @@ export function placePolityLabels(input: LabelInput): PolityLabel[] {
     // A small polity in auto mode gets only the strictest attempt: clear of
     // cities and other names, fully inside its territory.
     const label =
-      attempt(blockers, GOOD_COVERAGE, MIN_FONT) ??
+      attempt(blockers, GOOD_COVERAGE, floor) ??
       (minHexes === 'auto' && small
         ? null
-        : (attempt(claimed, GOOD_COVERAGE, MIN_FONT) ??
-          attempt(claimed, SECOND_COVERAGE, MIN_FONT) ??
-          attempt(claimed, FALLBACK_COVERAGE, MIN_FONT)));
+        : (attempt(claimed, GOOD_COVERAGE, floor) ??
+          attempt(claimed, SECOND_COVERAGE, floor) ??
+          attempt(claimed, FALLBACK_COVERAGE, floor) ??
+          (floor > MIN_FONT
+            ? attempt(claimed, LOOSE_COVERAGE, floor) ?? attempt(claimed, FALLBACK_COVERAGE, MIN_FONT)
+            : null)));
     if (!label) continue;
     placed.push(label);
     const em = Math.max(...label.lines.map((line) => fantasyTextEm(line)));
@@ -338,6 +364,8 @@ export function placeCityNames(
   textWidth: (text: string) => number,
   obstacles: OrientedBox[],
   bounds: { width: number; height: number },
+  /** Which slot is tried first: beside the marker (right, then left) or below it. */
+  prefer: 'beside' | 'below' = 'beside',
 ): CityNamePlacement[] {
   const order = [...cities].sort((a, b) => b.population - a.population || a.name.localeCompare(b.name));
   const markers: OrientedBox[] = cities.map((c) => ({ cx: c.at.x, cy: c.at.y, halfW: c.r, halfH: c.r, rotation: 0 }));
@@ -360,6 +388,8 @@ export function placeCityNames(
       { at: { x: x + d + gap, y: y + d + h / 2 }, anchor: 'start', box: { cx: x + d + gap + w / 2, cy: y + d + h / 2, halfW: w / 2, halfH: h / 2, rotation: 0 } },
       { at: { x: x - d - gap, y: y + d + h / 2 }, anchor: 'end', box: { cx: x - d - gap - w / 2, cy: y + d + h / 2, halfW: w / 2, halfH: h / 2, rotation: 0 } },
     ];
+    // Below first, then the usual order, when names are preferred below their marker.
+    if (prefer === 'below') slots.unshift(...slots.splice(2, 1));
     const ownMarker = markers[cities.indexOf(city)];
     const blockers = [...obstacles, ...markers.filter((m) => m !== ownMarker), ...placed];
     let best = 0;

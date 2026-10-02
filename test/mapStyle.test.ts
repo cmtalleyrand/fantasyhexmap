@@ -756,3 +756,13 @@ test('the frontier line can be switched off, and is drawn in filled mode when on
   assert.equal(lines('none'), 0);
   assert.equal(lines('solid'), 1);
 });
+
+test('city names can prefer the place below their marker', async () => {
+  const { placeCityNames } = await import('../src/render/labels.ts');
+  const city = [{ id: 'a', name: 'Alder', at: { x: 100, y: 100 }, r: 5, population: 10_000 }];
+  const beside = placeCityNames(city, 10, (t) => t.length * 6, [], { width: 400, height: 400 });
+  const below = placeCityNames(city, 10, (t) => t.length * 6, [], { width: 400, height: 400 }, 'below');
+  assert.equal(beside[0]!.anchor, 'start');
+  assert.equal(below[0]!.anchor, 'middle');
+  assert.ok(below[0]!.at.y > 100);
+});

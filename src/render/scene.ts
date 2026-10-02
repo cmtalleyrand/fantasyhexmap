@@ -167,8 +167,9 @@ function cachedPolityLabels(
   size: number,
   obstacles: LabelObstacle[],
   minHexes: PolityNameMin | undefined,
+  sizing: 'moderate' | 'fill',
 ): PolityLabel[] {
-  const key = `${cols}x${rows}@${size}/${minHexes ?? ''}`;
+  const key = `${cols}x${rows}@${size}/${minHexes ?? ''}/${sizing}`;
   const hit = labelCache.get(data.owner);
   if (hit && hit.key === key && hit.cities === cities && hit.polities === data.polities) return hit.labels;
   const labels = placePolityLabels({
@@ -179,6 +180,7 @@ function cachedPolityLabels(
     polities: data.polities,
     obstacles,
     minHexes,
+    sizing,
   });
   labelCache.set(data.owner, { cities, polities: data.polities, key, labels });
   return labels;
@@ -965,7 +967,7 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
     const maxDepth = Math.max(0, ...depths.values());
     const levels: Array<{ labels: PolityLabel[]; depth: number }> = [];
     if (maxDepth === 0) {
-      levels.push({ labels: cachedPolityLabels(polities, cities, cols, rows, size, obstacles, opts.polityNames), depth: 0 });
+      levels.push({ labels: cachedPolityLabels(polities, cities, cols, rows, size, obstacles, opts.polityNames, knobs.realmNames), depth: 0 });
     } else {
       const claimed: LabelObstacle[] = [...obstacles];
       for (let depth = 0; depth <= maxDepth; depth++) {
@@ -978,6 +980,7 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
           obstacles: claimed,
           minHexes: opts.polityNames,
           scale: depth === 0 ? 1 : 0.62 ** depth,
+          sizing: knobs.realmNames,
         });
         for (const label of labels) {
           const em = Math.max(...label.lines.map((line) => fantasyTextEm(line)));
@@ -1095,6 +1098,7 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
       (text) => uiTextEm(text) * fontSize,
       taken,
       { width, height },
+      knobs.cityNames,
     );
     const byId = new Map(cities.cities.map((c) => [c.id, c]));
     for (const p of placements) {
