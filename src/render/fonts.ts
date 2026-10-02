@@ -45,3 +45,20 @@ export function fantasyTextEm(text: string, weight = 600): number {
   widths.set(key, em);
   return em;
 }
+
+/** Width of `text` in em in the plain face used for city names. */
+export function uiTextEm(text: string, weight = 600): number {
+  const key = `ui|${weight}|${text}`;
+  const cached = widths.get(key);
+  if (cached !== undefined) return cached;
+  const ctx = context();
+  // Mixed-case sans-serif runs narrower than the upper-case display estimate.
+  let em = text.length * 0.56;
+  if (ctx) {
+    ctx.font = `${weight} ${PROBE_PX}px ${FONT_STACK}`;
+    const measured = ctx.measureText(text).width / PROBE_PX;
+    if (measured > 0) em = measured * SAFETY;
+  }
+  widths.set(key, em);
+  return em;
+}

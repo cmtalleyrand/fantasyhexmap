@@ -43,6 +43,7 @@ export default function ExportPanel({
   mapStyle,
   riverNames: initialRiverNames,
   rangeNames: initialRangeNames,
+  seaNames: initialSeaNames,
   polityNames,
 }: {
   map: MapState;
@@ -53,12 +54,14 @@ export default function ExportPanel({
   mapStyle: MapStyle;
   riverNames: boolean;
   rangeNames: boolean;
+  seaNames: boolean;
   polityNames: PolityNameMin;
 }) {
   const [format, setFormat] = useState<'png' | 'svg'>('png');
   const [labels, setLabels] = useState(initialLabels);
   const [riverNames, setRiverNames] = useState(initialRiverNames);
   const [rangeNames, setRangeNames] = useState(initialRangeNames);
+  const [seaNames, setSeaNames] = useState(initialSeaNames);
   const [scale, setScale] = useState('2');
   const [legend, setLegend] = useState(false);
   const [legendTitle, setLegendTitle] = useState(DEFAULT_LEGEND_OPTIONS.title);
@@ -79,7 +82,6 @@ export default function ExportPanel({
     labels,
     size: 32,
     scale: Number(scale) || 2,
-    elevationStyle,
     polityOpacity,
     style: mapStyle,
     polityNames,
@@ -118,6 +120,9 @@ export default function ExportPanel({
         </Check>
         <Check checked={rangeNames} onChange={setRangeNames}>
           Render mountain range names
+        </Check>
+        <Check checked={seaNames} onChange={setSeaNames}>
+          Render sea and lake names
         </Check>
 
         <Check checked={legend} onChange={setLegend}>
@@ -171,7 +176,7 @@ export default function ExportPanel({
         <button
           className="primary"
           disabled={visibleCount === 0}
-          onClick={() => run(() => exportComposite(map, visible, { ...opts, labels, riverNames, rangeNames }))}
+          onClick={() => run(() => exportComposite(map, visible, { ...opts, labels, riverNames, rangeNames, seaNames }))}
         >
           Export composite ({visibleCount} visible layer{visibleCount === 1 ? '' : 's'})
         </button>
@@ -191,6 +196,7 @@ export default function ExportPanel({
                         labels: labels && (id === 'cities' || id === 'polities'),
                         riverNames: riverNames && id === 'rivers',
                         rangeNames: rangeNames && id === 'elevation',
+                        seaNames: seaNames && id === 'base',
                       }),
                     )
                   }

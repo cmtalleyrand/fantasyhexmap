@@ -9,7 +9,7 @@ import {
 import { clampPolityOpacity, insecureOrigin, looksLikeKey, type Prefs } from '../api/settings.js';
 import { cryptoAvailable } from '../api/keyvault.js';
 import type { TransportMode } from '../api/client.js';
-import type { HexDimensions } from '../../shared/types.js';
+import type { HexDimensions, MapState } from '../../shared/types.js';
 import { POLITY_NAME_MIN_OPTIONS, parsePolityNameMin } from '../render/labels.js';
 import HexSizeInput from './HexSizeInput.js';
 import MapStylePicker from './MapStylePicker.js';
@@ -18,10 +18,6 @@ import { MODELS, effortFor, modelInfo } from '../../core/models.js';
 export type SettingsTab = 'map' | 'display' | 'generation' | 'key';
 
 
-const ELEVATION_STYLES: { id: Prefs['elevationStyle']; label: string; hint: string }[] = [
-  { id: 'colour', label: 'Colour', hint: 'Hexes are tinted from low to high ground' },
-  { id: 'contours', label: 'Terrain marks', hint: 'Hills and mountains are drawn as symbols' },
-];
 
 export interface SettingsDialogProps {
   mode: TransportMode;
@@ -42,6 +38,8 @@ export interface SettingsDialogProps {
   onSaveHexDimensions: (next: HexDimensions) => void;
   /** Whether the open map lets cities and polities occupy water; null on the create screen. */
   allowUnderwater: boolean | null;
+  /** The open map, for the style previews; null on the create screen. */
+  map?: MapState | null;
   onSaveAllowUnderwater: (allow: boolean) => void;
   initialTab?: SettingsTab;
 }
@@ -154,26 +152,9 @@ export default function SettingsDialog(props: SettingsDialogProps) {
             <h3>Map style</h3>
             <MapStylePicker
               value={prefs.mapStyle}
+              map={props.map ?? null}
               onChange={(mapStyle) => setPrefs({ ...prefs, mapStyle })}
             />
-            <h3>Elevation</h3>
-            <div className="segmented" role="radiogroup" aria-label="Elevation representation">
-              {ELEVATION_STYLES.map((o) => (
-                <button
-                  key={o.id}
-                  type="button"
-                  role="radio"
-                  aria-checked={prefs.elevationStyle === o.id}
-                  className={prefs.elevationStyle === o.id ? 'seg active' : 'seg'}
-                  onClick={() => setPrefs({ ...prefs, elevationStyle: o.id })}
-                >
-                  {o.label}
-                </button>
-              ))}
-            </div>
-            <p className="hint">
-              {ELEVATION_STYLES.find((o) => o.id === prefs.elevationStyle)?.hint}.
-            </p>
             <h3>Labels</h3>
             <label className="check">
               <input
@@ -215,6 +196,14 @@ export default function SettingsDialog(props: SettingsDialogProps) {
                 onChange={(e) => setPrefs({ ...prefs, rangeNames: e.target.checked })}
               />
               Show mountain range names (when the Elevation layer is visible)
+            </label>
+            <label className="check">
+              <input
+                type="checkbox"
+                checked={prefs.seaNames}
+                onChange={(e) => setPrefs({ ...prefs, seaNames: e.target.checked })}
+              />
+              Show sea and lake names
             </label>
             <p className="hint">
               Name a range by selecting its Mountains hexes with the Elevation layer active.

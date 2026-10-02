@@ -39,11 +39,33 @@ export const LAYER_ORDER: LayerId[] = [
   'population',
 ];
 
-export type BaseGeo = 'Land' | 'Coastal Land' | 'Sea' | 'Lake' | 'Ice' | 'Island';
-export const BASE_GEO_VALUES: BaseGeo[] = ['Land', 'Coastal Land', 'Sea', 'Lake', 'Ice', 'Island'];
+export type BaseGeo =
+  | 'Land'
+  | 'Coastal Land'
+  | 'Sea'
+  | 'Lake'
+  | 'Ice'
+  | 'Island'
+  | 'Coastal Island'
+  | 'Large Island'
+  | 'Small Islands';
+export const BASE_GEO_VALUES: BaseGeo[] = [
+  'Land', 'Coastal Land', 'Sea', 'Lake', 'Ice', 'Island', 'Coastal Island', 'Large Island', 'Small Islands',
+];
+
+/**
+ * Sea hexes that hold land: one small islet, an islet lying against one side
+ * of the hex close to a coast, one island filling most of the hex, or a
+ * scatter of islets.
+ */
+export const ISLAND_TYPES: BaseGeo[] = ['Island', 'Coastal Island', 'Large Island', 'Small Islands'];
+
+export function isIslandType(value: BaseGeo | null | undefined): boolean {
+  return value === 'Island' || value === 'Coastal Island' || value === 'Large Island' || value === 'Small Islands';
+}
 
 /** Hex types that carry land-only layer values (elevation, climate, vegetation, population). */
-export const LAND_LIKE: BaseGeo[] = ['Land', 'Coastal Land', 'Island'];
+export const LAND_LIKE: BaseGeo[] = ['Land', 'Coastal Land', ...ISLAND_TYPES];
 
 export type Elevation =
   | 'Lowland'
@@ -160,6 +182,14 @@ export interface MountainRange {
   hexes: number[];
 }
 
+/** A named sea, bay, strait or lake: a set of water hexes that carry one name on the map. */
+export interface WaterName {
+  id: string;
+  name: string;
+  /** Flat hex indices (`row * cols + col`) of Sea, Lake or island hexes. */
+  hexes: number[];
+}
+
 export interface City {
   id: string;
   col: number;
@@ -172,7 +202,15 @@ export interface City {
   coastal: boolean;
   /** Which of the hex's six edges border Sea or Lake. */
   coastalEdges: number[];
+  /**
+   * Where in its hex the city is drawn: on its river, against one of its
+   * coastal edges, at the centre, or (absent or 'auto') river first, then
+   * coast, then centre. Presentation only; nothing else depends on it.
+   */
+  site?: CitySite;
 }
+
+export type CitySite = 'auto' | 'inland' | 'river' | { coast: number };
 
 export interface Polity {
   id: string;
@@ -180,6 +218,11 @@ export interface Polity {
   /** A compact cartographic label; the full official name remains in `name`. */
   shortName?: string;
   colour: string;
+  /**
+   * The larger polity this one is part of (a duchy's kingdom). A parent may
+   * own no hexes itself: its territory is the union of its descendants'.
+   */
+  parentId?: string;
 }
 
 /** Per-hex flat arrays are indexed `row * cols + col`. */
@@ -311,6 +354,14 @@ export interface MapState {
   allowUnderwater?: boolean;
   /** Named mountain ranges, drawn as labels when the option is on. Absent on older maps. */
   mountainRanges?: MountainRange[];
+  /** Named seas, bays and lakes. */
+  waterNames?: WaterName[];
+  /**
+   * For Coastal Island hexes: which edge (0-5, see the EDGES note above) the
+   * islet lies against, keyed by flat hex index. Absent means the side facing
+   * the nearest land.
+   */
+  islandSides?: Record<string, number>;
   layers: LayersState;
   /** Append-only record of every change, oldest first. */
   journal: JournalEntry[];

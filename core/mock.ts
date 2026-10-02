@@ -21,6 +21,7 @@ import type {
   LayerId,
   Vegetation,
 } from '../shared/types.js';
+import { isIslandType } from '../shared/types.js';
 import type { PromptContext } from './prompts.js';
 
 function makeRng(seed: string) {
@@ -56,8 +57,8 @@ function buildBase(ctx: PromptContext): BaseGeo[] {
       land += (rng() - 0.5) * 0.35;
       const i = hexIndex(cols, col, row);
       if (land > 0.55) data[i] = 'Land';
-      else if (land > 0.42) data[i] = rng() < 0.35 ? 'Island' : 'Land';
-      else if (land > 0.33 && rng() < 0.25) data[i] = 'Island';
+      else if (land > 0.42) data[i] = rng() < 0.35 ? (rng() < 0.5 ? 'Coastal Island' : 'Large Island') : 'Land';
+      else if (land > 0.33 && rng() < 0.25) data[i] = rng() < 0.5 ? 'Island' : 'Small Islands';
     }
   }
   // Polar ice caps.
@@ -116,7 +117,7 @@ function buildElevation(ctx: PromptContext): (Elevation | null)[] {
   const ridgeCol = cols * (0.3 + rng() * 0.4);
   return base.map((b, i) => {
     if (!isLandLike(b)) return null;
-    if (b === 'Island') return 'Lowland';
+    if (isIslandType(b)) return 'Lowland';
     const col = i % cols;
     const d = dist[i]!;
     const ridge = Math.max(0, 1 - Math.abs(col - ridgeCol) / (cols * 0.12));

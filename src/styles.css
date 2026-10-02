@@ -405,3 +405,8 @@ button.eye:hover:not(:disabled) { border-color: var(--line); }
 .style-knob { display: flex; flex-direction: column; gap: 4px; }
 .style-knob .segmented .seg { padding: 5px 9px; font-size: 12px; }
 .knob-changed { color: var(--accent); text-transform: none; font-weight: 400; }
+
+.style-presets { display: grid; grid-template-columns: repeat(auto-fill, minmax(176px, 1fr)); gap: 10px; }
+.style-preset { display: flex; flex-direction: column; align-items: stretch; gap: 6px; padding: 6px; border: 1px solid var(--line); border-radius: 8px; background: transparent; color: var(--ink-dim); text-align: left; }
+.style-preset.active { border-color: var(--accent); color: var(--accent); background: rgba(127,178,229,0.10); }
+.style-preset .style-thumb { display: block; width: 100%; height: auto; border-radius: 4px; }

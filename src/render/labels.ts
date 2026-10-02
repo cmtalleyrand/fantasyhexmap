@@ -68,6 +68,8 @@ export interface LabelInput {
   obstacles: LabelObstacle[];
   /** Defaults to {@link DEFAULT_POLITY_NAME_MIN}. */
   minHexes?: PolityNameMin;
+  /** Type size relative to a top-level realm's: the parts of a realm are named smaller. */
+  scale?: number;
 }
 
 const LABEL_HEIGHT_EM = LABEL_LINE_EM;
@@ -75,7 +77,11 @@ const LABEL_HEIGHT_EM = LABEL_LINE_EM;
 const WRAP_PENALTY = 0.02;
 const MIN_FONT = 7;
 const GOOD_COVERAGE = 0.92;
+/** Tried before the fallback, so a name shrinks before it is allowed over water. */
+const SECOND_COVERAGE = 0.86;
 const FALLBACK_COVERAGE = 0.78;
+/** Largest realm-name type, in hex sizes. */
+const MAX_FONT_HEXES = 2.2;
 const SIZE_STEP = 0.9;
 const ROTATION_STEP = Math.PI / 12;
 const MAX_ROTATION = Math.PI / 6;
@@ -207,7 +213,10 @@ export function placePolityLabels(input: LabelInput): PolityLabel[] {
     const layouts = textLayouts(text);
     // Hex area is proportional to size², so a linear dimension such as type
     // size grows with sqrt(hex count).
-    const idealSize = size * 0.28 * Math.sqrt(owned.length);
+    // Capped, so the largest realms are named in large type rather than in
+    // letters so big they cannot fit without crossing water and neighbours.
+    const scale = input.scale ?? 1;
+    const idealSize = Math.min(size * MAX_FONT_HEXES * scale, size * 0.28 * scale * Math.sqrt(owned.length));
 
     const attempt = (
       obstacles: LabelBox[],
@@ -266,7 +275,9 @@ export function placePolityLabels(input: LabelInput): PolityLabel[] {
       attempt(blockers, GOOD_COVERAGE, MIN_FONT) ??
       (minHexes === 'auto' && small
         ? null
-        : (attempt(claimed, GOOD_COVERAGE, MIN_FONT) ?? attempt(claimed, FALLBACK_COVERAGE, MIN_FONT)));
+        : (attempt(claimed, GOOD_COVERAGE, MIN_FONT) ??
+          attempt(claimed, SECOND_COVERAGE, MIN_FONT) ??
+          attempt(claimed, FALLBACK_COVERAGE, MIN_FONT)));
     if (!label) continue;
     placed.push(label);
     const em = Math.max(...label.lines.map((line) => fantasyTextEm(line)));
@@ -275,4 +286,109 @@ export function placePolityLabels(input: LabelInput): PolityLabel[] {
     );
   }
   return placed;
+}
+
+// --- city names ------------------------------------------------------------------
+
+/** A rotated rectangle: centre, half extents, and rotation in radians. */
+export interface OrientedBox {
+  cx: number;
+  cy: number;
+  halfW: number;
+  halfH: number;
+  rotation: number;
+}
+
+function inside(box: OrientedBox, x: number, y: number): boolean {
+  const dx = x - box.cx;
+  const dy = y - box.cy;
+  const c = Math.cos(-box.rotation);
+  const s = Math.sin(-box.rotation);
+  return Math.abs(dx * c - dy * s) <= box.halfW && Math.abs(dx * s + dy * c) <= box.halfH;
+}
+
+export interface CityNameInput {
+  id: string;
+  name: string;
+  at: Point;
+  /** Marker radius. */
+  r: number;
+  /** Larger cities are named first and so get first choice of slot. */
+  population: number;
+}
+
+export interface CityNamePlacement {
+  id: string;
+  at: Point;
+  anchor: 'start' | 'middle' | 'end';
+  /** True when every slot was blocked and the least-blocked one was used. */
+  crowded: boolean;
+}
+
+/**
+ * Place each city's name in the first free slot around its marker: right,
+ * left, below, above, then the four diagonals. A slot is free when it clears
+ * the realm and river names already on the map, every city marker, every name
+ * placed before it, and the map's edge. A name with no free slot takes its
+ * least-covered slot, so a realm's name never moves to make room for a city's.
+ */
+export function placeCityNames(
+  cities: CityNameInput[],
+  fontSize: number,
+  textWidth: (text: string) => number,
+  obstacles: OrientedBox[],
+  bounds: { width: number; height: number },
+): CityNamePlacement[] {
+  const order = [...cities].sort((a, b) => b.population - a.population || a.name.localeCompare(b.name));
+  const markers: OrientedBox[] = cities.map((c) => ({ cx: c.at.x, cy: c.at.y, halfW: c.r, halfH: c.r, rotation: 0 }));
+  const placed: OrientedBox[] = [];
+  const out: CityNamePlacement[] = [];
+  const h = fontSize * 1.1;
+  const gap = fontSize * 0.3;
+  for (const city of order) {
+    const w = textWidth(city.name);
+    const { x, y } = city.at;
+    const r = city.r;
+    const d = r * 0.75;
+    const slots: Array<{ at: Point; anchor: 'start' | 'middle' | 'end'; box: OrientedBox }> = [
+      { at: { x: x + r + gap, y }, anchor: 'start', box: { cx: x + r + gap + w / 2, cy: y, halfW: w / 2, halfH: h / 2, rotation: 0 } },
+      { at: { x: x - r - gap, y }, anchor: 'end', box: { cx: x - r - gap - w / 2, cy: y, halfW: w / 2, halfH: h / 2, rotation: 0 } },
+      { at: { x, y: y + r + gap + h / 2 }, anchor: 'middle', box: { cx: x, cy: y + r + gap + h / 2, halfW: w / 2, halfH: h / 2, rotation: 0 } },
+      { at: { x, y: y - r - gap - h / 2 }, anchor: 'middle', box: { cx: x, cy: y - r - gap - h / 2, halfW: w / 2, halfH: h / 2, rotation: 0 } },
+      { at: { x: x + d + gap, y: y - d - h / 2 }, anchor: 'start', box: { cx: x + d + gap + w / 2, cy: y - d - h / 2, halfW: w / 2, halfH: h / 2, rotation: 0 } },
+      { at: { x: x - d - gap, y: y - d - h / 2 }, anchor: 'end', box: { cx: x - d - gap - w / 2, cy: y - d - h / 2, halfW: w / 2, halfH: h / 2, rotation: 0 } },
+      { at: { x: x + d + gap, y: y + d + h / 2 }, anchor: 'start', box: { cx: x + d + gap + w / 2, cy: y + d + h / 2, halfW: w / 2, halfH: h / 2, rotation: 0 } },
+      { at: { x: x - d - gap, y: y + d + h / 2 }, anchor: 'end', box: { cx: x - d - gap - w / 2, cy: y + d + h / 2, halfW: w / 2, halfH: h / 2, rotation: 0 } },
+    ];
+    const ownMarker = markers[cities.indexOf(city)];
+    const blockers = [...obstacles, ...markers.filter((m) => m !== ownMarker), ...placed];
+    let best = 0;
+    let bestCover = Infinity;
+    slots.forEach((slot, k) => {
+      if (bestCover === 0) return;
+      // Sample the slot: the share of points covered is how blocked it is.
+      let covered = 0;
+      let total = 0;
+      for (let i = 0; i < 7; i++) {
+        for (let j = 0; j < 3; j++) {
+          const px = slot.box.cx + ((i / 6) - 0.5) * 2 * slot.box.halfW;
+          const py = slot.box.cy + ((j / 2) - 0.5) * 2 * slot.box.halfH * 0.8;
+          total++;
+          if (px < 0 || py < 0 || px > bounds.width || py > bounds.height || blockers.some((b) => inside(b, px, py))) covered++;
+        }
+      }
+      const cover = covered / total + k * 1e-3;
+      if (covered === 0) {
+        best = k;
+        bestCover = 0;
+      } else if (cover < bestCover) {
+        best = k;
+        bestCover = cover;
+      }
+    });
+    const slot = slots[best]!;
+    placed.push(slot.box);
+    out.push({ id: city.id, at: slot.at, anchor: slot.anchor, crowded: bestCover > 0 });
+  }
+  return out;
 }

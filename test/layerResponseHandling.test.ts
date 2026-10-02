@@ -151,7 +151,7 @@ test('the prompt asks for keyed output and shows context grids with column ancho
   const user = (calls[0]!.messages as { content: string }[])[0]!.content;
   assert.match(system, /"r0" \(northern edge\)/);
   assert.match(user, /r0: \[0\] ttttt/);
-  assert.match(user, /Land-type hexes \(Land \+ Coastal Land \+ Island\): 20 of 20/);
+  assert.match(user, /Land-type hexes \(Land \+ Coastal Land \+ islands\): 20 of 20/);
 });
 
 test('if the API refuses the keyed schema, the layer is still generated as row strings', async () => {

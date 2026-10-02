@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { hexIndex, indexToOffset } from '../../shared/hex.js';
+import { hexIndex, indexToOffset, neighbourOf } from '../../shared/hex.js';
 import { canHoldSettlement } from '../../shared/derive.js';
 import type { RiverNotice, RiverTool } from '../state/riverTools.js';
 import RiverEditor from './RiverEditor.js';
@@ -17,7 +17,8 @@ import {
 } from '../../shared/types.js';
 import { planMultiLayerEdit } from '../../shared/multiEdit.js';
 import { canSplit, passLabel, type PassSelection } from '../../core/rosters.js';
-import type { Action } from '../state/store.js';
+import { isWaterSurface, type Action } from '../state/store.js';
+import { wouldCycle } from '../../shared/polityTree.js';
 import { contrastingPolityColours } from '../render/palette.js';
 import Legend from './Legend.js';
 import CommitInput, { CommitColour } from './CommitInput.js';
@@ -473,7 +474,133 @@ function PerHexEditor(props: SubProps) {
           Current values: {[...distinct].slice(0, 6).join(', ')}
         </div>
       )}
+      {activeLayer === 'base' && <IslandSidePanel {...props} />}
+      {activeLayer === 'base' && <WaterNamePanel {...props} />}
       {activeLayer === 'elevation' && <MountainRangePanel {...props} />}
+    </div>
+  );
+}
+
+const SIDE_NAMES = ['east', 'south-east', 'south-west', 'west', 'north-west', 'north-east'];
+
+function siteValue(site: City['site']): string {
+  if (!site || site === 'auto') return 'auto';
+  return typeof site === 'object' ? `coast:${site.coast}` : site;
+}
+
+function parseSiteValue(value: string): City['site'] {
+  if (value.startsWith('coast:')) return { coast: Number(value.slice(6)) };
+  return value === 'inland' || value === 'river' ? value : 'auto';
+}
+
+/** "sea" or "lake": what lies across one of a city's coastal edges. */
+function waterNameAcross(map: MapState, city: City, edge: number): string {
+  const n = neighbourOf(city.col, city.row, edge);
+  return map.layers.base.data?.[n.row * map.cols + n.col] === 'Lake' ? 'lake' : 'sea';
+}
+
+/** Choose which side of its hex a Coastal Island lies against. */
+function IslandSidePanel(props: SubProps) {
+  const { map, dispatch, selected } = props;
+  const base = map.layers.base.data;
+  const coastal = selected.filter((i) => base?.[i] === 'Coastal Island');
+  if (coastal.length === 0) return null;
+  const sides = new Set(coastal.map((i) => map.islandSides?.[String(i)] ?? -1));
+  const current = sides.size === 1 ? String([...sides][0]) : '';
+  return (
+    <div className="stack" style={{ marginTop: 8 }}>
+      <label htmlFor="island-side">Coastal island side ({coastal.length} selected)</label>
+      <select
+        id="island-side"
+        value={current}
+        onChange={(e) => dispatch({ type: 'setIslandSide', indices: coastal, edge: e.target.value === '-1' ? null : Number(e.target.value) })}
+      >
+        {current === '' && <option value="">Mixed</option>}
+        <option value="-1">Automatic (faces the nearest land)</option>
+        {SIDE_NAMES.map((name, e) => (
+          <option key={e} value={String(e)}>
+            Against the {name} side
+          </option>
+        ))}
+      </select>
+    </div>
+  );
+}
+
+/** Name seas, bays and lakes so they can be labelled. */
+function WaterNamePanel(props: SubProps) {
+  const { map, dispatch, selected } = props;
+  const [name, setName] = useState('');
+  const [target, setTarget] = useState('');
+  const bodies = map.waterNames ?? [];
+  const base = map.layers.base.data;
+  const water = selected.filter((i) => isWaterSurface(base?.[i]));
+  const existing = bodies.find((b) => b.id === target) ?? null;
+
+  const assign = () => {
+    const trimmed = (existing ? existing.name : name).trim();
+    if (!trimmed || water.length === 0) return;
+    dispatch({
+      type: 'nameWaterBody',
+      id: existing?.id ?? `water_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`,
+      name: trimmed,
+      indices: water,
+    });
+    setName('');
+    setTarget('');
+  };
+
+  return (
+    <div className="stack" style={{ marginTop: 8 }}>
+      <h2>Seas and lakes</h2>
+      <p className="hint" style={{ marginTop: 0 }}>
+        Select Sea, Lake or island hexes, then name them as a sea, bay, strait or lake. The name is set
+        along the water's length. Turn on <b>Show sea and lake names</b> in Settings → Display.
+      </p>
+      <select value={target} onChange={(e) => setTarget(e.target.value)}>
+        <option value="">New name…</option>
+        {bodies.map((b) => (
+          <option key={b.id} value={b.id}>
+            Add to {b.name}
+          </option>
+        ))}
+      </select>
+      {!existing && (
+        <input
+          placeholder="Name, e.g. The Sound of Mees"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && assign()}
+        />
+      )}
+      <button
+        className="primary"
+        disabled={water.length === 0 || (!existing && name.trim().length === 0)}
+        onClick={assign}
+      >
+        {existing ? `Add ${water.length} hexes to ${existing.name}` : `Name ${water.length} selected water hexes`}
+      </button>
+      {bodies.length > 0 && (
+        <div className="list">
+          {bodies.map((b) => (
+            <div key={b.id} className="entry" style={{ flexWrap: 'wrap' }}>
+              <CommitInput
+                className="grow"
+                aria-label="Water name"
+                value={b.name}
+                onCommit={(name) => dispatch({ type: 'renameWaterBody', id: b.id, name })}
+              />
+              <span className="hint">{b.hexes.length} hexes</span>
+              <button className="tiny" title="Select these hexes" onClick={() => props.setSelection(new Set(b.hexes))}>
+                select
+              </button>
+              <button className="tiny danger" onClick={() => dispatch({ type: 'removeWaterBody', id: b.id })}>
+                ×
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -677,6 +804,24 @@ function PolityEditor(props: SubProps) {
               <button className="tiny danger" onClick={() => dispatch({ type: 'removePolity', id: p.id })}>
                 ×
               </button>
+              <select
+                aria-label={`What ${p.name} is part of`}
+                title="Part of a larger polity"
+                style={{ flexBasis: '100%' }}
+                value={p.parentId ?? ''}
+                onChange={(e) =>
+                  dispatch({ type: 'upsertPolity', polity: { ...p, parentId: e.target.value || undefined } })
+                }
+              >
+                <option value="">Independent</option>
+                {data.polities
+                  .filter((q) => !wouldCycle(data.polities, p.id, q.id))
+                  .map((q) => (
+                    <option key={q.id} value={q.id}>
+                      Part of {q.name}
+                    </option>
+                  ))}
+              </select>
             </div>
           );
         })}
@@ -791,6 +936,24 @@ function CityEditor(props: SubProps) {
               <button className="tiny danger" onClick={() => dispatch({ type: 'removeCity', id: c.id })}>
                 ×
               </button>
+              <div className="row" style={{ flexBasis: '100%', alignItems: 'center' }}>
+                <label htmlFor={`site-${c.id}`} style={{ margin: 0 }}>Site</label>
+                <select
+                  id={`site-${c.id}`}
+                  className="grow"
+                  value={siteValue(c.site)}
+                  onChange={(e) => dispatch({ type: 'upsertCity', city: { ...c, site: parseSiteValue(e.target.value) } })}
+                >
+                  <option value="auto">Automatic (river, else coast, else centre)</option>
+                  <option value="inland">Inland, at the hex centre</option>
+                  {c.onRiver && <option value="river">On its river</option>}
+                  {c.coastalEdges.map((e) => (
+                    <option key={e} value={`coast:${e}`}>
+                      {waterNameAcross(map, c, e) === 'lake' ? 'Lakeshore' : 'Coast'}, {SIDE_NAMES[e]} side
+                    </option>
+                  ))}
+                </select>
+              </div>
               <div className="hint" style={{ flexBasis: '100%' }}>
                 {c.coastal ? `coastal on edges ${c.coastalEdges.join(', ')}` : 'inland'}
                 {c.onRiver
