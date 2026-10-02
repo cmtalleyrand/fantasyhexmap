@@ -259,3 +259,85 @@ test('a one-hex lake is drawn as an irregular body, not traced from its hex edge
   const radii = d.map((c) => Math.hypot((c[1] as number) - centre.x, (c[2] as number) - centre.y));
   assert.ok(Math.max(...radii) - Math.min(...radii) > 1);
 });
+
+test('a crossing point is the same seen from either side of its edge', async () => {
+  const { edgeCrossing } = await import('../src/render/rivers.ts');
+  const { neighbourOf: nb, oppositeEdge } = await import('../shared/hex.ts');
+  for (const [col, row] of [[2, 2], [3, 3], [4, 1]]) {
+    for (let e = 0; e < 6; e++) {
+      const n = nb(col!, row!, e);
+      const a = edgeCrossing(col!, row!, e, 20, 'seed');
+      const b = edgeCrossing(n.col, n.row, oppositeEdge(e), 20, 'seed');
+      assert.ok(Math.hypot(a.x - b.x, a.y - b.y) < 1e-9);
+    }
+  }
+});
+
+test('a tapered river stays in its own hexes and never turns sharply between samples', async () => {
+  const { pixelToOffset } = await import('../shared/hex.ts');
+  const size = 20;
+  const cols = 10;
+  const rows = 8;
+  const map = createMapState('River shape', cols, rows);
+  // A winding river with 60-degree turns, the case that used to hook back.
+  const { neighbourOf: nb } = await import('../shared/hex.ts');
+  const dirs = [0, 1, 0, 1, 2, 1, 0, 0, 5, 0];
+  const segs: Array<{ col: number; row: number; entryEdge: number | null; exitEdge: number | null; navigable: boolean }> = [];
+  let at = { col: 1, row: 1 };
+  dirs.forEach((d, k) => {
+    segs.push({ col: at.col, row: at.row, entryEdge: k === 0 ? null : (dirs[k - 1]! + 3) % 6, exitEdge: d, navigable: k > 4 });
+    at = nb(at.col, at.row, d);
+  });
+  const river = { id: 'w', name: 'Wend', terminus: 'OffMap' as const, segments: segs };
+  const course = riverCourse(river, size, map.id)!;
+  const hexes = new Set(segs.map((s) => `${s.col},${s.row}`));
+  for (const p of course.centreline) {
+    const { col, row } = pixelToOffset(p.x, p.y, size);
+    // A sample exactly on an edge may round either way.
+    const near = [0, 1, 2, 3, 4, 5].some((k) => {
+      const q = pixelToOffset(p.x + Math.cos(k) * size * 0.04, p.y + Math.sin(k) * size * 0.04, size);
+      return hexes.has(`${q.col},${q.row}`);
+    });
+    assert.ok(hexes.has(`${col},${row}`) || near, `sample at ${p.x.toFixed(1)},${p.y.toFixed(1)} left the river's hexes`);
+  }
+  let maxTurn = 0;
+  for (let i = 2; i < course.centreline.length; i++) {
+    const [a, b, c] = [course.centreline[i - 2]!, course.centreline[i - 1]!, course.centreline[i]!];
+    const t1 = Math.atan2(b.y - a.y, b.x - a.x);
+    const t2 = Math.atan2(c.y - b.y, c.x - b.x);
+    let d = Math.abs(t2 - t1);
+    if (d > Math.PI) d = 2 * Math.PI - d;
+    maxTurn = Math.max(maxTurn, d);
+  }
+  assert.ok(maxTurn < Math.PI / 4, `largest turn between samples was ${(maxTurn * 180 / Math.PI).toFixed(0)} degrees`);
+});
+
+test('a tributary ends on its parent river and a distributary starts on it', async () => {
+  const { riverCourses } = await import('../src/render/rivers.ts');
+  const size = 20;
+  const main = {
+    id: 'main', name: 'Main', terminus: 'OffMap' as const,
+    segments: [0, 1, 2, 3, 4].map((col) => ({ col, row: 2, entryEdge: col === 0 ? null : 3, exitEdge: 0, navigable: true })),
+  };
+  const trib = {
+    id: 'trib', name: 'Trib', terminus: 'Unresolved' as const,
+    segments: [
+      { col: 2, row: 0, entryEdge: null, exitEdge: 1, navigable: false },
+      { col: 2, row: 1, entryEdge: 4, exitEdge: 2, navigable: false },
+      { col: 2, row: 2, entryEdge: 5, exitEdge: null, navigable: false },
+    ],
+  };
+  const branch = {
+    id: 'branch', name: 'Branch', terminus: 'OffMap' as const, branchOf: 'main',
+    segments: [
+      { col: 3, row: 2, entryEdge: null, exitEdge: 1, navigable: true },
+      { col: 3, row: 3, entryEdge: 4, exitEdge: 1, navigable: true },
+    ],
+  };
+  // Listed tributary first, so the layout has to wait for its host.
+  const courses = riverCourses([trib, branch, main], size, 'seed');
+  const line = courses.get('main')!.centreline;
+  const onLine = (p: { x: number; y: number }) => line.some((q) => Math.hypot(q.x - p.x, q.y - p.y) < 1e-9);
+  assert.ok(onLine(courses.get('trib')!.centreline.at(-1)!), 'the tributary meets the main river');
+  assert.ok(onLine(courses.get('branch')!.centreline[0]!), 'the distributary leaves the main river');
+});

@@ -63,7 +63,7 @@ import {
   type CoastGeometry,
 } from './coast.js';
 import type { CitySymbol, PathCmd, Prim } from './prims.js';
-import { riverCourse } from './rivers.js';
+import { riverCourses, type RiverCourse } from './rivers.js';
 import { signed, unit } from './seed.js';
 import { CLASSIC_STYLE, type MapStyle } from './styles.js';
 import { grainTile } from './texture.js';
@@ -427,7 +427,7 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
     const centres = lake.map((i) => hexCenter(i % cols, Math.floor(i / cols), size));
     const rand = (k: number) => unit(seed, 'lake', lake[0]!, k);
     const d = centres.length === 1
-      ? blobPath(centres[0]!, size * 0.68, size * 0.58, rand(99) * Math.PI, rand)
+      ? blobPath(centres[0]!, size * 0.8, size * 0.68, rand(99) * Math.PI, rand)
       : blobPath(
           { x: (centres[0]!.x + centres[1]!.x) / 2, y: (centres[0]!.y + centres[1]!.y) / 2 },
           Math.hypot(centres[1]!.x - centres[0]!.x, centres[1]!.y - centres[0]!.y) / 2 + size * 0.6,
@@ -560,6 +560,16 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
   const rivers = opts.visible.rivers ? layers.rivers.data : null;
   const tapered = knobs.rivers === 'tapered';
   const courses = new Map<string, Point[]>();
+  // A river emptying into a small lake runs on into the lake's body.
+  const tapering: Map<string, RiverCourse> = rivers && tapered
+    ? riverCourses(rivers.rivers, size, seed, (river) => {
+        const last = river.segments.at(-1);
+        if (!last || last.exitEdge === null) return null;
+        const n = neighbourOf(last.col, last.row, last.exitEdge);
+        if (!inBounds(cols, rows, n.col, n.row) || !inLakeBody.has(hexIndex(cols, n.col, n.row))) return null;
+        return hexCenter(n.col, n.row, size);
+      })
+    : new Map();
   if (rivers) {
     const picked = opts.highlightRiver ? rivers.rivers.find((r) => r.id === opts.highlightRiver) : null;
     if (picked) {
@@ -580,7 +590,7 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
     }
     for (const river of rivers.rivers) {
       if (tapered) {
-        const course = riverCourse(river, size, seed);
+        const course = tapering.get(river.id);
         if (!course) continue;
         courses.set(river.id, course.centreline);
         prims.push({ kind: 'path', d: course.outline, fill: palette.river, stroke: palette.river, strokeWidth: Math.max(0.3, size * 0.015), round: true });
