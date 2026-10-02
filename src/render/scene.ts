@@ -70,6 +70,7 @@ import {
 import type { CitySymbol, PathCmd, Prim } from './prims.js';
 import { riverCourses, type RiverCourse } from './rivers.js';
 import { citySite } from './sites.js';
+import { hillshade, reliefSymbols, vegetationSymbols, type Placed } from './symbols.js';
 import { ownersAtDepth, polityDepths, polityDisplayColours } from './hierarchy.js';
 import { topLevelOf } from '../../shared/polityTree.js';
 import { fantasyTextEm, uiTextEm } from './fonts.js';
@@ -275,8 +276,13 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
   const uniformLand = opts.uniformLand ?? knobs.land === 'uniform';
 
   const base = opts.visible.base ? layers.base.data : null;
-  const elevationStyle = opts.elevationStyle ?? 'colour';
+  // An explicit elevationStyle (the older two-way setting) overrides the style's relief.
+  const relief = opts.elevationStyle
+    ? opts.elevationStyle === 'colour' ? 'colour' : 'marks'
+    : knobs.relief;
+  const elevationStyle = relief === 'colour' ? 'colour' : 'contours';
   const thematic = thematicLayer(map, opts.visible, elevationStyle);
+  const elevationData = opts.visible.elevation ? layers.elevation.data : null;
 
   const population = opts.visible.population ? layers.population.data : null;
   const maxPop = population ? Math.max(1, ...population.map((v) => v ?? 0)) : 1;
@@ -353,6 +359,21 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
   const lakeBodies = traced?.lakes ?? [];
   const inLakeBody = new Set(lakeBodies.flat());
   // A small lake's hexes are drawn as land, then the lake body over them.
+  /** The colour a hex finally shows: its fill with every overlay laid over it. */
+  const groundColour = (i: number): string => {
+    let colour = hexFill(i);
+    for (const overlay of overlays(i)) {
+      const m = /^rgba\((\d+),\s*(\d+),\s*(\d+),\s*([\d.]+)\)$/.exec(overlay);
+      if (m) {
+        const hex = `#${[m[1], m[2], m[3]].map((v) => Number(v).toString(16).padStart(2, '0')).join('')}`;
+        colour = mix(colour, hex, Number(m[4]));
+      } else {
+        colour = overlay;
+      }
+    }
+    return colour;
+  };
+
   const sides = base ? base.map((v, i) => (inLakeBody.has(i) ? 'land' : sideOf(v))) : null;
   const isWater = (i: number) => sides?.[i] === 'water';
   /** The land hex whose colours a small lake's hex borrows for the ground around the lake. */
@@ -380,12 +401,36 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
         prims.push(...crevasses(hexCenter(col, row, size), size, seed, i, palette.iceShade));
       }
 
-      if (elevationStyle === 'contours' && opts.visible.elevation) {
+      if (relief === 'marks' && opts.visible.elevation) {
         const elevation = layers.elevation.data?.[i];
         if (elevation) prims.push(...elevationMarks(hexCenter(col, row, size), size, elevation));
       }
 
       for (const overlay of overlays(own)) prims.push({ kind: 'polygon', points: corners, fill: overlay });
+    }
+  }
+
+  // --- hill shading ----------------------------------------------------------------
+  // Over the land's colours (realm fills included), so height reads through them.
+  if (relief === 'hillshade' && elevationData) {
+    for (let i = 0; i < cols * rows; i++) {
+      const here = elevationData[i];
+      if (!here || isWater(i)) continue;
+      const col = i % cols;
+      const row = Math.floor(i / cols);
+      const v = hillshade(here, (e) => {
+        const n = neighbourOf(col, row, e);
+        if (!inBounds(cols, rows, n.col, n.row)) return null;
+        const j = hexIndex(cols, n.col, n.row);
+        if (isWater(j)) return 'water';
+        return elevationData[j] ?? here;
+      });
+      if (Math.abs(v) < 0.04) continue;
+      prims.push({
+        kind: 'polygon',
+        points: hexCorners(col, row, size),
+        fill: withAlpha(v > 0 ? '#ffffff' : palette.ink, Math.min(0.4, Math.abs(v) * 0.24)),
+      });
     }
   }
 
@@ -578,6 +623,28 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
       strokeWidth: Math.max(0.8, size * palette.coastWidth),
       round: true,
     });
+  }
+
+  // --- drawn relief and vegetation ----------------------------------------------------
+  if (relief === 'illustrated' && base) {
+    const vegetation = opts.visible.vegetation ? layers.vegetation.data : null;
+    const placed: Placed[] = [];
+    for (let i = 0; i < cols * rows; i++) {
+      if (isWater(i) || inLakeBody.has(i)) continue;
+      const height = elevationData?.[i] ?? null;
+      const cover = vegetation?.[i] ?? null;
+      if (!height && !cover) continue;
+      const centre = hexCenter(i % cols, Math.floor(i / cols), size);
+      const rand = (k: number) => unit(seed, 'symbol', i, k);
+      const colours = { ground: groundColour(i), ink: palette.ink };
+      if (height) placed.push(...reliefSymbols(centre, size, height, rand, colours));
+      if (cover) {
+        const crowded = height === 'Mountains' || height === 'Highland' || height === 'Hills' || height === 'Plateau';
+        if (height !== 'Mountains') placed.push(...vegetationSymbols(centre, size, cover, rand, colours, crowded));
+      }
+    }
+    placed.sort((a, b) => a.y - b.y);
+    for (const p of placed) prims.push(...p.prims);
   }
 
   // --- polity borders ------------------------------------------------------

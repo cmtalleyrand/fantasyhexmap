@@ -18,10 +18,6 @@ import { MODELS, effortFor, modelInfo } from '../../core/models.js';
 export type SettingsTab = 'map' | 'display' | 'generation' | 'key';
 
 
-const ELEVATION_STYLES: { id: Prefs['elevationStyle']; label: string; hint: string }[] = [
-  { id: 'colour', label: 'Colour', hint: 'Hexes are tinted from low to high ground' },
-  { id: 'contours', label: 'Terrain marks', hint: 'Hills and mountains are drawn as symbols' },
-];
 
 export interface SettingsDialogProps {
   mode: TransportMode;
@@ -156,24 +152,6 @@ export default function SettingsDialog(props: SettingsDialogProps) {
               value={prefs.mapStyle}
               onChange={(mapStyle) => setPrefs({ ...prefs, mapStyle })}
             />
-            <h3>Elevation</h3>
-            <div className="segmented" role="radiogroup" aria-label="Elevation representation">
-              {ELEVATION_STYLES.map((o) => (
-                <button
-                  key={o.id}
-                  type="button"
-                  role="radio"
-                  aria-checked={prefs.elevationStyle === o.id}
-                  className={prefs.elevationStyle === o.id ? 'seg active' : 'seg'}
-                  onClick={() => setPrefs({ ...prefs, elevationStyle: o.id })}
-                >
-                  {o.label}
-                </button>
-              ))}
-            </div>
-            <p className="hint">
-              {ELEVATION_STYLES.find((o) => o.id === prefs.elevationStyle)?.hint}.
-            </p>
             <h3>Labels</h3>
             <label className="check">
               <input

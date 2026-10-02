@@ -30,6 +30,12 @@ export interface StyleKnobs {
   ice: 'flat' | 'glacier';
   /** Rivers: even strokes through hex centres, or a meandering course that widens downstream. */
   rivers: 'classic' | 'tapered';
+  /**
+   * How height is shown when the Elevation layer is visible: hexes tinted by
+   * height, stacked marks per hex, drawn hills and peaks, or shading as if lit
+   * from the north-west.
+   */
+  relief: 'colour' | 'marks' | 'illustrated' | 'hillshade';
   /** Paper grain over the whole map. */
   grain: boolean;
   /** Polities that are part of another: in their own colours, or as shades of their parent's. */
@@ -62,6 +68,8 @@ export interface StylePalette {
   riverNonNavigable: string;
   riverLabel: string;
   grain: string;
+  /** Linework of drawn symbols (peaks, trees) and the shadow side of hill shading. */
+  ink: string;
   /** Peak opacity of the grain, 0-1. */
   grainStrength: number;
 }
@@ -109,6 +117,7 @@ const CLASSIC: PresetInfo = {
     riverNonNavigable: MAP_COLOURS.riverNonNavigable,
     riverLabel: MAP_COLOURS.riverLabel,
     grain: '#000000',
+    ink: '#2f2a22',
     grainStrength: 0.12,
   },
   knobs: {
@@ -122,6 +131,7 @@ const CLASSIC: PresetInfo = {
     rivers: 'classic',
     grain: false,
     subPolities: 'own',
+    relief: 'colour',
   },
 };
 
@@ -148,6 +158,7 @@ const PARCHMENT: PresetInfo = {
     riverNonNavigable: '#4c8193',
     riverLabel: '#2c4b58',
     grain: '#5c4426',
+    ink: '#3a2b1b',
     grainStrength: 0.14,
   },
   knobs: {
@@ -162,6 +173,7 @@ const PARCHMENT: PresetInfo = {
     rivers: 'tapered',
     grain: true,
     subPolities: 'tints',
+    relief: 'illustrated',
   },
 };
 
@@ -236,6 +248,15 @@ export const KNOB_OPTIONS: {
       { value: 'tapered', label: 'Meandering, widening' },
     ],
   },
+  relief: {
+    label: 'Relief',
+    options: [
+      { value: 'colour', label: 'Tinted by height' },
+      { value: 'marks', label: 'Height marks' },
+      { value: 'illustrated', label: 'Drawn hills and peaks' },
+      { value: 'hillshade', label: 'Hill shading' },
+    ],
+  },
   subPolities: {
     label: 'Sub-polities',
     options: [
@@ -252,7 +273,7 @@ export const KNOB_OPTIONS: {
   },
 };
 
-export const KNOB_ORDER: KnobId[] = ['water', 'ripples', 'coast', 'grid', 'land', 'islands', 'ice', 'rivers', 'subPolities', 'grain'];
+export const KNOB_ORDER: KnobId[] = ['relief', 'water', 'ripples', 'coast', 'grid', 'land', 'islands', 'ice', 'rivers', 'subPolities', 'grain'];
 
 export const DEFAULT_STYLE_CHOICE: MapStyleChoice = { preset: 'classic', overrides: {} };
 
@@ -302,4 +323,13 @@ export function withKnob<K extends KnobId>(
 /** A key that changes whenever anything the scene draws from the style changes. */
 export function styleKey(style: MapStyle): string {
   return `${style.preset}|${KNOB_ORDER.map((k) => String(style.knobs[k])).join(',')}`;
+}
+
+/**
+ * The older two-way elevation setting a style amounts to: whether elevation
+ * tints the hex fills ('colour') or is drawn over them (everything else).
+ * Legends and fill precedence still reason in these terms.
+ */
+export function elevationStyleOf(style: MapStyle): 'colour' | 'contours' {
+  return style.knobs.relief === 'colour' ? 'colour' : 'contours';
 }

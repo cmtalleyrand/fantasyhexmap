@@ -45,7 +45,7 @@ import MapView from './components/MapView.js';
 import SetupScreen from './components/SetupScreen.js';
 import { exportDecisions, exportJson, exportParseFriendlyJson } from './render/export.js';
 import { defaultVisibility, type VisibleLayers } from './render/scene.js';
-import { resolveStyle } from './render/styles.js';
+import { elevationStyleOf, resolveStyle } from './render/styles.js';
 import { clearMap, loadMap, makeAutosaver } from './state/persistence.js';
 import { parseMapImport, prepareLoadedMap } from './state/import.js';
 import SavesDialog from './components/SavesDialog.js';
@@ -94,7 +94,7 @@ export default function App() {
   const [showUnlock, setShowUnlock] = useState(false);
   const [activeLayer, setActiveLayer] = useState<LayerId>('base');
   const [visible, setVisible] = useState<VisibleLayers>(defaultVisibility);
-  const { labels, riverNames, rangeNames, seaNames, polityNames, elevationStyle, polityOpacity } = prefs;
+  const { labels, riverNames, rangeNames, seaNames, polityNames, polityOpacity } = prefs;
   const mapStyle = useMemo(() => resolveStyle(prefs.mapStyle), [prefs.mapStyle]);
   const [selection, setSelection] = useState<Set<number>>(new Set());
   const [panels, setPanels] = useState<PanelVisibility>({ layers: true, inspector: true });
@@ -854,7 +854,7 @@ export default function App() {
             map={map}
             visible={visible}
             labels={labels}
-            elevationStyle={elevationStyle}
+            elevationStyle={elevationStyleOf(mapStyle)}
             polityOpacity={polityOpacity}
             mapStyle={mapStyle}
             riverNames={riverNames}
@@ -1046,7 +1046,6 @@ export default function App() {
           rangeNames={rangeNames}
           seaNames={seaNames}
           polityNames={polityNames}
-          elevationStyle={elevationStyle}
           polityOpacity={polityOpacity}
           mapStyle={mapStyle}
           selection={selection}

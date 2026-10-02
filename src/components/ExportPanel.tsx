@@ -82,7 +82,6 @@ export default function ExportPanel({
     labels,
     size: 32,
     scale: Number(scale) || 2,
-    elevationStyle,
     polityOpacity,
     style: mapStyle,
     polityNames,

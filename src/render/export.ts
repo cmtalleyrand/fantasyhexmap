@@ -19,7 +19,7 @@ import { renderToCanvas } from './canvas.js';
 import { appendLegend, legendSections, type LegendOptions } from './legend.js';
 import { buildScene, singleLayerVisibility, type Scene, type VisibleLayers } from './scene.js';
 import { sceneToSvg } from './svg.js';
-import type { MapStyle } from './styles.js';
+import { CLASSIC_STYLE, elevationStyleOf, type MapStyle } from './styles.js';
 
 export interface ExportOptions {
   format: 'png' | 'svg';
@@ -82,7 +82,13 @@ export function buildExportScene(map: MapState, visible: VisibleLayers, opts: Ex
     transparentBackground: opts.transparentBackground ?? false,
   });
   if (!opts.legend) return scene;
-  const sections = legendSections(map, visible, opts.elevationStyle ?? 'colour', opts.legend, opts.style);
+  const sections = legendSections(
+    map,
+    visible,
+    opts.elevationStyle ?? elevationStyleOf(opts.style ?? CLASSIC_STYLE),
+    opts.legend,
+    opts.style,
+  );
   return appendLegend(scene, sections, opts.legend.title ? map.name : null, size);
 }
 

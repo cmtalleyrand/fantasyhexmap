@@ -23,7 +23,6 @@ export interface MapViewProps {
   rangeNames: boolean;
   seaNames: boolean;
   polityNames: PolityNameMin;
-  elevationStyle: 'colour' | 'contours';
   polityOpacity: number;
   mapStyle: MapStyle;
   selection: Set<number>;
@@ -53,7 +52,7 @@ export interface MapViewProps {
 }
 
 export default function MapView(props: MapViewProps) {
-  const { map, visible, labels, riverNames, rangeNames, seaNames, polityNames, elevationStyle, polityOpacity, mapStyle, selection, onSelectionChange, onStrokeEnd } = props;
+  const { map, visible, labels, riverNames, rangeNames, seaNames, polityNames, polityOpacity, mapStyle, selection, onSelectionChange, onStrokeEnd } = props;
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const [view, setView] = useState<View>({ scale: 1, x: 0, y: 0 });
@@ -110,12 +109,11 @@ export default function MapView(props: MapViewProps) {
         rangeNames,
         seaNames,
         polityNames,
-        elevationStyle,
         polityOpacity,
         style: mapStyle,
         highlightRiver: props.riverTool?.selectedId ?? null,
       }),
-    [map, visible, labels, riverNames, rangeNames, seaNames, polityNames, elevationStyle, polityOpacity, mapStyle, props.riverTool?.selectedId],
+    [map, visible, labels, riverNames, rangeNames, seaNames, polityNames, polityOpacity, mapStyle, props.riverTool?.selectedId],
   );
   const decoration = useMemo(() => {
     const riverDraftSelection = props.riverDraft ? new Set(props.riverDraft) : null;

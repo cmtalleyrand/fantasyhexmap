@@ -561,3 +561,30 @@ test('the legend lists a realm with its parts indented under it', async () => {
   const section = legendSections(map, visible, 'colour', DEFAULT_LEGEND_OPTIONS).find((s) => s.id === 'polities')!;
   assert.deepEqual(section.entries.map((e) => [e.label, e.indent]), [['Valdoria', 0], ['Westmark', 1]]);
 });
+
+test('relief: drawn symbols for illustrated, shading for hillshade, and old terrain marks migrate', async () => {
+  const map = createMapState('Relief', 4, 3);
+  map.layers.base.data = Array(12).fill('Land');
+  map.layers.elevation.data = ['Lowland', 'Hills', 'Mountains', 'Mountains', 'Lowland', 'Rolling', 'Highland', 'Mountains', 'Lowland', 'Lowland', 'Plateau', 'Hills'];
+  const visible = defaultVisibility();
+  visible.elevation = true;
+  const scene = (relief: 'colour' | 'marks' | 'illustrated' | 'hillshade') =>
+    buildScene(map, { size: 20, visible, labels: false, style: resolveStyle({ preset: 'classic', overrides: { relief } }) }).prims;
+  const ink = resolveStyle({ preset: 'classic', overrides: {} }).palette.ink;
+  assert.ok(scene('illustrated').some((p) => p.kind === 'path' && p.stroke === ink), 'peaks and hills are drawn');
+  assert.ok(scene('hillshade').some((p) => p.kind === 'polygon' && typeof p.fill === 'string' && p.fill.startsWith('rgba(')), 'slopes are shaded');
+  assert.ok(scene('marks').some((p) => p.kind === 'polyline'), 'marks are drawn');
+  // Colour relief tints the hexes by height.
+  assert.ok(scene('colour').some((p) => p.kind === 'polygon' && p.fill === '#7d6d59'));
+
+  const store = new Map<string, string>();
+  const storage = { getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => void store.set(k, v), removeItem: (k: string) => void store.delete(k) };
+  (globalThis as { window?: unknown }).window = { localStorage: storage, sessionStorage: storage };
+  try {
+    const { loadPrefs } = await import('../src/api/settings.ts');
+    store.set('fantasyhexmap.prefs', JSON.stringify({ elevationStyle: 'contours', mapStyle: { preset: 'parchment', overrides: {} } }));
+    assert.deepEqual(loadPrefs().mapStyle, { preset: 'parchment', overrides: { relief: 'marks' } });
+  } finally {
+    delete (globalThis as { window?: unknown }).window;
+  }
+});
