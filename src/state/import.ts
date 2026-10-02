@@ -40,6 +40,7 @@ export function prepareLoadedMap(map: MapState): MapState {
   map.enabledLayers ??= [...LAYER_ORDER];
   map.allowUnderwater ??= false;
   map.mountainRanges ??= [];
+  map.waterNames ??= [];
   map.hexDimensions = normaliseHexDimensions(map.hexDimensions);
   for (const id of LAYER_ORDER) {
     const layer = map.layers[id];

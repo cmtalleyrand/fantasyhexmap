@@ -14,6 +14,7 @@
  */
 
 import { recomputeCityFacts, canHoldSettlement } from '../../shared/derive.js';
+import { isIslandType } from '../../shared/types.js';
 import {
   baseTransitions,
   clearedAt,
@@ -37,10 +38,16 @@ import type {
   MapState,
   HexDimensions,
   MountainRange,
+  WaterName,
   Polity,
   River,
   TokenUsage,
 } from '../../shared/types.js';
+
+/** Hexes whose surface is open water: seas and lakes, and the sea around islands. */
+export function isWaterSurface(v: BaseGeo | null | undefined): boolean {
+  return v === 'Sea' || v === 'Lake' || isIslandType(v);
+}
 
 export type Action =
   | { type: 'load'; map: MapState }
@@ -85,6 +92,10 @@ export type Action =
   | { type: 'nameMountainRange'; id: string; name: string; indices: number[] }
   | { type: 'renameMountainRange'; id: string; name: string }
   | { type: 'removeMountainRange'; id: string }
+  /** Put water hexes in the named body `id`, creating it if it does not exist. */
+  | { type: 'nameWaterBody'; id: string; name: string; indices: number[] }
+  | { type: 'renameWaterBody'; id: string; name: string }
+  | { type: 'removeWaterBody'; id: string }
   /** Which side of their hex Coastal Island hexes lie against; null restores the automatic side. */
   | { type: 'setIslandSide'; indices: number[]; edge: number | null }
   | { type: 'clearLayer'; layer: LayerId }
@@ -695,6 +706,51 @@ export function reducer(map: MapState, action: Action): MapState {
       return journal(
         { ...map, mountainRanges: ranges.filter((r) => r.id !== action.id), updatedAt: Date.now() },
         manualEntry('elevation', `Removed the mountain range "${old.name}".`),
+      );
+    }
+
+    case 'nameWaterBody': {
+      const name = action.name.trim();
+      const base = map.layers.base.data;
+      if (!name || !base) return map;
+      const picked = new Set(action.indices.filter((i) => isWaterSurface(base[i])));
+      if (picked.size === 0) return map;
+      const bodies = map.waterNames ?? [];
+      const existing = bodies.find((b) => b.id === action.id);
+      // A hex carries one name, so claiming it takes it from any other body.
+      const others = bodies
+        .filter((b) => b.id !== action.id)
+        .map((b) => ({ ...b, hexes: b.hexes.filter((i) => !picked.has(i)) }))
+        .filter((b) => b.hexes.length > 0);
+      const body: WaterName = {
+        id: action.id,
+        name,
+        hexes: [...new Set([...(existing?.hexes ?? []), ...picked])].sort((a, b) => a - b),
+      };
+      return journal(
+        { ...map, waterNames: [...others, body], updatedAt: Date.now() },
+        manualEntry('base', `${existing ? 'Extended' : 'Named'} the water "${name}" (${body.hexes.length} hexes) by hand.`),
+      );
+    }
+
+    case 'renameWaterBody': {
+      const name = action.name.trim();
+      const bodies = map.waterNames ?? [];
+      const old = bodies.find((b) => b.id === action.id);
+      if (!old || !name || old.name === name) return map;
+      return journal(
+        { ...map, waterNames: bodies.map((b) => (b.id === action.id ? { ...b, name } : b)), updatedAt: Date.now() },
+        manualEntry('base', `Renamed the water "${old.name}" to "${name}".`),
+      );
+    }
+
+    case 'removeWaterBody': {
+      const bodies = map.waterNames ?? [];
+      const old = bodies.find((b) => b.id === action.id);
+      if (!old) return map;
+      return journal(
+        { ...map, waterNames: bodies.filter((b) => b.id !== action.id), updatedAt: Date.now() },
+        manualEntry('base', `Removed the name of the water "${old.name}".`),
       );
     }
 

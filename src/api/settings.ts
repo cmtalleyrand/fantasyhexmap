@@ -64,6 +64,8 @@ export interface Prefs {
   riverNames: boolean;
   /** Draw mountain range names (with the Elevation layer visible). */
   rangeNames: boolean;
+  /** Draw the names given to seas, bays and lakes. */
+  seaNames: boolean;
   /** Smallest polity, in hexes, that is named on the map; `auto` lets the placer decide. */
   polityNames: PolityNameMin;
   /**
@@ -89,6 +91,7 @@ export const DEFAULT_PREFS: Prefs = {
   mapStyle: DEFAULT_STYLE_CHOICE,
   riverNames: false,
   rangeNames: false,
+  seaNames: true,
   polityNames: DEFAULT_POLITY_NAME_MIN,
   defaultsVersion: DEFAULTS_VERSION,
 };
@@ -201,6 +204,7 @@ export function loadPrefs(): Prefs {
       polityOpacity: clampPolityOpacity(stored.polityOpacity),
       riverNames: stored.riverNames === true,
       rangeNames: stored.rangeNames === true,
+      seaNames: stored.seaNames !== false,
       polityNames: parsePolityNameMin(stored.polityNames),
       defaultsVersion: DEFAULTS_VERSION,
     };

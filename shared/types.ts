@@ -182,6 +182,14 @@ export interface MountainRange {
   hexes: number[];
 }
 
+/** A named sea, bay, strait or lake: a set of water hexes that carry one name on the map. */
+export interface WaterName {
+  id: string;
+  name: string;
+  /** Flat hex indices (`row * cols + col`) of Sea, Lake or island hexes. */
+  hexes: number[];
+}
+
 export interface City {
   id: string;
   col: number;
@@ -341,6 +349,8 @@ export interface MapState {
   allowUnderwater?: boolean;
   /** Named mountain ranges, drawn as labels when the option is on. Absent on older maps. */
   mountainRanges?: MountainRange[];
+  /** Named seas, bays and lakes. */
+  waterNames?: WaterName[];
   /**
    * For Coastal Island hexes: which edge (0-5, see the EDGES note above) the
    * islet lies against, keyed by flat hex index. Absent means the side facing

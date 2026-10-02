@@ -181,3 +181,101 @@ export function placeRangeLabels(
   }
   return out;
 }
+
+/** Letter-spacing of sea names, in em: wide, as atlases set water. */
+const WATER_TRACKING = 0.32;
+
+/**
+ * Names of seas, bays and lakes. Each is set in spaced capitals across its
+ * hexes, along the body's long axis. A long, narrow body (a strait, a gulf)
+ * gets its name curved along a spine through the middle of its hexes rather
+ * than a straight line that would run onto the land at either end.
+ */
+export function placeWaterLabels(
+  bodies: Array<{ name: string; hexes: number[] }>,
+  cols: number,
+  size: number,
+): FeatureLabel[] {
+  const out: FeatureLabel[] = [];
+  for (const body of bodies) {
+    const text = body.name.trim().toUpperCase();
+    if (!text || body.hexes.length === 0) continue;
+    const centres = body.hexes.map((i) => hexCenter(i % cols, Math.floor(i / cols), size));
+    const mean = centres.reduce((s, c) => ({ x: s.x + c.x, y: s.y + c.y }), { x: 0, y: 0 });
+    mean.x /= centres.length;
+    mean.y /= centres.length;
+    let xx = 0;
+    let yy = 0;
+    let xy = 0;
+    for (const c of centres) {
+      xx += (c.x - mean.x) ** 2;
+      yy += (c.y - mean.y) ** 2;
+      xy += (c.x - mean.x) * (c.y - mean.y);
+    }
+    const spread = Math.sqrt((xx - yy) ** 2 + 4 * xy * xy);
+    const major = (xx + yy + spread) / 2;
+    const minor = (xx + yy - spread) / 2;
+    const axis = centres.length > 2 && major > 1.5 * minor ? upright(Math.atan2(2 * xy, xx - yy) / 2) : 0;
+    const cos = Math.cos(axis);
+    const sin = Math.sin(axis);
+    let lo = Infinity;
+    let hi = -Infinity;
+    for (const c of centres) {
+      const u = (c.x - mean.x) * cos + (c.y - mean.y) * sin;
+      lo = Math.min(lo, u);
+      hi = Math.max(hi, u);
+    }
+    const length = hi - lo + size * 1.2;
+    const em = glyphAdvances(text, 1, WATER_TRACKING, 500).width;
+    const font = Math.max(size * 0.32, Math.min(size * 0.85, (length * 0.8) / em));
+    const width = em * font;
+
+    // The spine: hex centres binned along the axis, each bin's mean, so a
+    // curving strait carries a curving name.
+    const bins = Math.max(2, Math.min(7, Math.round((hi - lo) / (size * 2)) + 1));
+    const sums = Array.from({ length: bins }, () => ({ x: 0, y: 0, n: 0 }));
+    for (const c of centres) {
+      const u = (c.x - mean.x) * cos + (c.y - mean.y) * sin;
+      const b = Math.min(bins - 1, Math.floor(((u - lo) / Math.max(1e-6, hi - lo)) * bins));
+      sums[b]!.x += c.x;
+      sums[b]!.y += c.y;
+      sums[b]!.n++;
+    }
+    const spine = sums.filter((b) => b.n > 0).map((b) => ({ x: b.x / b.n, y: b.y / b.n }));
+    const elongated = major > 6 * minor && spine.length >= 3;
+    // Extend the spine (or a straight axis) well past both ends so the name always fits on it.
+    const line = elongated
+      ? (() => {
+          const first = spine[0]!;
+          const second = spine[1]!;
+          const last = spine[spine.length - 1]!;
+          const prev = spine[spine.length - 2]!;
+          const ext = (a: { x: number; y: number }, b: { x: number; y: number }) => {
+            const d = Math.hypot(a.x - b.x, a.y - b.y) || 1;
+            return { x: a.x + ((a.x - b.x) / d) * width, y: a.y + ((a.y - b.y) / d) * width };
+          };
+          return [ext(first, second), ...spine, ext(last, prev)];
+        })()
+      : [
+          { x: mean.x - cos * width * 2, y: mean.y - sin * width * 2 },
+          { x: mean.x + cos * width * 2, y: mean.y + sin * width * 2 },
+        ];
+    // Centre the name on the line's point nearest the body's centre.
+    const cum = [0];
+    for (let i = 1; i < line.length; i++) cum.push(cum[i - 1]! + Math.hypot(line[i]!.x - line[i - 1]!.x, line[i]!.y - line[i - 1]!.y));
+    let mid = 0;
+    let bestD = Infinity;
+    for (let k = 0; k <= 200; k++) {
+      const d = (cum[cum.length - 1]! * k) / 200;
+      const p = pointAt(line, cum, d);
+      const dist = Math.hypot(p.x - mean.x, p.y - mean.y);
+      if (dist < bestD) {
+        bestD = dist;
+        mid = d;
+      }
+    }
+    const glyphs = glyphsAlong(text, font, line, mid - width / 2, { tracking: WATER_TRACKING, weight: 500 });
+    out.push({ text, at: mean, size: font, rotation: axis, glyphs, width });
+  }
+  return out;
+}

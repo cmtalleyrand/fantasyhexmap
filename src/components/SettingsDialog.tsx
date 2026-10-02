@@ -216,6 +216,14 @@ export default function SettingsDialog(props: SettingsDialogProps) {
               />
               Show mountain range names (when the Elevation layer is visible)
             </label>
+            <label className="check">
+              <input
+                type="checkbox"
+                checked={prefs.seaNames}
+                onChange={(e) => setPrefs({ ...prefs, seaNames: e.target.checked })}
+              />
+              Show sea and lake names
+            </label>
             <p className="hint">
               Name a range by selecting its Mountains hexes with the Elevation layer active.
             </p>

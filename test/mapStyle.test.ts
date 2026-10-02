@@ -452,3 +452,25 @@ test('river names are set glyph by glyph along the river, larger than before', (
   assert.equal(name.glyphs.map((g) => g.ch).join(''), 'Wend');
   assert.ok(name.size >= 32 * 0.3);
 });
+
+test('water bodies are named, renamed and removed, and their names are drawn when asked for', async () => {
+  const { reducer } = await import('../src/state/store.ts');
+  const { prepareLoadedMap } = await import('../src/state/import.ts');
+  let map = islandMap();
+  const sea = [0, 1, 2, 9, 10, 18, 27, 36];
+  map = reducer(map, { type: 'nameWaterBody', id: 'w1', name: 'The Narrows', indices: [...sea, 20] });
+  assert.deepEqual(map.waterNames?.[0]?.hexes, sea, 'land hexes are left out');
+  map = reducer(map, { type: 'renameWaterBody', id: 'w1', name: 'The Sound' });
+  assert.equal(map.waterNames?.[0]?.name, 'The Sound');
+  const style = resolveStyle({ preset: 'parchment', overrides: {} });
+  const text = (seaNames: boolean) =>
+    buildScene(map, { size: 20, visible: defaultVisibility(), labels: false, seaNames, style }).prims
+      .flatMap((p) => (p.kind === 'text' ? [p.text] : []));
+  assert.deepEqual(text(false), []);
+  assert.deepEqual(text(true), ['THE SOUND']);
+  map = reducer(map, { type: 'removeWaterBody', id: 'w1' });
+  assert.deepEqual(map.waterNames, []);
+  const old = structuredClone(map);
+  delete old.waterNames;
+  assert.deepEqual(prepareLoadedMap(old).waterNames, []);
+});

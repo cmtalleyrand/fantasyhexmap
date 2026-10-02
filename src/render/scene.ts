@@ -45,7 +45,7 @@ import {
   populationColour,
   withAlpha,
 } from './palette.js';
-import { placeRangeLabels, placeRiverLabels } from './featureLabels.js';
+import { placeRangeLabels, placeRiverLabels, placeWaterLabels } from './featureLabels.js';
 import {
   LABEL_LINE_EM,
   placeCityNames,
@@ -100,6 +100,8 @@ export interface SceneOptions {
   riverNames?: boolean;
   /** Name mountain ranges (needs the Elevation layer visible). */
   rangeNames?: boolean;
+  /** Name seas, bays and lakes that have been named (needs the base layer visible). */
+  seaNames?: boolean;
   /** Smallest polity, in hexes, that is named; default 4. */
   polityNames?: PolityNameMin;
   elevationStyle?: 'colour' | 'contours';
@@ -838,6 +840,27 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
         rotation: l.rotation,
       });
       taken.push({ cx: l.at.x, cy: l.at.y, halfW: (fantasyTextEm(l.text, 700) * l.size) / 2, halfH: l.size * 0.6, rotation: l.rotation });
+    }
+  }
+
+  if (opts.seaNames && base && (map.waterNames?.length ?? 0) > 0) {
+    for (const l of placeWaterLabels(map.waterNames!, cols, size)) {
+      prims.push({
+        kind: 'text',
+        at: l.at,
+        text: l.text,
+        size: l.size,
+        fill: palette.riverLabel,
+        weight: 500,
+        anchor: 'middle',
+        fantasy: true,
+        italic: true,
+        rotation: l.rotation,
+        glyphs: l.glyphs,
+      });
+      for (const g of l.glyphs ?? []) {
+        taken.push({ cx: g.x, cy: g.y, halfW: l.size * 0.5, halfH: l.size * 0.6, rotation: g.rotation });
+      }
     }
   }
 

@@ -26,6 +26,7 @@ export interface ExportOptions {
   labels: boolean;
   riverNames?: boolean;
   rangeNames?: boolean;
+  seaNames?: boolean;
   polityNames?: PolityNameMin;
   elevationStyle?: 'colour' | 'contours';
   polityOpacity?: number;
@@ -70,6 +71,7 @@ export function buildExportScene(map: MapState, visible: VisibleLayers, opts: Ex
     labels: opts.labels,
     riverNames: opts.riverNames,
     rangeNames: opts.rangeNames,
+    seaNames: opts.seaNames,
     polityNames: opts.polityNames,
     elevationStyle: opts.elevationStyle,
     polityOpacity: opts.polityOpacity,
@@ -275,6 +277,9 @@ export function serializeParseFriendlyExport(map: MapState): string {
     scale: map.hexDimensions,
     ...(map.mountainRanges?.length
       ? { mountainRangesNote: 'map.mountainRanges[].hexes are flat indices (row * cols + col).' }
+      : {}),
+    ...(map.waterNames?.length
+      ? { waterNamesNote: 'map.waterNames[] names seas, bays and lakes; hexes are flat indices (row * cols + col).' }
       : {}),
     ...(map.islandSides && Object.keys(map.islandSides).length
       ? { islandSidesNote: 'map.islandSides maps a Coastal Island hex\'s flat index to the edge (0..5) its islet lies against; absent hexes face the nearest land.' }
