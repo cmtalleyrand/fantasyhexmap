@@ -19,6 +19,8 @@ export interface FaceRole {
   italic: boolean;
   /** Letter-spacing in em. */
   tracking: number;
+  /** Size relative to the default, so faces with short lower case read at the same size. */
+  scale?: number;
 }
 
 export interface Lettering {
@@ -60,7 +62,7 @@ export const LETTERINGS: Record<LetteringId, Lettering> = {
     realm: { family: fam('HexMap Cinzel', serif), weight: 600, italic: false, tracking: 0.12 },
     water: { family: fam('HexMap EB Garamond', serif), weight: 500, italic: true, tracking: 0.3 },
     river: { family: fam('HexMap EB Garamond', serif), weight: 500, italic: true, tracking: 0.06 },
-    city: { family: fam('HexMap EB Garamond', serif), weight: 600, italic: false, tracking: 0 },
+    city: { family: fam('HexMap EB Garamond', serif), weight: 600, italic: false, tracking: 0, scale: 1.2 },
     range: { family: fam('HexMap Cinzel', serif), weight: 500, italic: false, tracking: 0.2 },
   },
   oldprint: {
@@ -68,7 +70,7 @@ export const LETTERINGS: Record<LetteringId, Lettering> = {
     realm: { family: fam('HexMap IM Fell English SC', serif), weight: 400, italic: false, tracking: 0.1 },
     water: { family: fam('HexMap IM Fell English', serif), weight: 400, italic: true, tracking: 0.28 },
     river: { family: fam('HexMap IM Fell English', serif), weight: 400, italic: true, tracking: 0.05 },
-    city: { family: fam('HexMap IM Fell English', serif), weight: 400, italic: false, tracking: 0 },
+    city: { family: fam('HexMap IM Fell English', serif), weight: 400, italic: false, tracking: 0, scale: 1.15 },
     range: { family: fam('HexMap IM Fell English SC', serif), weight: 400, italic: false, tracking: 0.18 },
   },
   atlas: {
@@ -76,7 +78,7 @@ export const LETTERINGS: Record<LetteringId, Lettering> = {
     realm: { family: fam('HexMap Alegreya Sans SC', sans), weight: 700, italic: false, tracking: 0.16 },
     water: { family: fam('HexMap Alegreya', serif), weight: 500, italic: true, tracking: 0.3 },
     river: { family: fam('HexMap Alegreya', serif), weight: 500, italic: true, tracking: 0.06 },
-    city: { family: fam('HexMap Alegreya Sans', sans), weight: 500, italic: false, tracking: 0 },
+    city: { family: fam('HexMap Alegreya Sans', sans), weight: 500, italic: false, tracking: 0, scale: 1.1 },
     range: { family: fam('HexMap Alegreya Sans SC', sans), weight: 500, italic: false, tracking: 0.22 },
   },
 };

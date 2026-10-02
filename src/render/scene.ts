@@ -1137,7 +1137,7 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
   }
 
   if (opts.labels && cities) {
-    const fontSize = Math.max(8, size * 0.36);
+    const fontSize = Math.max(8, size * 0.36) * (lettering.city.scale ?? 1);
     const placements = placeCityNames(
       cities.cities.map((city) => ({
         id: city.id,
