@@ -244,3 +244,18 @@ test('the PNG encoder writes a valid signature and chunk layout', () => {
   const text = String.fromCharCode(...png);
   assert.ok(text.includes('IHDR') && text.includes('IDAT') && text.endsWith('IEND' + text.slice(-4)));
 });
+
+test('a one-hex lake is drawn as an irregular body, not traced from its hex edges', () => {
+  const map = islandMap();
+  const style = resolveStyle({ preset: 'parchment', overrides: {} });
+  const prims = buildScene(map, { size: 20, visible: defaultVisibility(), labels: false, style }).prims;
+  const lakeHexes = prims.filter((p) => p.kind === 'polygon' && p.fill === style.palette.lake);
+  assert.equal(lakeHexes.length, 0, 'the lake hex is drawn as land under the body');
+  const bodies = prims.filter((p) => p.kind === 'path' && p.fill === style.palette.lake);
+  assert.equal(bodies.length, 1);
+  // The body is irregular: its control points are not all the same distance from the centre.
+  const d = (bodies[0] as { d: PathCmd[] }).d.filter((c) => c[0] === 'Q');
+  const centre = { x: 20 * Math.sqrt(3) * 3.5 + 20 * Math.sqrt(3) / 2, y: 20 * 1.5 * 3 + 20 };
+  const radii = d.map((c) => Math.hypot((c[1] as number) - centre.x, (c[2] as number) - centre.y));
+  assert.ok(Math.max(...radii) - Math.min(...radii) > 1);
+});

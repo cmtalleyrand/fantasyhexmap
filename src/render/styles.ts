@@ -16,6 +16,8 @@ export type StylePresetId = 'classic' | 'parchment';
 export interface StyleKnobs {
   /** Sea surface: one flat colour, shading that deepens away from land, or ripple lines along the coast. */
   water: 'flat' | 'depth' | 'ripples';
+  /** How many ripple lines follow the sea coast (lakes always take one). */
+  ripples: 1 | 2 | 3;
   /** Coastline: none, traced along hex edges, or smoothed (never more than an eighth of a hex off the data). */
   coast: 'none' | 'hex' | 'smooth';
   /** Hex grid: on every hex, on land only, or off. */
@@ -109,6 +111,7 @@ const CLASSIC: PresetInfo = {
   },
   knobs: {
     water: 'flat',
+    ripples: 2,
     coast: 'hex',
     grid: 'all',
     land: 'band',
@@ -124,31 +127,33 @@ const PARCHMENT: PresetInfo = {
   label: 'Parchment (draft)',
   description: 'Inked coasts and rippled seas on aged paper, in the manner of a novel’s endpapers',
   palette: {
-    sea: '#a9c0b8',
-    seaShallow: '#c2d3c6',
-    lake: '#a3bdb6',
-    ripple: '#3e5450',
+    sea: '#8fb0a6',
+    seaShallow: '#abc6b6',
+    lake: '#8aaea6',
+    ripple: '#2f4842',
     rippleAlpha: 0.5,
-    coast: '#3b2f22',
+    coast: '#30251a',
     coastWidth: 0.07,
-    land: '#eadcb4',
-    coastalLand: '#e2cf9f',
-    island: '#eadcb4',
+    land: '#e5d09c',
+    coastalLand: '#d6b77c',
+    island: '#d6b77c',
     ice: '#f4f2ea',
     iceShade: '#c9d4d2',
     grid: 'rgba(84, 62, 34, 0.20)',
     gridWidth: 0.025,
-    river: '#4f7f91',
-    riverNonNavigable: '#5f8c9c',
+    river: '#3f7488',
+    riverNonNavigable: '#4c8193',
     riverLabel: '#2c4b58',
     grain: '#5c4426',
     grainStrength: 0.14,
   },
   knobs: {
     water: 'ripples',
+    ripples: 2,
     coast: 'smooth',
     grid: 'land',
-    land: 'uniform',
+    // Coastal Land is data the rest of the map relies on, so it stays visible.
+    land: 'band',
     islands: 'blob',
     ice: 'glacier',
     rivers: 'tapered',
@@ -173,6 +178,14 @@ export const KNOB_OPTIONS: {
       { value: 'flat', label: 'Flat' },
       { value: 'depth', label: 'Depth shading' },
       { value: 'ripples', label: 'Ripple lines' },
+    ],
+  },
+  ripples: {
+    label: 'Ripple count',
+    options: [
+      { value: 1, label: 'One' },
+      { value: 2, label: 'Two' },
+      { value: 3, label: 'Three' },
     ],
   },
   coast: {
@@ -228,7 +241,7 @@ export const KNOB_OPTIONS: {
   },
 };
 
-export const KNOB_ORDER: KnobId[] = ['water', 'coast', 'grid', 'land', 'islands', 'ice', 'rivers', 'grain'];
+export const KNOB_ORDER: KnobId[] = ['water', 'ripples', 'coast', 'grid', 'land', 'islands', 'ice', 'rivers', 'grain'];
 
 export const DEFAULT_STYLE_CHOICE: MapStyleChoice = { preset: 'classic', overrides: {} };
 

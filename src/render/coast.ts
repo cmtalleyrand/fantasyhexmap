@@ -232,3 +232,68 @@ export function isletPath(c: Point, size: number, rand: (k: number) => number): 
   }
   return smoothPath(points, true);
 }
+
+/**
+ * Lakes of one or two hexes. Traced from the hex edges they come out as a
+ * rounded hexagon or a lozenge, which reads as a drawn symbol rather than a
+ * lake, so they are drawn instead as an irregular body sized to fill most of
+ * their hexes. Returns each such lake's hexes.
+ */
+export function smallLakes(
+  base: ReadonlyArray<BaseGeo | null>,
+  cols: number,
+  rows: number,
+  maxHexes = 2,
+): number[][] {
+  const seen = new Uint8Array(base.length);
+  const out: number[][] = [];
+  for (let i = 0; i < base.length; i++) {
+    if (seen[i] || base[i] !== 'Lake') continue;
+    const component: number[] = [];
+    const stack = [i];
+    seen[i] = 1;
+    while (stack.length > 0) {
+      const h = stack.pop()!;
+      component.push(h);
+      for (let e = 0; e < 6; e++) {
+        const n = neighbourOf(h % cols, Math.floor(h / cols), e);
+        if (!inBounds(cols, rows, n.col, n.row)) continue;
+        const j = hexIndex(cols, n.col, n.row);
+        if (!seen[j] && base[j] === 'Lake') {
+          seen[j] = 1;
+          stack.push(j);
+        }
+      }
+    }
+    if (component.length <= maxHexes) out.push(component.sort((a, b) => a - b));
+  }
+  return out;
+}
+
+/**
+ * An irregular closed body: an ellipse of half-axes rx, ry turned by `axis`,
+ * with each of its control points pushed in or out by up to `wobble` of its
+ * radius, then smoothed.
+ */
+export function blobPath(
+  c: Point,
+  rx: number,
+  ry: number,
+  axis: number,
+  rand: (k: number) => number,
+  count = 10,
+  wobble = 0.14,
+): PathCmd[] {
+  const points: Point[] = [];
+  for (let k = 0; k < count; k++) {
+    const angle = (k / count) * Math.PI * 2 + (rand(k) - 0.5) * 0.35;
+    const scale = 1 + (rand(k + 50) - 0.5) * 2 * wobble;
+    const x = Math.cos(angle) * rx * scale;
+    const y = Math.sin(angle) * ry * scale;
+    points.push({
+      x: c.x + x * Math.cos(axis) - y * Math.sin(axis),
+      y: c.y + x * Math.sin(axis) + y * Math.cos(axis),
+    });
+  }
+  return smoothPath(points, true);
+}

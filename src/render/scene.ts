@@ -52,7 +52,16 @@ import {
   type PolityLabel,
   type PolityNameMin,
 } from './labels.js';
-import { circlePath, coastGeometry, hexesPath, isletPath, sideOf, type CoastGeometry } from './coast.js';
+import {
+  blobPath,
+  circlePath,
+  coastGeometry,
+  hexesPath,
+  isletPath,
+  sideOf,
+  smallLakes,
+  type CoastGeometry,
+} from './coast.js';
 import type { CitySymbol, PathCmd, Prim } from './prims.js';
 import { riverCourse } from './rivers.js';
 import { signed, unit } from './seed.js';
@@ -161,8 +170,12 @@ function cachedPolityLabels(
   return labels;
 }
 
-/** The coast only depends on the base layer, so it is traced once per base array. */
-const coastCache = new WeakMap<object, { key: string; geometry: CoastGeometry }>();
+/**
+ * The coast only depends on the base layer, so it is traced once per base
+ * array. Lakes of one or two hexes are drawn as bodies of their own (see
+ * `smallLakes`), so they are traced as land here.
+ */
+const coastCache = new WeakMap<object, { key: string; geometry: CoastGeometry; lakes: number[][] }>();
 
 function cachedCoast(
   base: ReadonlyArray<BaseGeo | null>,
@@ -170,13 +183,16 @@ function cachedCoast(
   rows: number,
   size: number,
   smooth: boolean,
-): CoastGeometry {
+): { geometry: CoastGeometry; lakes: number[][] } {
   const key = `${cols}x${rows}@${size}/${smooth}`;
   const hit = coastCache.get(base);
-  if (hit && hit.key === key) return hit.geometry;
-  const geometry = coastGeometry(base, cols, rows, size, smooth);
-  coastCache.set(base, { key, geometry });
-  return geometry;
+  if (hit && hit.key === key) return hit;
+  const lakes = smallLakes(base, cols, rows);
+  const traced = base.slice();
+  for (const lake of lakes) for (const i of lake) traced[i] = 'Land';
+  const entry = { key, geometry: coastGeometry(traced, cols, rows, size, smooth), lakes };
+  coastCache.set(base, entry);
+  return entry;
 }
 
 /** Blend two #rrggbb colours; `t` = 0 gives `a`. */
@@ -320,8 +336,22 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
     return out;
   };
 
-  const sides = base ? base.map((v) => sideOf(v)) : null;
+  const traced = base ? cachedCoast(base, cols, rows, size, knobs.coast === 'smooth') : null;
+  const lakeBodies = traced?.lakes ?? [];
+  const inLakeBody = new Set(lakeBodies.flat());
+  // A small lake's hexes are drawn as land, then the lake body over them.
+  const sides = base ? base.map((v, i) => (inLakeBody.has(i) ? 'land' : sideOf(v))) : null;
   const isWater = (i: number) => sides?.[i] === 'water';
+  /** The land hex whose colours a small lake's hex borrows for the ground around the lake. */
+  const lakeShoreDonor = (i: number): number => {
+    for (let e = 0; e < 6; e++) {
+      const n = neighbourOf(i % cols, Math.floor(i / cols), e);
+      if (!inBounds(cols, rows, n.col, n.row)) continue;
+      const j = hexIndex(cols, n.col, n.row);
+      if (sides?.[j] === 'land' && !inLakeBody.has(j)) return j;
+    }
+    return i;
+  };
 
   // --- land -------------------------------------------------------------------
   for (let row = 0; row < rows; row++) {
@@ -329,7 +359,8 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
       const i = hexIndex(cols, col, row);
       if (isWater(i)) continue;
       const corners = hexCorners(col, row, size);
-      const fill = hexFill(i);
+      const own = inLakeBody.has(i) ? lakeShoreDonor(i) : i;
+      const fill = hexFill(own);
       prims.push({ kind: 'polygon', points: corners, fill, stroke: fill, strokeWidth: seal });
 
       if (knobs.ice === 'glacier' && base?.[i] === 'Ice' && fill === palette.ice) {
@@ -341,15 +372,12 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
         if (elevation) prims.push(...elevationMarks(hexCenter(col, row, size), size, elevation));
       }
 
-      for (const overlay of overlays(i)) prims.push({ kind: 'polygon', points: corners, fill: overlay });
+      for (const overlay of overlays(own)) prims.push({ kind: 'polygon', points: corners, fill: overlay });
     }
   }
 
   // --- water --------------------------------------------------------------------
-  const coast =
-    base && (knobs.coast !== 'none' || knobs.water !== 'flat')
-      ? cachedCoast(base, cols, rows, size, knobs.coast === 'smooth')
-      : null;
+  const coast = traced && (knobs.coast !== 'none' || knobs.water !== 'flat') ? traced.geometry : null;
   const waterColour = (i: number) => (base?.[i] === 'Lake' ? palette.lake : palette.sea);
   const islands: number[] = [];
   if (base) {
@@ -388,12 +416,38 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
       const water = body === 'lake' ? palette.lake : palette.sea;
       const surface = knobs.water === 'depth'
         ? depthBands(shorelines, size, water, shift(palette.seaShallow, palette.sea, water))
-        : rippleBands(shorelines, size, water, palette.ripple, palette.rippleAlpha, body === 'lake' ? 1 : 3);
+        : rippleBands(shorelines, size, water, palette.ripple, palette.rippleAlpha, body === 'lake' ? 1 : knobs.ripples);
       prims.push({ kind: 'group', clip, prims: surface });
     }
   }
 
+  // --- small lakes ----------------------------------------------------------------
+  const lakeOutlines: PathCmd[] = [];
+  for (const lake of lakeBodies) {
+    const centres = lake.map((i) => hexCenter(i % cols, Math.floor(i / cols), size));
+    const rand = (k: number) => unit(seed, 'lake', lake[0]!, k);
+    const d = centres.length === 1
+      ? blobPath(centres[0]!, size * 0.68, size * 0.58, rand(99) * Math.PI, rand)
+      : blobPath(
+          { x: (centres[0]!.x + centres[1]!.x) / 2, y: (centres[0]!.y + centres[1]!.y) / 2 },
+          Math.hypot(centres[1]!.x - centres[0]!.x, centres[1]!.y - centres[0]!.y) / 2 + size * 0.6,
+          size * 0.62,
+          Math.atan2(centres[1]!.y - centres[0]!.y, centres[1]!.x - centres[0]!.x),
+          rand,
+          12,
+        );
+    lakeOutlines.push(...d);
+    prims.push({ kind: 'path', d, fill: palette.lake });
+    if (knobs.water !== 'flat') {
+      const surface = knobs.water === 'depth'
+        ? depthBands(d, size, palette.lake, shift(palette.seaShallow, palette.sea, palette.lake))
+        : rippleBands(d, size, palette.lake, palette.ripple, palette.rippleAlpha, 1);
+      prims.push({ kind: 'group', clip: d, prims: surface });
+    }
+  }
+
   // --- islands ------------------------------------------------------------------
+  const islandLand = uniformLand ? palette.land : palette.island;
   for (const i of islands) {
     const c = hexCenter(i % cols, Math.floor(i / cols), size);
     const owner = polities?.owner[i];
@@ -405,11 +459,11 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
       : null;
     if (knobs.islands === 'blob') {
       const d = islandPath(i);
-      prims.push({ kind: 'path', d, fill: palette.island });
+      prims.push({ kind: 'path', d, fill: islandLand });
       // Only the landmass belongs to the polity; the surrounding sea stays sea.
       if (fill) prims.push({ kind: 'path', d, fill });
     } else {
-      prims.push({ kind: 'circle', c, r: size * 0.34, fill: palette.island });
+      prims.push({ kind: 'circle', c, r: size * 0.34, fill: islandLand });
       if (fill) prims.push({ kind: 'circle', c, r: size * 0.34, fill });
     }
   }
@@ -460,10 +514,10 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
   }
 
   // --- coastline ------------------------------------------------------------------
-  if (knobs.coast !== 'none' && shorelines.length > 0) {
+  if (knobs.coast !== 'none' && shorelines.length + lakeOutlines.length > 0) {
     prims.push({
       kind: 'path',
-      d: shorelines,
+      d: [...shorelines, ...lakeOutlines],
       stroke: palette.coast,
       strokeWidth: Math.max(0.8, size * palette.coastWidth),
       round: true,
