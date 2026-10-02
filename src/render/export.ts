@@ -19,6 +19,7 @@ import { renderToCanvas } from './canvas.js';
 import { appendLegend, legendSections, type LegendOptions } from './legend.js';
 import { buildScene, singleLayerVisibility, type Scene, type VisibleLayers } from './scene.js';
 import { sceneToSvg } from './svg.js';
+import type { MapStyle } from './styles.js';
 
 export interface ExportOptions {
   format: 'png' | 'svg';
@@ -29,6 +30,7 @@ export interface ExportOptions {
   elevationStyle?: 'colour' | 'contours';
   polityOpacity?: number;
   uniformLand?: boolean;
+  style?: MapStyle;
   /** Hex circumradius in px used to lay the scene out. */
   size?: number;
   /** PNG pixel multiplier on top of `size`. */
@@ -72,12 +74,13 @@ export function buildExportScene(map: MapState, visible: VisibleLayers, opts: Ex
     elevationStyle: opts.elevationStyle,
     polityOpacity: opts.polityOpacity,
     uniformLand: opts.uniformLand,
+    style: opts.style,
     selection: null,
     hover: null,
     transparentBackground: opts.transparentBackground ?? false,
   });
   if (!opts.legend) return scene;
-  const sections = legendSections(map, visible, opts.elevationStyle ?? 'colour', opts.legend);
+  const sections = legendSections(map, visible, opts.elevationStyle ?? 'colour', opts.legend, opts.style);
   return appendLegend(scene, sections, opts.legend.title ? map.name : null, size);
 }
 

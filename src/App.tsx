@@ -45,6 +45,7 @@ import MapView from './components/MapView.js';
 import SetupScreen from './components/SetupScreen.js';
 import { exportDecisions, exportJson, exportParseFriendlyJson } from './render/export.js';
 import { defaultVisibility, type VisibleLayers } from './render/scene.js';
+import { resolveStyle } from './render/styles.js';
 import { clearMap, loadMap, makeAutosaver } from './state/persistence.js';
 import { parseMapImport, prepareLoadedMap } from './state/import.js';
 import SavesDialog from './components/SavesDialog.js';
@@ -92,7 +93,8 @@ export default function App() {
   const [showUnlock, setShowUnlock] = useState(false);
   const [activeLayer, setActiveLayer] = useState<LayerId>('base');
   const [visible, setVisible] = useState<VisibleLayers>(defaultVisibility);
-  const { labels, riverNames, rangeNames, polityNames, elevationStyle, polityOpacity, uniformLand } = prefs;
+  const { labels, riverNames, rangeNames, polityNames, elevationStyle, polityOpacity } = prefs;
+  const mapStyle = useMemo(() => resolveStyle(prefs.mapStyle), [prefs.mapStyle]);
   const [selection, setSelection] = useState<Set<number>>(new Set());
   const [brush, setBrushState] = useState<Record<string, string>>({});
   const [brushMode, setBrushMode] = useState(false);
@@ -850,7 +852,7 @@ export default function App() {
             labels={labels}
             elevationStyle={elevationStyle}
             polityOpacity={polityOpacity}
-            uniformLand={uniformLand}
+            mapStyle={mapStyle}
             riverNames={riverNames}
             rangeNames={rangeNames}
             polityNames={polityNames}
@@ -1013,7 +1015,7 @@ export default function App() {
           polityNames={polityNames}
           elevationStyle={elevationStyle}
           polityOpacity={polityOpacity}
-          uniformLand={uniformLand}
+          mapStyle={mapStyle}
           selection={selection}
           onSelectionChange={setSelection}
           onStrokeEnd={brushMode && canEdit ? onStrokeEnd : null}

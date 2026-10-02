@@ -5,7 +5,13 @@
  * SVG export - consumes the same list of primitives produced here. That is the
  * whole point: the vector file and the bitmap cannot drift from what is on
  * screen, because none of them knows how to draw a hex map, only how to draw a
- * polygon, a polyline, a circle and a label.
+ * polygon, a polyline, a path, a circle and a label.
+ *
+ * The scene is built in passes, bottom to top: land, water, the water's
+ * surface treatment, islands, the corrections that make fills follow a
+ * smoothed coast, the grid, the coastline, frontiers, rivers, paper grain,
+ * cities and names. How each pass looks is decided by the map style
+ * (`styles.ts`); which passes have anything to draw is decided by the data.
  */
 
 import {
@@ -21,6 +27,7 @@ import {
 } from '../../shared/hex.js';
 import {
   LAYER_ORDER,
+  type BaseGeo,
   type CitiesData,
   type Climate,
   type Elevation,
@@ -30,10 +37,8 @@ import {
   type Vegetation,
 } from '../../shared/types.js';
 import {
-  BASE_COLOURS,
   CLIMATE_COLOURS,
   ELEVATION_COLOURS,
-  ISLAND_DOT,
   MAP_COLOURS,
   VEGETATION_COLOURS,
   populationColour,
@@ -47,55 +52,14 @@ import {
   type PolityLabel,
   type PolityNameMin,
 } from './labels.js';
+import { circlePath, coastGeometry, hexesPath, isletPath, sideOf, type CoastGeometry } from './coast.js';
+import type { CitySymbol, PathCmd, Prim } from './prims.js';
+import { riverCourse } from './rivers.js';
+import { signed, unit } from './seed.js';
+import { CLASSIC_STYLE, type MapStyle } from './styles.js';
+import { grainTile } from './texture.js';
 
-export type Prim =
-  | {
-      kind: 'polygon';
-      points: Point[];
-      fill?: string;
-      stroke?: string;
-      strokeWidth?: number;
-    }
-  | {
-      kind: 'polyline';
-      points: Point[];
-      stroke: string;
-      strokeWidth: number;
-      dash?: number[];
-      round?: boolean;
-      smooth?: boolean;
-    }
-  | {
-      kind: 'circle';
-      c: Point;
-      r: number;
-      fill?: string;
-      stroke?: string;
-      strokeWidth?: number;
-    }
-  | {
-      kind: 'text';
-      at: Point;
-      text: string;
-      size: number;
-      fill: string;
-      halo?: string;
-      weight?: number;
-      anchor?: 'start' | 'middle' | 'end';
-      maxWidth?: number;
-      fantasy?: boolean;
-      italic?: boolean;
-      rotation?: number;
-    }
-  | {
-      kind: 'city';
-      c: Point;
-      r: number;
-      onRiver: boolean;
-      symbol: CitySymbol;
-    };
-
-export type CitySymbol = 'village' | 'town' | 'city' | 'metropolis';
+export type { CitySymbol, PathCmd, Prim } from './prims.js';
 
 export function citySymbolForPopulation(population: number): CitySymbol {
   if (population <= 10_000) return 'village';
@@ -126,8 +90,10 @@ export interface SceneOptions {
   elevationStyle?: 'colour' | 'contours';
   /** Opacity of polity fills, 0-1 (default 1); lower values let terrain show through. */
   polityOpacity?: number;
-  /** Draw Coastal Land in the plain Land colour. */
+  /** Draw Coastal Land in the plain Land colour; overrides the style's own choice when set. */
   uniformLand?: boolean;
+  /** How the map looks; the Classic hex style when omitted. */
+  style?: MapStyle;
   /** Screen-only decoration; omitted from exports. */
   selection?: Set<number> | null;
   hover?: number | null;
@@ -161,8 +127,8 @@ export function thematicLayer(
 }
 
 /**
- * Placement is a search over the territory, and the scene is rebuilt on every
- * hover and selection change, so the result is remembered per data identity.
+ * Placement is a search over the territory, and the scene is rebuilt whenever
+ * a display option changes, so the result is remembered per data identity.
  * Layer edits are immutable (a new `owner` array / cities object each time).
  */
 const labelCache = new WeakMap<
@@ -195,11 +161,91 @@ function cachedPolityLabels(
   return labels;
 }
 
+/** The coast only depends on the base layer, so it is traced once per base array. */
+const coastCache = new WeakMap<object, { key: string; geometry: CoastGeometry }>();
+
+function cachedCoast(
+  base: ReadonlyArray<BaseGeo | null>,
+  cols: number,
+  rows: number,
+  size: number,
+  smooth: boolean,
+): CoastGeometry {
+  const key = `${cols}x${rows}@${size}/${smooth}`;
+  const hit = coastCache.get(base);
+  if (hit && hit.key === key) return hit.geometry;
+  const geometry = coastGeometry(base, cols, rows, size, smooth);
+  coastCache.set(base, { key, geometry });
+  return geometry;
+}
+
+/** Blend two #rrggbb colours; `t` = 0 gives `a`. */
+function mix(a: string, b: string, t: number): string {
+  const pa = /^#([0-9a-f]{6})$/i.exec(a);
+  const pb = /^#([0-9a-f]{6})$/i.exec(b);
+  if (!pa || !pb) return t < 0.5 ? a : b;
+  const na = parseInt(pa[1]!, 16);
+  const nb = parseInt(pb[1]!, 16);
+  const channel = (shift: number) =>
+    Math.round(((na >> shift) & 255) * (1 - t) + ((nb >> shift) & 255) * t);
+  return `#${[16, 8, 0].map((s) => channel(s).toString(16).padStart(2, '0')).join('')}`;
+}
+
+/** Shift `colour` by the difference between `from` and `to`, per channel. */
+function shift(colour: string, from: string, to: string): string {
+  const parse = (c: string) => {
+    const m = /^#([0-9a-f]{6})$/i.exec(c);
+    const n = m ? parseInt(m[1]!, 16) : 0;
+    return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+  };
+  const [c, f, t] = [parse(colour), parse(from), parse(to)];
+  return `#${c.map((v, i) => Math.max(0, Math.min(255, v + t[i]! - f[i]!)).toString(16).padStart(2, '0')).join('')}`;
+}
+
+/** The whole scene, screen decoration included. */
 export function buildScene(map: MapState, opts: SceneOptions): Scene {
+  const scene = buildStaticScene(map, opts);
+  const decoration = decorationPrims(map, opts);
+  return decoration.length > 0 ? { ...scene, prims: [...scene.prims, ...decoration] } : scene;
+}
+
+/** Hover and selection outlines: the only part of the scene that changes as the pointer moves. */
+export function decorationPrims(map: MapState, opts: SceneOptions): Prim[] {
+  const { cols, rows } = map;
+  const { size } = opts;
+  const prims: Prim[] = [];
+  if (opts.selection) {
+    for (const i of opts.selection) {
+      if (i < 0 || i >= cols * rows) continue;
+      prims.push({
+        kind: 'polygon',
+        points: hexCorners(i % cols, Math.floor(i / cols), size),
+        stroke: MAP_COLOURS.selection,
+        strokeWidth: Math.max(2, size * 0.12),
+      });
+    }
+  }
+  if (opts.hover !== null && opts.hover !== undefined && opts.hover >= 0) {
+    prims.push({
+      kind: 'polygon',
+      points: hexCorners(opts.hover % cols, Math.floor(opts.hover / cols), size),
+      stroke: MAP_COLOURS.hover,
+      strokeWidth: Math.max(1.5, size * 0.07),
+    });
+  }
+  return prims;
+}
+
+/** Everything but the hover and selection outlines. */
+export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
   const { cols, rows, layers } = map;
   const { size } = opts;
+  const style = opts.style ?? CLASSIC_STYLE;
+  const { palette, knobs } = style;
   const { width, height } = gridPixelSize(cols, rows, size);
   const prims: Prim[] = [];
+  const seed = map.id;
+  const uniformLand = opts.uniformLand ?? knobs.land === 'uniform';
 
   const base = opts.visible.base ? layers.base.data : null;
   const elevationStyle = opts.elevationStyle ?? 'colour';
@@ -214,104 +260,214 @@ export function buildScene(map: MapState, opts: SceneOptions): Scene {
   );
 
   const polityOpacity = Math.min(1, Math.max(0, opts.polityOpacity ?? 1));
+  // Fills are sealed with a hairline of their own colour, so the anti-aliased
+  // seam between two hexes of one colour does not let the background through.
+  const seal = Math.max(0.4, size * 0.02);
 
-  // --- hex fills -----------------------------------------------------------
+  const baseColour = (value: BaseGeo): string => {
+    switch (value) {
+      case 'Sea':
+      case 'Island':
+        return palette.sea;
+      case 'Lake':
+        return palette.lake;
+      case 'Land':
+        return palette.land;
+      case 'Coastal Land':
+        return uniformLand ? palette.land : palette.coastalLand;
+      case 'Ice':
+        return palette.ice;
+    }
+  };
+
+  const hexFill = (i: number): string => {
+    let fill = MAP_COLOURS.emptyHex;
+    const baseValue = base ? base[i] : null;
+    if (baseValue) fill = baseColour(baseValue);
+    if (thematic) {
+      const value =
+        thematic === 'elevation'
+          ? layers.elevation.data?.[i] ?? null
+          : thematic === 'climate'
+            ? layers.climate.data?.[i] ?? null
+            : layers.vegetation.data?.[i] ?? null;
+      if (value !== null) {
+        fill =
+          thematic === 'elevation'
+            ? ELEVATION_COLOURS[value as Elevation]
+            : thematic === 'climate'
+              ? CLIMATE_COLOURS[value as Climate]
+              : VEGETATION_COLOURS[value as Vegetation];
+      } else if (!base) {
+        fill = MAP_COLOURS.emptyHex;
+      }
+    }
+    return fill;
+  };
+
+  /** The translucent layers painted over a hex's own fill, in order. */
+  const overlays = (i: number): string[] => {
+    const out: string[] = [];
+    const value = population?.[i];
+    if (value !== null && value !== undefined) out.push(withAlpha(populationColour(value, maxPop), 0.82));
+    const owner = polities?.owner[i];
+    if (owner) {
+      // Polity colours are categorical data, not a tint. An opaque fill
+      // keeps a realm's colour invariant when substrate layers change.
+      const solid = polityColour.get(owner) ?? '#777777';
+      out.push(polityOpacity < 1 ? withAlpha(solid, polityOpacity) : solid);
+    }
+    return out;
+  };
+
+  const sides = base ? base.map((v) => sideOf(v)) : null;
+  const isWater = (i: number) => sides?.[i] === 'water';
+
+  // --- land -------------------------------------------------------------------
   for (let row = 0; row < rows; row++) {
     for (let col = 0; col < cols; col++) {
       const i = hexIndex(cols, col, row);
+      if (isWater(i)) continue;
       const corners = hexCorners(col, row, size);
-      let fill = MAP_COLOURS.emptyHex;
+      const fill = hexFill(i);
+      prims.push({ kind: 'polygon', points: corners, fill, stroke: fill, strokeWidth: seal });
 
-      const baseValue = base ? base[i] : null;
-      if (baseValue) {
-        fill = BASE_COLOURS[opts.uniformLand && baseValue === 'Coastal Land' ? 'Land' : baseValue];
-      }
-
-      if (thematic) {
-        const value =
-          thematic === 'elevation'
-            ? layers.elevation.data?.[i] ?? null
-            : thematic === 'climate'
-              ? layers.climate.data?.[i] ?? null
-              : layers.vegetation.data?.[i] ?? null;
-        if (value !== null) {
-          fill =
-            thematic === 'elevation'
-              ? ELEVATION_COLOURS[value as Elevation]
-              : thematic === 'climate'
-                ? CLIMATE_COLOURS[value as Climate]
-                : VEGETATION_COLOURS[value as Vegetation];
-        } else if (!base) {
-          fill = MAP_COLOURS.emptyHex;
-        }
-      }
-
-      prims.push({
-        kind: 'polygon',
-        points: corners,
-        fill,
-        stroke: MAP_COLOURS.hexOutline,
-        strokeWidth: Math.max(0.5, size * 0.03),
-      });
-
-      if (baseValue === 'Island') {
-        const c = hexCenter(col, row, size);
-        prims.push({ kind: 'circle', c, r: size * 0.34, fill: ISLAND_DOT });
+      if (knobs.ice === 'glacier' && base?.[i] === 'Ice' && fill === palette.ice) {
+        prims.push(...crevasses(hexCenter(col, row, size), size, seed, i, palette.iceShade));
       }
 
       if (elevationStyle === 'contours' && opts.visible.elevation) {
         const elevation = layers.elevation.data?.[i];
-        if (elevation) {
-          const centre = hexCenter(col, row, size);
-          const levels: Record<Elevation, number> = {
-            Lowland: 0, Rolling: 1, Hills: 2, Highland: 3, Mountains: 4, Plateau: 2,
-          };
-          const count = levels[elevation];
-          for (let mark = 0; mark < count; mark++) {
-            const halfWidth = size * (0.2 + mark * 0.1);
-            const y = centre.y + size * (0.25 - mark * 0.14);
-            const points = elevation === 'Plateau'
-              ? [{ x: centre.x - halfWidth, y }, { x: centre.x + halfWidth, y }]
-              : [{ x: centre.x - halfWidth, y }, { x: centre.x, y: y - size * 0.15 }, { x: centre.x + halfWidth, y }];
-            prims.push({
-              kind: 'polyline',
-              points,
-              stroke: MAP_COLOURS.elevationContour,
-              strokeWidth: Math.max(0.8, size * 0.045),
-              round: true,
-            });
-          }
-        }
+        if (elevation) prims.push(...elevationMarks(hexCenter(col, row, size), size, elevation));
       }
 
-      if (population) {
-        const value = population[i];
-        if (value !== null && value !== undefined) {
-          prims.push({
-            kind: 'polygon',
-            points: corners,
-            fill: withAlpha(populationColour(value, maxPop), 0.82),
-          });
-        }
-      }
+      for (const overlay of overlays(i)) prims.push({ kind: 'polygon', points: corners, fill: overlay });
+    }
+  }
 
-      if (polities) {
-        const owner = polities.owner[i];
-        if (owner) {
-          // Polity colours are categorical data, not a tint. An opaque fill
-          // keeps a realm's colour invariant when substrate layers change.
+  // --- water --------------------------------------------------------------------
+  const coast =
+    base && (knobs.coast !== 'none' || knobs.water !== 'flat')
+      ? cachedCoast(base, cols, rows, size, knobs.coast === 'smooth')
+      : null;
+  const waterColour = (i: number) => (base?.[i] === 'Lake' ? palette.lake : palette.sea);
+  const islands: number[] = [];
+  if (base) {
+    for (let i = 0; i < base.length; i++) {
+      if (!isWater(i)) continue;
+      const fill = waterColour(i);
+      prims.push({ kind: 'polygon', points: hexCorners(i % cols, Math.floor(i / cols), size), fill, stroke: fill, strokeWidth: seal });
+      if (base[i] === 'Island') islands.push(i);
+    }
+    // Corners of land that the smoothed coast cuts off become water.
+    for (const s of coast?.toWater ?? []) {
+      const fill = waterColour(s.donor);
+      prims.push({ kind: 'path', d: s.d, fill, stroke: fill, strokeWidth: seal });
+    }
+  }
+
+  const islandRand = (i: number) => (k: number) => unit(seed, 'islet', i, k);
+  const islandPath = (i: number): PathCmd[] => {
+    const c = hexCenter(i % cols, Math.floor(i / cols), size);
+    return knobs.islands === 'blob' ? isletPath(c, size, islandRand(i)) : circlePath(c, size * 0.34);
+  };
+  const shorelines: PathCmd[] = [...(coast?.paths.flat() ?? []), ...islands.flatMap(islandPath)];
+
+  // The sea's surface, clipped to the water so the bands stop at the shore.
+  if (base && coast && knobs.water !== 'flat' && shorelines.length > 0) {
+    for (const body of ['sea', 'lake'] as const) {
+      const hexes: number[] = [];
+      base.forEach((v, i) => {
+        if (isWater(i) && (v === 'Lake') === (body === 'lake')) hexes.push(i);
+      });
+      if (hexes.length === 0) continue;
+      const clip = [
+        ...hexesPath(hexes, cols, size),
+        ...coast.toWater.filter((s) => (base[s.donor] === 'Lake') === (body === 'lake')).flatMap((s) => s.d),
+      ];
+      const water = body === 'lake' ? palette.lake : palette.sea;
+      const surface = knobs.water === 'depth'
+        ? depthBands(shorelines, size, water, shift(palette.seaShallow, palette.sea, water))
+        : rippleBands(shorelines, size, water, palette.ripple, palette.rippleAlpha, body === 'lake' ? 1 : 3);
+      prims.push({ kind: 'group', clip, prims: surface });
+    }
+  }
+
+  // --- islands ------------------------------------------------------------------
+  for (const i of islands) {
+    const c = hexCenter(i % cols, Math.floor(i / cols), size);
+    const owner = polities?.owner[i];
+    const fill = owner
+      ? (() => {
           const solid = polityColour.get(owner) ?? '#777777';
-          const fill = polityOpacity < 1 ? withAlpha(solid, polityOpacity) : solid;
-          if (baseValue === 'Island') {
-            // Only the landmass belongs to the polity; the surrounding sea
-            // stays sea-coloured, matching the island dot's footprint.
-            prims.push({ kind: 'circle', c: hexCenter(col, row, size), r: size * 0.34, fill });
-          } else {
-            prims.push({ kind: 'polygon', points: corners, fill });
+          return polityOpacity < 1 ? withAlpha(solid, polityOpacity) : solid;
+        })()
+      : null;
+    if (knobs.islands === 'blob') {
+      const d = islandPath(i);
+      prims.push({ kind: 'path', d, fill: palette.island });
+      // Only the landmass belongs to the polity; the surrounding sea stays sea.
+      if (fill) prims.push({ kind: 'path', d, fill });
+    } else {
+      prims.push({ kind: 'circle', c, r: size * 0.34, fill: palette.island });
+      if (fill) prims.push({ kind: 'circle', c, r: size * 0.34, fill });
+    }
+  }
+
+  // Notches of water that the smoothed coast fills in become land, painted with
+  // everything the neighbouring land hex is painted with.
+  for (const s of coast?.toLand ?? []) {
+    const fill = hexFill(s.donor);
+    prims.push({ kind: 'path', d: s.d, fill, stroke: fill, strokeWidth: seal });
+    for (const overlay of overlays(s.donor)) prims.push({ kind: 'path', d: s.d, fill: overlay });
+  }
+
+  // Claims on water hexes (where the map allows them) sit over the sea's surface.
+  if (base) {
+    for (let i = 0; i < base.length; i++) {
+      if (!isWater(i) || base[i] === 'Island') continue;
+      for (const overlay of overlays(i)) {
+        prims.push({ kind: 'polygon', points: hexCorners(i % cols, Math.floor(i / cols), size), fill: overlay });
+      }
+    }
+  }
+
+  // --- grid ---------------------------------------------------------------------
+  if (knobs.grid !== 'none') {
+    const d: PathCmd[] = [];
+    for (let row = 0; row < rows; row++) {
+      for (let col = 0; col < cols; col++) {
+        const i = hexIndex(cols, col, row);
+        if (knobs.grid === 'land' && (!base || sides![i] !== 'land')) continue;
+        for (let e = 0; e < 6; e++) {
+          const n = neighbourOf(col, row, e);
+          const inside = inBounds(cols, rows, n.col, n.row);
+          const j = inside ? hexIndex(cols, n.col, n.row) : -1;
+          if (knobs.grid === 'land') {
+            // Land-to-land edges only: the coast has its own line.
+            if (!inside || sides![j] !== 'land' || j < i) continue;
+          } else if (inside && j < i) {
+            continue; // each shared edge once
           }
+          const [a, b] = hexEdgePoints(col, row, e, size);
+          d.push(['M', a.x, a.y], ['L', b.x, b.y]);
         }
       }
     }
+    if (d.length > 0) {
+      prims.push({ kind: 'path', d, stroke: palette.grid, strokeWidth: Math.max(0.5, size * palette.gridWidth), round: true });
+    }
+  }
+
+  // --- coastline ------------------------------------------------------------------
+  if (knobs.coast !== 'none' && shorelines.length > 0) {
+    prims.push({
+      kind: 'path',
+      d: shorelines,
+      stroke: palette.coast,
+      strokeWidth: Math.max(0.8, size * palette.coastWidth),
+      round: true,
+    });
   }
 
   // --- polity borders ------------------------------------------------------
@@ -348,6 +504,8 @@ export function buildScene(map: MapState, opts: SceneOptions): Scene {
 
   // --- rivers --------------------------------------------------------------
   const rivers = opts.visible.rivers ? layers.rivers.data : null;
+  const tapered = knobs.rivers === 'tapered';
+  const courses = new Map<string, Point[]>();
   if (rivers) {
     const picked = opts.highlightRiver ? rivers.rivers.find((r) => r.id === opts.highlightRiver) : null;
     if (picked) {
@@ -367,6 +525,13 @@ export function buildScene(map: MapState, opts: SceneOptions): Scene {
       });
     }
     for (const river of rivers.rivers) {
+      if (tapered) {
+        const course = riverCourse(river, size, seed);
+        if (!course) continue;
+        courses.set(river.id, course.centreline);
+        prims.push({ kind: 'path', d: course.outline, fill: palette.river, stroke: palette.river, strokeWidth: Math.max(0.3, size * 0.015), round: true });
+        continue;
+      }
       // One polyline per run of same-navigability segments, so the change in
       // weight along a river is visible rather than averaged away.
       let run: Point[] = [];
@@ -376,7 +541,7 @@ export function buildScene(map: MapState, opts: SceneOptions): Scene {
           prims.push({
             kind: 'polyline',
             points: run,
-            stroke: runNavigable ? MAP_COLOURS.river : MAP_COLOURS.riverNonNavigable,
+            stroke: runNavigable ? palette.river : palette.riverNonNavigable,
             strokeWidth: runNavigable ? Math.max(2.5, size * 0.2125) : Math.max(1.25, size * 0.1125),
             round: true,
             smooth: true,
@@ -425,6 +590,12 @@ export function buildScene(map: MapState, opts: SceneOptions): Scene {
     }
   }
 
+  // --- paper grain ----------------------------------------------------------------
+  // Over the land and water but under the symbols and names, which stay crisp.
+  if (knobs.grain && !opts.transparentBackground) {
+    prims.push({ kind: 'texture', x: 0, y: 0, width, height, tile: grainTile(palette.grain, palette.grainStrength) });
+  }
+
   // --- cities --------------------------------------------------------------
   const cities = opts.visible.cities ? layers.cities.data : null;
   if (cities) {
@@ -449,6 +620,7 @@ export function buildScene(map: MapState, opts: SceneOptions): Scene {
         r,
         onRiver: city.onRiver,
         symbol: citySymbolForPopulation(city.population),
+        riverDot: palette.river,
       });
     }
   }
@@ -509,13 +681,14 @@ export function buildScene(map: MapState, opts: SceneOptions): Scene {
 
   // --- river and mountain range names -------------------------------------
   if (rivers && opts.riverNames) {
-    for (const l of placeRiverLabels(rivers.rivers, size)) {
+    const pathFor = tapered ? (id: string) => courses.get(id) ?? null : undefined;
+    for (const l of placeRiverLabels(rivers.rivers, size, pathFor)) {
       prims.push({
         kind: 'text',
         at: l.at,
         text: l.text,
         size: l.size,
-        fill: MAP_COLOURS.riverLabel,
+        fill: palette.riverLabel,
         halo: MAP_COLOURS.labelHalo,
         weight: 600,
         anchor: 'middle',
@@ -542,33 +715,102 @@ export function buildScene(map: MapState, opts: SceneOptions): Scene {
     }
   }
 
-  // --- screen-only decoration ---------------------------------------------
-  if (opts.selection) {
-    for (const i of opts.selection) {
-      if (i < 0 || i >= cols * rows) continue;
-      prims.push({
-        kind: 'polygon',
-        points: hexCorners(i % cols, Math.floor(i / cols), size),
-        stroke: MAP_COLOURS.selection,
-        strokeWidth: Math.max(2, size * 0.12),
-      });
-    }
-  }
-  if (opts.hover !== null && opts.hover !== undefined && opts.hover >= 0) {
-    prims.push({
-      kind: 'polygon',
-      points: hexCorners(opts.hover % cols, Math.floor(opts.hover / cols), size),
-      stroke: MAP_COLOURS.hover,
-      strokeWidth: Math.max(1.5, size * 0.07),
-    });
-  }
-
   return {
     width,
     height,
-    background: opts.transparentBackground ? 'transparent' : MAP_COLOURS.paper,
+    // The sea colour, so the half-hex notches along the left and right edges
+    // read as more sea rather than as a black serrated border.
+    background: opts.transparentBackground ? 'transparent' : palette.sea,
     prims,
   };
+}
+
+/** Elevation drawn as stacked marks, one more per step of height. */
+function elevationMarks(centre: Point, size: number, elevation: Elevation): Prim[] {
+  const levels: Record<Elevation, number> = {
+    Lowland: 0, Rolling: 1, Hills: 2, Highland: 3, Mountains: 4, Plateau: 2,
+  };
+  const prims: Prim[] = [];
+  for (let mark = 0; mark < levels[elevation]; mark++) {
+    const halfWidth = size * (0.2 + mark * 0.1);
+    const y = centre.y + size * (0.25 - mark * 0.14);
+    const points = elevation === 'Plateau'
+      ? [{ x: centre.x - halfWidth, y }, { x: centre.x + halfWidth, y }]
+      : [{ x: centre.x - halfWidth, y }, { x: centre.x, y: y - size * 0.15 }, { x: centre.x + halfWidth, y }];
+    prims.push({
+      kind: 'polyline',
+      points,
+      stroke: MAP_COLOURS.elevationContour,
+      strokeWidth: Math.max(0.8, size * 0.045),
+      round: true,
+    });
+  }
+  return prims;
+}
+
+/** A few seeded crevasse strokes, so a glacier reads as ice rather than as blank paper. */
+function crevasses(centre: Point, size: number, seed: string, i: number, colour: string): Prim[] {
+  const prims: Prim[] = [];
+  const count = 2 + Math.floor(unit(seed, 'ice', i, 'n') * 2);
+  for (let k = 0; k < count; k++) {
+    const x = centre.x + signed(seed, 'ice', i, k, 'x') * size * 0.45;
+    const y = centre.y + signed(seed, 'ice', i, k, 'y') * size * 0.4;
+    const angle = signed(seed, 'ice', i, k, 'a') * 0.35;
+    const half = size * (0.12 + 0.12 * unit(seed, 'ice', i, k, 'l'));
+    const bend = signed(seed, 'ice', i, k, 'b') * size * 0.05;
+    const dx = Math.cos(angle) * half;
+    const dy = Math.sin(angle) * half;
+    prims.push({
+      kind: 'path',
+      d: [['M', x - dx, y - dy], ['Q', x - dy * 0.3, y + bend, x + dx, y + dy]],
+      stroke: colour,
+      strokeWidth: Math.max(0.6, size * 0.035),
+      round: true,
+    });
+  }
+  return prims;
+}
+
+/**
+ * Bands of colour that lighten towards the shore. Each band is the shoreline
+ * stroked at a width; drawn widest first, the narrower, paler strokes leave a
+ * ring of each colour at its distance from the nearest coast, wherever that
+ * coast is, so the bands of neighbouring islands merge as real shallows do.
+ */
+function depthBands(shores: PathCmd[], size: number, deep: string, shallow: string): Prim[] {
+  const bands = 6;
+  const reach = 2.1 * size;
+  const prims: Prim[] = [];
+  for (let k = bands; k >= 1; k--) {
+    const t = ((bands - k + 1) / bands) ** 1.4;
+    prims.push({ kind: 'path', d: shores, stroke: mix(deep, shallow, t), strokeWidth: (2 * reach * k) / bands, round: true });
+  }
+  return prims;
+}
+
+/**
+ * Lines following the shore at increasing distances. Each ring is a wide
+ * stroke in the ripple colour with a slightly narrower stroke of plain water
+ * over it, leaving a thin line at that distance from every coast at once.
+ */
+function rippleBands(
+  shores: PathCmd[],
+  size: number,
+  water: string,
+  ripple: string,
+  alpha: number,
+  // Lakes take one ring: three fill a small lake and read as a contoured hollow.
+  rings: number,
+): Prim[] {
+  const line = Math.max(0.6, size * 0.045);
+  const prims: Prim[] = [];
+  for (let k = rings - 1; k >= 0; k--) {
+    const distance = size * (0.26 + 0.22 * k);
+    const ink = mix(water, ripple, alpha * (1 - k * 0.22));
+    prims.push({ kind: 'path', d: shores, stroke: ink, strokeWidth: 2 * distance + line, round: true });
+    prims.push({ kind: 'path', d: shores, stroke: water, strokeWidth: 2 * distance - line, round: true });
+  }
+  return prims;
 }
 
 /** Visibility set for exporting a single layer on its own. */

@@ -52,14 +52,22 @@ function pointAt(pts: Point[], cum: number[], d: number): Point {
   };
 }
 
-export function placeRiverLabels(rivers: River[], size: number): FeatureLabel[] {
+/**
+ * `pathFor` supplies the course as drawn when it is not the hex-centre polyline
+ * (a meandering river), so the name sits on the line the reader sees.
+ */
+export function placeRiverLabels(
+  rivers: River[],
+  size: number,
+  pathFor?: (riverId: string) => Point[] | null,
+): FeatureLabel[] {
   const out: FeatureLabel[] = [];
   const idealFont = Math.max(8, size * 0.34);
   const minFont = Math.max(6, size * 0.2);
   for (const river of rivers) {
     const text = river.name.trim();
     if (!text) continue;
-    const pts = riverPath(river, size);
+    const pts = pathFor?.(river.id) ?? riverPath(river, size);
     if (pts.length < 2) continue;
     const cum = [0];
     for (let i = 1; i < pts.length; i++) {

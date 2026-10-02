@@ -2,8 +2,9 @@ import type { PolityNameMin } from '../render/labels.js';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { hexIndex, pixelToOffset, gridPixelSize, inBounds } from '../../shared/hex.js';
 import type { LayerId, MapState } from '../../shared/types.js';
-import { drawScene } from '../render/canvas.js';
-import { buildScene, type VisibleLayers } from '../render/scene.js';
+import { drawPrims, drawScene } from '../render/canvas.js';
+import { buildStaticScene, decorationPrims, type VisibleLayers } from '../render/scene.js';
+import type { MapStyle } from '../render/styles.js';
 import { MAP_COLOURS } from '../render/palette.js';
 import { riversThroughHex } from '../../shared/derive.js';
 import { formatLength, riverLength } from '../../shared/riverLength.js';
@@ -22,7 +23,7 @@ export interface MapViewProps {
   polityNames: PolityNameMin;
   elevationStyle: 'colour' | 'contours';
   polityOpacity: number;
-  uniformLand: boolean;
+  mapStyle: MapStyle;
   selection: Set<number>;
   onSelectionChange: (next: Set<number>) => void;
   /**
@@ -50,7 +51,7 @@ export interface MapViewProps {
 }
 
 export default function MapView(props: MapViewProps) {
-  const { map, visible, labels, riverNames, rangeNames, polityNames, elevationStyle, polityOpacity, uniformLand, selection, onSelectionChange, onStrokeEnd } = props;
+  const { map, visible, labels, riverNames, rangeNames, polityNames, elevationStyle, polityOpacity, mapStyle, selection, onSelectionChange, onStrokeEnd } = props;
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const [view, setView] = useState<View>({ scale: 1, x: 0, y: 0 });
@@ -94,23 +95,34 @@ export default function MapView(props: MapViewProps) {
     };
   }, []);
 
-  const scene = useMemo(() => {
+  // The map itself is rebuilt only when the data or a display option changes;
+  // the pointer moving only rebuilds the hover and selection outlines.
+  const scene = useMemo(
+    () =>
+      buildStaticScene(map, {
+        size: HEX_SIZE,
+        visible,
+        labels,
+        riverNames,
+        rangeNames,
+        polityNames,
+        elevationStyle,
+        polityOpacity,
+        style: mapStyle,
+        highlightRiver: props.riverTool?.selectedId ?? null,
+      }),
+    [map, visible, labels, riverNames, rangeNames, polityNames, elevationStyle, polityOpacity, mapStyle, props.riverTool?.selectedId],
+  );
+  const decoration = useMemo(() => {
     const riverDraftSelection = props.riverDraft ? new Set(props.riverDraft) : null;
-    return buildScene(map, {
+    return decorationPrims(map, {
       size: HEX_SIZE,
       visible,
       labels,
-      riverNames,
-      rangeNames,
-      polityNames,
-      elevationStyle,
-      polityOpacity,
-      uniformLand,
       selection: riverDraftSelection ?? selection,
       hover,
-      highlightRiver: props.riverTool?.selectedId ?? null,
     });
-  }, [map, visible, labels, riverNames, rangeNames, polityNames, elevationStyle, polityOpacity, uniformLand, selection, hover, props.riverDraft, props.riverTool?.selectedId]);
+  }, [map, visible, labels, selection, hover, props.riverDraft]);
 
   // Fit the map into the viewport the first time it is laid out, and again
   // whenever a different map (a load, an import, a new map) takes its place.
@@ -169,8 +181,9 @@ export default function MapView(props: MapViewProps) {
     ctx.fillStyle = scene.background;
     ctx.fillRect(0, 0, scene.width, scene.height);
     drawScene(ctx, scene);
+    drawPrims(ctx, decoration);
     ctx.restore();
-  }, [scene, view, size]);
+  }, [scene, decoration, view, size]);
 
   const hexAt = useCallback(
     (clientX: number, clientY: number): number | null => {

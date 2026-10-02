@@ -5,6 +5,7 @@ import { exportComposite, exportLayer } from '../render/export.js';
 import type { PolityNameMin } from '../render/labels.js';
 import { DEFAULT_LEGEND_OPTIONS, legendLayers } from '../render/legend.js';
 import type { VisibleLayers } from '../render/scene.js';
+import type { MapStyle } from '../render/styles.js';
 
 function Check({
   checked,
@@ -39,7 +40,7 @@ export default function ExportPanel({
   labels: initialLabels,
   elevationStyle,
   polityOpacity,
-  uniformLand,
+  mapStyle,
   riverNames: initialRiverNames,
   rangeNames: initialRangeNames,
   polityNames,
@@ -49,7 +50,7 @@ export default function ExportPanel({
   labels: boolean;
   elevationStyle: 'colour' | 'contours';
   polityOpacity: number;
-  uniformLand: boolean;
+  mapStyle: MapStyle;
   riverNames: boolean;
   rangeNames: boolean;
   polityNames: PolityNameMin;
@@ -80,7 +81,7 @@ export default function ExportPanel({
     scale: Number(scale) || 2,
     elevationStyle,
     polityOpacity,
-    uniformLand,
+    style: mapStyle,
     polityNames,
     legend: legend
       ? { exclude: legendExclude, onlyUsed, polityAreas, riverLengths, title: legendTitle }
