@@ -41,6 +41,10 @@ export interface Prefs {
   elevationStyle: 'colour' | 'contours';
   /** Draw polity/city names on the map. */
   labels: boolean;
+  /** Draw river names (with the Rivers layer visible). */
+  riverNames: boolean;
+  /** Draw mountain range names (with the Elevation layer visible). */
+  rangeNames: boolean;
   /**
    * Which generation of defaults these prefs were saved under. Prefs saved
    * before this existed carry the old effort and budget whether or not anyone
@@ -60,6 +64,8 @@ export const DEFAULT_PREFS: Prefs = {
   remember: true,
   elevationStyle: 'colour',
   labels: true,
+  riverNames: false,
+  rangeNames: false,
   defaultsVersion: DEFAULTS_VERSION,
 };
 
@@ -148,6 +154,8 @@ export function loadPrefs(): Prefs {
       taskBudget: clampTaskBudget(stored.taskBudget ?? DEFAULT_PREFS.taskBudget),
       elevationStyle: stored.elevationStyle === 'contours' ? 'contours' : 'colour',
       labels: stored.labels !== false,
+      riverNames: stored.riverNames === true,
+      rangeNames: stored.rangeNames === true,
       defaultsVersion: DEFAULTS_VERSION,
     };
   } catch {

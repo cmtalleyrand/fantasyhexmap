@@ -36,6 +36,7 @@ import type {
   LayerState,
   MapState,
   HexDimensions,
+  MountainRange,
   Polity,
   River,
 } from '../../shared/types.js';
@@ -75,6 +76,10 @@ export type Action =
   | { type: 'updateRiver'; river: River }
   | { type: 'removeRiver'; id: string }
   | { type: 'setRiverNavigability'; indices: number[]; navigable: boolean; downstream: boolean }
+  /** Put Mountains hexes in the range `id`, creating it if it does not exist. */
+  | { type: 'nameMountainRange'; id: string; name: string; indices: number[] }
+  | { type: 'renameMountainRange'; id: string; name: string }
+  | { type: 'removeMountainRange'; id: string }
   | { type: 'clearLayer'; layer: LayerId }
   | { type: 'undo'; layer: LayerId }
   | { type: 'redo'; layer: LayerId };
@@ -598,6 +603,58 @@ export function reducer(map: MapState, action: Action): MapState {
         manualEntry('rivers', `Removed the river "${dropped}" by hand.`),
       );
       return reconcile(next);
+    }
+
+    case 'nameMountainRange': {
+      const name = action.name.trim();
+      const elevation = map.layers.elevation.data;
+      if (!name || !elevation) return map;
+      const picked = new Set(action.indices.filter((i) => elevation[i] === 'Mountains'));
+      if (picked.size === 0) return map;
+      const ranges = map.mountainRanges ?? [];
+      const existing = ranges.find((r) => r.id === action.id);
+      // A hex belongs to one range, so claiming it takes it from any other.
+      const others = ranges
+        .filter((r) => r.id !== action.id)
+        .map((r) => ({ ...r, hexes: r.hexes.filter((i) => !picked.has(i)) }))
+        .filter((r) => r.hexes.length > 0);
+      const range: MountainRange = {
+        id: action.id,
+        name,
+        hexes: [...new Set([...(existing?.hexes ?? []), ...picked])].sort((a, b) => a - b),
+      };
+      return journal(
+        { ...map, mountainRanges: [...others, range], updatedAt: Date.now() },
+        manualEntry(
+          'elevation',
+          `${existing ? 'Extended' : 'Named'} the mountain range "${name}" (${range.hexes.length} hexes) by hand.`,
+        ),
+      );
+    }
+
+    case 'renameMountainRange': {
+      const name = action.name.trim();
+      const ranges = map.mountainRanges ?? [];
+      const old = ranges.find((r) => r.id === action.id);
+      if (!old || !name || old.name === name) return map;
+      return journal(
+        {
+          ...map,
+          mountainRanges: ranges.map((r) => (r.id === action.id ? { ...r, name } : r)),
+          updatedAt: Date.now(),
+        },
+        manualEntry('elevation', `Renamed the mountain range "${old.name}" to "${name}".`),
+      );
+    }
+
+    case 'removeMountainRange': {
+      const ranges = map.mountainRanges ?? [];
+      const old = ranges.find((r) => r.id === action.id);
+      if (!old) return map;
+      return journal(
+        { ...map, mountainRanges: ranges.filter((r) => r.id !== action.id), updatedAt: Date.now() },
+        manualEntry('elevation', `Removed the mountain range "${old.name}".`),
+      );
     }
 
     case 'clearLayer': {

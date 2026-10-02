@@ -79,7 +79,7 @@ export default function App() {
   const [showUnlock, setShowUnlock] = useState(false);
   const [activeLayer, setActiveLayer] = useState<LayerId>('base');
   const [visible, setVisible] = useState<VisibleLayers>(defaultVisibility);
-  const { labels, elevationStyle } = prefs;
+  const { labels, riverNames, rangeNames, elevationStyle } = prefs;
   const [selection, setSelection] = useState<Set<number>>(new Set());
   const [brush, setBrushState] = useState<Record<string, string>>({});
   const [brushMode, setBrushMode] = useState(false);
@@ -717,7 +717,13 @@ export default function App() {
             </div>
           )}
 
-          <ExportPanel map={map} visible={visible} elevationStyle={elevationStyle} />
+          <ExportPanel
+            map={map}
+            visible={visible}
+            elevationStyle={elevationStyle}
+            riverNames={riverNames}
+            rangeNames={rangeNames}
+          />
 
           <div className="section">
             <h2>Description</h2>
@@ -736,6 +742,8 @@ export default function App() {
           map={map}
           visible={visible}
           labels={labels}
+          riverNames={riverNames}
+          rangeNames={rangeNames}
           elevationStyle={elevationStyle}
           selection={selection}
           onSelectionChange={setSelection}

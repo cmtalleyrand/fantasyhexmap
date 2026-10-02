@@ -184,8 +184,27 @@ export default function SettingsDialog(props: SettingsDialogProps) {
                   checked={prefs.labels}
                   onChange={(e) => setPrefs({ ...prefs, labels: e.target.checked })}
                 />
-                Show names on the map
+                Show city and polity names on the map
               </label>
+              <label className="check">
+                <input
+                  type="checkbox"
+                  checked={prefs.riverNames}
+                  onChange={(e) => setPrefs({ ...prefs, riverNames: e.target.checked })}
+                />
+                Show river names (when the Rivers layer is visible)
+              </label>
+              <label className="check">
+                <input
+                  type="checkbox"
+                  checked={prefs.rangeNames}
+                  onChange={(e) => setPrefs({ ...prefs, rangeNames: e.target.checked })}
+                />
+                Show mountain range names (when the Elevation layer is visible)
+              </label>
+              <p className="hint">
+                Name a range by selecting its Mountains hexes with the Elevation layer active.
+              </p>
             </div>
           )}
 

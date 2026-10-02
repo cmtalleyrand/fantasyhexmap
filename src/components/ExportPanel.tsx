@@ -8,13 +8,19 @@ export default function ExportPanel({
   map,
   visible,
   elevationStyle,
+  riverNames: initialRiverNames,
+  rangeNames: initialRangeNames,
 }: {
   map: MapState;
   visible: VisibleLayers;
   elevationStyle: 'colour' | 'contours';
+  riverNames: boolean;
+  rangeNames: boolean;
 }) {
   const [format, setFormat] = useState<'png' | 'svg'>('png');
   const [labels, setLabels] = useState(true);
+  const [riverNames, setRiverNames] = useState(initialRiverNames);
+  const [rangeNames, setRangeNames] = useState(initialRangeNames);
   const [scale, setScale] = useState('2');
   const [error, setError] = useState<string | null>(null);
 
@@ -60,11 +66,29 @@ export default function ExportPanel({
           />
           Render city and polity name labels
         </label>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 6, textTransform: 'none', fontSize: 12 }}>
+          <input
+            type="checkbox"
+            style={{ width: 'auto' }}
+            checked={riverNames}
+            onChange={(e) => setRiverNames(e.target.checked)}
+          />
+          Render river names
+        </label>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 6, textTransform: 'none', fontSize: 12 }}>
+          <input
+            type="checkbox"
+            style={{ width: 'auto' }}
+            checked={rangeNames}
+            onChange={(e) => setRangeNames(e.target.checked)}
+          />
+          Render mountain range names
+        </label>
 
         <button
           className="primary"
           disabled={visibleCount === 0}
-          onClick={() => run(() => exportComposite(map, visible, { ...opts, labels }))}
+          onClick={() => run(() => exportComposite(map, visible, { ...opts, labels, riverNames, rangeNames }))}
         >
           Export composite ({visibleCount} visible layer{visibleCount === 1 ? '' : 's'})
         </button>
@@ -82,6 +106,8 @@ export default function ExportPanel({
                       exportLayer(map, id, {
                         ...opts,
                         labels: labels && (id === 'cities' || id === 'polities'),
+                        riverNames: riverNames && id === 'rivers',
+                        rangeNames: rangeNames && id === 'elevation',
                       }),
                     )
                   }
@@ -92,7 +118,7 @@ export default function ExportPanel({
           </div>
           <p className="hint" style={{ marginTop: 4 }}>
             Single-layer exports keep the base geography as a substrate so land-only layers are
-            readable, and drop labels unless the layer is cities or polities.
+            readable, and drop labels unless the layer is cities or polities (river and range names go with their own layers).
           </p>
         </div>
 

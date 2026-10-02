@@ -67,7 +67,7 @@ function drawPrim(ctx: CanvasRenderingContext2D, prim: Prim): void {
       ctx.save();
       ctx.translate(prim.at.x, prim.at.y);
       ctx.rotate(prim.rotation ?? 0);
-      ctx.font = `${prim.weight ?? 600} ${prim.size}px ${prim.fantasy ? FANTASY_FONT_STACK : FONT_STACK}`;
+      ctx.font = `${prim.italic ? 'italic ' : ''}${prim.weight ?? 600} ${prim.size}px ${prim.fantasy ? FANTASY_FONT_STACK : FONT_STACK}`;
       ctx.textAlign = prim.anchor === 'start' ? 'left' : prim.anchor === 'end' ? 'right' : 'center';
       ctx.textBaseline = 'middle';
       if (prim.halo) {

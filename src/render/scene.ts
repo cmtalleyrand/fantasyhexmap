@@ -39,6 +39,7 @@ import {
   populationColour,
   withAlpha,
 } from './palette.js';
+import { placeRangeLabels, placeRiverLabels } from './featureLabels.js';
 import { LABEL_LINE_EM, placePolityLabels, type LabelObstacle, type PolityLabel } from './labels.js';
 
 export type Prim =
@@ -77,6 +78,7 @@ export type Prim =
       anchor?: 'start' | 'middle' | 'end';
       maxWidth?: number;
       fantasy?: boolean;
+      italic?: boolean;
       rotation?: number;
     }
   | {
@@ -109,6 +111,10 @@ export interface SceneOptions {
   size: number;
   visible: VisibleLayers;
   labels: boolean;
+  /** Name rivers (needs the Rivers layer visible). */
+  riverNames?: boolean;
+  /** Name mountain ranges (needs the Elevation layer visible). */
+  rangeNames?: boolean;
   elevationStyle?: 'colour' | 'contours';
   /** Screen-only decoration; omitted from exports. */
   selection?: Set<number> | null;
@@ -467,6 +473,41 @@ export function buildScene(map: MapState, opts: SceneOptions): Scene {
           anchor: 'middle',
         });
       }
+    }
+  }
+
+  // --- river and mountain range names -------------------------------------
+  if (rivers && opts.riverNames) {
+    for (const l of placeRiverLabels(rivers.rivers, size)) {
+      prims.push({
+        kind: 'text',
+        at: l.at,
+        text: l.text,
+        size: l.size,
+        fill: MAP_COLOURS.riverLabel,
+        halo: MAP_COLOURS.labelHalo,
+        weight: 600,
+        anchor: 'middle',
+        fantasy: true,
+        italic: true,
+        rotation: l.rotation,
+      });
+    }
+  }
+  if (opts.rangeNames && opts.visible.elevation && layers.elevation.data) {
+    for (const l of placeRangeLabels(map.mountainRanges ?? [], layers.elevation.data, cols, size)) {
+      prims.push({
+        kind: 'text',
+        at: l.at,
+        text: l.text,
+        size: l.size,
+        fill: MAP_COLOURS.rangeLabel,
+        halo: MAP_COLOURS.labelHalo,
+        weight: 700,
+        anchor: 'middle',
+        fantasy: true,
+        rotation: l.rotation,
+      });
     }
   }
 

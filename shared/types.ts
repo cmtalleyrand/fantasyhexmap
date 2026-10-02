@@ -142,6 +142,18 @@ export interface River {
   terminus: 'Sea' | 'Lake' | 'OffMap' | 'Unresolved';
 }
 
+/**
+ * A named group of Mountains hexes. Elevation is a flat per-hex array with no
+ * room for identity, so ranges are kept beside the layers rather than in one.
+ * Hexes that stop being Mountains are ignored when drawing, not deleted.
+ */
+export interface MountainRange {
+  id: string;
+  name: string;
+  /** Flat hex indices (`row * cols + col`). */
+  hexes: number[];
+}
+
 export interface City {
   id: string;
   col: number;
@@ -279,6 +291,8 @@ export interface MapState {
    * geography changes. Absent on maps saved before the option existed.
    */
   allowUnderwater?: boolean;
+  /** Named mountain ranges, drawn as labels when the option is on. Absent on older maps. */
+  mountainRanges?: MountainRange[];
   layers: LayersState;
   /** Append-only record of every change, oldest first. */
   journal: JournalEntry[];
