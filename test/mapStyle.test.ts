@@ -415,3 +415,40 @@ test('changing where a city is drawn marks nothing stale', async () => {
   const undone = reducer(moved, { type: 'undo', layer: 'cities' });
   assert.equal(undone.layers.cities.data!.cities[0]!.site, undefined);
 });
+
+test('city names take free slots around their markers and never overlap each other when room exists', async () => {
+  const { placeCityNames } = await import('../src/render/labels.ts');
+  const cities = [
+    { id: 'a', name: 'Alderholt', at: { x: 100, y: 100 }, r: 6, population: 50_000 },
+    { id: 'b', name: 'Brackwater', at: { x: 135, y: 100 }, r: 6, population: 20_000 },
+    { id: 'c', name: 'Cray', at: { x: 100, y: 125 }, r: 4, population: 5_000 },
+  ];
+  const realm = { cx: 160, cy: 70, halfW: 40, halfH: 10, rotation: 0 };
+  const out = placeCityNames(cities, 10, (t) => t.length * 6, [realm], { width: 400, height: 400 });
+  const box = (p: typeof out[number]) => {
+    const w = cities.find((c) => c.id === p.id)!.name.length * 6;
+    const left = p.anchor === 'start' ? p.at.x : p.anchor === 'end' ? p.at.x - w : p.at.x - w / 2;
+    return { left, right: left + w, top: p.at.y - 5, bottom: p.at.y + 5 };
+  };
+  const boxes = out.map(box);
+  for (let i = 0; i < boxes.length; i++) {
+    for (let j = i + 1; j < boxes.length; j++) {
+      const [p, q] = [boxes[i]!, boxes[j]!];
+      assert.ok(p.right <= q.left || q.right <= p.left || p.bottom <= q.top || q.bottom <= p.top, 'names overlap');
+    }
+    const p = boxes[i]!;
+    const r = { left: realm.cx - realm.halfW, right: realm.cx + realm.halfW, top: realm.cy - realm.halfH, bottom: realm.cy + realm.halfH };
+    assert.ok(p.right <= r.left || r.right <= p.left || p.bottom <= r.top || r.bottom <= p.top, 'a city name covers the realm name');
+  }
+  assert.ok(out.every((p) => !p.crowded));
+});
+
+test('river names are set glyph by glyph along the river, larger than before', () => {
+  const map = islandMap();
+  const style = resolveStyle({ preset: 'parchment', overrides: {} });
+  const prims = buildScene(map, { size: 32, visible: allLayers(), labels: false, riverNames: true, style }).prims;
+  const name = prims.find((p): p is Extract<Prim, { kind: 'text' }> => p.kind === 'text' && p.text === 'Wend');
+  assert.ok(name?.glyphs, 'the name is a glyph run');
+  assert.equal(name.glyphs.map((g) => g.ch).join(''), 'Wend');
+  assert.ok(name.size >= 32 * 0.3);
+});

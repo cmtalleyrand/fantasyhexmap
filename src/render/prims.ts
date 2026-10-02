@@ -66,6 +66,12 @@ export type Prim =
       fantasy?: boolean;
       italic?: boolean;
       rotation?: number;
+      /**
+       * The same text set glyph by glyph (along a curve, or letter-spaced).
+       * When present it replaces drawing `text` at `at`; `text` stays the
+       * whole name, for anything that reads the scene.
+       */
+      glyphs?: Array<{ ch: string; x: number; y: number; rotation: number }>;
     }
   | {
       kind: 'city';

@@ -9,13 +9,21 @@
 import { hexCenter, hexEdgeMidpoint, type Point } from '../../shared/hex.js';
 import type { Elevation, MountainRange, River } from '../../shared/types.js';
 import { fantasyTextEm } from './fonts.js';
+import { glyphAdvances, glyphsAlong, type Glyph } from './glyphs.js';
 
 export interface FeatureLabel {
   text: string;
   at: Point;
   size: number;
   rotation: number;
+  /** The name set glyph by glyph along the feature, when it follows a curve. */
+  glyphs?: Glyph[];
+  /** Length of the set text in px. */
+  width?: number;
 }
+
+/** Letter-spacing of river names, in em: open type reads at small sizes over busy ground. */
+const RIVER_TRACKING = 0.08;
 
 /** Keep text upright: rotate by a half turn if it would read upside down. */
 function upright(angle: number): number {
@@ -62,8 +70,10 @@ export function placeRiverLabels(
   pathFor?: (riverId: string) => Point[] | null,
 ): FeatureLabel[] {
   const out: FeatureLabel[] = [];
-  const idealFont = Math.max(8, size * 0.34);
-  const minFont = Math.max(6, size * 0.2);
+  // Large enough to read against relief and polity colour; a river too
+  // short to carry its name at the floor size goes unnamed.
+  const idealFont = Math.max(9, size * 0.44);
+  const minFont = Math.max(7, size * 0.3);
   for (const river of rivers) {
     const text = river.name.trim();
     if (!text) continue;
@@ -74,7 +84,7 @@ export function placeRiverLabels(
       cum.push(cum[i - 1]! + Math.hypot(pts[i]!.x - pts[i - 1]!.x, pts[i]!.y - pts[i - 1]!.y));
     }
     const total = cum[cum.length - 1]!;
-    const em = fantasyTextEm(text);
+    const em = glyphAdvances(text, 1, RIVER_TRACKING).width;
     // Shrink to fit short rivers; a name that cannot fit legibly is left off.
     const font = Math.min(idealFont, (total * 0.95) / em);
     if (font < minFont) continue;
@@ -98,7 +108,8 @@ export function placeRiverLabels(
         );
       }
       const centreBias = Math.abs(start + width / 2 - total / 2) / total;
-      const score = deviation / size + centreBias * 0.3;
+      // The name bends with the river, so a bend matters less than for straight type.
+      const score = (deviation / size) * 0.5 + centreBias * 0.3;
       if (!best || score < best.score) best = { start, score };
     }
     const a = pointAt(pts, cum, best!.start);
@@ -106,12 +117,14 @@ export function placeRiverLabels(
     const rotation = upright(Math.atan2(b.y - a.y, b.x - a.x));
     const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
     // Sit just above the line (in the text's own frame) so the stroke stays visible.
-    const lift = font * 0.75;
+    const lift = font * 0.8;
     out.push({
       text,
       size: font,
       rotation,
       at: { x: mid.x + Math.sin(rotation) * lift, y: mid.y - Math.cos(rotation) * lift },
+      glyphs: glyphsAlong(text, font, pts, best!.start, { tracking: RIVER_TRACKING, lift }),
+      width,
     });
   }
   return out;

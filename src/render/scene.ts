@@ -48,7 +48,9 @@ import {
 import { placeRangeLabels, placeRiverLabels } from './featureLabels.js';
 import {
   LABEL_LINE_EM,
+  placeCityNames,
   placePolityLabels,
+  type OrientedBox,
   type LabelObstacle,
   type PolityLabel,
   type PolityNameMin,
@@ -67,6 +69,7 @@ import {
 import type { CitySymbol, PathCmd, Prim } from './prims.js';
 import { riverCourses, type RiverCourse } from './rivers.js';
 import { citySite } from './sites.js';
+import { fantasyTextEm, uiTextEm } from './fonts.js';
 import { signed, unit } from './seed.js';
 import { CLASSIC_STYLE, type MapStyle } from './styles.js';
 import { grainTile } from './texture.js';
@@ -752,56 +755,48 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
   }
 
   // --- labels --------------------------------------------------------------
-  if (opts.labels) {
-    if (polities) {
-      // City symbols and their names are drawn over the polity layer, so a
-      // realm's name is steered away from them where it can be.
-      const obstacles: LabelObstacle[] = [];
-      for (const city of cities?.cities ?? []) {
-        const c = siteOf(city);
-        const r = Math.max(size * 0.16, Math.min(size * 0.46, size * 0.1 * Math.log10(Math.max(10, city.population))));
-        obstacles.push({ left: c.x - r, right: c.x + r, top: c.y - r, bottom: c.y + r });
-        const fontSize = Math.max(8, size * 0.36);
-        const halfWidth = (city.name.length * fontSize * 0.6) / 2;
-        const y = c.y + size * 0.95;
-        obstacles.push({ left: c.x - halfWidth, right: c.x + halfWidth, top: y - fontSize * 0.6, bottom: y + fontSize * 0.6 });
-      }
-      for (const label of cachedPolityLabels(polities, cities, cols, rows, size, obstacles, opts.polityNames)) {
-        // Lines are stacked perpendicular to the baseline so a wrapped,
-        // rotated name stays a single rigid block.
-        label.lines.forEach((line, k) => {
-          const offset = (k - (label.lines.length - 1) / 2) * label.size * LABEL_LINE_EM;
-          prims.push({
-            kind: 'text',
-            at: {
-              x: label.at.x - offset * Math.sin(label.rotation),
-              y: label.at.y + offset * Math.cos(label.rotation),
-            },
-            text: line,
-            size: label.size,
-            fill: MAP_COLOURS.label,
-            weight: 600,
-            anchor: 'middle',
-            fantasy: true,
-            rotation: label.rotation,
-          });
-        });
-      }
+  // Realm names are placed first and avoid only the city markers; river and
+  // range names follow their features; city names then take whichever slot
+  // around their marker is free of all of those. A realm's name is never
+  // pushed aside to make room for a city's.
+  const markerRadius = (population: number) =>
+    Math.max(size * 0.16, Math.min(size * 0.46, size * 0.1 * Math.log10(Math.max(10, population))));
+  const taken: OrientedBox[] = [];
+  if (opts.labels && polities) {
+    const obstacles: LabelObstacle[] = [];
+    for (const city of cities?.cities ?? []) {
+      const c = siteOf(city);
+      const r = markerRadius(city.population);
+      obstacles.push({ left: c.x - r, right: c.x + r, top: c.y - r, bottom: c.y + r });
     }
-    if (cities) {
-      for (const city of cities.cities) {
-        const c = siteOf(city);
+    for (const label of cachedPolityLabels(polities, cities, cols, rows, size, obstacles, opts.polityNames)) {
+      // Lines are stacked perpendicular to the baseline so a wrapped,
+      // rotated name stays a single rigid block.
+      label.lines.forEach((line, k) => {
+        const offset = (k - (label.lines.length - 1) / 2) * label.size * LABEL_LINE_EM;
         prims.push({
           kind: 'text',
-          at: { x: c.x, y: c.y + size * 0.95 },
-          text: city.name,
-          size: Math.max(8, size * 0.36),
+          at: {
+            x: label.at.x - offset * Math.sin(label.rotation),
+            y: label.at.y + offset * Math.cos(label.rotation),
+          },
+          text: line,
+          size: label.size,
           fill: MAP_COLOURS.label,
-          halo: MAP_COLOURS.labelHalo,
           weight: 600,
           anchor: 'middle',
+          fantasy: true,
+          rotation: label.rotation,
         });
-      }
+      });
+      const em = Math.max(...label.lines.map((line) => fantasyTextEm(line)));
+      taken.push({
+        cx: label.at.x,
+        cy: label.at.y,
+        halfW: (em * label.size) / 2,
+        halfH: (label.size * LABEL_LINE_EM * label.lines.length) / 2,
+        rotation: label.rotation,
+      });
     }
   }
 
@@ -821,7 +816,11 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
         fantasy: true,
         italic: true,
         rotation: l.rotation,
+        glyphs: l.glyphs,
       });
+      for (const g of l.glyphs ?? []) {
+        taken.push({ cx: g.x, cy: g.y, halfW: l.size * 0.4, halfH: l.size * 0.6, rotation: g.rotation });
+      }
     }
   }
   if (opts.rangeNames && opts.visible.elevation && layers.elevation.data) {
@@ -837,6 +836,37 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
         anchor: 'middle',
         fantasy: true,
         rotation: l.rotation,
+      });
+      taken.push({ cx: l.at.x, cy: l.at.y, halfW: (fantasyTextEm(l.text, 700) * l.size) / 2, halfH: l.size * 0.6, rotation: l.rotation });
+    }
+  }
+
+  if (opts.labels && cities) {
+    const fontSize = Math.max(8, size * 0.36);
+    const placements = placeCityNames(
+      cities.cities.map((city) => ({
+        id: city.id,
+        name: city.name,
+        at: siteOf(city),
+        r: markerRadius(city.population),
+        population: city.population,
+      })),
+      fontSize,
+      (text) => uiTextEm(text) * fontSize,
+      taken,
+      { width, height },
+    );
+    const byId = new Map(cities.cities.map((c) => [c.id, c]));
+    for (const p of placements) {
+      prims.push({
+        kind: 'text',
+        at: p.at,
+        text: byId.get(p.id)!.name,
+        size: fontSize,
+        fill: MAP_COLOURS.label,
+        halo: MAP_COLOURS.labelHalo,
+        weight: 600,
+        anchor: p.anchor,
       });
     }
   }
