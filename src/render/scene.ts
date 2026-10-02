@@ -40,7 +40,13 @@ import {
   withAlpha,
 } from './palette.js';
 import { placeRangeLabels, placeRiverLabels } from './featureLabels.js';
-import { LABEL_LINE_EM, placePolityLabels, type LabelObstacle, type PolityLabel } from './labels.js';
+import {
+  LABEL_LINE_EM,
+  placePolityLabels,
+  type LabelObstacle,
+  type PolityLabel,
+  type PolityNameMin,
+} from './labels.js';
 
 export type Prim =
   | {
@@ -115,6 +121,8 @@ export interface SceneOptions {
   riverNames?: boolean;
   /** Name mountain ranges (needs the Elevation layer visible). */
   rangeNames?: boolean;
+  /** Smallest polity, in hexes, that is named; default 4. */
+  polityNames?: PolityNameMin;
   elevationStyle?: 'colour' | 'contours';
   /** Opacity of polity fills, 0-1 (default 1); lower values let terrain show through. */
   polityOpacity?: number;
@@ -155,8 +163,9 @@ function cachedPolityLabels(
   rows: number,
   size: number,
   obstacles: LabelObstacle[],
+  minHexes: PolityNameMin | undefined,
 ): PolityLabel[] {
-  const key = `${cols}x${rows}@${size}`;
+  const key = `${cols}x${rows}@${size}/${minHexes ?? ''}`;
   const hit = labelCache.get(data.owner);
   if (hit && hit.key === key && hit.cities === cities && hit.polities === data.polities) return hit.labels;
   const labels = placePolityLabels({
@@ -166,6 +175,7 @@ function cachedPolityLabels(
     owner: data.owner,
     polities: data.polities,
     obstacles,
+    minHexes,
   });
   labelCache.set(data.owner, { cities, polities: data.polities, key, labels });
   return labels;
@@ -446,7 +456,7 @@ export function buildScene(map: MapState, opts: SceneOptions): Scene {
         const y = c.y + size * 0.95;
         obstacles.push({ left: c.x - halfWidth, right: c.x + halfWidth, top: y - fontSize * 0.6, bottom: y + fontSize * 0.6 });
       }
-      for (const label of cachedPolityLabels(polities, cities, cols, rows, size, obstacles)) {
+      for (const label of cachedPolityLabels(polities, cities, cols, rows, size, obstacles, opts.polityNames)) {
         // Lines are stacked perpendicular to the baseline so a wrapped,
         // rotated name stays a single rigid block.
         label.lines.forEach((line, k) => {
