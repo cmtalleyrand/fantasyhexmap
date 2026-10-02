@@ -79,7 +79,7 @@ export default function App() {
   const [showUnlock, setShowUnlock] = useState(false);
   const [activeLayer, setActiveLayer] = useState<LayerId>('base');
   const [visible, setVisible] = useState<VisibleLayers>(defaultVisibility);
-  const { labels, elevationStyle } = prefs;
+  const { labels, elevationStyle, polityOpacity, uniformLand } = prefs;
   const [selection, setSelection] = useState<Set<number>>(new Set());
   const [brush, setBrushState] = useState<Record<string, string>>({});
   const [brushMode, setBrushMode] = useState(false);
@@ -717,7 +717,13 @@ export default function App() {
             </div>
           )}
 
-          <ExportPanel map={map} visible={visible} elevationStyle={elevationStyle} />
+          <ExportPanel
+            map={map}
+            visible={visible}
+            elevationStyle={elevationStyle}
+            polityOpacity={polityOpacity}
+            uniformLand={uniformLand}
+          />
 
           <div className="section">
             <h2>Description</h2>
@@ -737,6 +743,8 @@ export default function App() {
           visible={visible}
           labels={labels}
           elevationStyle={elevationStyle}
+          polityOpacity={polityOpacity}
+          uniformLand={uniformLand}
           selection={selection}
           onSelectionChange={setSelection}
           onStrokeEnd={brushMode && canEdit ? onStrokeEnd : null}

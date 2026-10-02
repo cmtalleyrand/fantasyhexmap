@@ -259,3 +259,35 @@ test('a long unbreakable name shrinks, but a multi-word name wraps to keep large
   assert.ok(wrapped[0]!.size > unbreakable[0]!.size, 'wrapping keeps type larger than the unbroken equivalent');
   assert.ok(wrapped[0]!.at.y < wrapped[1]!.at.y, 'lines stack top to bottom');
 });
+
+test('polity opacity below 1 makes the fill translucent so terrain shows through', () => {
+  const map = createMapState('Polity opacity test', 1, 1);
+  map.layers.base.data = ['Land'];
+  map.layers.polities.data = {
+    polities: [{ id: 'realm', name: 'Realm', colour: '#2f6fbb' }],
+    owner: ['realm'],
+  };
+  const visible = defaultVisibility();
+  visible.polities = true;
+  const lastFill = (polityOpacity?: number) =>
+    buildScene(map, { size: 20, visible, labels: false, polityOpacity }).prims
+      .filter((p) => p.kind === 'polygon').at(-1)?.fill;
+
+  assert.equal(lastFill(), '#2f6fbb');
+  assert.equal(lastFill(1), '#2f6fbb');
+  assert.equal(lastFill(0.4), 'rgba(47, 111, 187, 0.4)');
+});
+
+test('uniform land draws coastal and inland land in the same base colour', () => {
+  const map = createMapState('Uniform land test', 2, 1);
+  map.layers.base.data = ['Land', 'Coastal Land'];
+  const fills = (uniformLand: boolean) =>
+    buildScene(map, { size: 20, visible: defaultVisibility(), labels: false, uniformLand }).prims
+      .filter((p) => p.kind === 'polygon').map((p) => p.fill);
+
+  const [inland, coastal] = fills(false);
+  assert.notEqual(inland, coastal);
+  const [uniformInland, uniformCoastal] = fills(true);
+  assert.equal(uniformInland, uniformCoastal);
+  assert.equal(uniformInland, inland);
+});

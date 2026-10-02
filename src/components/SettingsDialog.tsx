@@ -5,7 +5,7 @@ import {
   MIN_TASK_BUDGET,
   type Effort,
 } from '../../core/config.js';
-import { insecureOrigin, looksLikeKey, type Prefs } from '../api/settings.js';
+import { clampPolityOpacity, insecureOrigin, looksLikeKey, type Prefs } from '../api/settings.js';
 import { cryptoAvailable } from '../api/keyvault.js';
 import type { TransportMode } from '../api/client.js';
 import type { HexDimensions } from '../../shared/types.js';
@@ -185,6 +185,31 @@ export default function SettingsDialog(props: SettingsDialogProps) {
                   onChange={(e) => setPrefs({ ...prefs, labels: e.target.checked })}
                 />
                 Show names on the map
+              </label>
+              <h3>Polities</h3>
+              <label>Polity layer opacity ({Math.round(prefs.polityOpacity * 100)}%)</label>
+              <input
+                type="range"
+                aria-label="Polity layer opacity"
+                min={10}
+                max={100}
+                step={5}
+                value={Math.round(prefs.polityOpacity * 100)}
+                onChange={(e) =>
+                  setPrefs({ ...prefs, polityOpacity: clampPolityOpacity(Number(e.target.value) / 100) })
+                }
+              />
+              <p className="hint">
+                Below 100% the terrain under each realm shows through its colour. Borders stay solid.
+              </p>
+              <h3>Base geography</h3>
+              <label className="check">
+                <input
+                  type="checkbox"
+                  checked={prefs.uniformLand}
+                  onChange={(e) => setPrefs({ ...prefs, uniformLand: e.target.checked })}
+                />
+                Draw all land the same colour (coastal and inland alike)
               </label>
             </div>
           )}
