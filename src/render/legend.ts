@@ -227,7 +227,7 @@ export function legendSections(
         if (!options.onlyUsed || cities.some((c) => c.onRiver)) {
           entries.push({ swatch: { kind: 'city', symbol: 'village', onRiver: true }, label: 'Blue centre: on a river' });
         }
-        if (!options.onlyUsed || cities.some((c) => c.coastalEdges.length > 0)) {
+        if (style.knobs.cityCoastMarks && (!options.onlyUsed || cities.some((c) => c.coastalEdges.length > 0))) {
           entries.push({ swatch: { kind: 'coast' }, label: 'Dashed edge: borders sea or lake' });
         }
         break;

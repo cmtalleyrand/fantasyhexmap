@@ -56,3 +56,13 @@ export function ownersAtDepth(polities: Polity[], owner: (string | null)[], dept
   const chains = new Map(polities.map((p) => [p.id, ancestry(polities, p.id).reverse()]));
   return owner.map((id) => (id ? chains.get(id)?.[depth] ?? null : null));
 }
+
+/**
+ * A realm colour softened for a style: pastel lifts it toward white, muted
+ * pulls it toward a warm grey. Vivid leaves it as chosen.
+ */
+export function toned(colour: string, tone: 'vivid' | 'pastel' | 'muted'): string {
+  if (tone === 'pastel') return mix(colour, '#ffffff', 0.45);
+  if (tone === 'muted') return mix(mix(colour, '#8c877a', 0.42), '#ffffff', 0.08);
+  return colour;
+}

@@ -588,3 +588,41 @@ test('relief: drawn symbols for illustrated, shading for hillshade, and old terr
     delete (globalThis as { window?: unknown }).window;
   }
 });
+
+test('realms can be filled, washed along their borders, or outlined, and islet hexes get no hex ring', () => {
+  const cols = 6;
+  const rows = 3;
+  const map = createMapState('Modes', cols, rows);
+  const base: BaseGeo[] = Array(cols * rows).fill('Land');
+  base[5] = 'Island';
+  map.layers.base.data = base;
+  map.layers.polities.data = {
+    polities: [{ id: 'a', name: 'Avel', colour: '#aa3333' }, { id: 'b', name: 'Brin', colour: '#3355aa' }],
+    owner: Array.from({ length: cols * rows }, (_, i) => (i === 5 ? 'b' : i % cols < 3 ? 'a' : 'b')),
+  };
+  const visible = defaultVisibility();
+  visible.polities = true;
+  const prims = (polityStyle: 'fill' | 'wash' | 'outline') =>
+    buildScene(map, { size: 20, visible, labels: false, style: resolveStyle({ preset: 'classic', overrides: { polityStyle } }) }).prims;
+  const solidFills = (list: Prim[]) => list.filter((p) => p.kind === 'polygon' && (p.fill === '#aa3333' || p.fill === '#3355aa'));
+  assert.ok(solidFills(prims('fill')).length > 0, 'filled realms paint their hexes');
+  for (const mode of ['wash', 'outline'] as const) {
+    const list = prims(mode);
+    assert.equal(solidFills(list).length, 0, `${mode} leaves the hexes unpainted`);
+    assert.ok(list.some((p) => p.kind === 'group'), `${mode} draws a band inside each realm`);
+    assert.ok(list.some((p) => p.kind === 'path' && p.stroke?.startsWith('rgba(') && p.strokeWidth! < 2), `${mode} draws a frontier line`);
+  }
+  // The islet hex (index 5) is not part of any realm's band region.
+  const bands = prims('fill').filter((p): p is Extract<Prim, { kind: 'group' }> => p.kind === 'group');
+  const islet = { x: 20 * Math.sqrt(3) * 5 + 20 * Math.sqrt(3) / 2, y: 20 };
+  for (const g of bands) {
+    // Each clip hexagon is six corners then Z; check where each one is centred.
+    const corners = (g.clip ?? []).filter((c) => c[0] !== 'Z').map((c) => ({ x: c[1] as number, y: c[2] as number }));
+    for (let k = 0; k + 6 <= corners.length; k += 6) {
+      const hexPts = corners.slice(k, k + 6);
+      const cx = hexPts.reduce((t, q) => t + q.x, 0) / 6;
+      const cy = hexPts.reduce((t, q) => t + q.y, 0) / 6;
+      assert.ok(Math.hypot(cx - islet.x, cy - islet.y) > 1, 'no band clip around the islet hex');
+    }
+  }
+});

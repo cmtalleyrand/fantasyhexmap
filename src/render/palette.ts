@@ -124,7 +124,21 @@ function extendedPolityPalette(count: number): string[] {
   return colours;
 }
 
-/** Greedily maximises RGB distance between adjacent polity colours. */
+/** sRGB #rrggbb to CIELAB (D65). */
+export function toLab(hex: string): [number, number, number] {
+  const lin = [1, 3, 5].map((i) => {
+    const c = parseInt(hex.slice(i, i + 2), 16) / 255;
+    return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+  });
+  const [r, g, b] = lin as [number, number, number];
+  const x = (r * 0.4124 + g * 0.3576 + b * 0.1805) / 0.95047;
+  const y = r * 0.2126 + g * 0.7152 + b * 0.0722;
+  const z = (r * 0.0193 + g * 0.1192 + b * 0.9505) / 1.08883;
+  const f = (t: number) => (t > 216 / 24389 ? Math.cbrt(t) : (24389 / 27 * t + 16) / 116);
+  return [116 * f(y) - 16, 500 * (f(x) - f(y)), 200 * (f(y) - f(z))];
+}
+
+/** Greedily maximises perceptual (CIELAB) distance between adjacent polity colours. */
 export function contrastingPolityColours(
   polityIds: string[], owner: Array<string | null>, cols: number, rows: number,
 ): Map<string, string> {
@@ -143,8 +157,22 @@ export function contrastingPolityColours(
       if (diagonal >= 0 && diagonal < cols) connect(here, owner[(row + 1) * cols + diagonal] ?? null);
     }
   }
-  const rgb = (hex: string) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
-  const distance = (a: string, b: string) => rgb(a).reduce((sum, v, i) => sum + (v - rgb(b)[i]!) ** 2, 0);
+  // Perceptual distance (CIELAB): two colours far apart in RGB can still look
+  // alike, which is how neighbouring realms ended up in near-identical tans.
+  const lab = new Map<string, [number, number, number]>();
+  const labOf = (hex: string) => {
+    let hit = lab.get(hex);
+    if (!hit) {
+      hit = toLab(hex);
+      lab.set(hex, hit);
+    }
+    return hit;
+  };
+  const distance = (a: string, b: string) => {
+    const [l1, a1, b1] = labOf(a);
+    const [l2, a2, b2] = labOf(b);
+    return (l1 - l2) ** 2 + (a1 - a2) ** 2 + (b1 - b2) ** 2;
+  };
   const result = new Map<string, string>();
   const available = extendedPolityPalette(neighbours.size);
   const ordered = [...neighbours.keys()].sort((a, b) => neighbours.get(b)!.size - neighbours.get(a)!.size || a.localeCompare(b));

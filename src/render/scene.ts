@@ -58,6 +58,7 @@ import {
 } from './labels.js';
 import {
   blobPath,
+  chainEdges,
   circlePath,
   coastalIslandSide,
   coastGeometry,
@@ -71,7 +72,7 @@ import type { CitySymbol, PathCmd, Prim } from './prims.js';
 import { riverCourses, type RiverCourse } from './rivers.js';
 import { citySite } from './sites.js';
 import { hillshade, reliefSymbols, vegetationSymbols, type Placed } from './symbols.js';
-import { ownersAtDepth, polityDepths, polityDisplayColours } from './hierarchy.js';
+import { ownersAtDepth, polityDepths, polityDisplayColours, toned } from './hierarchy.js';
 import { topLevelOf } from '../../shared/polityTree.js';
 import { fantasyTextEm, uiTextEm } from './fonts.js';
 import { signed, unit } from './seed.js';
@@ -288,7 +289,9 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
   const maxPop = population ? Math.max(1, ...population.map((v) => v ?? 0)) : 1;
 
   const polities = opts.visible.polities ? layers.polities.data : null;
-  const polityColour = polityDisplayColours(polities?.polities ?? [], knobs.subPolities);
+  const polityColour = new Map(
+    [...polityDisplayColours(polities?.polities ?? [], knobs.subPolities)].map(([id, c]) => [id, toned(c, knobs.polityTone)]),
+  );
   const topLevel = new Map((polities?.polities ?? []).map((p) => [p.id, topLevelOf(polities!.polities, p.id)]));
 
   const polityOpacity = Math.min(1, Math.max(0, opts.polityOpacity ?? 1));
@@ -345,7 +348,7 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
     const out: string[] = [];
     const value = population?.[i];
     if (value !== null && value !== undefined) out.push(withAlpha(populationColour(value, maxPop), 0.82));
-    const owner = polities?.owner[i];
+    const owner = knobs.polityStyle === 'fill' ? polities?.owner[i] : null;
     if (owner) {
       // Polity colours are categorical data, not a tint. An opaque fill
       // keeps a realm's colour invariant when substrate layers change.
@@ -558,11 +561,15 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
           return polityOpacity < 1 ? withAlpha(solid, polityOpacity) : solid;
         })()
       : null;
-    if (knobs.islands === 'blob' || base?.[i] !== 'Island') {
+    if (knobs.islands === 'blob' || base?.[i] !== 'Island' || knobs.polityStyle !== 'fill') {
       const d = islandPath(i);
       prims.push({ kind: 'path', d, fill: islandLand });
       // Only the landmass belongs to the polity; the surrounding sea stays sea.
-      if (fill) prims.push({ kind: 'path', d, fill });
+      if (fill && knobs.polityStyle === 'fill') prims.push({ kind: 'path', d, fill });
+      if (fill && knobs.polityStyle === 'wash') prims.push({ kind: 'path', d, fill: withAlpha(polityColour.get(owner!) ?? '#777777', 0.45) });
+      if (fill && knobs.polityStyle === 'outline') {
+        prims.push({ kind: 'path', d, stroke: polityColour.get(owner!) ?? '#777777', strokeWidth: Math.max(1, size * 0.08), round: true });
+      }
     } else {
       prims.push({ kind: 'circle', c, r: size * 0.34, fill: islandLand });
       if (fill) prims.push({ kind: 'circle', c, r: size * 0.34, fill });
@@ -625,6 +632,98 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
     });
   }
 
+  // --- polity borders ------------------------------------------------------
+  // Each realm's border is traced as continuous loops round its hexes and
+  // drawn as a band clipped to the inside of the realm, so corners join
+  // cleanly and two neighbours each show their own colour along the line.
+  // Island hexes are left out: the islet itself carries the realm's colour.
+  const internal: PathCmd[] = [];
+  if (polities) {
+    const regions = new Map<string, number[]>();
+    const bands = new Map<string, Array<{ from: Point; to: Point; land: number; water: number }>>();
+    const frontier: Array<{ from: Point; to: Point; land: number; water: number }> = [];
+    const isIsland = (i: number) => isIslandType(base?.[i]);
+    for (let row = 0; row < rows; row++) {
+      for (let col = 0; col < cols; col++) {
+        const i = hexIndex(cols, col, row);
+        const owner = polities.owner[i];
+        if (!owner || isIsland(i)) continue;
+        regions.set(owner, [...(regions.get(owner) ?? []), i]);
+        for (let e = 0; e < 6; e++) {
+          const n = neighbourOf(col, row, e);
+          const inside = inBounds(cols, rows, n.col, n.row);
+          const j = inside ? hexIndex(cols, n.col, n.row) : -1;
+          const other = inside && !isIsland(j) ? polities.owner[j] ?? null : null;
+          if (other === owner) continue;
+          const [a, b] = hexEdgePoints(col, row, e, size);
+          if (other && topLevel.get(other) === topLevel.get(owner)) {
+            // Between two parts of one realm: a single fine dashed line on the
+            // edge itself, drawn once, so the realm still reads as one.
+            if (j > i) internal.push(['M', a.x, a.y], ['L', b.x, b.y]);
+            continue;
+          }
+          const edge = { from: a, to: b, land: i, water: j };
+          bands.set(owner, [...(bands.get(owner) ?? []), edge]);
+          // A frontier between realms on land, drawn from one side only.
+          const landAcross = inside && !isWater(j) && !isIsland(j);
+          if (landAcross && (other === null || owner < other)) frontier.push(edge);
+        }
+      }
+    }
+    const band =
+      knobs.polityStyle === 'wash'
+        ? { width: size * 0.5, alpha: 0.42 }
+        : knobs.polityStyle === 'outline'
+          ? { width: size * 0.09, alpha: 1 }
+          : { width: Math.max(1.5, size * 0.16), alpha: 1 };
+    for (const [owner, edges] of bands) {
+      const loops = chainEdges(edges).flatMap((chain) =>
+        chain.points.map((p, k) => [k === 0 ? 'M' : 'L', p.x, p.y] as PathCmd).concat(chain.closed ? [['Z'] as PathCmd] : []),
+      );
+      const colour = polityColour.get(owner) ?? '#888888';
+      prims.push({
+        kind: 'group',
+        clip: hexesPath(regions.get(owner) ?? [], cols, size),
+        prims: [{
+          kind: 'path',
+          d: loops,
+          stroke: band.alpha < 1 ? withAlpha(colour, band.alpha) : colour,
+          strokeWidth: band.width * 2,
+          round: true,
+        }],
+      });
+    }
+    // With realms not filled solid, a fine ink line marks where one ends and the next begins.
+    if (knobs.polityStyle !== 'fill' && frontier.length > 0) {
+      const d = chainEdges(frontier).flatMap((chain) =>
+        chain.points.map((p, k) => [k === 0 ? 'M' : 'L', p.x, p.y] as PathCmd).concat(chain.closed ? [['Z'] as PathCmd] : []),
+      );
+      prims.push({
+        kind: 'path',
+        d,
+        stroke: withAlpha(palette.ink, 0.8),
+        strokeWidth: Math.max(0.8, size * 0.05),
+        dash: knobs.frontier === 'dashed'
+          ? [size * 0.22, size * 0.12]
+          : knobs.frontier === 'dashdot'
+            ? [size * 0.3, size * 0.1, size * 0.04, size * 0.1]
+            : undefined,
+        round: true,
+      });
+    }
+  }
+
+  if (internal.length > 0) {
+    prims.push({
+      kind: 'path',
+      d: internal,
+      stroke: withAlpha('#1e1a14', 0.55),
+      strokeWidth: Math.max(0.8, size * 0.045),
+      dash: [size * 0.16, size * 0.1],
+      round: true,
+    });
+  }
+
   // --- drawn relief and vegetation ----------------------------------------------------
   if (relief === 'illustrated' && base) {
     const vegetation = opts.visible.vegetation ? layers.vegetation.data : null;
@@ -645,59 +744,6 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
     }
     placed.sort((a, b) => a.y - b.y);
     for (const p of placed) prims.push(...p.prims);
-  }
-
-  // --- polity borders ------------------------------------------------------
-  const internal: PathCmd[] = [];
-  if (polities) {
-    for (let row = 0; row < rows; row++) {
-      for (let col = 0; col < cols; col++) {
-        const owner = polities.owner[hexIndex(cols, col, row)];
-        if (!owner) continue;
-        const centre = hexCenter(col, row, size);
-        for (let e = 0; e < 6; e++) {
-          const n = neighbourOf(col, row, e);
-          const other = inBounds(cols, rows, n.col, n.row)
-            ? polities.owner[hexIndex(cols, n.col, n.row)]
-            : null;
-          if (other === owner) continue;
-          if (other && topLevel.get(other) === topLevel.get(owner)) {
-            // Between two parts of one realm: a single fine dashed line on the
-            // edge itself, drawn once, so the realm still reads as one.
-            const j = hexIndex(cols, n.col, n.row);
-            if (j < hexIndex(cols, col, row)) continue;
-            const [a, b] = hexEdgePoints(col, row, e, size);
-            internal.push(['M', a.x, a.y], ['L', b.x, b.y]);
-            continue;
-          }
-          // Each side paints its own half of the border, inset toward its own
-          // centre, so a frontier between two realms shows both their colours.
-          const inset = (p: Point): Point => ({
-            x: p.x + (centre.x - p.x) * 0.1,
-            y: p.y + (centre.y - p.y) * 0.1,
-          });
-          const [a, b] = hexEdgePoints(col, row, e, size);
-          prims.push({
-            kind: 'polyline',
-            points: [inset(a), inset(b)],
-            stroke: polityColour.get(owner) ?? '#888888',
-            strokeWidth: Math.max(1.5, size * 0.11),
-            round: true,
-          });
-        }
-      }
-    }
-  }
-
-  if (internal.length > 0) {
-    prims.push({
-      kind: 'path',
-      d: internal,
-      stroke: withAlpha('#1e1a14', 0.55),
-      strokeWidth: Math.max(0.8, size * 0.045),
-      dash: [size * 0.16, size * 0.1],
-      round: true,
-    });
   }
 
   // --- rivers --------------------------------------------------------------
@@ -825,7 +871,7 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
       const r = Math.max(size * 0.16, Math.min(size * 0.46, size * 0.1 * Math.log10(Math.max(10, city.population))));
       // Mark which edges are coastal, since "coastal" is edge-specific here.
       // Dashed and water-coloured so it never reads as a polity border.
-      for (const edge of city.coastalEdges) {
+      for (const edge of knobs.cityCoastMarks ? city.coastalEdges : []) {
         const [a, b] = hexEdgePoints(city.col, city.row, edge, size);
         prims.push({
           kind: 'polyline',

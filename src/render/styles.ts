@@ -36,6 +36,14 @@ export interface StyleKnobs {
    * from the north-west.
    */
   relief: 'colour' | 'marks' | 'illustrated' | 'hillshade';
+  /** Realms as solid fills, as a wash of colour along their borders, or as outlines only. */
+  polityStyle: 'fill' | 'wash' | 'outline';
+  /** The line between realms (with wash or outline): solid, dashed, or dash-dot. */
+  frontier: 'solid' | 'dashed' | 'dashdot';
+  /** Realm colours as chosen, lightened, or greyed. */
+  polityTone: 'vivid' | 'pastel' | 'muted';
+  /** The dashed water-coloured marks on a city's coastal edges. */
+  cityCoastMarks: boolean;
   /** Paper grain over the whole map. */
   grain: boolean;
   /** Polities that are part of another: in their own colours, or as shades of their parent's. */
@@ -132,6 +140,10 @@ const CLASSIC: PresetInfo = {
     grain: false,
     subPolities: 'own',
     relief: 'colour',
+    polityStyle: 'fill',
+    frontier: 'solid',
+    polityTone: 'vivid',
+    cityCoastMarks: true,
   },
 };
 
@@ -174,6 +186,10 @@ const PARCHMENT: PresetInfo = {
     grain: true,
     subPolities: 'tints',
     relief: 'illustrated',
+    polityStyle: 'wash',
+    frontier: 'dashed',
+    polityTone: 'vivid',
+    cityCoastMarks: false,
   },
 };
 
@@ -257,6 +273,37 @@ export const KNOB_OPTIONS: {
       { value: 'hillshade', label: 'Hill shading' },
     ],
   },
+  polityStyle: {
+    label: 'Realms',
+    options: [
+      { value: 'fill', label: 'Filled' },
+      { value: 'wash', label: 'Border wash' },
+      { value: 'outline', label: 'Outline' },
+    ],
+  },
+  frontier: {
+    label: 'Frontier line',
+    options: [
+      { value: 'solid', label: 'Solid' },
+      { value: 'dashed', label: 'Dashed' },
+      { value: 'dashdot', label: 'Dash-dot' },
+    ],
+  },
+  polityTone: {
+    label: 'Realm colours',
+    options: [
+      { value: 'vivid', label: 'As chosen' },
+      { value: 'pastel', label: 'Pastel' },
+      { value: 'muted', label: 'Muted' },
+    ],
+  },
+  cityCoastMarks: {
+    label: 'Coastal edge marks on cities',
+    options: [
+      { value: false, label: 'Off' },
+      { value: true, label: 'On' },
+    ],
+  },
   subPolities: {
     label: 'Sub-polities',
     options: [
@@ -273,7 +320,7 @@ export const KNOB_OPTIONS: {
   },
 };
 
-export const KNOB_ORDER: KnobId[] = ['relief', 'water', 'ripples', 'coast', 'grid', 'land', 'islands', 'ice', 'rivers', 'subPolities', 'grain'];
+export const KNOB_ORDER: KnobId[] = ['relief', 'water', 'ripples', 'coast', 'grid', 'land', 'islands', 'ice', 'rivers', 'polityStyle', 'frontier', 'polityTone', 'subPolities', 'cityCoastMarks', 'grain'];
 
 export const DEFAULT_STYLE_CHOICE: MapStyleChoice = { preset: 'classic', overrides: {} };
 
