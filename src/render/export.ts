@@ -14,6 +14,8 @@ export interface ExportOptions {
   format: 'png' | 'svg';
   labels: boolean;
   elevationStyle?: 'colour' | 'contours';
+  polityOpacity?: number;
+  uniformLand?: boolean;
   /** Hex circumradius in px used to lay the scene out. */
   size?: number;
   /** PNG pixel multiplier on top of `size`. */
@@ -53,6 +55,8 @@ async function emit(
     visible,
     labels: opts.labels,
     elevationStyle: opts.elevationStyle,
+    polityOpacity: opts.polityOpacity,
+    uniformLand: opts.uniformLand,
     selection: null,
     hover: null,
     transparentBackground: opts.transparentBackground ?? false,

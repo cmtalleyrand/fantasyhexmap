@@ -41,6 +41,10 @@ export interface Prefs {
   elevationStyle: 'colour' | 'contours';
   /** Draw polity/city names on the map. */
   labels: boolean;
+  /** Opacity of the polity fill, 0.1-1; below 1 the terrain shows through. */
+  polityOpacity: number;
+  /** Draw coastal and inland land in the same base colour. */
+  uniformLand: boolean;
   /**
    * Which generation of defaults these prefs were saved under. Prefs saved
    * before this existed carry the old effort and budget whether or not anyone
@@ -60,6 +64,8 @@ export const DEFAULT_PREFS: Prefs = {
   remember: true,
   elevationStyle: 'colour',
   labels: true,
+  polityOpacity: 1,
+  uniformLand: false,
   defaultsVersion: DEFAULTS_VERSION,
 };
 
@@ -129,6 +135,11 @@ export function insecureOrigin(): boolean {
   return typeof window !== 'undefined' && !window.isSecureContext;
 }
 
+export function clampPolityOpacity(value: unknown): number {
+  const n = typeof value === 'number' && Number.isFinite(value) ? value : 1;
+  return Math.min(1, Math.max(0.1, n));
+}
+
 export function loadPrefs(): Prefs {
   const raw = safeGet(window.localStorage, PREFS_NAME);
   if (!raw) return { ...DEFAULT_PREFS };
@@ -148,6 +159,8 @@ export function loadPrefs(): Prefs {
       taskBudget: clampTaskBudget(stored.taskBudget ?? DEFAULT_PREFS.taskBudget),
       elevationStyle: stored.elevationStyle === 'contours' ? 'contours' : 'colour',
       labels: stored.labels !== false,
+      polityOpacity: clampPolityOpacity(stored.polityOpacity),
+      uniformLand: stored.uniformLand === true,
       defaultsVersion: DEFAULTS_VERSION,
     };
   } catch {

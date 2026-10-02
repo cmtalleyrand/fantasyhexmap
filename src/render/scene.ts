@@ -110,6 +110,10 @@ export interface SceneOptions {
   visible: VisibleLayers;
   labels: boolean;
   elevationStyle?: 'colour' | 'contours';
+  /** Opacity of polity fills, 0-1 (default 1); lower values let terrain show through. */
+  polityOpacity?: number;
+  /** Draw Coastal Land in the plain Land colour. */
+  uniformLand?: boolean;
   /** Screen-only decoration; omitted from exports. */
   selection?: Set<number> | null;
   hover?: number | null;
@@ -181,6 +185,8 @@ export function buildScene(map: MapState, opts: SceneOptions): Scene {
     (polities?.polities ?? []).map((p) => [p.id, p.colour]),
   );
 
+  const polityOpacity = Math.min(1, Math.max(0, opts.polityOpacity ?? 1));
+
   // --- hex fills -----------------------------------------------------------
   for (let row = 0; row < rows; row++) {
     for (let col = 0; col < cols; col++) {
@@ -189,7 +195,9 @@ export function buildScene(map: MapState, opts: SceneOptions): Scene {
       let fill = MAP_COLOURS.emptyHex;
 
       const baseValue = base ? base[i] : null;
-      if (baseValue) fill = BASE_COLOURS[baseValue];
+      if (baseValue) {
+        fill = BASE_COLOURS[opts.uniformLand && baseValue === 'Coastal Land' ? 'Land' : baseValue];
+      }
 
       if (thematic) {
         const value =
@@ -264,7 +272,8 @@ export function buildScene(map: MapState, opts: SceneOptions): Scene {
         if (owner) {
           // Polity colours are categorical data, not a tint. An opaque fill
           // keeps a realm's colour invariant when substrate layers change.
-          const fill = polityColour.get(owner) ?? '#777777';
+          const solid = polityColour.get(owner) ?? '#777777';
+          const fill = polityOpacity < 1 ? withAlpha(solid, polityOpacity) : solid;
           if (baseValue === 'Island') {
             // Only the landmass belongs to the polity; the surrounding sea
             // stays sea-coloured, matching the island dot's footprint.

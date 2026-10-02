@@ -8,10 +8,14 @@ export default function ExportPanel({
   map,
   visible,
   elevationStyle,
+  polityOpacity,
+  uniformLand,
 }: {
   map: MapState;
   visible: VisibleLayers;
   elevationStyle: 'colour' | 'contours';
+  polityOpacity: number;
+  uniformLand: boolean;
 }) {
   const [format, setFormat] = useState<'png' | 'svg'>('png');
   const [labels, setLabels] = useState(true);
@@ -29,6 +33,8 @@ export default function ExportPanel({
     size: 32,
     scale: Number(scale) || 2,
     elevationStyle,
+    polityOpacity,
+    uniformLand,
   };
 
   const planned = plannedLayers(map);
