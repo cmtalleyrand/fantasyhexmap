@@ -4,6 +4,7 @@ import { canHoldSettlement, riversThroughHex } from '../shared/derive.js';
 import { moveRiverSegment } from '../shared/riverEdit.js';
 import { LAYER_META, createMapState } from '../shared/layers.js';
 import { nextGenerationWave } from '../shared/generationQueue.js';
+import { instructionForLayer, planMultiLayerEdit } from '../shared/multiEdit.js';
 import { LAYER_ORDER, type LayerId, type MapState } from '../shared/types.js';
 import {
   detectTransport,
@@ -146,6 +147,7 @@ export default function App() {
       instructionText: string | null,
       passSelection: PassSelection = 'both',
       roster: Roster | null = null,
+      options: { requestInstruction?: string; keepInstruction?: boolean } = {},
     ): Promise<boolean> => {
       const requestMap = mapRef.current;
       if (!requestMap || abortRef.current.has(layer)) return false;
@@ -158,7 +160,7 @@ export default function App() {
         const result = await requestLayer(
           requestMap,
           layer,
-          instructionText,
+          options.requestInstruction ?? instructionText,
           transport.mode,
           {
             apiKey: apiKey || null,
@@ -186,7 +188,7 @@ export default function App() {
         dispatch(action);
         setVisible((v) => ({ ...v, [layer]: true }));
         setActiveLayer(layer);
-        if (instructionText) setInstruction('');
+        if (instructionText && !options.keepInstruction) setInstruction('');
         return true;
       } catch (e) {
         if ((e as Error).name !== 'AbortError') {
@@ -237,6 +239,47 @@ export default function App() {
       pending = pending.filter((id) => !wave.includes(id));
     }
   }, [concurrency, runGeneration, selectedLayers]);
+
+  /**
+   * Apply one instruction to several layers, one request each, in pipeline
+   * order. Sequential on purpose: a layer is rewritten against the layers before
+   * it as they now stand, so the concurrency setting does not apply. A failure
+   * or a cancel stops the run, since what follows would be built on a layer that
+   * did not change.
+   */
+  const runMultiEdit = useCallback(
+    async (text: string) => {
+      const current = mapRef.current;
+      if (!current || abortRef.current.size > 0) return;
+      const { layers, skipped } = planMultiLayerEdit(current, selectedLayers);
+      if (layers.length === 0 || !text) return;
+      batchCancelled.current = false;
+      const done: LayerId[] = [];
+      for (const id of layers) {
+        const ok = await runGeneration(id, text, 'both', null, {
+          requestInstruction: instructionForLayer(text, layers, id),
+          keepInstruction: true,
+        });
+        if (!ok) {
+          if (!batchCancelled.current) {
+            setError((prev) =>
+              `${prev ?? 'The edit failed.'} Stopped after ${done.length} of ${layers.length} layers` +
+              `${done.length > 0 ? ` (${done.map((d) => LAYER_META[d].label).join(', ')} already changed; undo is per layer)` : ''}.`,
+            );
+          }
+          return;
+        }
+        done.push(id);
+      }
+      setInstruction('');
+      if (skipped.length > 0) {
+        setError(
+          `${skipped.map((d) => LAYER_META[d].label).join(', ')} had no data to edit and ${skipped.length === 1 ? 'was' : 'were'} skipped.`,
+        );
+      }
+    },
+    [runGeneration, selectedLayers],
+  );
 
   const onStrokeEnd = useCallback(
     (indices: number[]) => {
@@ -763,6 +806,8 @@ export default function App() {
           instruction={instruction}
           setInstruction={setInstruction}
           onAiEdit={() => void runGeneration(activeLayer, instruction.trim())}
+          selectedLayers={selectedLayers}
+          onAiEditSelected={() => void runMultiEdit(instruction.trim())}
           onWebchat={() => setWebchatLayer(activeLayer)}
           onGeneratePass={(passSelection) => void runGeneration(activeLayer, null, passSelection)}
           onGenerateShortNames={() =>

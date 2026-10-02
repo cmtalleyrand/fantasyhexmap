@@ -17,6 +17,7 @@ import {
   type River,
   type VegetationGroup,
 } from '../../shared/types.js';
+import { planMultiLayerEdit } from '../../shared/multiEdit.js';
 import { canSplit, passLabel, type PassSelection } from '../../core/rosters.js';
 import type { Action } from '../state/store.js';
 import { contrastingPolityColours } from '../render/palette.js';
@@ -37,6 +38,9 @@ export interface InspectorProps {
   instruction: string;
   setInstruction: (value: string) => void;
   onAiEdit: () => void;
+  /** Layers ticked in the pipeline list; one instruction can be applied to all of them. */
+  selectedLayers: ReadonlySet<LayerId>;
+  onAiEditSelected: () => void;
   /** Open the compile-a-prompt / paste-the-reply dialog for this layer. */
   onWebchat: () => void;
   /** Generate this layer, optionally only one half of a splittable one. */
@@ -95,6 +99,10 @@ export default function Inspector(props: InspectorProps) {
   const staleness = stalenessOf(map, activeLayer);
   const selected = useMemo(() => [...selection].sort((a, b) => a - b), [selection]);
   const [passSelection, setPassSelection] = useState<PassSelection>('both');
+  const multi = useMemo(
+    () => planMultiLayerEdit(map, props.selectedLayers),
+    [map, props.selectedLayers],
+  );
 
   return (
     <div className="inspector">
@@ -219,6 +227,26 @@ export default function Inspector(props: InspectorProps) {
         >
           Rewrite this layer with AI
         </button>
+        {props.selectedLayers.size > 0 && (
+          <>
+            <button
+              className="primary"
+              style={{ marginTop: 6, width: '100%' }}
+              disabled={props.busy || multi.layers.length === 0 || props.instruction.trim().length === 0}
+              onClick={props.onAiEditSelected}
+              title="Rewrite each ticked layer in pipeline order, each against the ones before it"
+            >
+              Rewrite {multi.layers.length} selected layer{multi.layers.length === 1 ? '' : 's'} with AI
+            </button>
+            <p className="hint" style={{ marginTop: 4 }}>
+              {multi.layers.length > 0
+                ? `Runs ${multi.layers.map((id) => LAYER_META[id].label).join(' → ')}, one request each.`
+                : 'None of the ticked layers has data to edit.'}
+              {multi.skipped.length > 0 &&
+                ` Skipped, no data: ${multi.skipped.map((id) => LAYER_META[id].label).join(', ')}.`}
+            </p>
+          </>
+        )}
         <button
           style={{ marginTop: 6, width: '100%' }}
           disabled={props.busy}
@@ -228,7 +256,8 @@ export default function Inspector(props: InspectorProps) {
         </button>
         <p className="hint" style={{ marginTop: 4 }}>
           The whole layer is sent as context and comes back rewritten, so one instruction can change
-          the map anywhere. Undo is per layer. The second button builds the same prompt for you to
+          the map anywhere. To change several layers at once, tick them in the Layers list and use the
+          second button. Undo is per layer. The second button builds the same prompt for you to
           run in a chat window instead, and imports the reply.
         </p>
       </div>

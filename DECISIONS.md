@@ -571,3 +571,21 @@ output limit.
 
 **Chosen.** `t` Land, `c` Coastal Land, `m` Sea, `l` Lake, `g` Ice, `i` Island, replacing
 `L C ~ o # i`. Stored maps are unaffected: layers store values, not codes.
+
+## 35. One instruction, several layers
+
+**Chosen.** Tick layers in the Layers list, type one instruction, and "Rewrite N selected layers with
+AI" applies it to each ticked layer that has data, one request per layer, in pipeline order. Each
+request carries the user's instruction plus a short note saying which layers are in the run, which
+have already been rewritten (and are shown as they now stand) and which come after; a layer the
+instruction does not concern is told to return itself unchanged. The journal records the user's own
+words, not the added note.
+
+**Why sequential.** A layer is rewritten against the layers before it, so an upstream change (a new
+island chain) reaches elevation, climate and the rest within the same run instead of leaving them
+stale. That makes the "at once" setting irrelevant here. It also means a failure or cancel stops the
+run: what follows would be built on a layer that did not change. Layers already rewritten keep their
+result and their own undo entry.
+
+**What it costs.** One request per layer, each over the whole grid, so the cost is the sum. Layers
+without data, or left out of the plan, are skipped and named. Undo stays per layer.
