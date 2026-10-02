@@ -70,6 +70,8 @@ export interface LabelInput {
   minHexes?: PolityNameMin;
   /** Type size relative to a top-level realm's: the parts of a realm are named smaller. */
   scale?: number;
+  /** Width of a line of the name, in em, in the face (and letter-spacing) it is set in. */
+  measure?: (text: string) => number;
   /**
    * 'moderate' (the default): type grows slowly with area and is capped near
    * a hex, and a sizeable realm keeps legible type rather than shrinking to
@@ -130,13 +132,13 @@ interface TextLayout {
 }
 
 /** The name on one line, plus the most balanced two-line split if it has spaces. */
-function textLayouts(text: string): TextLayout[] {
-  const layouts: TextLayout[] = [{ lines: [text], em: fantasyTextEm(text) }];
+function textLayouts(text: string, measure: (text: string) => number = (t) => fantasyTextEm(t)): TextLayout[] {
+  const layouts: TextLayout[] = [{ lines: [text], em: measure(text) }];
   const words = text.split(/\s+/).filter(Boolean);
   let best: TextLayout | null = null;
   for (let k = 1; k < words.length; k++) {
     const lines = [words.slice(0, k).join(' '), words.slice(k).join(' ')];
-    const em = Math.max(...lines.map((line) => fantasyTextEm(line)));
+    const em = Math.max(...lines.map((line) => measure(line)));
     if (!best || em < best.em) best = { lines, em };
   }
   if (best) layouts.push(best);
@@ -224,7 +226,7 @@ export function placePolityLabels(input: LabelInput): PolityLabel[] {
       .sort((a, b) => Math.abs(a) - Math.abs(b));
 
     const text = (polity.shortName?.trim() || polity.name).toUpperCase();
-    const layouts = textLayouts(text);
+    const layouts = textLayouts(text, input.measure);
     // Hex area is proportional to size², so a linear dimension such as type
     // size grows with sqrt(hex count).
     // Capped, so the largest realms are named in large type rather than in
@@ -306,7 +308,7 @@ export function placePolityLabels(input: LabelInput): PolityLabel[] {
             : null)));
     if (!label) continue;
     placed.push(label);
-    const em = Math.max(...label.lines.map((line) => fantasyTextEm(line)));
+    const em = Math.max(...label.lines.map((line) => (input.measure ?? ((t: string) => fantasyTextEm(t)))(line)));
     claimed.push(
       labelBox(label.at, em * label.size, label.size * LABEL_HEIGHT_EM * label.lines.length, label.rotation),
     );

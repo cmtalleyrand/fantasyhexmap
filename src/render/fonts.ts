@@ -62,3 +62,32 @@ export function uiTextEm(text: string, weight = 600): number {
   widths.set(key, em);
   return em;
 }
+
+/**
+ * Bumped whenever measurements are thrown away (fonts finished loading), so
+ * caches of anything laid out from measurements know to lay out again.
+ */
+export let measureEpoch = 0;
+
+export function invalidateTextMeasures(): void {
+  widths.clear();
+  measureEpoch++;
+}
+
+/** Width of `text` in em in any face: a CSS family list, weight and slant. */
+export function textEm(text: string, family: string, weight = 600, italic = false): number {
+  if (family === FANTASY_FONT_STACK && !italic) return fantasyTextEm(text, weight);
+  if (family === FONT_STACK && !italic) return uiTextEm(text, weight);
+  const key = `${family}|${weight}|${italic ? 'i' : ''}|${text}`;
+  const cached = widths.get(key);
+  if (cached !== undefined) return cached;
+  const ctx = context();
+  let em = text.length * FALLBACK_CHAR_EM;
+  if (ctx) {
+    ctx.font = `${italic ? 'italic ' : ''}${weight} ${PROBE_PX}px ${family}`;
+    const measured = ctx.measureText(text).width / PROBE_PX;
+    if (measured > 0) em = measured * SAFETY;
+  }
+  widths.set(key, em);
+  return em;
+}

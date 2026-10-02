@@ -98,10 +98,14 @@ async function emit(
   opts: ExportOptions,
   nameSuffix: string,
 ): Promise<void> {
+  // The bundled fonts are loaded before the scene is laid out, so names are
+  // measured and drawn in them (the module is browser-only, hence the import).
+  const fonts = await import('./fontFiles.js');
+  await fonts.loadLettering((opts.style ?? CLASSIC_STYLE).knobs.lettering);
   const scene = buildExportScene(map, visible, opts);
   const filename = `${slug(map.name)}-${nameSuffix}.${opts.format}`;
   if (opts.format === 'svg') {
-    download(new Blob([sceneToSvg(scene, `${map.name} - ${nameSuffix}`)], {
+    download(new Blob([sceneToSvg(scene, `${map.name} - ${nameSuffix}`, await fonts.embeddedFontCss(scene))], {
       type: 'image/svg+xml;charset=utf-8',
     }), filename);
     return;

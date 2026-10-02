@@ -782,3 +782,62 @@ test('a plateau is drawn as an escarpment where it falls to lower ground, not as
   assert.equal(escarpments.length, 1);
   assert.ok(ink);
 });
+
+test('names are set in the style’s lettering, tracked realm names letter by letter', async () => {
+  const { LETTERINGS, LETTERING_ORDER } = await import('../src/render/lettering.ts');
+  const cols = 8;
+  const rows = 4;
+  const map = createMapState('Lettering', cols, rows);
+  map.layers.base.data = Array(cols * rows).fill('Land');
+  map.layers.polities.data = {
+    polities: [{ id: 'k', name: 'Valdoria', colour: '#aa3333' }],
+    owner: Array(cols * rows).fill('k'),
+  };
+  map.layers.cities.data = {
+    cities: [{ id: 'c', name: 'Alder', col: 2, row: 1, population: 20_000, polityId: 'k', coastalEdges: [], onRiver: false } as never],
+  };
+  const visible = defaultVisibility();
+  visible.polities = true;
+  visible.cities = true;
+  for (const id of LETTERING_ORDER) {
+    const style = resolveStyle({ preset: 'parchment', overrides: { lettering: id } });
+    const prims = buildScene(map, { size: 24, visible, labels: true, polityNames: 0, style }).prims;
+    const texts = prims.filter((p): p is Extract<Prim, { kind: 'text' }> => p.kind === 'text');
+    const realm = texts.find((t) => t.text === 'VALDORIA');
+    const city = texts.find((t) => t.text === 'Alder');
+    assert.ok(realm && city, `${id}: realm and city are named`);
+    assert.equal(realm.font, LETTERINGS[id].realm.family);
+    assert.equal(realm.weight, LETTERINGS[id].realm.weight);
+    assert.equal(city.font, LETTERINGS[id].city.family);
+    if (LETTERINGS[id].realm.tracking > 0) assert.equal(realm.glyphs?.length, 'VALDORIA'.length, `${id}: tracked`);
+    else assert.equal(realm.glyphs, undefined);
+  }
+});
+
+test('every bundled pairing has a real face for each kind of name', async () => {
+  const { LETTERINGS, LETTERING_ORDER, letteringFaces } = await import('../src/render/lettering.ts');
+  for (const id of LETTERING_ORDER.filter((l) => l !== 'classic')) {
+    const faces = letteringFaces(id);
+    const l = LETTERINGS[id];
+    for (const role of [l.realm, l.water, l.river, l.city, l.range]) {
+      assert.ok(
+        faces.some((f) => role.family.startsWith(`"${f.family}"`) && f.weight === role.weight && f.italic === role.italic),
+        `${id}: ${role.family} ${role.weight}${role.italic ? ' italic' : ''} is bundled`,
+      );
+    }
+  }
+  assert.deepEqual(letteringFaces('classic'), []);
+  assert.equal(parseStyleChoice({ preset: 'parchment', overrides: { lettering: 'comic' } }).overrides.lettering, undefined);
+  assert.equal(resolveStyle({ preset: 'atlas', overrides: {} }).knobs.lettering, 'atlas');
+});
+
+test('an SVG carries the font rules it is given, and measurements can be thrown away', async () => {
+  const fonts = await import('../src/render/fonts.ts');
+  const scene = { width: 10, height: 10, background: '#fff', prims: [] };
+  const css = '@font-face{font-family:"HexMap Cinzel";src:url(data:font/woff2;base64,AAAA)}';
+  assert.ok(sceneToSvg(scene, 't', css).includes(`<style>${css}</style>`));
+  assert.ok(!sceneToSvg(scene, 't').includes('<style>'));
+  const before = fonts.measureEpoch;
+  fonts.invalidateTextMeasures();
+  assert.equal(fonts.measureEpoch, before + 1);
+});

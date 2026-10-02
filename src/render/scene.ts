@@ -75,7 +75,9 @@ import { citySite } from './sites.js';
 import { escarpment, hillshade, reliefSymbols, vegetationSymbols, type Placed } from './symbols.js';
 import { ownersAtDepth, polityDepths, polityDisplayColours, toned } from './hierarchy.js';
 import { topLevelOf } from '../../shared/polityTree.js';
-import { fantasyTextEm, uiTextEm } from './fonts.js';
+import { measureEpoch, textEm } from './fonts.js';
+import { glyphAdvances, glyphsStraight } from './glyphs.js';
+import { BUNDLED_FACES, LETTERINGS, type FaceRole } from './lettering.js';
 import { signed, unit } from './seed.js';
 import { CLASSIC_STYLE, type MapStyle } from './styles.js';
 import { grainTile } from './texture.js';
@@ -159,6 +161,21 @@ const labelCache = new WeakMap<
   { cities: object | null; polities: object; key: string; labels: PolityLabel[] }
 >();
 
+/** Width in em of `text` set in a lettering role, tracking included. */
+function roleEm(role: FaceRole, text: string, weight = role.weight): number {
+  return role.tracking > 0
+    ? glyphAdvances(text, 1, role.tracking, weight, role.family, role.italic).width
+    : textEm(text, role.family, weight, role.italic);
+}
+
+/** A lighter weight of the role's face for the parts of a realm: a bundled one where there is one. */
+function lighterWeight(role: FaceRole): number {
+  const bundled = BUNDLED_FACES.filter((f) => role.family.startsWith(`"${f.family}"`) && f.italic === role.italic);
+  if (bundled.length === 0) return role.weight - 100;
+  const lighter = bundled.filter((f) => f.weight < role.weight).map((f) => f.weight);
+  return lighter.length > 0 ? Math.max(...lighter) : role.weight;
+}
+
 function cachedPolityLabels(
   data: PolitiesData,
   cities: CitiesData | null,
@@ -168,8 +185,10 @@ function cachedPolityLabels(
   obstacles: LabelObstacle[],
   minHexes: PolityNameMin | undefined,
   sizing: 'moderate' | 'fill',
+  role: FaceRole,
+  letteringId: string,
 ): PolityLabel[] {
-  const key = `${cols}x${rows}@${size}/${minHexes ?? ''}/${sizing}`;
+  const key = `${cols}x${rows}@${size}/${minHexes ?? ''}/${sizing}/${letteringId}/${measureEpoch}`;
   const hit = labelCache.get(data.owner);
   if (hit && hit.key === key && hit.cities === cities && hit.polities === data.polities) return hit.labels;
   const labels = placePolityLabels({
@@ -181,6 +200,7 @@ function cachedPolityLabels(
     obstacles,
     minHexes,
     sizing,
+    measure: (text) => roleEm(role, text),
   });
   labelCache.set(data.owner, { cities, polities: data.polities, key, labels });
   return labels;
@@ -967,6 +987,9 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
   const markerRadius = (population: number) =>
     Math.max(size * 0.16, Math.min(size * 0.46, size * 0.1 * Math.log10(Math.max(10, population))));
   const taken: OrientedBox[] = [];
+  const lettering = LETTERINGS[knobs.lettering] ?? LETTERINGS.classic;
+  const realmRole = lettering.realm;
+  const subWeight = lighterWeight(realmRole);
   if (opts.labels && polities) {
     const obstacles: LabelObstacle[] = [];
     for (const city of cities?.cities ?? []) {
@@ -981,7 +1004,7 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
     const maxDepth = Math.max(0, ...depths.values());
     const levels: Array<{ labels: PolityLabel[]; depth: number }> = [];
     if (maxDepth === 0) {
-      levels.push({ labels: cachedPolityLabels(polities, cities, cols, rows, size, obstacles, opts.polityNames, knobs.realmNames), depth: 0 });
+      levels.push({ labels: cachedPolityLabels(polities, cities, cols, rows, size, obstacles, opts.polityNames, knobs.realmNames, realmRole, lettering.id), depth: 0 });
     } else {
       const claimed: LabelObstacle[] = [...obstacles];
       for (let depth = 0; depth <= maxDepth; depth++) {
@@ -995,9 +1018,10 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
           minHexes: opts.polityNames,
           scale: depth === 0 ? 1 : 0.62 ** depth,
           sizing: knobs.realmNames,
+          measure: (text) => roleEm(realmRole, text, depth === 0 ? realmRole.weight : subWeight),
         });
         for (const label of labels) {
-          const em = Math.max(...label.lines.map((line) => fantasyTextEm(line)));
+          const em = Math.max(...label.lines.map((line) => roleEm(realmRole, line, depth === 0 ? realmRole.weight : subWeight)));
           claimed.push(labelBox(label.at, em * label.size, label.size * LABEL_LINE_EM * label.lines.length, label.rotation));
         }
         levels.push({ labels, depth });
@@ -1009,22 +1033,29 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
         // rotated name stays a single rigid block.
         label.lines.forEach((line, k) => {
           const offset = (k - (label.lines.length - 1) / 2) * label.size * LABEL_LINE_EM;
+          const at = {
+            x: label.at.x - offset * Math.sin(label.rotation),
+            y: label.at.y + offset * Math.cos(label.rotation),
+          };
+          const weight = depth === 0 ? realmRole.weight : subWeight;
           prims.push({
             kind: 'text',
-            at: {
-              x: label.at.x - offset * Math.sin(label.rotation),
-              y: label.at.y + offset * Math.cos(label.rotation),
-            },
+            at,
             text: line,
             size: label.size,
             fill: depth === 0 ? palette.label : withAlpha(palette.label, 0.78),
-            weight: depth === 0 ? 600 : 500,
+            weight,
             anchor: 'middle',
             fantasy: true,
+            font: realmRole.family,
             rotation: label.rotation,
+            ...(realmRole.tracking > 0
+              ? { glyphs: glyphsStraight(line, label.size, at, label.rotation, { ...realmRole, weight }) }
+              : {}),
           });
         });
-        const em = Math.max(...label.lines.map((line) => fantasyTextEm(line)));
+        const weight = depth === 0 ? realmRole.weight : subWeight;
+        const em = Math.max(...label.lines.map((line) => roleEm(realmRole, line, weight)));
         taken.push({
           cx: label.at.x,
           cy: label.at.y,
@@ -1039,7 +1070,7 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
   // --- river and mountain range names -------------------------------------
   if (rivers && opts.riverNames) {
     const pathFor = tapered ? (id: string) => courses.get(id) ?? null : undefined;
-    for (const l of placeRiverLabels(rivers.rivers, size, pathFor)) {
+    for (const l of placeRiverLabels(rivers.rivers, size, pathFor, lettering.river)) {
       prims.push({
         kind: 'text',
         at: l.at,
@@ -1047,10 +1078,11 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
         size: l.size,
         fill: palette.riverLabel,
         halo: palette.labelHalo,
-        weight: 600,
+        weight: lettering.river.weight,
         anchor: 'middle',
         fantasy: true,
-        italic: true,
+        font: lettering.river.family,
+        italic: lettering.river.italic,
         rotation: l.rotation,
         glyphs: l.glyphs,
       });
@@ -1060,7 +1092,8 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
     }
   }
   if (opts.rangeNames && opts.visible.elevation && layers.elevation.data) {
-    for (const l of placeRangeLabels(map.mountainRanges ?? [], layers.elevation.data, cols, size)) {
+    const rangeRole = lettering.range;
+    for (const l of placeRangeLabels(map.mountainRanges ?? [], layers.elevation.data, cols, size, rangeRole)) {
       prims.push({
         kind: 'text',
         at: l.at,
@@ -1068,27 +1101,31 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
         size: l.size,
         fill: palette.rangeLabel,
         halo: palette.labelHalo,
-        weight: 700,
+        weight: rangeRole.weight,
         anchor: 'middle',
         fantasy: true,
+        font: rangeRole.family,
+        italic: rangeRole.italic,
         rotation: l.rotation,
+        glyphs: l.glyphs,
       });
-      taken.push({ cx: l.at.x, cy: l.at.y, halfW: (fantasyTextEm(l.text, 700) * l.size) / 2, halfH: l.size * 0.6, rotation: l.rotation });
+      taken.push({ cx: l.at.x, cy: l.at.y, halfW: (roleEm(rangeRole, l.text) * l.size) / 2, halfH: l.size * 0.6, rotation: l.rotation });
     }
   }
 
   if (opts.seaNames && base && (map.waterNames?.length ?? 0) > 0) {
-    for (const l of placeWaterLabels(map.waterNames!, cols, size)) {
+    for (const l of placeWaterLabels(map.waterNames!, cols, size, lettering.water)) {
       prims.push({
         kind: 'text',
         at: l.at,
         text: l.text,
         size: l.size,
         fill: palette.riverLabel,
-        weight: 500,
+        weight: lettering.water.weight,
         anchor: 'middle',
         fantasy: true,
-        italic: true,
+        font: lettering.water.family,
+        italic: lettering.water.italic,
         rotation: l.rotation,
         glyphs: l.glyphs,
       });
@@ -1109,7 +1146,7 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
         population: city.population,
       })),
       fontSize,
-      (text) => uiTextEm(text) * fontSize,
+      (text) => roleEm(lettering.city, text) * fontSize,
       taken,
       { width, height },
       knobs.cityNames,
@@ -1123,8 +1160,10 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
         size: fontSize,
         fill: palette.label,
         halo: palette.labelHalo,
-        weight: 600,
+        weight: lettering.city.weight,
         anchor: p.anchor,
+        font: lettering.city.family,
+        ...(lettering.city.italic ? { italic: true } : {}),
       });
     }
   }

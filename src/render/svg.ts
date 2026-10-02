@@ -116,7 +116,7 @@ function primToSvg(prim: Prim, defs: Defs): string {
       const transform = prim.rotation
         ? ` transform="rotate(${n(prim.rotation * 180 / Math.PI)} ${n(prim.at.x)} ${n(prim.at.y)})"`
         : '';
-      return `<text x="${n(prim.at.x)}" y="${n(prim.at.y)}" font-family="${attrFont(prim.fantasy)}" font-size="${n(prim.size)}"${prim.italic ? ' font-style="italic"' : ''} font-weight="${prim.weight ?? 600}" text-anchor="${anchor}" dominant-baseline="central" fill="${prim.fill}"${halo}${transform}>${esc(prim.text)}</text>`;
+      return `<text x="${n(prim.at.x)}" y="${n(prim.at.y)}" font-family="${prim.font ? prim.font.replace(/"/g, "'") : attrFont(prim.fantasy)}" font-size="${n(prim.size)}"${prim.italic ? ' font-style="italic"' : ''} font-weight="${prim.weight ?? 600}" text-anchor="${anchor}" dominant-baseline="central" fill="${prim.fill}"${halo}${transform}>${esc(prim.text)}</text>`;
     }
     case 'city': {
       const { c, r, symbol } = prim;
@@ -142,9 +142,11 @@ function primToSvg(prim: Prim, defs: Defs): string {
   }
 }
 
-export function sceneToSvg(scene: Scene, title: string): string {
+/** `css` is added in a <style> element: the @font-face rules of embedded fonts. */
+export function sceneToSvg(scene: Scene, title: string, css = ''): string {
   const defs: Defs = { items: [], patterns: new Set(), next: 0 };
   const body = scene.prims.map((p) => primToSvg(p, defs)).join('\n');
+  if (css) defs.items.unshift(`<style>${css}</style>`);
   const defsBlock = defs.items.length > 0 ? `<defs>\n${defs.items.join('\n')}\n</defs>\n` : '';
   const background =
     scene.background === 'transparent'
