@@ -253,11 +253,13 @@ test('a one-hex lake is drawn as an irregular body, not traced from its hex edge
   assert.equal(lakeHexes.length, 0, 'the lake hex is drawn as land under the body');
   const bodies = prims.filter((p) => p.kind === 'path' && p.fill === style.palette.lake);
   assert.equal(bodies.length, 1);
-  // The body is irregular: its control points are not all the same distance from the centre.
-  const d = (bodies[0] as { d: PathCmd[] }).d.filter((c) => c[0] === 'Q');
+  // The body is irregular, and reaches past its own hex's edges into the neighbours.
+  const d = (bodies[0] as { d: PathCmd[] }).d.filter((c) => c[0] === 'M' || c[0] === 'L');
   const centre = { x: 20 * Math.sqrt(3) * 3.5 + 20 * Math.sqrt(3) / 2, y: 20 * 1.5 * 3 + 20 };
   const radii = d.map((c) => Math.hypot((c[1] as number) - centre.x, (c[2] as number) - centre.y));
-  assert.ok(Math.max(...radii) - Math.min(...radii) > 1);
+  assert.ok(Math.max(...radii) - Math.min(...radii) > 1, 'not a circle');
+  assert.ok(Math.max(...radii) > 20 * (Math.sqrt(3) / 2), 'reaches into a neighbouring hex');
+  assert.ok(Math.max(...radii) < 20 * 1.4, 'but only a little way');
 });
 
 test('a crossing point is the same seen from either side of its edge', async () => {
@@ -680,4 +682,42 @@ test('a river city on the coast stands where its river meets the shore', async (
   assert.ok(auto.x > centre.x + size * 0.4 && Math.abs(auto.y - (centre.y + 2)) < 1e-9, 'on the river, toward the east shore');
   assert.deepEqual(citySite({ ...city, site: { coast: 0, river: true } }, ctx), auto);
   assert.equal(resolvedSite({ ...city, site: { coast: 0 } }).kind, 'coast', 'coast alone still leaves the river');
+});
+
+test('an island in a lake sits on lake water, and a lake inside one realm is drawn as part of it', () => {
+  const cols = 7;
+  const rows = 5;
+  const map = createMapState('Lake realm', cols, rows);
+  const base: BaseGeo[] = Array(cols * rows).fill('Land');
+  // A three-hex lake with an islet in it, all inside one realm.
+  for (const i of [2 * cols + 2, 2 * cols + 4, 1 * cols + 3]) base[i] = 'Lake';
+  base[2 * cols + 3] = 'Island';
+  map.layers.base.data = base;
+  map.layers.polities.data = {
+    polities: [{ id: 'r', name: 'Realm', colour: '#aa3333' }],
+    owner: base.map((v) => (v === 'Land' ? 'r' : null)),
+  };
+  const visible = defaultVisibility();
+  visible.polities = true;
+  const style = resolveStyle({ preset: 'parchment', overrides: {} });
+  const prims = buildScene(map, { size: 20, visible, labels: false, style }).prims;
+  assert.ok(!prims.some((p) => p.kind === 'polygon' && p.fill === style.palette.sea), 'no sea under the lake islet');
+  assert.equal(prims.filter((p) => p.kind === 'path' && p.fill === style.palette.lake).length, 1, 'one lake body');
+  // The realm's border band runs round the realm's outside only: no band loop round the lake.
+  const bands = prims.filter((p): p is Extract<Prim, { kind: 'group' }> => p.kind === 'group' && p.prims.length === 1);
+  const lakeCentre = { x: 20 * Math.sqrt(3) * 3 + 20 * Math.sqrt(3) / 2, y: 20 * 1.5 * 2 + 20 };
+  for (const g of bands) {
+    const pts = (g.prims[0] as { d: PathCmd[] }).d.filter((c) => c[0] !== 'Z').map((c) => ({ x: c[1] as number, y: c[2] as number }));
+    assert.ok(!pts.some((q) => Math.hypot(q.x - lakeCentre.x, q.y - lakeCentre.y) < 20 * 1.2), 'a border band rings the lake');
+  }
+});
+
+test('small islands are two or three islets, spread apart', () => {
+  const map = createMapState('Isles', 3, 3);
+  map.layers.base.data = ['Sea', 'Sea', 'Sea', 'Sea', 'Small Islands', 'Sea', 'Sea', 'Sea', 'Sea'];
+  const style = resolveStyle({ preset: 'parchment', overrides: {} });
+  const isles = buildScene(map, { size: 20, visible: defaultVisibility(), labels: false, style }).prims
+    .filter((p): p is Extract<Prim, { kind: 'path' }> => p.kind === 'path' && p.fill === style.palette.island);
+  const count = isles[0]!.d.filter((c) => c[0] === 'M').length;
+  assert.ok(count >= 2 && count <= 3, `${count} islets`);
 });

@@ -65,7 +65,8 @@ import {
   hexesPath,
   isletPath,
   sideOf,
-  smallLakes,
+  lakeBodyPath,
+  lakeComponents,
   type CoastGeometry,
 } from './coast.js';
 import type { CitySymbol, PathCmd, Prim } from './prims.js';
@@ -185,10 +186,13 @@ function cachedPolityLabels(
 
 /**
  * The coast only depends on the base layer, so it is traced once per base
- * array. Lakes of one or two hexes are drawn as bodies of their own (see
- * `smallLakes`), so they are traced as land here.
+ * array. Lakes are drawn as bodies of their own (see `lakeBodyPath`), so they
+ * are traced as land here, and so are islands that stand in a lake.
  */
-const coastCache = new WeakMap<object, { key: string; geometry: CoastGeometry; lakes: number[][] }>();
+const coastCache = new WeakMap<
+  object,
+  { key: string; geometry: CoastGeometry; lakes: number[][]; lakeIslands: Set<number> }
+>();
 
 function cachedCoast(
   base: ReadonlyArray<BaseGeo | null>,
@@ -196,16 +200,53 @@ function cachedCoast(
   rows: number,
   size: number,
   smooth: boolean,
-): { geometry: CoastGeometry; lakes: number[][] } {
+): { geometry: CoastGeometry; lakes: number[][]; lakeIslands: Set<number> } {
   const key = `${cols}x${rows}@${size}/${smooth}`;
   const hit = coastCache.get(base);
   if (hit && hit.key === key) return hit;
-  const lakes = smallLakes(base, cols, rows);
+  const { lakes, lakeIslands } = lakeComponents(base, cols, rows);
   const traced = base.slice();
   for (const lake of lakes) for (const i of lake) traced[i] = 'Land';
-  const entry = { key, geometry: coastGeometry(traced, cols, rows, size, smooth), lakes };
+  const entry = { key, geometry: coastGeometry(traced, cols, rows, size, smooth), lakes, lakeIslands };
   coastCache.set(base, entry);
   return entry;
+}
+
+/**
+ * The owners the map is drawn with. A lake whose whole shore belongs to one
+ * realm is drawn as part of that realm, so its fill and border run round the
+ * lake instead of ringing it with a frontier. The data is not changed.
+ */
+const lakeOwnerCache = new WeakMap<object, { base: object; owner: (string | null)[] }>();
+
+function ownersWithLakes(
+  owner: (string | null)[],
+  base: ReadonlyArray<BaseGeo | null>,
+  lakes: number[][],
+  cols: number,
+  rows: number,
+): (string | null)[] {
+  const hit = lakeOwnerCache.get(owner);
+  if (hit && hit.base === base) return hit.owner;
+  const out = owner.slice();
+  const inLake = new Set(lakes.flat());
+  for (const lake of lakes) {
+    const shore = new Set<string | null>();
+    for (const i of lake) {
+      for (let e = 0; e < 6; e++) {
+        const n = neighbourOf(i % cols, Math.floor(i / cols), e);
+        if (!inBounds(cols, rows, n.col, n.row)) continue;
+        const j = hexIndex(cols, n.col, n.row);
+        if (!inLake.has(j)) shore.add(owner[j] ?? null);
+      }
+    }
+    if (shore.size !== 1) continue;
+    const realm = [...shore][0];
+    if (!realm) continue;
+    for (const i of lake) if (!out[i]) out[i] = realm;
+  }
+  lakeOwnerCache.set(owner, { base, owner: out });
+  return out;
 }
 
 /** Blend two #rrggbb colours; `t` = 0 gives `a`. */
@@ -288,7 +329,12 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
   const population = opts.visible.population ? layers.population.data : null;
   const maxPop = population ? Math.max(1, ...population.map((v) => v ?? 0)) : 1;
 
-  const polities = opts.visible.polities ? layers.polities.data : null;
+  const traced = base ? cachedCoast(base, cols, rows, size, knobs.coast === 'smooth') : null;
+  const rawPolities = opts.visible.polities ? layers.polities.data : null;
+  // Drawn with lakes inside a realm counted as the realm's; see ownersWithLakes.
+  const polities = rawPolities && base && traced
+    ? { ...rawPolities, owner: ownersWithLakes(rawPolities.owner, base, traced.lakes, cols, rows) }
+    : rawPolities;
   const polityColour = new Map(
     [...polityDisplayColours(polities?.polities ?? [], knobs.subPolities)].map(([id, c]) => [id, toned(c, knobs.polityTone)]),
   );
@@ -358,8 +404,8 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
     return out;
   };
 
-  const traced = base ? cachedCoast(base, cols, rows, size, knobs.coast === 'smooth') : null;
   const lakeBodies = traced?.lakes ?? [];
+  const lakeIslands = traced?.lakeIslands ?? new Set<number>();
   const inLakeBody = new Set(lakeBodies.flat());
   // A small lake's hexes are drawn as land, then the lake body over them.
   /** The colour a hex finally shows: its fill with every overlay laid over it. */
@@ -448,6 +494,8 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
       prims.push({ kind: 'polygon', points: hexCorners(i % cols, Math.floor(i / cols), size), fill, stroke: fill, strokeWidth: seal });
       if (isIslandType(base[i])) islands.push(i);
     }
+    // Islands in a lake are drawn on the lake's body, after it.
+    for (const i of lakeIslands) islands.push(i);
     // Corners of land that the smoothed coast cuts off become water.
     for (const s of coast?.toWater ?? []) {
       const fill = waterColour(s.donor);
@@ -486,14 +534,15 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
           ? blobPath(c, size * 0.74, size * 0.62, rand(99) * Math.PI, rand, 12, 0.16)
           : circlePath(c, size * 0.62);
       case 'Small Islands': {
-        const count = 3 + Math.floor(rand(200) * 3);
+        // Two or three islets, spread well apart round the hex.
+        const count = 2 + Math.floor(rand(200) * 2);
         const d: PathCmd[] = [];
+        const turn = rand(250) * Math.PI * 2;
         for (let k = 0; k < count; k++) {
-          // Spread round the hex so the islets do not pile up in the middle.
-          const a = ((k + rand(300 + k) * 0.6) / count) * Math.PI * 2;
-          const r = size * (k === 0 && count > 3 ? 0.05 : 0.42 + rand(400 + k) * 0.1);
+          const a = turn + ((k + (rand(300 + k) - 0.5) * 0.3) / count) * Math.PI * 2;
+          const r = size * (0.42 + rand(400 + k) * 0.12);
           const at = { x: c.x + Math.cos(a) * r, y: c.y + Math.sin(a) * r };
-          const rr = size * (0.13 + rand(500 + k) * 0.07);
+          const rr = size * (0.14 + rand(500 + k) * 0.06);
           const sub = (q: number) => rand(1000 + k * 37 + q);
           d.push(...(blob ? blobPath(at, rr * 1.25, rr, sub(99) * Math.PI, sub, 8, 0.18) : circlePath(at, rr)));
         }
@@ -503,7 +552,7 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
         return blob ? isletPath(c, size, rand) : circlePath(c, size * 0.34);
     }
   };
-  const shorelines: PathCmd[] = [...(coast?.paths.flat() ?? []), ...islands.flatMap(islandPath)];
+  const shorelines: PathCmd[] = [...(coast?.paths.flat() ?? []), ...islands.filter((i) => !lakeIslands.has(i)).flatMap(islandPath)];
 
   // The sea's surface, clipped to the water so the bands stop at the shore.
   if (base && coast && knobs.water !== 'flat' && shorelines.length > 0) {
@@ -525,27 +574,19 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
     }
   }
 
-  // --- small lakes ----------------------------------------------------------------
+  // --- lakes ----------------------------------------------------------------------
   const lakeOutlines: PathCmd[] = [];
   for (const lake of lakeBodies) {
-    const centres = lake.map((i) => hexCenter(i % cols, Math.floor(i / cols), size));
     const rand = (k: number) => unit(seed, 'lake', lake[0]!, k);
-    const d = centres.length === 1
-      ? blobPath(centres[0]!, size * 0.8, size * 0.68, rand(99) * Math.PI, rand)
-      : blobPath(
-          { x: (centres[0]!.x + centres[1]!.x) / 2, y: (centres[0]!.y + centres[1]!.y) / 2 },
-          Math.hypot(centres[1]!.x - centres[0]!.x, centres[1]!.y - centres[0]!.y) / 2 + size * 0.6,
-          size * 0.62,
-          Math.atan2(centres[1]!.y - centres[0]!.y, centres[1]!.x - centres[0]!.x),
-          rand,
-          12,
-        );
-    lakeOutlines.push(...d);
+    const d = lakeBodyPath(lake, cols, rows, size, rand);
+    const isles = lake.filter((i) => lakeIslands.has(i)).flatMap(islandPath);
+    lakeOutlines.push(...d, ...isles);
     prims.push({ kind: 'path', d, fill: palette.lake });
     if (knobs.water !== 'flat') {
+      const shore = [...d, ...isles];
       const surface = knobs.water === 'depth'
-        ? depthBands(d, size, palette.lake, shift(palette.seaShallow, palette.sea, palette.lake))
-        : rippleBands(d, size, palette.lake, palette.ripple, palette.rippleAlpha, 1);
+        ? depthBands(shore, size, palette.lake, shift(palette.seaShallow, palette.sea, palette.lake))
+        : rippleBands(shore, size, palette.lake, palette.ripple, palette.rippleAlpha, 1);
       prims.push({ kind: 'group', clip: d, prims: surface });
     }
   }
@@ -600,14 +641,14 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
     for (let row = 0; row < rows; row++) {
       for (let col = 0; col < cols; col++) {
         const i = hexIndex(cols, col, row);
-        if (knobs.grid === 'land' && (!base || sides![i] !== 'land')) continue;
+        if (knobs.grid === 'land' && (!base || sides![i] !== 'land' || inLakeBody.has(i))) continue;
         for (let e = 0; e < 6; e++) {
           const n = neighbourOf(col, row, e);
           const inside = inBounds(cols, rows, n.col, n.row);
           const j = inside ? hexIndex(cols, n.col, n.row) : -1;
           if (knobs.grid === 'land') {
             // Land-to-land edges only: the coast has its own line.
-            if (!inside || sides![j] !== 'land' || j < i) continue;
+            if (!inside || sides![j] !== 'land' || inLakeBody.has(j) || j < i) continue;
           } else if (inside && j < i) {
             continue; // each shared edge once
           }
@@ -642,7 +683,8 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
     const regions = new Map<string, number[]>();
     const bands = new Map<string, Array<{ from: Point; to: Point; land: number; water: number }>>();
     const frontier: Array<{ from: Point; to: Point; land: number; water: number }> = [];
-    const isIsland = (i: number) => isIslandType(base?.[i]);
+    // An island in a lake is part of the lake's body, which belongs to the realm round it.
+    const isIsland = (i: number) => isIslandType(base?.[i]) && !lakeIslands.has(i);
     for (let row = 0; row < rows; row++) {
       for (let col = 0; col < cols; col++) {
         const i = hexIndex(cols, col, row);
