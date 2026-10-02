@@ -30,6 +30,8 @@ export interface MapViewProps {
   /** A river hex was clicked or grabbed; the caller decides which river that selects. */
   onRiverSelect: (index: number) => void;
   onRiverMove: (fromIndex: number, toIndex: number) => void;
+  /** The extend tool clicked this hex while a river was selected. */
+  onRiverExtend: (index: number) => void;
   /** A navigability stroke finished over these hexes. */
   onRiverPaint: (indices: number[]) => void;
 }
@@ -165,6 +167,12 @@ export default function MapView(props: MapViewProps) {
       if (tool.kind === 'select') {
         props.onRiverSelect(index);
         onSelectionChange(new Set([index]));
+      } else if (tool.kind === 'extend') {
+        const rivers = map.layers.rivers.data?.rivers ?? [];
+        const here = riversThroughHex(rivers, index % map.cols, Math.floor(index / map.cols));
+        if (here.length > 0 && !here.some((r) => r.id === tool.selectedId)) props.onRiverSelect(index);
+        else if (here.length === 0) props.onRiverExtend(index);
+        onSelectionChange(new Set([index]));
       } else if (tool.kind === 'move') {
         const rivers = map.layers.rivers.data?.rivers ?? [];
         if (riversThroughHex(rivers, index % map.cols, Math.floor(index / map.cols)).length === 0) return;
@@ -270,6 +278,7 @@ export default function MapView(props: MapViewProps) {
 
   const hoverText = () => {
     if (hover === null) {
+      if (props.riverTool?.kind === 'extend') return 'Click a hex to extend the selected river to it · Alt-drag or right-drag to pan · Wheel to zoom';
       if (props.riverTool?.kind === 'move') return 'Drag a river hex to move it · Alt-drag or right-drag to pan · Wheel to zoom';
       if (props.riverTool?.kind === 'navigability') return 'Drag along a river to set navigability · Alt-drag or right-drag to pan · Wheel to zoom';
       if (props.riverTool) return 'Click a river to select it · Alt-drag or right-drag to pan · Wheel to zoom';

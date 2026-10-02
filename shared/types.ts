@@ -140,6 +140,12 @@ export interface River {
   segments: RiverSegment[];
   /** 'Sea' | 'Lake' | 'OffMap' | 'Unresolved' - what the last segment empties into. */
   terminus: 'Sea' | 'Lake' | 'OffMap' | 'Unresolved';
+  /**
+   * Set on a distributary: the id of the river it splits from. Its first segment
+   * sits in the fork hex, which must also be one of the parent's hexes. A river
+   * can have any number of branches, so a delta can split into two or more.
+   */
+  branchOf?: string;
 }
 
 export interface City {

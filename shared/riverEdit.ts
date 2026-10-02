@@ -14,8 +14,8 @@
  */
 
 import { isWater } from './derive.js';
-import { hexIndex, hexLine, inBounds, neighbourOf, type Offset } from './hex.js';
-import type { BaseData, ElevationData, River } from './types.js';
+import { hexDistance, hexIndex, hexLine, inBounds, neighbourOf, type Offset } from './hex.js';
+import type { BaseData, ElevationData, River, RiverSegment } from './types.js';
 import { buildRiverFromPath } from './validate.js';
 
 export type RiverEditResult = { river: River; warnings: string[] } | { error: string };
@@ -136,6 +136,95 @@ export function removeRiverSegment(
   }
   const joined = [...path.slice(0, index), ...bridge, ...path.slice(index + 1)];
   return rebuild(river, withoutLoops(joined), base, elevation, cols, rows);
+}
+
+/**
+ * Add hexes to a river: the end of the river nearer to `target` is extended to
+ * it along a straight run, so one click adds as many segments as it takes. A
+ * land target at the mouth end replaces the old mouth (the terminus is
+ * recomputed); a water target at the mouth end becomes the new mouth.
+ */
+export function extendRiver(
+  river: River,
+  target: Offset,
+  base: BaseData,
+  elevation: ElevationData | null,
+  cols: number,
+  rows: number,
+): RiverEditResult {
+  if (!inBounds(cols, rows, target.col, target.row)) return { error: 'That is off the map.' };
+  if (river.segments.some((s) => s.col === target.col && s.row === target.row)) {
+    return { error: 'The river already runs through that hex.' };
+  }
+  const first = river.segments[0];
+  const last = river.segments[river.segments.length - 1];
+  if (!first || !last) return { error: 'That river has no hexes to extend.' };
+  const targetIsWater = isWater(base[hexIndex(cols, target.col, target.row)]);
+  const toSource = hexDistance(first, target);
+  const toMouth = hexDistance(last, target);
+  const land = pathOf(river, base, cols, rows).filter((p) => !isWater(base[hexIndex(cols, p.col, p.row)]));
+  const inherit = (from: RiverSegment) => from.navigable;
+
+  if (!targetIsWater && toSource < toMouth) {
+    const run = leg(first, target, inherit(first)).reverse();
+    return rebuild(river, withoutLoops([...run, ...land]), base, elevation, cols, rows);
+  }
+  const run = leg(last, target, inherit(last));
+  return rebuild(river, withoutLoops([...land, ...run]), base, elevation, cols, rows);
+}
+
+/**
+ * A distributary: a new river that leaves `river` at its hex `fork` and runs
+ * along `path` (which starts at the fork hex). Navigability starts out as the
+ * parent's at the fork.
+ */
+export function buildBranch(
+  parent: River,
+  fork: Offset,
+  path: Offset[],
+  id: string,
+  base: BaseData,
+  elevation: ElevationData | null,
+  cols: number,
+  rows: number,
+): RiverEditResult {
+  const forkSeg = parent.segments.find((s) => s.col === fork.col && s.row === fork.row);
+  if (!forkSeg) return { error: 'A branch has to leave from one of the river\'s own hexes.' };
+  const first = path[0];
+  if (!first || first.col !== fork.col || first.row !== fork.row || path.length < 2) {
+    return { error: 'A branch needs at least one hex beyond the fork.' };
+  }
+  const warnings: string[] = [];
+  const river = buildRiverFromPath(
+    { name: `${parent.name} (branch)`, path, navigable: path.map(() => forkSeg.navigable) },
+    id,
+    base,
+    elevation,
+    cols,
+    rows,
+    warnings,
+  );
+  if (!river) return { error: 'That branch would have no land to run through.' };
+  return { river: { ...river, branchOf: parent.id }, warnings };
+}
+
+/**
+ * Branches whose fork hex is no longer on their parent (the parent moved, was
+ * trimmed or was removed) stop being branches and become ordinary rivers.
+ * Returns the same array when nothing needed detaching.
+ */
+export function detachOrphanBranches(rivers: River[]): River[] {
+  let changed = false;
+  const out = rivers.map((r) => {
+    if (r.branchOf === undefined) return r;
+    const parent = rivers.find((p) => p.id === r.branchOf);
+    const fork = r.segments[0];
+    if (parent && fork && parent.segments.some((s) => s.col === fork.col && s.row === fork.row)) return r;
+    changed = true;
+    const { branchOf: _gone, ...rest } = r;
+    return rest;
+  });
+  return changed ? out : rivers;
 }
 
 /**

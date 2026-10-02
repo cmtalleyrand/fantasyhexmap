@@ -1,7 +1,7 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
-import { edgeBetween, indexToOffset } from '../shared/hex.js';
+import { hexIndex, hexLine, indexToOffset } from '../shared/hex.js';
 import { canHoldSettlement, riversThroughHex } from '../shared/derive.js';
-import { moveRiverSegment } from '../shared/riverEdit.js';
+import { extendRiver, moveRiverSegment } from '../shared/riverEdit.js';
 import { LAYER_META, createMapState } from '../shared/layers.js';
 import { nextGenerationWave } from '../shared/generationQueue.js';
 import { LAYER_ORDER, type LayerId, type MapState } from '../shared/types.js';
@@ -90,6 +90,8 @@ export default function App() {
   const [progress, setProgress] = useState<Partial<Record<LayerId, ProgressEvent>>>({});
   const [error, setError] = useState<string | null>(null);
   const [riverDraft, setRiverDraft] = useState<number[] | null>(null);
+  /** When drawing a distributary: the river it splits from (the draft starts in the fork hex). */
+  const [riverDraftParent, setRiverDraftParent] = useState<string | null>(null);
   const [riverTool, setRiverTool] = useState<RiverTool>(DEFAULT_RIVER_TOOL);
   const abortRef = useRef<Map<LayerId, AbortController>>(new Map());
   const batchCancelled = useRef(false);
@@ -267,16 +269,17 @@ export default function App() {
       if (!map || riverDraft === null) return;
       const last = riverDraft[riverDraft.length - 1];
       if (last === index) return;
-      if (last !== undefined) {
-        const a = indexToOffset(map.cols, last);
-        const b = indexToOffset(map.cols, index);
-        if (edgeBetween(a, b) === -1) {
-          setError('A river can only run between hexes that share an edge.');
-          return;
-        }
-      }
       setError(null);
-      setRiverDraft([...riverDraft, index]);
+      if (last === undefined) {
+        setRiverDraft([index]);
+        return;
+      }
+      // Hexes that do not touch are joined by a straight run, so a river can be
+      // laid down in a few clicks rather than one per hex.
+      const run = hexLine(indexToOffset(map.cols, last), indexToOffset(map.cols, index))
+        .slice(1)
+        .map((h) => hexIndex(map.cols, h.col, h.row));
+      setRiverDraft([...riverDraft, ...run]);
     },
     [map, riverDraft],
   );
@@ -307,6 +310,34 @@ export default function App() {
         river,
         river.segments.findIndex((s) => s.col === from.col && s.row === from.row),
         indexToOffset(current.cols, toIndex),
+        base,
+        current.layers.elevation.data,
+        current.cols,
+        current.rows,
+      );
+      if ('error' in result) {
+        setError(result.error);
+        return;
+      }
+      setError(null);
+      dispatch({ type: 'updateRiver', river: result.river });
+    },
+    [riverTool.selectedId],
+  );
+
+  const onRiverExtend = useCallback(
+    (index: number) => {
+      const current = mapRef.current;
+      const base = current?.layers.base.data;
+      if (!current || !base) return;
+      const river = current.layers.rivers.data?.rivers.find((r) => r.id === riverTool.selectedId);
+      if (!river) {
+        setError('Select a river first, then click where it should reach.');
+        return;
+      }
+      const result = extendRiver(
+        river,
+        indexToOffset(current.cols, index),
         base,
         current.layers.elevation.data,
         current.cols,
@@ -662,6 +693,7 @@ export default function App() {
             onSelect={(id) => {
               setActiveLayer(id);
               setRiverDraft(null);
+              setRiverDraftParent(null);
               setSelection(new Set());
             }}
             onToggleVisible={(id) => setVisible((v) => ({ ...v, [id]: !v[id] }))}
@@ -747,6 +779,7 @@ export default function App() {
           riverTool={activeLayer === 'rivers' && riverDraft === null && map.layers.rivers.data ? riverTool : null}
           onRiverSelect={onRiverSelect}
           onRiverMove={onRiverMove}
+          onRiverExtend={onRiverExtend}
           onRiverPaint={onRiverPaint}
         />
 
@@ -775,6 +808,8 @@ export default function App() {
           busy={busyLayers.size > 0}
           riverDraft={riverDraft}
           setRiverDraft={setRiverDraft}
+          riverDraftParent={riverDraftParent}
+          setRiverDraftParent={setRiverDraftParent}
           riverTool={riverTool}
           setRiverTool={setRiverTool}
           onOpenDecisionLog={() => setShowDecisions(true)}

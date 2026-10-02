@@ -99,7 +99,7 @@ export function riversWithoutHexes(
         rows,
         [],
       );
-      if (piece) out.push(piece);
+      if (piece) out.push(n === 0 && river.branchOf !== undefined ? { ...piece, branchOf: river.branchOf } : piece);
     });
   }
   return out;
