@@ -5,7 +5,15 @@
 
 import type { LayerId, MapState } from '../../shared/types.js';
 import { LAYER_META } from '../../shared/layers.js';
-import { LAYER_ORDER } from '../../shared/types.js';
+import {
+  BASE_GEO_VALUES,
+  CLIMATE_VALUES,
+  ELEVATION_VALUES,
+  LAND_LIKE,
+  LAYER_ORDER,
+  VEGETATION_GROUPS,
+  VEGETATION_VALUES,
+} from '../../shared/types.js';
 import type { PolityNameMin } from './labels.js';
 import { renderToCanvas } from './canvas.js';
 import { appendLegend, legendSections, type LegendOptions } from './legend.js';
@@ -175,6 +183,109 @@ export function serializeMapExport(map: MapState, includeHistory: boolean): stri
         ),
       };
   return JSON.stringify({ format: 'fantasyhexmap/v1', map: payload }, null, 2);
+}
+
+const EDGE_NAMES = ['E', 'SE', 'SW', 'W', 'NW', 'NE'];
+
+/**
+ * A JSON export for programs to read. It carries the map's current state only:
+ * no journal, no decisions, no undo/redo history, no model notes or validation
+ * warnings. In their place it adds a `guide` describing how to read the data
+ * and, for the enabled layers, a flat `hexes` list so a consumer does not have
+ * to work out the `row * cols + col` indexing itself. The `map` block keeps the
+ * normal export shape, so the file still imports back into the app.
+ */
+export function serializeParseFriendlyExport(map: MapState): string {
+  const layerIds = LAYER_ORDER.filter((id) => map.enabledLayers.includes(id) || map.layers[id].data !== null);
+  const layers = Object.fromEntries(
+    LAYER_ORDER.map((id) => {
+      const layer = map.layers[id];
+      return [id, { data: layer.data, version: layer.version }];
+    }),
+  );
+  const { journal: _journal, ...rest } = map;
+  void _journal;
+
+  const perHex = layerIds.filter((id) => LAYER_META[id].perHex && map.layers[id].data !== null);
+  const polityById = new Map(
+    (map.layers.polities.data?.polities ?? []).map((p) => [p.id, p]),
+  );
+  const hexes = [];
+  for (let row = 0; row < map.rows; row++) {
+    for (let col = 0; col < map.cols; col++) {
+      const index = row * map.cols + col;
+      const hex: Record<string, unknown> = { index, col, row };
+      for (const id of perHex) {
+        if (id === 'polities') {
+          const owner = map.layers.polities.data?.owner[index] ?? null;
+          hex.polity = owner;
+          hex.polityName = owner ? (polityById.get(owner)?.name ?? null) : null;
+        } else {
+          hex[id] = (map.layers[id].data as unknown[])[index] ?? null;
+        }
+      }
+      hexes.push(hex);
+    }
+  }
+
+  const guide = {
+    purpose:
+      'Current state of a fantasy hex map. Contains no decision log, generation history, undo history or model commentary.',
+    grid: {
+      cols: map.cols,
+      rows: map.rows,
+      hexCount: map.cols * map.rows,
+      orientation: 'pointy-top',
+      coordinates:
+        'Odd-r offset. col 0..cols-1 runs west to east; row 0..rows-1 runs north to south (row 0 is the northern edge). Odd-numbered rows are shifted half a hex east.',
+      flatIndex: 'index = row * cols + col',
+      edges: EDGE_NAMES,
+      edgeNote:
+        'Edge numbers 0..5 are E, SE, SW, W, NW, NE. Edge e of a hex is shared with the neighbour in direction e, which sees the same edge as (e + 3) % 6.',
+    },
+    layersPresent: layerIds.filter((id) => map.layers[id].data !== null),
+    layersEnabled: map.enabledLayers,
+    layerOrder: LAYER_ORDER,
+    layerShapes: {
+      base: 'map.layers.base.data: array of hexCount strings (see values.base)',
+      elevation: 'array of hexCount strings or null (null on non-land hexes)',
+      climate: 'array of hexCount Koeppen codes or null',
+      vegetation: 'array of hexCount strings or null',
+      population: 'array of hexCount numbers or null',
+      rivers:
+        'data.rivers: [{id, name, terminus, branchOf?, segments:[{col,row,entryEdge|null,exitEdge|null,navigable}]}]. Segments run source to mouth; entryEdge is null at the source.',
+      cities:
+        'data.cities: [{id,col,row,name,population,onRiver,riverId|null,coastal,coastalEdges:number[]}]',
+      polities: 'data.polities: [{id,name,shortName?,colour}]; data.owner: array of hexCount polity ids or null',
+    },
+    values: {
+      base: BASE_GEO_VALUES,
+      landLike: LAND_LIKE,
+      elevation: ELEVATION_VALUES,
+      climate: CLIMATE_VALUES,
+      vegetation: VEGETATION_VALUES,
+      vegetationGroups: VEGETATION_GROUPS,
+      riverTermini: ['Sea', 'Lake', 'OffMap', 'Unresolved'],
+    },
+    hexList:
+      'Top-level `hexes` repeats the per-hex layers as one object per hex for convenience; it is derived from map.layers and carries nothing extra.',
+    scale: map.hexDimensions,
+    ...(map.mountainRanges?.length
+      ? { mountainRangesNote: 'map.mountainRanges[].hexes are flat indices (row * cols + col).' }
+      : {}),
+  };
+
+  return JSON.stringify(
+    { format: 'fantasyhexmap/v1', variant: 'parse-friendly', guide, map: { ...rest, layers }, hexes },
+    null,
+    2,
+  );
+}
+
+export function exportParseFriendlyJson(map: MapState): void {
+  download(new Blob([serializeParseFriendlyExport(map)], {
+    type: 'application/json;charset=utf-8',
+  }), `${slug(map.name)}-data.json`);
 }
 
 export function exportJson(map: MapState, includeHistory: boolean): void {
