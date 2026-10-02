@@ -25,7 +25,7 @@ export interface SiteContext {
 /** How far toward a coastal edge a port is drawn, as a fraction of the hex size. */
 const COAST_REACH = 0.55;
 
-export type ResolvedSite = 'inland' | 'river' | 'coast';
+export type ResolvedSite = 'inland' | 'river' | 'coast' | 'port';
 
 /** The site a city is actually drawn at, after 'auto' and any impossible choice are resolved. */
 export function resolvedSite(city: City): { kind: ResolvedSite; edges: number[] } {
@@ -33,15 +33,46 @@ export function resolvedSite(city: City): { kind: ResolvedSite; edges: number[] 
   if (site === 'inland') return { kind: 'inland', edges: [] };
   if (site === 'river') return city.onRiver ? { kind: 'river', edges: [] } : { kind: 'inland', edges: [] };
   if (typeof site === 'object') {
-    return city.coastalEdges.includes(site.coast)
-      ? { kind: 'coast', edges: [site.coast] }
-      : city.coastalEdges.length > 0
-        ? { kind: 'coast', edges: city.coastalEdges }
-        : { kind: 'inland', edges: [] };
+    const edges = city.coastalEdges.includes(site.coast) ? [site.coast] : city.coastalEdges;
+    if (edges.length === 0) return city.onRiver && site.river ? { kind: 'river', edges: [] } : { kind: 'inland', edges: [] };
+    return { kind: site.river && city.onRiver ? 'port' : 'coast', edges };
   }
+  // A river city on the coast is a port: it stands where the river meets the shore.
+  if (city.onRiver && city.coastalEdges.length > 0) return { kind: 'port', edges: city.coastalEdges };
   if (city.onRiver) return { kind: 'river', edges: [] };
   if (city.coastalEdges.length > 0) return { kind: 'coast', edges: city.coastalEdges };
   return { kind: 'inland', edges: [] };
+}
+
+/** The point toward the middle of `edges`, or null when they surround the hex. */
+function towardEdges(centre: Point, edges: number[], size: number): Point | null {
+  // Edge e's midpoint lies at 60e degrees from the centre.
+  let dx = 0;
+  let dy = 0;
+  for (const e of edges) {
+    dx += Math.cos((e * Math.PI) / 3);
+    dy += Math.sin((e * Math.PI) / 3);
+  }
+  const len = Math.hypot(dx, dy);
+  // Coast all round (or on opposite sides): there is no one shore to stand on.
+  if (len < 0.5) return null;
+  return { x: centre.x + (dx / len) * size * COAST_REACH, y: centre.y + (dy / len) * size * COAST_REACH };
+}
+
+/** The point of `line` nearest `target`, if it lies within `reach` of the hex centre. */
+function onLine(line: Point[] | null | undefined, target: Point, centre: Point, reach: number): Point | null {
+  if (!line || line.length === 0) return null;
+  let best: Point | null = null;
+  let d = Infinity;
+  for (const p of line) {
+    if (Math.hypot(p.x - centre.x, p.y - centre.y) > reach) continue;
+    const dp = Math.hypot(p.x - target.x, p.y - target.y);
+    if (dp < d) {
+      d = dp;
+      best = p;
+    }
+  }
+  return best;
 }
 
 export function citySite(city: City, ctx: SiteContext): Point {
@@ -51,33 +82,16 @@ export function citySite(city: City, ctx: SiteContext): Point {
   // On an island the land is the island, wherever it lies in the hex.
   if (isIslandType(ctx.base?.[index] ?? null)) return ctx.islandCentre?.(index) ?? centre;
   const { kind, edges } = resolvedSite(city);
-  if (kind === 'river') {
-    const line = city.riverId ? ctx.riverLine?.(city.riverId) : null;
-    if (!line || line.length === 0) return centre;
-    let best = line[0]!;
-    let d = Infinity;
-    for (const p of line) {
-      const dp = Math.hypot(p.x - centre.x, p.y - centre.y);
-      if (dp < d) {
-        d = dp;
-        best = p;
-      }
-    }
-    // A river that only clips the hex would pull the city out of it.
-    return d < size * 0.8 ? best : centre;
+  const line = city.riverId ? ctx.riverLine?.(city.riverId) : null;
+  // Only the part of the river inside the hex counts: one that clips the hex
+  // would otherwise pull the city out of it.
+  const reach = size * 0.8;
+  if (kind === 'river') return onLine(line, centre, centre, reach) ?? centre;
+  const shore = towardEdges(centre, edges, size);
+  if (kind === 'port') {
+    // Where the river comes nearest the shore; without a drawn curve, on the shore.
+    return onLine(line, shore ?? centre, centre, reach) ?? shore ?? centre;
   }
-  if (kind === 'coast') {
-    // Toward the middle of the coastal edges; edge e's midpoint lies at 60e degrees.
-    let dx = 0;
-    let dy = 0;
-    for (const e of edges) {
-      dx += Math.cos((e * Math.PI) / 3);
-      dy += Math.sin((e * Math.PI) / 3);
-    }
-    const len = Math.hypot(dx, dy);
-    // Coast all round (or on opposite sides): there is no one shore to stand on.
-    if (len < 0.5) return centre;
-    return { x: centre.x + (dx / len) * size * COAST_REACH, y: centre.y + (dy / len) * size * COAST_REACH };
-  }
+  if (kind === 'coast') return shore ?? centre;
   return centre;
 }

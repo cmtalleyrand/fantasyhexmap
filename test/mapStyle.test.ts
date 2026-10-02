@@ -662,3 +662,22 @@ test('boundary chains close only when they return to their start, even where edg
     }
   }
 });
+
+test('a river city on the coast stands where its river meets the shore', async () => {
+  const { citySite, resolvedSite } = await import('../src/render/sites.ts');
+  const { hexCenter } = await import('../shared/hex.ts');
+  const size = 20;
+  const centre = hexCenter(1, 1, size);
+  // The river runs west to east across the hex; the coast is the east edge.
+  const line = Array.from({ length: 21 }, (_, k) => ({ x: centre.x - 20 + k * 2, y: centre.y + 2 }));
+  const city = {
+    id: 'c', col: 1, row: 1, name: 'Mouth', population: 20_000,
+    onRiver: true, riverId: 'r', coastal: true, coastalEdges: [0],
+  };
+  const ctx = { size, base: Array(9).fill('Land') as BaseGeo[], cols: 3, riverLine: () => line };
+  assert.equal(resolvedSite(city).kind, 'port', 'auto makes a river city on the coast a port');
+  const auto = citySite(city, ctx);
+  assert.ok(auto.x > centre.x + size * 0.4 && Math.abs(auto.y - (centre.y + 2)) < 1e-9, 'on the river, toward the east shore');
+  assert.deepEqual(citySite({ ...city, site: { coast: 0, river: true } }, ctx), auto);
+  assert.equal(resolvedSite({ ...city, site: { coast: 0 } }).kind, 'coast', 'coast alone still leaves the river');
+});

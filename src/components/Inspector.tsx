@@ -485,11 +485,12 @@ const SIDE_NAMES = ['east', 'south-east', 'south-west', 'west', 'north-west', 'n
 
 function siteValue(site: City['site']): string {
   if (!site || site === 'auto') return 'auto';
-  return typeof site === 'object' ? `coast:${site.coast}` : site;
+  return typeof site === 'object' ? `${site.river ? 'port' : 'coast'}:${site.coast}` : site;
 }
 
 function parseSiteValue(value: string): City['site'] {
   if (value.startsWith('coast:')) return { coast: Number(value.slice(6)) };
+  if (value.startsWith('port:')) return { coast: Number(value.slice(5)), river: true };
   return value === 'inland' || value === 'river' ? value : 'auto';
 }
 
@@ -944,7 +945,7 @@ function CityEditor(props: SubProps) {
                   value={siteValue(c.site)}
                   onChange={(e) => dispatch({ type: 'upsertCity', city: { ...c, site: parseSiteValue(e.target.value) } })}
                 >
-                  <option value="auto">Automatic (river, else coast, else centre)</option>
+                  <option value="auto">Automatic (river port, river, coast, or centre)</option>
                   <option value="inland">Inland, at the hex centre</option>
                   {c.onRiver && <option value="river">On its river</option>}
                   {c.coastalEdges.map((e) => (
@@ -952,6 +953,12 @@ function CityEditor(props: SubProps) {
                       {waterNameAcross(map, c, e) === 'lake' ? 'Lakeshore' : 'Coast'}, {SIDE_NAMES[e]} side
                     </option>
                   ))}
+                  {c.onRiver &&
+                    c.coastalEdges.map((e) => (
+                      <option key={`port${e}`} value={`port:${e}`}>
+                        On its river where it meets the {waterNameAcross(map, c, e) === 'lake' ? 'lake' : 'coast'}, {SIDE_NAMES[e]} side
+                      </option>
+                    ))}
                 </select>
               </div>
               <div className="hint" style={{ flexBasis: '100%' }}>
