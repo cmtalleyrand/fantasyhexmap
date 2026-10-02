@@ -15,6 +15,7 @@ import {
   DEFAULT_EFFORT,
   DEFAULT_MODEL,
   DEFAULT_TASK_BUDGET,
+  PREVIOUS_DEFAULT_MODEL,
   PREVIOUS_DEFAULTS,
   type Effort,
 } from '../../core/config.js';
@@ -65,7 +66,7 @@ export interface Prefs {
   defaultsVersion?: number;
 }
 
-const DEFAULTS_VERSION = 2;
+const DEFAULTS_VERSION = 3;
 
 export const DEFAULT_PREFS: Prefs = {
   model: DEFAULT_MODEL,
@@ -160,12 +161,19 @@ export function loadPrefs(): Prefs {
   try {
     const stored = JSON.parse(raw) as Partial<Prefs>;
     if (
-      (stored.defaultsVersion ?? 1) < DEFAULTS_VERSION &&
+      // Version 2 restored high effort and a larger budget; prefs saved under
+      // version 2 or later chose whatever they hold.
+      (stored.defaultsVersion ?? 1) < 2 &&
       stored.effort === PREVIOUS_DEFAULTS.effort &&
       stored.taskBudget === PREVIOUS_DEFAULTS.taskBudget
     ) {
       delete stored.effort;
       delete stored.taskBudget;
+    }
+    // Version 3 moved the default model to Opus 5.5. Prefs still on the old
+    // default were saved with it whether or not anyone picked it.
+    if ((stored.defaultsVersion ?? 1) < 3 && stored.model === PREVIOUS_DEFAULT_MODEL) {
+      delete stored.model;
     }
     return {
       ...DEFAULT_PREFS,

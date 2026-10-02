@@ -28,14 +28,8 @@ import {
 export { flattenGrid, withBriefRecorded } from './decode.js';
 import { mockLayer } from './mock.js';
 import { LAYER_META } from '../shared/layers.js';
-import {
-  clampTaskBudget,
-  DEFAULT_TASK_BUDGET,
-  lowerEffort,
-  MAX_TOKENS,
-  TASK_BUDGET_BETA,
-  type Effort,
-} from './config.js';
+import { clampTaskBudget, DEFAULT_TASK_BUDGET, type Effort } from './config.js';
+import { lowerEffortFor, modelInfo, requestShape, thinkingBudgetFor, type ModelInfo } from './models.js';
 import {
   canSplit,
   combinePasses,
@@ -159,21 +153,32 @@ export class OutputTruncatedError extends Error {
   }
 }
 
-function describeTruncation(usage: Usage, budget: number): string {
+/** What the user can change in Settings about the budget, in this model's terms. */
+function budgetAdvice(model: ModelInfo, taskBudget: number): string {
+  if (model.thinking === 'budget') {
+    return `lower the token budget in Settings, which this model uses as its thinking budget (currently ${thinkingBudgetFor(model, taskBudget).toLocaleString()})`;
+  }
+  if (!model.taskBudget) {
+    return `this model takes no token budget, so lower the effort in Settings or choose a model that does`;
+  }
+  return `raise the token budget in Settings (currently ${clampTaskBudget(taskBudget).toLocaleString()})`;
+}
+
+function describeTruncation(usage: Usage, model: ModelInfo, taskBudget: number): string {
   const answer = Math.max(0, usage.output - usage.thinking);
+  const advice = budgetAdvice(model, taskBudget);
   if (usage.thinking > answer * 2) {
     return (
       `The model spent ${usage.thinking.toLocaleString()} of its ${usage.output.toLocaleString()} ` +
       `output tokens on reasoning and was cut off with only ${answer.toLocaleString()} tokens of ` +
       `answer written. Reasoning and answer share one budget, so this is a thinking-depth problem, ` +
-      `not a grid-size one: lower the effort or raise the token budget in Settings ` +
-      `(currently ${budget.toLocaleString()}).`
+      `not a grid-size one: ${model.efforts ? 'lower the effort, or ' : ''}${advice}.`
     );
   }
   return (
     `The response was cut off after ${usage.output.toLocaleString()} output tokens ` +
-    `(${usage.thinking.toLocaleString()} of them reasoning). Raise the token budget in Settings ` +
-    `(currently ${budget.toLocaleString()}), or split the instruction into smaller steps.`
+    `(${usage.thinking.toLocaleString()} of them reasoning). To give it more room, ${advice}, ` +
+    `or split the instruction into smaller steps.`
   );
 }
 
@@ -217,23 +222,24 @@ async function callModel<S extends z.ZodType>(
   onProgress: ProgressFn,
   signal?: AbortSignal,
 ): Promise<{ parsed: z.infer<S>; usage: Usage; warnings: string[] }> {
-  const budget = clampTaskBudget(config.taskBudget ?? DEFAULT_TASK_BUDGET);
+  const model = modelInfo(config.model);
+  const taskBudget = config.taskBudget ?? DEFAULT_TASK_BUDGET;
   const format = outputFormat(schema);
-  return withStructuredOutputRetry(async () => {
+  const attempt = (withTaskBudget: boolean) => withStructuredOutputRetry(async () => {
+    // Effort, thinking, the task budget and max_tokens are shaped per model (see
+    // core/models.ts). Where it is accepted, the task budget is advisory and
+    // visible to the model while it works - unlike max_tokens, which it cannot
+    // see and is simply cut off by. That is what makes a long think wind up and
+    // answer instead of running off the end.
+    const shape = requestShape(config.model, config.effort, taskBudget, withTaskBudget);
     const stream = config.client.beta.messages.stream({
       model: config.model,
-      max_tokens: MAX_TOKENS,
-      betas: [TASK_BUDGET_BETA],
+      max_tokens: shape.max_tokens,
+      ...(shape.betas ? { betas: shape.betas } : {}),
+      ...(shape.thinking ? { thinking: shape.thinking } : {}),
       system: [{ type: 'text', text: system, cache_control: { type: 'ephemeral' } }],
       messages: [{ role: 'user', content: user }],
-      output_config: {
-        effort: config.effort,
-        // Advisory, and visible to the model while it works - unlike max_tokens,
-        // which it cannot see and is simply cut off by. This is what makes a
-        // long think wind up and answer instead of running off the end.
-        task_budget: { type: 'tokens', total: budget },
-        format,
-      },
+      output_config: { ...shape.output_config, format },
     }, { signal });
 
     let chars = 0;
@@ -273,7 +279,7 @@ async function callModel<S extends z.ZodType>(
     };
 
     if (message.stop_reason === 'max_tokens') {
-      throw new OutputTruncatedError(usage, describeTruncation(usage, budget));
+      throw new OutputTruncatedError(usage, describeTruncation(usage, model, taskBudget));
     }
 
     const text = message.content
@@ -282,6 +288,22 @@ async function callModel<S extends z.ZodType>(
       .join('');
     return { ...parseResponse(schema, text), usage };
   }, () => onProgress({ phase: 'retrying', detail: 'The model returned unusable JSON; retrying once.' }));
+
+  try {
+    return await attempt(true);
+  } catch (error) {
+    // The table can be wrong about a model, notably one released after it was
+    // written. A task budget is a refinement, not a requirement, so a model that
+    // turns it down is asked again without one rather than failing the layer.
+    if (!isTaskBudgetRejection(error) || !requestShape(config.model, config.effort, taskBudget).betas) throw error;
+    onProgress({ phase: 'retrying', detail: 'This model does not accept a token budget; retrying without one.' });
+    return attempt(false);
+  }
+}
+
+/** A 400 that is about the task budget rather than the request as a whole. */
+function isTaskBudgetRejection(error: unknown): boolean {
+  return error instanceof Anthropic.BadRequestError && /task[_ -]?budget/i.test(error.message);
 }
 
 /**
@@ -383,22 +405,35 @@ export async function generateLayer(
   } catch (error) {
     if (!(error instanceof OutputTruncatedError)) throw error;
 
-    const softer = lowerEffort(config.effort);
+    const model = modelInfo(config.model);
+    // Less to think with: one effort level down, or for a model with a fixed
+    // thinking budget, half the budget.
+    const softer = lowerEffortFor(model, config.effort);
+    const smallerBudget =
+      model.thinking === 'budget'
+        ? Math.floor(thinkingBudgetFor(model, config.taskBudget ?? DEFAULT_TASK_BUDGET) / 2)
+        : null;
     const splittable = canSplit(req.layer) && (req.selection ?? 'both') === 'both';
     // Already at the bottom of the ladder with nothing left to split: the user
     // has to raise the budget, and the message already says so.
-    if (!softer && !splittable) throw error;
+    if (!softer && !smallerBudget && !splittable) throw error;
 
     onProgress({
       phase: 'retrying',
       detail: softer
         ? `The response ran out of room after ${error.usage.thinking.toLocaleString()} reasoning tokens; retrying at ${softer} effort.`
-        : 'The response ran out of room; retrying as two smaller passes.',
+        : smallerBudget
+          ? `The response ran out of room after ${error.usage.thinking.toLocaleString()} reasoning tokens; retrying with a ${smallerBudget.toLocaleString()}-token thinking budget.`
+          : 'The response ran out of room; retrying as two smaller passes.',
     });
 
     try {
       return await runPasses(
-        { ...config, effort: softer ?? config.effort },
+        {
+          ...config,
+          effort: softer ?? config.effort,
+          taskBudget: smallerBudget ?? config.taskBudget,
+        },
         req,
         onProgress,
         signal,
@@ -407,7 +442,7 @@ export async function generateLayer(
       if (!(retryError instanceof OutputTruncatedError)) throw retryError;
       throw new OutputTruncatedError(
         retryError.usage,
-        `${retryError.message} This was already the second attempt${softer ? `, at ${softer} effort` : ''}. ` +
+        `${retryError.message} This was already the second attempt${softer ? `, at ${softer} effort` : smallerBudget ? `, with a ${smallerBudget.toLocaleString()}-token thinking budget` : ''}. ` +
           `You can also generate this layer in a webchat and import the result.`,
       );
     }

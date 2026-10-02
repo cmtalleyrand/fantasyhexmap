@@ -22,7 +22,7 @@ A4. The view is fitted only once per page load. `fitted` (`MapView.tsx:86`) is n
 
 A5. Saves dialog errors are unstyled: `SavesDialog.tsx` renders `className="error"`, which has no CSS rule (the app uses `notice error`).
 
-A6. Hard-coded model list may be out of date. `SettingsDialog.tsx` offers `claude-opus-5`, `claude-sonnet-5`, `claude-haiku-4-5`, and `core/config.ts` defaults to `claude-opus-5`. Current models include Opus 5.5 (`claude-opus-5-5`), Sonnet 5.5 (`claude-sonnet-5-5`) and Fable 5.1 (`claude-fable-5-1`). Confirm which IDs the API accepts and the default the owner wants before changing it; at minimum the list should offer the current models.
+A6. The model list was out of date and, worse, two of its three entries probably could not generate at all. `SettingsDialog.tsx` offered `claude-opus-5`, `claude-sonnet-5` and `claude-haiku-4-5`, and `core/pipeline.ts` sent every model the same request: a task budget with its beta, an effort level, `max_tokens: 128000` and no `thinking` field. According to the API reference, Sonnet 5 takes no task budget, and Haiku 4.5 takes no effort level, needs thinking as a fixed `budget_tokens`, and caps output at 64,000. These failures come from the reference, not from a live call, because no key was available to test with.
 
 ### B. First-run and discoverability blockers
 
@@ -91,6 +91,12 @@ These are the results of the scripted walkthrough, run against a 30×22 map crea
 
 A4 (no refit after loading a map of another size) and A5 (unstyled error in the saves dialog) were not exercised by the script. Both are certain from the code.
 
+## Decisions and progress
+
+The owner made two decisions after the review. First, a rename is not a change: renaming or recolouring a polity, river or city is undoable, but it bumps no layer version and so marks nothing stale. City population is not cosmetic, because Polities and Population both use it. Second, Settings should offer every reasonable model. It now lists Claude Fable 5.1, Opus 5.5 (the new default), Opus 5, Opus 4.8, Sonnet 5.5, Sonnet 5, Sonnet 4.6 and Haiku 4.5. `core/models.ts` records what each model accepts, and every request is built from that table. Mythos 5.1, which is limited to Project Glasswing, and models superseded at the same price or less are left out.
+
+Phase 1 and A6 are done. Each fix was checked in the running app. Generating every layer now finishes with every layer marked ready. Typing a new river name creates one undo step and marks nothing stale. A polity brush stroke assigns ownership as one undo step. The + button keeps the centre hex fixed. The model picker shows only the effort levels the chosen model accepts. The test suite grew from 144 to 164 tests.
+
 ## Plan
 
 Each phase can ship on its own as one PR, with tests added to the existing `test/*.test.ts` suite (`npm test` runs them with `tsx --test`).
@@ -99,7 +105,7 @@ Each phase can ship on its own as one PR, with tests added to the existing `test
 
 Install dependencies, run `HEXMAP_MOCK=1 npm run dev`, and drive the app with Playwright (Chromium at `/opt/pw-browsers`) through: create map → generate base → generate remaining layers → rename a river/city/polity → brush polities → zoom buttons → load a save of a different size → narrow viewport. Capture screenshots to confirm A1–A4, B1–B5 and catch anything a static read missed. Run `npm test` and `npm run typecheck` to record the baseline.
 
-### Phase 1: fix defects that corrupt or no-op (A1–A5, E1)
+### Phase 1: fix defects that corrupt or no-op (A1–A5, E1) — done
 
 Commit-on-blur fields: generalise `RangeNameInput` into a reusable `CommitInput` (text and number variants) in `src/components/CommitInput.tsx`, committing on blur or Enter and reverting on Escape, and use it for polity name/short name, city name/population and river name. For colour inputs, commit on the native `change` event rather than React's `onChange` (React maps `onChange` to `input`); use a ref-attached listener or keep a local draft committed on blur. Add a reducer-level guard so `upsertPolity`/`upsertCity`/`updateRiver` with data identical to the current state is a no-op (no snapshot, no version bump). Further, a pure rename should arguably not mark downstream layers stale; decide whether name-only edits bump the version (recommendation: they should not, since no downstream layer's validity depends on a name — implement via a `commitCosmetic` path that snapshots for undo but leaves `version` unchanged).
 
@@ -145,9 +151,7 @@ Generation feedback: show elapsed time in the progress row; on completion keep `
 
 Display/export toggles: initialise ExportPanel label toggles from current prefs whenever prefs change unless the user has touched them (track a "dirty" flag), or drop the duplicate toggles and use a single "same as screen" default with overrides.
 
-### Phase 4: polish and maintainability (A6, D1–D4)
-
-Model list: update `MODELS` and `DEFAULT_MODEL` after confirming accepted IDs with the owner; update README's configuration table to match.
+### Phase 4: polish and maintainability (D1–D4; A6 done early)
 
 Refactor: split `Inspector.tsx` editors into `src/components/editors/{PerHex,Polity,City,River,MountainRange}Editor.tsx`; extract generation orchestration from `App.tsx` into `src/state/useGeneration.ts`. Do this after phases 1–3 land, not before, so behavioural fixes are reviewable on their own.
 

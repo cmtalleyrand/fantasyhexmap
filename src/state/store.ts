@@ -426,6 +426,8 @@ export function reducer(map: MapState, action: Action): MapState {
       for (const i of action.indices) {
         if (i >= 0 && i < data.length) data[i] = action.value;
       }
+      // A stroke over hexes that already hold the value changes nothing; do not record it.
+      if (identicalData(layer.data, data)) return map;
       const value = action.value === null ? 'no value' : String(action.value);
       const next = journal(
         withLayer(
@@ -455,6 +457,7 @@ export function reducer(map: MapState, action: Action): MapState {
         if (action.polityId && base && !canHoldSettlement(base[i], map.allowUnderwater)) continue;
         owner[i] = action.polityId;
       }
+      if (identicalData(layer.data.owner, owner)) return map;
       const target = action.polityId
         ? layer.data.polities.find((p) => p.id === action.polityId)?.name ?? 'a polity'
         : 'unclaimed';

@@ -136,3 +136,12 @@ test('a generation that only renames polities, such as short names, marks nothin
   assert.equal(named.layers.polities.version, map.layers.polities.version);
   assert.deepEqual(staleLayers(named), []);
 });
+
+test('a brush stroke that changes no hex is not recorded', () => {
+  const map = generatedMap();
+  // Hex 2 is Sea, so the claim is ignored; hex 0 already belongs to the realm.
+  assert.equal(reducer(map, { type: 'setPolityOwner', indices: [2], polityId: 'realm' }), map);
+  assert.equal(reducer(map, { type: 'setPolityOwner', indices: [0], polityId: 'realm' }), map);
+  assert.equal(reducer(map, { type: 'setHexValues', layer: 'population', indices: [0], value: 100 }), map);
+  assert.notEqual(reducer(map, { type: 'setHexValues', layer: 'population', indices: [0], value: 150 }), map);
+});

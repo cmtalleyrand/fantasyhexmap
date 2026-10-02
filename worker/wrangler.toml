@@ -8,7 +8,7 @@ compatibility_flags = ["nodejs_compat"]
 #
 # Anything in [vars] is plain configuration and is visible in the dashboard.
 [vars]
-HEXMAP_MODEL = "claude-opus-5"
+HEXMAP_MODEL = "claude-opus-5-5"
 HEXMAP_EFFORT = "high"
 # Restrict who may call this worker from a browser. Set it to your Pages origin.
 # ALLOWED_ORIGINS = "https://YOUR-USERNAME.github.io"

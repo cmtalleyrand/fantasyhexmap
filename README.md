@@ -44,10 +44,18 @@ layers say so in their notes.
 | --- | --- | --- |
 | `ANTHROPIC_API_KEY` | – | Required unless `HEXMAP_MOCK=1`. |
 | `PORT` | `8787` | Express port; the Vite proxy follows it. |
-| `HEXMAP_MODEL` | `claude-opus-5` | Model used for every layer. |
+| `HEXMAP_MODEL` | `claude-opus-5-5` | Model used for every layer. Any model listed in `core/models.ts` gets a request shaped for it; an unlisted ID is sent the generic request. |
 | `HEXMAP_EFFORT` | `high` | `low` … `max`. Lower is cheaper and faster; spatial coherence suffers. |
 | `HEXMAP_TASK_BUDGET` | `96000` | Tokens the model paces its reasoning against. Minimum 20,000. |
 | `HEXMAP_MOCK` | – | `1` to use the offline generator. |
+
+When the page calls Anthropic itself (see Option A below), the model, effort and token budget are
+chosen in **Settings → Generation** instead. It offers Claude Fable 5.1, Opus 5.5 (the default),
+Opus 5, Opus 4.8, Sonnet 5.5, Sonnet 5, Sonnet 4.6 and Haiku 4.5. These models do not all accept the
+same request: Sonnet 5 and 4.6 take no task budget, Sonnet 4.6 has no `xhigh` effort, and Haiku
+takes no effort level and is given a fixed thinking budget instead. `core/models.ts` records the
+differences and every request is built from it. If a model turns down the task budget anyway, the
+request is retried once without it.
 
 Other scripts: `npm run typecheck` (client and server), `npm run build` (production client bundle),
 `npm run dev:server` / `npm run dev:web` to run one half on its own.
