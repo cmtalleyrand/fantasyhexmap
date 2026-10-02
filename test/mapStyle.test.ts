@@ -626,3 +626,23 @@ test('realms can be filled, washed along their borders, or outlined, and islet h
     }
   }
 });
+
+test('every preset names in its own ink, and dark styles stay legible', () => {
+  const map = islandMap();
+  map.layers.cities.data = {
+    cities: [{ id: 'c', col: 3, row: 2, name: 'Harrow', population: 30_000, onRiver: false, riverId: null, coastal: false, coastalEdges: [] }],
+  };
+  const visible = { ...allLayers(), cities: true };
+  for (const preset of PRESET_ORDER) {
+    const style = resolveStyle({ preset, overrides: {} });
+    const prims = buildScene(map, { size: 20, visible, labels: true, style }).prims;
+    const name = prims.find((p): p is Extract<Prim, { kind: 'text' }> => p.kind === 'text' && p.text === 'Harrow');
+    assert.equal(name?.fill, style.palette.label, `${preset}: city name ink`);
+    const marker = prims.find((p): p is Extract<Prim, { kind: 'city' }> => p.kind === 'city');
+    assert.equal(marker?.fill, style.palette.cityFill, `${preset}: marker colour`);
+  }
+  // On the dark preset the names are light.
+  const night = resolveStyle({ preset: 'night', overrides: {} }).palette;
+  const lum = (hex: string) => parseInt(hex.slice(1, 3), 16) + parseInt(hex.slice(3, 5), 16) + parseInt(hex.slice(5, 7), 16);
+  assert.ok(lum(night.label) > lum(night.land) + 300);
+});

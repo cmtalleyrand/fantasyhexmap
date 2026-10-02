@@ -645,6 +645,7 @@ export default function App() {
       hexDimensions={map ? normaliseHexDimensions(map.hexDimensions) : null}
       onSaveHexDimensions={(hexDimensions) => dispatch({ type: 'setHexDimensions', hexDimensions })}
       allowUnderwater={map ? map.allowUnderwater === true : null}
+      map={map}
       onSaveAllowUnderwater={(allow) => dispatch({ type: 'setAllowUnderwater', allow })}
       onForget={() => {
         forgetKey();

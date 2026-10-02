@@ -701,7 +701,7 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
       prims.push({
         kind: 'path',
         d,
-        stroke: withAlpha(palette.ink, 0.8),
+        stroke: palette.frontier,
         strokeWidth: Math.max(0.8, size * 0.05),
         dash: knobs.frontier === 'dashed'
           ? [size * 0.22, size * 0.12]
@@ -717,7 +717,7 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
     prims.push({
       kind: 'path',
       d: internal,
-      stroke: withAlpha('#1e1a14', 0.55),
+      stroke: palette.frontier,
       strokeWidth: Math.max(0.8, size * 0.045),
       dash: [size * 0.16, size * 0.1],
       round: true,
@@ -888,6 +888,8 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
         onRiver: city.onRiver,
         symbol: citySymbolForPopulation(city.population),
         riverDot: palette.river,
+        fill: palette.cityFill,
+        ring: palette.cityRing,
       });
     }
   }
@@ -949,7 +951,7 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
             },
             text: line,
             size: label.size,
-            fill: depth === 0 ? MAP_COLOURS.label : withAlpha(MAP_COLOURS.label, 0.78),
+            fill: depth === 0 ? palette.label : withAlpha(palette.label, 0.78),
             weight: depth === 0 ? 600 : 500,
             anchor: 'middle',
             fantasy: true,
@@ -978,7 +980,7 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
         text: l.text,
         size: l.size,
         fill: palette.riverLabel,
-        halo: MAP_COLOURS.labelHalo,
+        halo: palette.labelHalo,
         weight: 600,
         anchor: 'middle',
         fantasy: true,
@@ -998,8 +1000,8 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
         at: l.at,
         text: l.text,
         size: l.size,
-        fill: MAP_COLOURS.rangeLabel,
-        halo: MAP_COLOURS.labelHalo,
+        fill: palette.rangeLabel,
+        halo: palette.labelHalo,
         weight: 700,
         anchor: 'middle',
         fantasy: true,
@@ -1052,8 +1054,8 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
         at: p.at,
         text: byId.get(p.id)!.name,
         size: fontSize,
-        fill: MAP_COLOURS.label,
-        halo: MAP_COLOURS.labelHalo,
+        fill: palette.label,
+        halo: palette.labelHalo,
         weight: 600,
         anchor: p.anchor,
       });

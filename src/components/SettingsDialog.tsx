@@ -9,7 +9,7 @@ import {
 import { clampPolityOpacity, insecureOrigin, looksLikeKey, type Prefs } from '../api/settings.js';
 import { cryptoAvailable } from '../api/keyvault.js';
 import type { TransportMode } from '../api/client.js';
-import type { HexDimensions } from '../../shared/types.js';
+import type { HexDimensions, MapState } from '../../shared/types.js';
 import { POLITY_NAME_MIN_OPTIONS, parsePolityNameMin } from '../render/labels.js';
 import HexSizeInput from './HexSizeInput.js';
 import MapStylePicker from './MapStylePicker.js';
@@ -38,6 +38,8 @@ export interface SettingsDialogProps {
   onSaveHexDimensions: (next: HexDimensions) => void;
   /** Whether the open map lets cities and polities occupy water; null on the create screen. */
   allowUnderwater: boolean | null;
+  /** The open map, for the style previews; null on the create screen. */
+  map?: MapState | null;
   onSaveAllowUnderwater: (allow: boolean) => void;
   initialTab?: SettingsTab;
 }
@@ -150,6 +152,7 @@ export default function SettingsDialog(props: SettingsDialogProps) {
             <h3>Map style</h3>
             <MapStylePicker
               value={prefs.mapStyle}
+              map={props.map ?? null}
               onChange={(mapStyle) => setPrefs({ ...prefs, mapStyle })}
             />
             <h3>Labels</h3>
