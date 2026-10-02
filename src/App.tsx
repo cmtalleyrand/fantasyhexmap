@@ -43,7 +43,7 @@ import Inspector from './components/Inspector.js';
 import LayerPipeline from './components/LayerPipeline.js';
 import MapView from './components/MapView.js';
 import SetupScreen from './components/SetupScreen.js';
-import { exportDecisions, exportJson } from './render/export.js';
+import { exportDecisions, exportJson, exportParseFriendlyJson } from './render/export.js';
 import { defaultVisibility, type VisibleLayers } from './render/scene.js';
 import { clearMap, loadMap, makeAutosaver } from './state/persistence.js';
 import { parseMapImport, prepareLoadedMap } from './state/import.js';
@@ -932,6 +932,7 @@ export default function App() {
           onSaves={() => setShowSaves(true)}
           onImport={handleImport}
           onExportJson={(withHistory) => exportJson(map, withHistory)}
+          onExportParseJson={() => exportParseFriendlyJson(map)}
           onExportImage={() => setShowExport(true)}
           onExportDecisions={() => exportDecisions(map, { aiOnly: false })}
         />

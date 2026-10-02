@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createMapState } from '../shared/layers.ts';
 import { buildPrompt } from '../core/prompts.ts';
-import { serializeMapExport } from '../src/render/export.ts';
+import { serializeMapExport, serializeParseFriendlyExport } from '../src/render/export.ts';
 
 test('JSON export is parseable and omits history only when requested', () => {
   const map = createMapState('A compact island realm.', 3, 3, 'Test Realm');
@@ -20,6 +20,29 @@ test('JSON export is parseable and omits history only when requested', () => {
   assert.equal(withoutHistory.format, 'fantasyhexmap/v1');
   assert.deepEqual(withoutHistory.map.layers.base.past, []);
   assert.equal(withHistory.map.layers.base.past.length, 1);
+});
+
+test('parse-friendly export drops all decision records and adds a guide and hex list', () => {
+  const map = createMapState('A compact island realm.', 3, 2, 'Test Realm');
+  map.layers.base.data = ['Land', 'Sea', 'Land', 'Land', 'Land', 'Sea'];
+  map.layers.base.notes = 'secret reasoning';
+  map.layers.base.warnings = ['a warning'];
+  map.layers.base.past = [{ data: Array(6).fill('Land'), warnings: [], notes: null, generatedAt: null, depVersions: {} }];
+  map.journal = [{
+    id: 'j1', layer: 'base', kind: 'generate', at: 0, instruction: null, summary: 'why',
+    decisions: [{ title: 'Because', detail: 'reasons' }], model: null, warnings: 0,
+  }];
+
+  const text = serializeParseFriendlyExport(map);
+  const out = JSON.parse(text);
+
+  assert.equal(out.variant, 'parse-friendly');
+  assert.equal(out.guide.grid.flatIndex, 'index = row * cols + col');
+  assert.equal(out.hexes.length, 6);
+  assert.deepEqual(out.hexes[4], { index: 4, col: 1, row: 1, base: 'Land' });
+  assert.equal(out.map.journal, undefined);
+  assert.deepEqual(Object.keys(out.map.layers.base).sort(), ['data', 'version']);
+  assert.doesNotMatch(text, /secret reasoning|a warning|Because/);
 });
 
 test('generation prompts derive a scale from the brief and never invent one', () => {

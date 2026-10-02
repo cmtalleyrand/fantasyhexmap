@@ -5,6 +5,7 @@ export interface FileMenuProps {
   onSaves: () => void;
   onImport: (file: File) => void;
   onExportJson: (withHistory: boolean) => void;
+  onExportParseJson: () => void;
   onExportImage: () => void;
   onExportDecisions: () => void;
 }
@@ -96,6 +97,9 @@ export default function FileMenu(props: FileMenuProps) {
           </button>
           <button role="menuitem" onClick={pick(() => props.onExportJson(true))}>
             Export map JSON with undo history
+          </button>
+          <button role="menuitem" onClick={pick(props.onExportParseJson)}>
+            Export map JSON for parsing (no history or decisions)
           </button>
           <button role="menuitem" onClick={pick(props.onExportDecisions)}>
             Export decision record (Markdown)
