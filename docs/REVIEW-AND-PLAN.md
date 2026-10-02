@@ -1,5 +1,10 @@
 # fantasyhexmap: review and user-focused improvement plan
 
+> The measurable baseline for the subsequent interface-layout work is in
+> [`UX-BASELINE.md`](UX-BASELINE.md). It defines the action-count method, desktop/tablet/phone
+> matrix, keyboard and coarse-pointer reachability, and acceptance thresholds that later changes
+> must preserve or improve.
+
 Review date: 2026-10-02, against `main` at 492049e.
 
 ## Context
