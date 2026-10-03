@@ -858,7 +858,9 @@ test('every bundled pairing has a real face for each kind of name', async () => 
   }
   assert.deepEqual(letteringFaces('classic'), []);
   assert.equal(parseStyleChoice({ preset: 'parchment', overrides: { lettering: 'comic' } }).overrides.lettering, undefined);
-  assert.equal(resolveStyle({ preset: 'atlas', overrides: {} }).knobs.lettering, 'atlas');
+  assert.equal(resolveStyle({ preset: 'atlas', overrides: {} }).knobs.lettering, 'chancery');
+  // The retired Alegreya pairing falls back to the preset's own.
+  assert.equal(parseStyleChoice({ preset: 'atlas', overrides: { lettering: 'atlas' } }).overrides.lettering, undefined);
 });
 
 test('an SVG carries the font rules it is given, and measurements can be thrown away', async () => {

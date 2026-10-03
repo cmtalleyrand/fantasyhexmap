@@ -278,7 +278,7 @@ const ATLAS: PresetInfo = {
     cityCoastMarks: false,
     realmNames: 'moderate',
     cityNames: 'beside',
-    lettering: 'atlas',
+    lettering: 'chancery',
   },
 };
 
@@ -464,7 +464,8 @@ export const KNOB_OPTIONS: {
       { value: 'classic', label: 'Classic (Palatino)' },
       { value: 'storybook', label: 'Storybook (Cinzel, Garamond)' },
       { value: 'oldprint', label: 'Old print (IM Fell)' },
-      { value: 'atlas', label: 'Atlas (Alegreya)' },
+      { value: 'chancery', label: 'Chancery (Almendra)' },
+      { value: 'uncial', label: 'Uncial (Uncial Antiqua, Garamond)' },
     ],
   },
   cityCoastMarks: {
