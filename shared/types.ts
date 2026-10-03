@@ -362,6 +362,8 @@ export interface RiverSegment {
   /** Edge the water leaves through. null only if the river is malformed / truncated. */
   exitEdge: number | null;
   navigable: boolean;
+  /** Optional bounds on the course's closest approach to this hex's centre, measured from 0 (centre) to 1 (edge). */
+  reach?: { min: number | null; max: number | null };
 }
 
 export interface River {

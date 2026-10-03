@@ -89,6 +89,11 @@ function rebuild(
     others,
   );
   if (!rebuilt) return { error: 'That would leave the river with no land to run through.' };
+  const reachByHex = new Map(river.segments.filter((s) => s.reach).map((s) => [`${s.col},${s.row}`, s.reach!]));
+  rebuilt.segments = rebuilt.segments.map((s) => {
+    const reach = reachByHex.get(`${s.col},${s.row}`);
+    return reach ? { ...s, reach } : s;
+  });
   // A branch stays one while it still leaves from its parent (detachOrphanBranches checks).
   return { river: keepBranch && river.branchOf ? { ...rebuilt, branchOf: river.branchOf } : rebuilt, warnings };
 }
