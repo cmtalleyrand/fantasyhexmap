@@ -617,7 +617,9 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
   const population = opts.visible.population ? layers.population.data : null;
   const maxPop = population ? Math.max(1, ...population.map((v) => v ?? 0)) : 1;
 
-  const traced = base ? cachedCoast(base, cols, rows, size, knobs.coast === 'smooth', map.hexShapes, map.defaultIrregularity, normaliseHexDimensions(map.hexDimensions), seed, knobs.coast === 'none' ? 0 : Math.max(0.8, size * palette.coastWidth) / 2) : null;
+  // Half the coastline's stroke width: what its ink adds outside the land, which counts as land (0 with no coastline).
+  const inkReachOf = knobs.coast === 'none' ? 0 : Math.max(0.8, size * palette.coastWidth * knobs.lineWeight) / 2;
+  const traced = base ? cachedCoast(base, cols, rows, size, knobs.coast === 'smooth', map.hexShapes, map.defaultIrregularity, normaliseHexDimensions(map.hexDimensions), seed, inkReachOf) : null;
   const rawPolities = opts.visible.polities ? layers.polities.data : null;
   // Realm colour is drawn on land only; see landOwners.
   const polities = rawPolities && base
@@ -1239,7 +1241,7 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
   };
   const dimensions = normaliseHexDimensions(map.hexDimensions);
   /** Half the coastline's stroke width, which is what it adds outside an edge (none without a coast line). */
-  const inkReach = knobs.coast === 'none' ? 0 : Math.max(0.8, size * palette.coastWidth) / 2;
+  const inkReach = inkReachOf;
   const hexArea = 1.5 * Math.sqrt(3) * size * size;
   /**
    * The part of an island hex (0 to 1) its islands are to cover: what its
@@ -1331,7 +1333,7 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
       }
     };
     // A blob's outline strays outside its ellipse by about its wobble: more room the more irregular the island.
-    const blobReach = 1 + 0.45 * 0.17 * ISLE_IRREGULARITY[levelOf(i)].wobble;
+    const blobReach = 1 + 0.8 * 0.17 * ISLE_IRREGULARITY[levelOf(i)].wobble;
     /** How far island `isle`'s outline reaches from its middle in direction (dx, dy). */
     const reachAlong = (isle: Isle, dx: number, dy: number): number => {
       if (knobs.islands !== 'blob') return Math.sqrt(isle.rx * isle.ry) * 1.03;
@@ -1687,12 +1689,32 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
       return Math.min(gap, 6 - gap) >= 2;
     }));
   };
-  /** How irregular a lake's shore is at a point: set by the land hex beside it, else by the map's lake default. */
+  /**
+   * How irregular a lake's shore is at a point: set on the lake hex it bounds, else by the land hex beside
+   * it, else by the map's lake default.
+   */
   const lakeShoreAmplitude = (p: Point): number => {
     const { col, row } = pixelToOffset(p.x, p.y, size);
     const j = inBounds(cols, rows, col, row) ? hexIndex(cols, col, row) : -1;
     const land = j >= 0 && !isWater(j) && !inLakeBody.has(j) ? j : -1;
-    return COAST_AMPLITUDE[lakeShoreIrregularity(land >= 0 ? base?.[land] : null, land >= 0 ? map.hexShapes?.[String(land)] : undefined, map.defaultLakeIrregularity)];
+    // The lake hex this stretch of shore belongs to: the nearest one touching the land hex (or the one the point is in).
+    let lake = j >= 0 && base?.[j] === 'Lake' ? j : -1;
+    if (lake < 0 && j >= 0) {
+      let nearest = Infinity;
+      for (let e = 0; e < 6; e++) {
+        const n = neighbourOf(col, row, e);
+        if (!inBounds(cols, rows, n.col, n.row)) continue;
+        const k = hexIndex(cols, n.col, n.row);
+        if (base?.[k] !== 'Lake') continue;
+        const c = hexCenter(n.col, n.row, size);
+        const d = (c.x - p.x) ** 2 + (c.y - p.y) ** 2;
+        if (d < nearest) {
+          nearest = d;
+          lake = k;
+        }
+      }
+    }
+    return COAST_AMPLITUDE[lakeShoreIrregularity(land >= 0 ? base?.[land] : null, land >= 0 ? map.hexShapes?.[String(land)] : undefined, map.defaultLakeIrregularity, lake >= 0 ? map.hexShapes?.[String(lake)] : undefined)];
   };
   /** How far in a partly-land hex beside the lake has its shore drawn, at a point on it; negative elsewhere. */
   const lakeShoreInset = (p: Point): number | null => {

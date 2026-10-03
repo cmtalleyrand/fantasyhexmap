@@ -911,3 +911,20 @@ at its shore.
 
 **Cities.** A city on a river sits in a disc of river water edged in paper, in every marker set; the legend says
 "Blue ring: on a river". Label placement allows for the wider collar.
+
+## 47. Lakes carry their own irregularity; shores vary in strength; coast ink follows line weight
+
+**Lake irregularity.** A lake hex may carry an irregularity for its own shore (`HexShape.irregular` on a Lake
+hex). It beats the land hex beside the shore, which beats the map's lake default. Before this a lake shore
+could take it only from a "shaped" land hex (plain Land beside a lake could not carry one) and the sidebar
+offered nothing on a lake. The lake's reach into narrow land (a strip a hex wide between two waters) is still
+held back, but its roughness is not: the same limiter had been scaling irregularity to almost nothing there,
+so a hex between two lakes looked the same at Smooth and Fractured. Roughness keeps at least 55% of its size.
+
+**Less regular roughness.** A lake shore was three cosines of fixed wavelength at constant strength, and each
+sea-coast piece was normalised to the same peak. The lake's bands now drift in wavelength under a slowly
+varying strength, and each coast piece takes a seeded gain (some nearly calm, a few bold), so shores have calm
+and bold stretches rather than one repeating wobble.
+
+**Ink.** The coastline's stroke width is `size * coastWidth * lineWeight`; the half of it outside the land is
+counted in land shares (decision 45) with that width.
