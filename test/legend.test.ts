@@ -96,7 +96,7 @@ test('cities, rivers and polities list only what occurs, with optional areas', (
 
   const full = by(opts({ onlyUsed: false, polityAreas: true }));
   assert.equal(full.rivers!.length, 2);
-  assert.equal(full.cities!.length, 6);
+  assert.equal(full.cities!.length, 7);
   assert.equal(full.polities!.length, 2);
   assert.match(full.polities![0]!, /^Northmark - [\d.,]+ .+²$/);
 });
@@ -156,4 +156,13 @@ test('a long legend continues in a further column rather than growing without bo
     .filter((t) => t.endsWith('(continued)'));
   assert.ok(heads.length > 0);
   assert.ok(scene.height < 30 * 22 + 100, 'column height stays bounded');
+});
+
+test('the legend lists a capital entry only when the map has a capital', () => {
+  const map = sampleMap();
+  const v = visibility('cities');
+  const labels = () => legendSections(map, v, 'colour', opts()).find((s) => s.id === 'cities')!.entries.map((e) => e.label);
+  assert.ok(!labels().includes('Crown: capital of a realm'));
+  map.layers.cities.data!.cities[1]!.capital = true;
+  assert.ok(labels().includes('Crown: capital of a realm'));
 });

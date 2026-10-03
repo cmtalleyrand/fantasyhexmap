@@ -320,3 +320,29 @@ test('the polity-name threshold decides which small polities are named', () => {
   assert.ok(!named(3).includes('SM'));
   assert.ok(named(3).includes('BIGLAND'));
 });
+
+test('a capital gets a crown over its marker and its name in capitals', () => {
+  const cols = 6;
+  const rows = 4;
+  const build = (capital: boolean, markers: 'symbols' | 'classic' | 'illustrated') => {
+    const map = createMapState('Capital', cols, rows);
+    map.layers.base.data = Array(cols * rows).fill('Land');
+    map.layers.cities.data = {
+      cities: [{
+        id: 'c', col: 3, row: 2, name: 'Highmere', population: 80_000, ...(capital ? { capital: true } : {}),
+        onRiver: false, riverId: null, coastal: false, coastalEdges: [],
+      }],
+    };
+    const visible = defaultVisibility();
+    visible.cities = true;
+    return buildScene(map, { size: 20, visible, labels: true, style: resolveStyle({ overrides: { cityMarkers: markers } }) }).prims;
+  };
+  for (const markers of ['symbols', 'classic', 'illustrated'] as const) {
+    const plain = build(false, markers);
+    const crowned = build(true, markers);
+    assert.equal(crowned.length, plain.length + 2, `${markers}: the crown is an outline and a fill`);
+    const text = (prims: ReturnType<typeof build>) => prims.find((p) => p.kind === 'text');
+    assert.equal(text(plain)?.kind === 'text' && text(plain)?.text, 'Highmere');
+    assert.equal(text(crowned)?.kind === 'text' && text(crowned)?.text, 'HIGHMERE');
+  }
+});

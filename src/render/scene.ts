@@ -93,7 +93,7 @@ import {
   raggedEdge,
 } from './coast.js';
 import { polygonPath, type CitySymbol, type PathCmd, type Prim } from './prims.js';
-import { cityMarker, markerExtent } from './cityMarkers.js';
+import { capitalCrown, cityMarker, markerExtent } from './cityMarkers.js';
 import { riverCourses, type RiverCourse } from './rivers.js';
 import { citySite } from './sites.js';
 import { escarpment, hillshade, reliefSymbols, vegetationSymbols, type Placed } from './symbols.js';
@@ -1739,6 +1739,9 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
       } else {
         prims.push(...cityMarker(knobs.cityMarkers, symbol, c, r, { ink: palette.cityFill, paper: palette.cityRing, river: palette.river }, (k) => unit(seed, 'city', city.id, k)));
       }
+      if (city.capital) {
+        prims.push(...capitalCrown(knobs.cityMarkers, symbol, c, r, { ink: palette.cityFill, paper: palette.cityRing }));
+      }
     }
   }
 
@@ -1748,8 +1751,8 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
   // around their marker is free of all of those. A realm's name is never
   // pushed aside to make room for a city's.
   /** How far a city's marker reaches round its site, for names to keep clear of. */
-  const markerReach = (population: number) => {
-    const extent = markerExtent(knobs.cityMarkers, citySymbolForPopulation(population));
+  const markerReach = (population: number, capital = false) => {
+    const extent = markerExtent(knobs.cityMarkers, citySymbolForPopulation(population), capital);
     return markerRadius(population) * Math.max(extent.half, (extent.up + extent.down) / 2);
   };
   const taken: OrientedBox[] = [];
@@ -1763,7 +1766,7 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
     const obstacles: LabelObstacle[] = [];
     for (const city of cities?.cities ?? []) {
       const c = siteOf(city);
-      const r = markerReach(city.population);
+      const r = markerReach(city.population, city.capital);
       obstacles.push({ left: c.x - r, right: c.x + r, top: c.y - r, bottom: c.y + r });
     }
     // Without a hierarchy every realm is named once, from the cache. With one,
@@ -1934,12 +1937,14 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
 
   if (opts.labels && cities) {
     const fontSize = Math.max(8, size * 0.36) * (lettering.city.scale ?? 1);
+    // A capital is named in capitals.
+    const shown = (city: { name: string; capital?: boolean }) => (city.capital ? city.name.toLocaleUpperCase() : city.name);
     const placements = placeCityNames(
       cities.cities.map((city) => ({
         id: city.id,
-        name: city.name,
+        name: shown(city),
         at: siteOf(city),
-        r: markerReach(city.population),
+        r: markerReach(city.population, city.capital),
         population: city.population,
       })),
       fontSize,
@@ -1953,7 +1958,7 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
       prims.push({
         kind: 'text',
         at: p.at,
-        text: byId.get(p.id)!.name,
+        text: shown(byId.get(p.id)!),
         size: fontSize,
         fill: palette.label,
         halo: palette.labelHalo,
