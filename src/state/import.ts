@@ -1,5 +1,6 @@
 import { withValidParents } from '../../shared/polityTree.js';
 import { LAYER_ORDER, type MapState } from '../../shared/types.js';
+import { withMigratedGeoNames } from '../../shared/geoNames.js';
 import { normaliseHexDimensions } from '../../shared/surfaceArea.js';
 
 const RESPONSE_KEYS = new Set<string>(LAYER_ORDER);
@@ -41,7 +42,8 @@ export function prepareLoadedMap(map: MapState): MapState {
   map.enabledLayers ??= [...LAYER_ORDER];
   map.allowUnderwater ??= false;
   map.mountainRanges ??= [];
-  map.waterNames ??= [];
+  map.geoNames = withMigratedGeoNames(map).geoNames ?? [];
+  delete map.waterNames;
   const polities = map.layers.polities?.data;
   if (polities) polities.polities = withValidParents(polities.polities).polities;
   map.hexDimensions = normaliseHexDimensions(map.hexDimensions);

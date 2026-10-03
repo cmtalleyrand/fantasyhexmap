@@ -49,7 +49,9 @@ import {
   populationColour,
   withAlpha,
 } from './palette.js';
-import { placeRangeLabels, placeRiverLabels, placeWaterLabels } from './featureLabels.js';
+import { placeAreaLabels, placeRangeLabels, placeRiverLabels, placeWaterLabels } from './featureLabels.js';
+import { geoEligibility, geoNamesOf, liveHexes } from '../../shared/geoNames.js';
+import type { GeoNameKind } from '../../shared/types.js';
 import {
   LABEL_LINE_EM,
   labelBox,
@@ -121,6 +123,8 @@ export interface SceneOptions {
   rangeNames?: boolean;
   /** Name seas, bays and lakes that have been named (needs the base layer visible). */
   seaNames?: boolean;
+  /** Name land features and islands that have been named (needs the base layer visible). */
+  landNames?: boolean;
   /** Smallest polity, in hexes, that is named; default 4. */
   polityNames?: PolityNameMin;
   elevationStyle?: 'colour' | 'contours';
@@ -1437,8 +1441,15 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
     }
   }
 
-  if (opts.seaNames && base && (map.waterNames?.length ?? 0) > 0) {
-    for (const l of placeWaterLabels(map.waterNames!, cols, size, lettering.water, base, rows)) {
+  const geoNames = base ? geoNamesOf(map) : [];
+  /** The named areas of these kinds, cut down to the hexes that are still eligible. */
+  const liveNames = (kinds: GeoNameKind[]) =>
+    geoNames
+      .filter((n) => kinds.includes(n.kind))
+      .map((n) => ({ name: n.name, hexes: liveHexes(n, geoEligibility(n.kind, base!, cols, rows)) }))
+      .filter((n) => n.hexes.length > 0);
+  if (opts.seaNames && base) {
+    for (const l of placeWaterLabels(liveNames(['sea', 'lake']), cols, size, lettering.water, base, rows)) {
       prims.push({
         kind: 'text',
         at: l.at,
@@ -1456,6 +1467,27 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
       for (const g of l.glyphs ?? []) {
         taken.push({ cx: g.x, cy: g.y, halfW: l.size * 0.5, halfH: l.size * 0.6, rotation: g.rotation });
       }
+    }
+  }
+  if (opts.landNames && base) {
+    const landRole = lettering.range;
+    for (const l of placeAreaLabels(liveNames(['land', 'island']), cols, size, landRole)) {
+      prims.push({
+        kind: 'text',
+        at: l.at,
+        text: l.text,
+        size: l.size,
+        fill: palette.rangeLabel,
+        halo: palette.labelHalo,
+        weight: landRole.weight,
+        anchor: 'middle',
+        fantasy: true,
+        font: landRole.family,
+        italic: landRole.italic,
+        rotation: l.rotation,
+        glyphs: l.glyphs,
+      });
+      taken.push({ cx: l.at.x, cy: l.at.y, halfW: (roleEm(landRole, l.text) * l.size) / 2, halfH: l.size * 0.6, rotation: l.rotation });
     }
   }
 

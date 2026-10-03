@@ -205,8 +205,16 @@ export default function SettingsDialog(props: SettingsDialogProps) {
               />
               Show sea and lake names
             </label>
+            <label className="check">
+              <input
+                type="checkbox"
+                checked={prefs.landNames}
+                onChange={(e) => setPrefs({ ...prefs, landNames: e.target.checked })}
+              />
+              Show land feature and island names
+            </label>
             <p className="hint">
-              Name a range by selecting its Mountains hexes with the Elevation layer active.
+              Name a range by selecting its Mountains hexes with the Elevation layer active. Name seas, lakes, land features and islands in the Base geography layer's “Name places” section.
             </p>
             <label>Polity names</label>
             <select

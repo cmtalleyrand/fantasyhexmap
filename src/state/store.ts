@@ -16,6 +16,7 @@
 import { recomputeCityFacts, canHoldSettlement } from '../../shared/derive.js';
 import { isIslandType, islandSpecFor, type IslandSpec } from '../../shared/types.js';
 import { migrateLegacyIslands } from '../../shared/islandMigration.js';
+import { GEO_KIND_LABEL, geoEligibility, geoNamesOf, withMigratedGeoNames } from '../../shared/geoNames.js';
 import { withValidParents } from '../../shared/polityTree.js';
 import {
   baseTransitions,
@@ -41,7 +42,8 @@ import type {
   MapState,
   HexDimensions,
   MountainRange,
-  WaterName,
+  GeoName,
+  GeoNameKind,
   Polity,
   River,
   TokenUsage,
@@ -99,10 +101,15 @@ export type Action =
   | { type: 'nameMountainRange'; id: string; name: string; indices: number[] }
   | { type: 'renameMountainRange'; id: string; name: string }
   | { type: 'removeMountainRange'; id: string }
-  /** Put water hexes in the named body `id`, creating it if it does not exist. */
-  | { type: 'nameWaterBody'; id: string; name: string; indices: number[] }
-  | { type: 'renameWaterBody'; id: string; name: string }
-  | { type: 'removeWaterBody'; id: string }
+  /**
+   * Put hexes in the geographical name `id`, creating it as a `kind` if it does
+   * not exist. Hexes the kind cannot hold are ignored (see `geoEligibility`).
+   */
+  | { type: 'nameGeo'; id: string; kind: GeoNameKind; name: string; indices: number[] }
+  /** Take hexes out of a name; a name left with none is removed. */
+  | { type: 'unnameGeoHexes'; id: string; indices: number[] }
+  | { type: 'renameGeo'; id: string; name: string }
+  | { type: 'removeGeo'; id: string }
   /**
    * Change how the islands of island hexes are drawn: their counts, which
    * groups lie against the coast, and the side they lie against (null: the
@@ -297,6 +304,11 @@ function expandMap(map: MapState, edge: ExpandEdge): MapState {
     rows: nextRows,
     layers,
     mountainRanges: map.mountainRanges?.map((range) => ({ ...range, hexes: range.hexes.map(remapIndex) })),
+    geoNames: geoNamesOf(map).map((name) => ({ ...name, hexes: name.hexes.map(remapIndex) })),
+    waterNames: undefined,
+    islandSpecs: map.islandSpecs
+      ? Object.fromEntries(Object.entries(map.islandSpecs).map(([index, spec]) => [String(remapIndex(Number(index))), spec]))
+      : map.islandSpecs,
     updatedAt: Date.now(),
   };
   return journal(reconcile(next), manualEntry('base', `Added a ${edge} ${edge === 'top' || edge === 'bottom' ? 'row' : 'column'} using neighbouring hexes.`));
@@ -885,48 +897,75 @@ export function reducer(map: MapState, action: Action): MapState {
       );
     }
 
-    case 'nameWaterBody': {
+    case 'nameGeo': {
       const name = action.name.trim();
       const base = map.layers.base.data;
       if (!name || !base) return map;
-      const picked = new Set(action.indices.filter((i) => isWaterSurface(base[i])));
+      const eligible = geoEligibility(action.kind, base, map.cols, map.rows);
+      const picked = new Set(action.indices.filter(eligible));
       if (picked.size === 0) return map;
-      const bodies = map.waterNames ?? [];
-      const existing = bodies.find((b) => b.id === action.id);
-      // A hex carries one name, so claiming it takes it from any other body.
-      const others = bodies
-        .filter((b) => b.id !== action.id)
-        .map((b) => ({ ...b, hexes: b.hexes.filter((i) => !picked.has(i)) }))
-        .filter((b) => b.hexes.length > 0);
-      const body: WaterName = {
+      const names = geoNamesOf(map);
+      const existing = names.find((n) => n.id === action.id);
+      if (existing && existing.kind !== action.kind) return map;
+      // Within a kind a hex carries one name, so claiming it takes it from any other.
+      const others = names
+        .filter((n) => n.id !== action.id)
+        .map((n) => (n.kind === action.kind ? { ...n, hexes: n.hexes.filter((i) => !picked.has(i)) } : n))
+        .filter((n) => n.hexes.length > 0);
+      const entry: GeoName = {
         id: action.id,
-        name,
+        name: existing?.name ?? name,
+        kind: action.kind,
         hexes: [...new Set([...(existing?.hexes ?? []), ...picked])].sort((a, b) => a - b),
       };
+      const what = GEO_KIND_LABEL[action.kind].singular.toLowerCase();
       return journal(
-        { ...map, waterNames: [...others, body], updatedAt: Date.now() },
-        manualEntry('base', `${existing ? 'Extended' : 'Named'} the water "${name}" (${body.hexes.length} hexes) by hand.`),
+        { ...withMigratedGeoNames(map), geoNames: [...others, entry], updatedAt: Date.now() },
+        manualEntry('base', `${existing ? 'Extended' : 'Named'} the ${what} "${entry.name}" (${entry.hexes.length} hexes) by hand.`),
       );
     }
 
-    case 'renameWaterBody': {
+    case 'unnameGeoHexes': {
+      const names = geoNamesOf(map);
+      const old = names.find((n) => n.id === action.id);
+      if (!old) return map;
+      const drop = new Set(action.indices);
+      const hexes = old.hexes.filter((i) => !drop.has(i));
+      if (hexes.length === old.hexes.length) return map;
+      const next = hexes.length > 0 ? names.map((n) => (n.id === old.id ? { ...n, hexes } : n)) : names.filter((n) => n.id !== old.id);
+      return journal(
+        { ...withMigratedGeoNames(map), geoNames: next, updatedAt: Date.now() },
+        manualEntry(
+          'base',
+          hexes.length > 0
+            ? `Took ${old.hexes.length - hexes.length} hexes out of "${old.name}".`
+            : `Removed the name "${old.name}": no hexes were left.`,
+        ),
+      );
+    }
+
+    case 'renameGeo': {
       const name = action.name.trim();
-      const bodies = map.waterNames ?? [];
-      const old = bodies.find((b) => b.id === action.id);
+      const names = geoNamesOf(map);
+      const old = names.find((n) => n.id === action.id);
       if (!old || !name || old.name === name) return map;
       return journal(
-        { ...map, waterNames: bodies.map((b) => (b.id === action.id ? { ...b, name } : b)), updatedAt: Date.now() },
-        manualEntry('base', `Renamed the water "${old.name}" to "${name}".`),
+        {
+          ...withMigratedGeoNames(map),
+          geoNames: names.map((n) => (n.id === action.id ? { ...n, name } : n)),
+          updatedAt: Date.now(),
+        },
+        manualEntry('base', `Renamed "${old.name}" to "${name}".`),
       );
     }
 
-    case 'removeWaterBody': {
-      const bodies = map.waterNames ?? [];
-      const old = bodies.find((b) => b.id === action.id);
+    case 'removeGeo': {
+      const names = geoNamesOf(map);
+      const old = names.find((n) => n.id === action.id);
       if (!old) return map;
       return journal(
-        { ...map, waterNames: bodies.filter((b) => b.id !== action.id), updatedAt: Date.now() },
-        manualEntry('base', `Removed the name of the water "${old.name}".`),
+        { ...withMigratedGeoNames(map), geoNames: names.filter((n) => n.id !== action.id), updatedAt: Date.now() },
+        manualEntry('base', `Removed the name "${old.name}".`),
       );
     }
 

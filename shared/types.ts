@@ -258,7 +258,19 @@ export interface MountainRange {
   hexes: number[];
 }
 
-/** A named sea, bay, strait or lake: a set of water hexes that carry one name on the map. */
+/** What a geographical name names; see `shared/geoNames.ts` for which hexes each may hold. */
+export type GeoNameKind = 'sea' | 'lake' | 'land' | 'island';
+
+/** A named sea, lake, land feature or island: a set of hexes that carry one name on the map. */
+export interface GeoName {
+  id: string;
+  name: string;
+  kind: GeoNameKind;
+  /** Flat hex indices (`row * cols + col`). */
+  hexes: number[];
+}
+
+/** Superseded by `GeoName`; read from older saves and migrated. */
 export interface WaterName {
   id: string;
   name: string;
@@ -434,7 +446,9 @@ export interface MapState {
   allowUnderwater?: boolean;
   /** Named mountain ranges, drawn as labels when the option is on. Absent on older maps. */
   mountainRanges?: MountainRange[];
-  /** Named seas, bays and lakes. */
+  /** Named seas, lakes, land features and islands. */
+  geoNames?: GeoName[];
+  /** Superseded by `geoNames`; read from older saves and migrated. */
   waterNames?: WaterName[];
   /**
    * How the islands of Islands and Mainland-and-islands hexes are drawn, keyed

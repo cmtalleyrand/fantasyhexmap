@@ -44,6 +44,7 @@ export default function ExportPanel({
   riverNames: initialRiverNames,
   rangeNames: initialRangeNames,
   seaNames: initialSeaNames,
+  landNames: initialLandNames,
   polityNames,
 }: {
   map: MapState;
@@ -55,6 +56,7 @@ export default function ExportPanel({
   riverNames: boolean;
   rangeNames: boolean;
   seaNames: boolean;
+  landNames: boolean;
   polityNames: PolityNameMin;
 }) {
   const [format, setFormat] = useState<'png' | 'svg'>('png');
@@ -62,6 +64,7 @@ export default function ExportPanel({
   const [riverNames, setRiverNames] = useState(initialRiverNames);
   const [rangeNames, setRangeNames] = useState(initialRangeNames);
   const [seaNames, setSeaNames] = useState(initialSeaNames);
+  const [landNames, setLandNames] = useState(initialLandNames);
   const [scale, setScale] = useState('2');
   const [legend, setLegend] = useState(false);
   const [legendTitle, setLegendTitle] = useState(DEFAULT_LEGEND_OPTIONS.title);
@@ -124,6 +127,9 @@ export default function ExportPanel({
         <Check checked={seaNames} onChange={setSeaNames}>
           Render sea and lake names
         </Check>
+        <Check checked={landNames} onChange={setLandNames}>
+          Render land feature and island names
+        </Check>
 
         <Check checked={legend} onChange={setLegend}>
           Include a legend
@@ -176,7 +182,7 @@ export default function ExportPanel({
         <button
           className="primary"
           disabled={visibleCount === 0}
-          onClick={() => run(() => exportComposite(map, visible, { ...opts, labels, riverNames, rangeNames, seaNames }))}
+          onClick={() => run(() => exportComposite(map, visible, { ...opts, labels, riverNames, rangeNames, seaNames, landNames }))}
         >
           Export composite ({visibleCount} visible layer{visibleCount === 1 ? '' : 's'})
         </button>
@@ -197,6 +203,7 @@ export default function ExportPanel({
                         riverNames: riverNames && id === 'rivers',
                         rangeNames: rangeNames && id === 'elevation',
                         seaNames: seaNames && id === 'base',
+                        landNames: landNames && id === 'base',
                       }),
                     )
                   }
