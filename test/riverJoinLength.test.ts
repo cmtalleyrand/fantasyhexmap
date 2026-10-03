@@ -59,8 +59,9 @@ test('a system length adds the branches to the main river', () => {
   const branch = { ...river('branch', [[4, 2], [5, 1], [6, 1], [7, 1]]), branchOf: 'main' };
   const all = [main, branch];
   assert.ok(Math.abs(riverSystemLength(main, all, regular) - (riverLength(main, regular) + riverLength(branch, regular))) < 1e-6);
-  assert.equal(formatLength(1234.4, 'km'), '1,234 km');
-  assert.equal(formatLength(12.34, 'mi'), '12.3 mi');
+  assert.equal(formatLength(1234.4, 'km'), '1,230 km');
+  assert.equal(formatLength(12.34, 'mi'), '10 mi');
+  assert.equal(formatLength(12.34, 'mi', 0.5), '12.5 mi');
 });
 
 test('two pieces whose ends touch join into one river that keeps the chosen name', () => {
@@ -148,5 +149,5 @@ test('the legend can list every river with its length', async () => {
       .find((s) => s.id === 'rivers')!
       .entries.map((e) => e.label);
   assert.ok(!labels(false).some((l) => l.startsWith('Kelder')));
-  assert.ok(labels(true).includes('Kelder - 45 km'));
+  assert.ok(labels(true).includes('Kelder - 50 km'));
 });

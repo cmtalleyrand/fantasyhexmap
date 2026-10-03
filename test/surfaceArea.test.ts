@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createMapState } from '../shared/layers.ts';
-import { politySurfaceAreas } from '../shared/surfaceArea.ts';
+import { formatArea, politySurfaceAreas } from '../shared/surfaceArea.ts';
 import { reducer } from '../src/state/store.ts';
 
 test('polity surface area weights coast and island land shares', () => {
@@ -11,7 +11,7 @@ test('polity surface area weights coast and island land shares', () => {
       polities: [{ id: 'realm', name: 'Realm', colour: '#123456' }],
       owner: ['realm', 'realm', 'realm', 'realm'],
     },
-    { width: 10, height: 8, unit: 'km', coastalLandPercent: 60, islandLandPercent: 40 },
+    { width: 10, height: 8, unit: 'km', coastalLandPercent: 60, islandLandPercent: 40, areaRounding: 100, lengthRounding: 10 },
   );
 
   // Each hex is 60 km²; weighted land is 1 + 0.6 + 0.4 hexes. Sea contributes zero.
@@ -28,7 +28,7 @@ test('polity surface area remains linear across multiple owners', () => {
       ],
       owner: ['a', 'b', 'b'],
     },
-    { width: 4, height: 2, unit: 'mi', coastalLandPercent: 50, islandLandPercent: 40 },
+    { width: 4, height: 2, unit: 'mi', coastalLandPercent: 50, islandLandPercent: 40, areaRounding: 100, lengthRounding: 10 },
   );
 
   assert.deepEqual(Object.fromEntries(areas), { a: 6, b: 9 });
@@ -44,6 +44,8 @@ test('area settings can be changed after a map has been created', () => {
       unit: 'mi',
       coastalLandPercent: 70,
       islandLandPercent: 30,
+      areaRounding: 50,
+      lengthRounding: 5,
     },
   });
 
@@ -53,6 +55,14 @@ test('area settings can be changed after a map has been created', () => {
     unit: 'mi',
     coastalLandPercent: 70,
     islandLandPercent: 30,
+    areaRounding: 50,
+    lengthRounding: 5,
   });
   assert.ok(updated.updatedAt >= map.updatedAt);
+});
+
+test('surface areas round to the configured display increment', () => {
+  assert.equal(formatArea(1249, 'km'), '1,200 km²');
+  assert.equal(formatArea(1249, 'km', 50), '1,250 km²');
+  assert.equal(formatArea(12.34, 'mi', 0.5), '12.5 mi²');
 });

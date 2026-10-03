@@ -25,7 +25,7 @@ import { descendantsOf } from '../../shared/polityTree.js';
 import { thematicLayer, type CitySymbol, type Prim, type Scene, type VisibleLayers } from './scene.js';
 import { LAYER_META } from '../../shared/layers.js';
 import { formatLength, riverLength } from '../../shared/riverLength.js';
-import { normaliseHexDimensions, politySurfaceAreas } from '../../shared/surfaceArea.js';
+import { formatArea, normaliseHexDimensions, politySurfaceAreas } from '../../shared/surfaceArea.js';
 import {
   BASE_GEO_VALUES,
   isIslandType,
@@ -210,7 +210,7 @@ export function legendSections(
           for (const river of map.layers.rivers.data?.rivers ?? []) {
             entries.push({
               swatch: { kind: 'line', colour: palette.river, width: 1.6 },
-              label: `${river.name} - ${formatLength(riverLength(river, dims), dims.unit)}`,
+              label: `${river.name} - ${formatLength(riverLength(river, dims), dims.unit, dims.lengthRounding)}`,
             });
           }
         }
@@ -249,7 +249,7 @@ export function legendSections(
         const visit = (p: (typeof all)[number], depth: number) => {
           if (options.onlyUsed && !inUse(p.id)) return;
           const area = areas
-            ? ` - ${treeArea(p.id).toLocaleString(undefined, { maximumFractionDigits: 2 })} ${dimensions.unit}²`
+            ? ` - ${formatArea(treeArea(p.id), dimensions.unit, dimensions.areaRounding)}`
             : '';
           entries.push({ swatch: { kind: 'fill', colour: colours.get(p.id) ?? p.colour }, label: `${p.name}${area}`, indent: depth });
           for (const child of all.filter((q) => q.parentId === p.id)) visit(child, depth + 1);
