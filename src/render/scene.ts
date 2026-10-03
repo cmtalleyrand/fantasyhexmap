@@ -115,6 +115,37 @@ import { grainTile } from './texture.js';
 
 export type { CitySymbol, PathCmd, Prim } from './prims.js';
 
+
+/**
+ * The part of a convex hex lying east of a vertical chord, placed so that it
+ * covers `fraction` of the hex's area.
+ */
+function shareRegion(corners: Point[], fraction: number): Point[] {
+  const xs = corners.map((c) => c.x);
+  let lo = Math.min(...xs);
+  let hi = Math.max(...xs);
+  const clip = (t: number): Point[] => {
+    const out: Point[] = [];
+    corners.forEach((a, k) => {
+      const b = corners[(k + 1) % corners.length]!;
+      const inA = a.x >= t;
+      const inB = b.x >= t;
+      if (inA) out.push(a);
+      if (inA !== inB) out.push({ x: t, y: a.y + ((b.y - a.y) * (t - a.x)) / (b.x - a.x) });
+    });
+    return out;
+  };
+  const area = (pts: Point[]) =>
+    Math.abs(pts.reduce((sum, a, k) => { const b = pts[(k + 1) % pts.length]!; return sum + a.x * b.y - b.x * a.y; }, 0)) / 2;
+  const total = area(corners);
+  for (let n = 0; n < 24; n++) {
+    const mid = (lo + hi) / 2;
+    if (area(clip(mid)) > total * fraction) lo = mid;
+    else hi = mid;
+  }
+  return clip((lo + hi) / 2);
+}
+
 export function citySymbolForPopulation(population: number): CitySymbol {
   if (population <= 10_000) return 'village';
   if (population <= 50_000) return 'town';
@@ -781,6 +812,18 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
       }
 
       for (const overlay of overlays(own)) prims.push({ kind: 'polygon', points: corners, fill: overlay });
+
+      // A hex shared between two polities: the second holder's part, cut off
+      // by a straight chord so that it covers the fraction chosen.
+      const shared = knobs.polityStyle === 'fill' || knobs.polityStyle === 'tint' ? polities?.shares?.[String(i)] : undefined;
+      if (shared && polities?.owner[i]) {
+        const piece = shareRegion(corners, shared.share);
+        const solid = polityColour.get(shared.polityId) ?? '#777777';
+        const alpha = knobs.polityStyle === 'tint' ? TINT_ALPHA * polityOpacity : polityOpacity;
+        // Over the bare ground, not over the first holder's colour.
+        prims.push({ kind: 'polygon', points: piece, fill: hexFill(own) });
+        prims.push({ kind: 'polygon', points: piece, fill: alpha < 1 ? withAlpha(solid, alpha) : solid });
+      }
     }
   }
 

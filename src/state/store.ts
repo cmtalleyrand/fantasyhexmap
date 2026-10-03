@@ -19,6 +19,7 @@ import { migrateLegacyIslands } from '../../shared/islandMigration.js';
 import { GEO_KIND_LABEL, geoEligibility, geoNamesOf, withMigratedGeoNames } from '../../shared/geoNames.js';
 import { withValidParents } from '../../shared/polityTree.js';
 import { applyAutoShade } from '../../shared/polityShade.js';
+import { clampShare, pruneShares, withoutShares } from '../../shared/polityShares.js';
 import {
   baseTransitions,
   clearedAt,
@@ -29,7 +30,7 @@ import { isLayerEnabled } from '../../shared/layers.js';
 import { detachOrphanBranches, setRiverNavigability } from '../../shared/riverEdit.js';
 import { cosmeticallyEqual, currentDepVersions, identicalData, trimHistory } from '../../shared/layers.js';
 import { LAYER_META, normaliseSelection } from '../../shared/layers.js';
-import { MAX_DIM } from '../../shared/types.js';
+import { MAX_DIM, type PolitiesData } from '../../shared/types.js';
 import type {
   City,
   Decision,
@@ -97,6 +98,8 @@ export type Action =
     }
   | { type: 'setHexValues'; layer: 'base' | 'elevation' | 'climate' | 'vegetation' | 'population'; indices: number[]; value: unknown }
   | { type: 'setPolityOwner'; indices: number[]; polityId: string | null }
+  /** Split hexes between two polities: `second` holds the fraction `share` of each, `first` the rest. */
+  | { type: 'shareHexes'; indices: number[]; first: string; second: string; share: number }
   | { type: 'upsertPolity'; polity: Polity }
   /** `autoShade` also marks every part so it follows its realm from now on. */
   | { type: 'setPolityColours'; colours: Record<string, string>; autoShade?: boolean }
@@ -341,6 +344,12 @@ function growMap(map: MapState, amounts: GrowAmounts): MapState {
   );
 }
 
+/** The polities data with its share table replaced (dropped when empty). */
+function withShares(data: PolitiesData, shares: PolitiesData['shares']): PolitiesData {
+  const { shares: _old, ...rest } = data;
+  return shares && Object.keys(shares).length > 0 ? pruneShares({ ...rest, shares }) : rest;
+}
+
 function relayout(map: MapState, to: Relayout): MapState {
   const { cols } = map;
   const { nextCols, nextRows, place } = to;
@@ -371,7 +380,20 @@ function relayout(map: MapState, to: Relayout): MapState {
   if (polities.data) {
     layers.polities = {
       ...polities,
-      data: { ...polities.data, owner: to.grid(polities.data.owner, false) },
+      data: {
+        ...polities.data,
+        owner: to.grid(polities.data.owner, false),
+        ...(polities.data.shares
+          ? {
+              shares: Object.fromEntries(
+                Object.entries(polities.data.shares).map(([index, share]) => {
+                  const at = place(Number(index) % cols, Math.floor(Number(index) / cols));
+                  return [String(at.row * nextCols + at.col), share];
+                }),
+              ),
+            }
+          : {}),
+      },
       version: polities.version + 1,
       past: [],
       future: [],
@@ -497,7 +519,7 @@ function reconcile(map: MapState): MapState {
       return id;
     });
     if (dirty) {
-      layers = { ...layers, polities: { ...layers.polities, data: { ...polities, owner } } };
+      layers = { ...layers, polities: { ...layers.polities, data: pruneShares({ ...polities, owner }) } };
     }
   }
 
@@ -535,7 +557,7 @@ function dropUnderwater(map: MapState): MapState {
     });
     if (cleared > 0) {
       next = journal(
-        withLayer(next, 'polities', commit(next.layers.polities, { data: { ...polities, owner } })),
+        withLayer(next, 'polities', commit(next.layers.polities, { data: pruneShares({ ...polities, owner }) })),
         manualEntry('polities', `Cleared polity claims from ${cleared} underwater hexes.`),
       );
     }
@@ -797,15 +819,52 @@ export function reducer(map: MapState, action: Action): MapState {
         if (action.polityId && base && !canHoldSettlement(base[i], map.allowUnderwater)) continue;
         owner[i] = action.polityId;
       }
-      if (identicalData(layer.data.owner, owner)) return map;
+      // Assigning a hex whole ends any sharing of it.
+      const shares = withoutShares(layer.data.shares, action.indices);
+      if (identicalData(layer.data.owner, owner) && identicalData(layer.data.shares, shares)) return map;
       const target = action.polityId
         ? layer.data.polities.find((p) => p.id === action.polityId)?.name ?? 'a polity'
         : 'unclaimed';
       return journal(
-        withLayer(map, 'polities', commit(layer, { data: { ...layer.data, owner } })),
+        withLayer(map, 'polities', commit(layer, { data: withShares({ ...layer.data, owner }, shares) })),
         manualEntry(
           'polities',
           `Assigned ${action.indices.length} hex${action.indices.length === 1 ? '' : 'es'} to ${target} by hand.`,
+        ),
+      );
+    }
+
+    case 'shareHexes': {
+      const layer = map.layers.polities;
+      if (!layer.data) return map;
+      const { first, second } = action;
+      const known = new Set(layer.data.polities.map((p) => p.id));
+      if (first === second || !known.has(first) || !known.has(second)) return map;
+      const share = clampShare(action.share);
+      const base = map.layers.base.data;
+      const owner = layer.data.owner.slice();
+      const shares = { ...(layer.data.shares ?? {}) };
+      let count = 0;
+      for (const i of action.indices) {
+        if (i < 0 || i >= owner.length) continue;
+        if (base && !canHoldSettlement(base[i], map.allowUnderwater)) continue;
+        // The larger holder is the hex's owner; an even split keeps the order given.
+        const secondLarger = share > 0.5;
+        owner[i] = secondLarger ? second : first;
+        shares[String(i)] = secondLarger
+          ? { polityId: first, share: 1 - share }
+          : { polityId: second, share };
+        count++;
+      }
+      if (count === 0) return map;
+      const next = withShares({ ...layer.data, owner }, shares);
+      if (identicalData(layer.data, next)) return map;
+      const name = (id: string) => layer.data!.polities.find((p) => p.id === id)?.name ?? 'a polity';
+      return journal(
+        withLayer(map, 'polities', commit(layer, { data: next })),
+        manualEntry(
+          'polities',
+          `Shared ${count} hex${count === 1 ? '' : 'es'} between ${name(first)} (${Math.round((1 - share) * 100)}%) and ${name(second)} (${Math.round(share * 100)}%) by hand.`,
         ),
       );
     }
@@ -833,6 +892,15 @@ export function reducer(map: MapState, action: Action): MapState {
       const layer = map.layers.polities;
       if (!layer.data) return map;
       const removed = layer.data.polities.find((p) => p.id === action.id)?.name ?? 'a polity';
+      // A hex shared with the removed polity passes whole to its other holder.
+      const owner = layer.data.owner.map((id, i) => {
+        if (id !== action.id) return id;
+        const other = layer.data!.shares?.[String(i)]?.polityId;
+        return other && other !== action.id ? other : null;
+      });
+      const shares = Object.fromEntries(
+        Object.entries(layer.data.shares ?? {}).filter(([i, share]) => share.polityId !== action.id && layer.data!.owner[Number(i)] !== action.id),
+      );
       return journal(
         withLayer(
           map,
@@ -843,7 +911,8 @@ export function reducer(map: MapState, action: Action): MapState {
               polities: applyAutoShade(
                 withValidParents(layer.data.polities.filter((p) => p.id !== action.id)).polities,
               ),
-              owner: layer.data.owner.map((id) => (id === action.id ? null : id)),
+              owner,
+              ...(Object.keys(shares).length > 0 ? { shares } : {}),
             },
           }),
         ),

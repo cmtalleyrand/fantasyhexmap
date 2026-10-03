@@ -298,7 +298,7 @@ export function serializeParseFriendlyExport(map: MapState): string {
         'data.rivers: [{id, name, terminus, branchOf?, joins?, fromLake?, segments:[{col,row,entryEdge|null,exitEdge|null,navigable}]}]. Segments run source to mouth; entryEdge is null at a spring source, or the edge shared with the lake when fromLake. branchOf names the river a distributary leaves (its first segment is in the fork hex); joins names the river a tributary flows into (terminus "River"; its last segment is in the confluence hex, with exitEdge null).',
       cities:
         'data.cities: [{id,col,row,name,population,onRiver,riverId|null,coastal,coastalEdges:number[],site?}]. site is where the marker is drawn: "auto", "inland", "river" or {coast: edge}.',
-      polities: 'data.polities: [{id,name,shortName?,colour,parentId?}]; parentId names the larger polity this one is part of, which may own no hexes itself. data.owner: array of hexCount polity ids (the most specific polity) or null',
+      polities: 'data.polities: [{id,name,shortName?,colour,parentId?}]; parentId names the larger polity this one is part of, which may own no hexes itself. data.owner: array of hexCount polity ids (the most specific polity) or null; data.shares?: {hexIndex: {polityId, share}} hexes shared with a second polity holding that fraction (0-1), the rest held by data.owner',
     },
     values: {
       base: BASE_GEO_VALUES,

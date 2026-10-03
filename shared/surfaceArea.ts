@@ -1,3 +1,4 @@
+import { holdersOf } from './polityShares.js';
 import {
   DEFAULT_HEX_DIMENSIONS,
   hexShapeFor,
@@ -124,8 +125,9 @@ export function politySurfaceAreas(
       }
       continue;
     }
-    if (!areas.has(owner)) continue;
-    areas.set(owner, areas.get(owner)! + hexArea * fraction);
+    for (const [id, part] of holdersOf(data, index)) {
+      if (areas.has(id)) areas.set(id, areas.get(id)! + hexArea * fraction * part);
+    }
   }
   return areas;
 }
