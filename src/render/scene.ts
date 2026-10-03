@@ -27,6 +27,7 @@ import {
   type Point,
 } from '../../shared/hex.js';
 import {
+  type HexDimensions,
   LAYER_ORDER,
   hexShapeFor,
   isIslandType,
@@ -72,6 +73,7 @@ import {
   circlePath,
   coastalIslandSide,
   coastGeometryOf,
+  landInsetDepth,
   lakeIslandsOf,
   pieceDonor,
   piecePoints,
@@ -273,9 +275,10 @@ function cachedCoast(
   smooth: boolean,
   shapes: Record<string, HexShape> | undefined,
   defaultIrregularity: Irregularity | undefined,
+  dimensions: HexDimensions,
   seed: string,
 ): TracedCoast {
-  const key = `${cols}x${rows}@${size}/${smooth}/${seed}/${defaultIrregularity ?? ''}/${shapesSignature(shapes)}`;
+  const key = `${cols}x${rows}@${size}/${smooth}/${seed}/${defaultIrregularity ?? ''}/${shapesSignature(shapes)}/${dimensions.coastalLandPercent},${dimensions.glacierPercent}`;
   const hit = coastCache.get(base);
   if (hit && hit.key === key) return hit;
   const lakeIslands = lakeIslandsOf(base, cols, rows);
@@ -289,14 +292,35 @@ function cachedCoast(
     return COAST_AMPLITUDE[hexShapeFor(base[i], shapes?.[String(i)], defaultIrregularity).irregular] * (surface.split.has(i) ? 0.5 : 1);
   };
   // The sea's coast: lakes count as land here, as they have bodies of their own.
+  const seaEdges = surfaceEdges(surface, size, (side) => side !== 'sea');
+  // A coastal or glacier hex that is not all land is drawn with its coast set in
+  // from the hex's own edge, far enough that the land left is its share.
+  const wetEdges = new Map<number, CoastEdge[]>();
+  for (const edge of seaEdges) {
+    const i = edge.hex;
+    if (i === undefined || (base[i] !== 'Coastal Land' && base[i] !== 'Glacier')) continue;
+    wetEdges.set(i, [...(wetEdges.get(i) ?? []), edge]);
+  }
+  const insets = new Map<number, number>();
+  for (const [i, wet] of wetEdges) {
+    const share = landFraction(base[i], undefined, dimensions, shapes?.[String(i)]);
+    if (share >= 1) continue;
+    insets.set(i, landInsetDepth(hexCorners(i % cols, Math.floor(i / cols), size), wet, share));
+  }
   const geometry = coastGeometryOf(
-    surfaceEdges(surface, size, (side) => side !== 'sea'),
+    seaEdges,
     smooth,
     smooth
       ? {
           size,
           amplitude: (edge: CoastEdge) => Math.max(amplitudeOf(edge.hex), amplitudeOf(edge.across)),
           noise: (x, y, k) => unit(seed, 'coast', Math.round(x * 1000), Math.round(y * 1000), k),
+        }
+      : undefined,
+    insets.size > 0
+      ? {
+          depth: (edge) => insets.get(edge.hex ?? -1) ?? 0,
+          hex: (edge) => hexCorners((edge.hex ?? 0) % cols, Math.floor((edge.hex ?? 0) / cols), size),
         }
       : undefined,
   );
@@ -436,7 +460,7 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
   const population = opts.visible.population ? layers.population.data : null;
   const maxPop = population ? Math.max(1, ...population.map((v) => v ?? 0)) : 1;
 
-  const traced = base ? cachedCoast(base, cols, rows, size, knobs.coast === 'smooth', map.hexShapes, map.defaultIrregularity, seed) : null;
+  const traced = base ? cachedCoast(base, cols, rows, size, knobs.coast === 'smooth', map.hexShapes, map.defaultIrregularity, normaliseHexDimensions(map.hexDimensions), seed) : null;
   const rawPolities = opts.visible.polities ? layers.polities.data : null;
   // Realm colour is drawn on land only; see landOwners.
   const polities = rawPolities && base
@@ -727,6 +751,8 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
     rx: number;
     ry: number;
     axis: number;
+    /** A large island (it takes the large-island share) rather than a small one. */
+    large: boolean;
   }
   /**
    * Where the islands of an island hex lie and how big they are. Large
@@ -758,19 +784,19 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
         const r = coastalLarge ? 0.3 : 0.52;
         for (let k = 0; k < nl; k++) {
           const along = nl === 1 ? 0 : (k - 0.5) * 0.56;
-          isles.push({ c: at(toward + Math.PI, r, along), rx: (nl === 1 ? 0.34 : 0.26) * size, ry: (nl === 1 ? 0.24 : 0.19) * size, axis: toward + Math.PI / 2 });
+          isles.push({ c: at(toward + Math.PI, r, along), rx: (nl === 1 ? 0.34 : 0.26) * size, ry: (nl === 1 ? 0.24 : 0.19) * size, axis: toward + Math.PI / 2, large: true });
         }
       } else if (coastalLarge) {
         for (let k = 0; k < nl; k++) {
           const along = nl === 1 ? 0 : (k - 0.5) * 0.6;
-          isles.push({ c: at(toward, 0.4, along), rx: (nl === 1 ? 0.44 : 0.3) * size, ry: (nl === 1 ? 0.27 : 0.2) * size, axis: toward + Math.PI / 2 });
+          isles.push({ c: at(toward, 0.4, along), rx: (nl === 1 ? 0.44 : 0.3) * size, ry: (nl === 1 ? 0.27 : 0.2) * size, axis: toward + Math.PI / 2, large: true });
         }
       } else if (nl === 1) {
-        isles.push({ c, rx: (crowded ? 0.52 : 0.74) * size, ry: (crowded ? 0.44 : 0.62) * size, axis: rand(99) * Math.PI });
+        isles.push({ c, rx: (crowded ? 0.52 : 0.74) * size, ry: (crowded ? 0.44 : 0.62) * size, axis: rand(99) * Math.PI, large: true });
       } else {
         const axis = rand(98) * Math.PI;
         for (const sign of [-1, 1]) {
-          isles.push({ c: at(axis, sign * 0.36), rx: (crowded ? 0.32 : 0.4) * size, ry: (crowded ? 0.26 : 0.32) * size, axis: axis + Math.PI / 2 + (rand(97 + sign) - 0.5) });
+          isles.push({ c: at(axis, sign * 0.36), rx: (crowded ? 0.32 : 0.4) * size, ry: (crowded ? 0.26 : 0.32) * size, axis: axis + Math.PI / 2 + (rand(97 + sign) - 0.5), large: true });
         }
       }
     }
@@ -792,7 +818,7 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
         const a = start + ((k + 0.5) / ns) * free + (rand(300 + k) - 0.5) * 0.3;
         p = at(a, (nl > 0 && !coastalLarge ? 0.62 : 0.45) + rand(400 + k) * 0.1);
       }
-      isles.push({ c: p, rx: rr * 1.25, ry: rr, axis: rand(600 + k) * Math.PI });
+      isles.push({ c: p, rx: rr * 1.25, ry: rr, axis: rand(600 + k) * Math.PI, large: false });
     }
     return isles;
   };
@@ -803,19 +829,47 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
       const toward = coastward(i, islandSpecFor(base![i], map.islandSpecs?.[String(i)]));
       return { x: c.x + Math.cos(toward) * size * 0.5, y: c.y + Math.sin(toward) * size * 0.5 };
     }
-    const biggest = islandLayout(i).sort((a, b) => b.rx * b.ry - a.rx * a.ry)[0];
+    const biggest = sizedIsles(i).sort((a, b) => b.rx * b.ry - a.rx * a.ry)[0];
     return biggest?.c ?? c;
   };
   const dimensions = normaliseHexDimensions(map.hexDimensions);
   /**
-   * How much bigger or smaller than usual a hex's islands are drawn, from its
-   * land share against the share its islands would have by default.
+   * How many times its per-island share each island of a hex is drawn at: 1
+   * unless the hex sets its own land share, in which case its islands share
+   * what it sets (less the mainland's share in a mainland hex) in the same
+   * proportions their own shares have.
    */
-  const islandScale = (i: number): number => {
+  const islandShareScale = (i: number): number => {
     const set = hexShapeFor(base![i], map.hexShapes?.[String(i)]).land;
     if (set === undefined) return 1;
-    const usual = landFraction(base![i], map.islandSpecs?.[String(i)], dimensions);
-    return usual > 0 ? Math.min(1.3, Math.max(0.5, Math.sqrt(set / 100 / usual))) : 1;
+    const spec = islandSpecFor(base![i], map.islandSpecs?.[String(i)]);
+    const usual = spec.large * dimensions.largeIslandPercent + spec.small * dimensions.smallIslandPercent;
+    const islands = terrain?.split.has(i) ? Math.max(0, set - dimensions.mainlandPercent) : set;
+    return usual > 0 ? islands / usual : 1;
+  };
+  const hexArea = 1.5 * Math.sqrt(3) * size * size;
+  /**
+   * The islands of an island hex as drawn. The layout says where each lies and
+   * its shape; its size is its share of the hex, so the land drawn is the
+   * percentage the hex is set to. An island that would then spill over its
+   * hex's edge is drawn nearer the centre.
+   */
+  const sizedIsles = (i: number): Isle[] => {
+    const centre = hexCenter(i % cols, Math.floor(i / cols), size);
+    const times = islandShareScale(i);
+    return islandLayout(i).map((isle) => {
+      const share = (isle.large ? dimensions.largeIslandPercent : dimensions.smallIslandPercent) * times;
+      const area = (Math.min(100, Math.max(0, share)) / 100) * hexArea;
+      const aspect = isle.rx / isle.ry;
+      const rx = Math.min(size * 0.82, Math.sqrt((area * aspect) / Math.PI));
+      const ry = Math.min(size * 0.82, Math.sqrt(area / (aspect * Math.PI)));
+      const dx = isle.c.x - centre.x;
+      const dy = isle.c.y - centre.y;
+      const away = Math.hypot(dx, dy);
+      const room = Math.max(0, size * 0.836 - Math.max(rx, ry) * 1.1);
+      const f = away > room && away > 0 ? room / away : 1;
+      return { ...isle, rx, ry, c: { x: centre.x + dx * f, y: centre.y + dy * f } };
+    });
   };
   /** The islands of an island hex, as closed paths. */
   const islandPath = (i: number): PathCmd[] => {
@@ -823,13 +877,12 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
     const blob = knobs.islands === 'blob';
     const level = levelOf(i);
     const irregular = ISLE_IRREGULARITY[level];
-    const scale = islandScale(i);
-    return islandLayout(i).flatMap((isle, k) => {
+    return sizedIsles(i).flatMap((isle, k) => {
       const sub = (q: number) => rand(1000 + k * 37 + q);
-      const big = isle.rx > size * 0.3;
-      const rx = isle.rx * scale;
-      const ry = isle.ry * scale;
-      if (!blob) return circlePath(isle.c, Math.sqrt(rx * ry) * 0.9);
+      const big = isle.large;
+      const { rx, ry } = isle;
+      if (rx <= 0 || ry <= 0) return [];
+      if (!blob) return circlePath(isle.c, Math.sqrt(rx * ry));
       const body = blobPath(isle.c, rx, ry, isle.axis, sub, (big ? 12 : 9) + irregular.extraPoints, (big ? 0.16 : 0.18) * irregular.wobble);
       // Rugged and fractured islands shed skerries along their shores.
       const skerries: PathCmd[] = [];
@@ -1332,6 +1385,7 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
         };
       })
     : new Map();
+  const riversFrom = prims.length;
   if (rivers) {
     const picked = opts.highlightRiver ? rivers.rivers.find((r) => r.id === opts.highlightRiver) : null;
     if (picked) {
@@ -1419,6 +1473,20 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
         });
       }
     }
+  }
+
+  // A river stops at the shore of a hex drawn partly water, not at the hex's own edge.
+  const strips = traced?.geometry.strips ?? [];
+  if (strips.length > 0 && prims.length > riversFrom) {
+    prims.push({
+      kind: 'group',
+      clip: [
+        ['M', -size, -size], ['L', width + size, -size], ['L', width + size, height + size], ['L', -size, height + size], ['Z'],
+        ...strips.flatMap((strip) => strip.d),
+      ],
+      clipRule: 'evenodd',
+      prims: prims.splice(riversFrom),
+    });
   }
 
   if (rivers && opts.highlightRiver) {
