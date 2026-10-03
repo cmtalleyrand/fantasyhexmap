@@ -245,6 +245,8 @@ interface TracedCoast {
   lakes: number[][];
   lakeIslands: Set<number>;
   surface: SurfaceMap;
+  /** How far in from its own edges each partly-land hex (Coastal Land, Glacier) has its water-facing edges drawn. */
+  insets: Map<number, number>;
 }
 
 const coastCache = new WeakMap<object, TracedCoast & { key: string }>();
@@ -300,8 +302,11 @@ function cachedCoast(
   const seaEdges = surfaceEdges(surface, size, (side) => side !== 'sea');
   // A coastal or glacier hex that is not all land is drawn with its coast set in
   // from the hex's own edge, far enough that the land left is its share.
+  // The edges it has against a lake count too: the lake is drawn over the hex, so
+  // its shore keeps the same depth (see `lakeBodyPath`'s `inset`).
+  const lakeEdges = surfaceEdges(surface, size, (side) => side !== 'lake').filter((edge) => edge.across !== undefined && surface.whole[edge.across] === 'lake');
   const wetEdges = new Map<number, CoastEdge[]>();
-  for (const edge of seaEdges) {
+  for (const edge of [...seaEdges, ...lakeEdges]) {
     const i = edge.hex;
     if (i === undefined || (base[i] !== 'Coastal Land' && base[i] !== 'Glacier')) continue;
     wetEdges.set(i, [...(wetEdges.get(i) ?? []), edge]);
@@ -329,7 +334,7 @@ function cachedCoast(
         }
       : undefined,
   );
-  const entry = { key, geometry, lakes, lakeIslands, surface };
+  const entry = { key, geometry, lakes, lakeIslands, surface, insets };
   coastCache.set(base, entry);
   return entry;
 }
@@ -1139,6 +1144,12 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
     const land = j >= 0 && !isWater(j) && !inLakeBody.has(j) ? j : -1;
     return COAST_AMPLITUDE[lakeShoreIrregularity(land >= 0 ? base?.[land] : null, land >= 0 ? map.hexShapes?.[String(land)] : undefined, map.defaultLakeIrregularity)];
   };
+  /** How far in a partly-land hex beside the lake has its shore drawn, at a point on it; negative elsewhere. */
+  const lakeShoreInset = (p: Point): number => {
+    const { col, row } = pixelToOffset(p.x, p.y, size);
+    if (!inBounds(cols, rows, col, row)) return -1;
+    return traced?.insets.get(hexIndex(cols, col, row)) ?? -1;
+  };
   const lakeOutlines: PathCmd[] = [];
   /** Each lake's drawn shore (body and the islands in it), by lake. */
   const lakeShores: PathCmd[][] = [];
@@ -1152,6 +1163,7 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
       rand,
       (p) => (isThinLand(p) ? 0.1 : 1),
       { amplitude: lakeShoreAmplitude, noise: (x, y, k) => unit(seed, 'lake', Math.round(x * 1000), Math.round(y * 1000), k) },
+      lakeShoreInset,
     );
     const isles = lake.filter((i) => lakeIslands.has(i)).flatMap(islandPath);
     lakeOutlines.push(...d, ...isles);
