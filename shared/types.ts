@@ -466,6 +466,11 @@ export interface Polity {
    * the parent's colour changes. Cleared when the colour is chosen by hand.
    */
   autoShade?: boolean;
+  /**
+   * A city-state: while it is small, the map names it by its capital alone
+   * (the capital, else the largest city in its land) instead of a realm name.
+   */
+  cityState?: boolean;
 }
 
 /** Per-hex flat arrays are indexed `row * cols + col`. */

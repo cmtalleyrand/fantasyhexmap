@@ -1252,6 +1252,24 @@ function PolityEditor(props: SubProps) {
                       ))}
                   </select>
                 </div>
+
+                <div className="row">
+                  <label
+                    htmlFor={`city-state-${p.id}`}
+                    style={{ margin: 0 }}
+                    title="While small, the map names it by its capital alone"
+                  >
+                    <input
+                      id={`city-state-${p.id}`}
+                      type="checkbox"
+                      checked={p.cityState === true}
+                      onChange={(e) =>
+                        dispatch({ type: 'upsertPolity', polity: { ...p, cityState: e.target.checked || undefined } })
+                      }
+                    />{' '}
+                    City-state
+                  </label>
+                </div>
               </div>
             );
           })}
