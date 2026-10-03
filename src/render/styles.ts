@@ -56,6 +56,8 @@ export interface StyleKnobs {
   cityMarkers: CityMarkerSet;
   /** The dashed water-coloured marks on a city's coastal edges. */
   cityCoastMarks: boolean;
+  /** Thickness of the ink lines (coasts and frontiers) relative to the style's own: fine, thin, standard, bold or heavy. */
+  lineWeight: 0.5 | 0.75 | 1 | 1.5 | 2;
   /** Paper grain over the whole map. */
   grain: boolean;
   /** Polities that are part of another: in their own colours, or as shades of their parent's. */
@@ -142,7 +144,7 @@ const CLASSIC: PresetInfo = {
     ripple: '#9fd2f0',
     rippleAlpha: 0.32,
     coast: '#16232e',
-    coastWidth: 0.07,
+    coastWidth: 0.0525,
     land: BASE_COLOURS.Land,
     coastalLand: BASE_COLOURS['Coastal Land'],
     island: ISLAND_DOT,
@@ -174,6 +176,7 @@ const CLASSIC: PresetInfo = {
     islands: 'dot',
     ice: 'flat',
     rivers: 'classic',
+    lineWeight: 1,
     grain: false,
     subPolities: 'own',
     relief: 'colour',
@@ -200,7 +203,7 @@ const PARCHMENT: PresetInfo = {
     ripple: '#2f4842',
     rippleAlpha: 0.5,
     coast: '#30251a',
-    coastWidth: 0.07,
+    coastWidth: 0.0525,
     land: '#e5d09c',
     coastalLand: '#d6b77c',
     island: '#d6b77c',
@@ -233,6 +236,7 @@ const PARCHMENT: PresetInfo = {
     islands: 'blob',
     ice: 'glacier',
     rivers: 'tapered',
+    lineWeight: 1,
     grain: true,
     subPolities: 'tints',
     relief: 'illustrated',
@@ -291,6 +295,7 @@ const ATLAS: PresetInfo = {
     islands: 'blob',
     ice: 'glacier',
     rivers: 'tapered',
+    lineWeight: 1,
     grain: false,
     subPolities: 'own',
     relief: 'none',
@@ -349,6 +354,7 @@ const NIGHT: PresetInfo = {
     islands: 'blob',
     ice: 'flat',
     rivers: 'tapered',
+    lineWeight: 1,
     grain: false,
     subPolities: 'tints',
     relief: 'hillshade',
@@ -528,6 +534,16 @@ export const KNOB_OPTIONS: {
       { value: 'tints', label: 'Shades of their realm' },
     ],
   },
+  lineWeight: {
+    label: 'Line thickness',
+    options: [
+      { value: 0.5, label: 'Fine' },
+      { value: 0.75, label: 'Thin' },
+      { value: 1, label: 'Standard' },
+      { value: 1.5, label: 'Bold' },
+      { value: 2, label: 'Heavy' },
+    ],
+  },
   grain: {
     label: 'Paper grain',
     options: [
@@ -537,7 +553,7 @@ export const KNOB_OPTIONS: {
   },
 };
 
-export const KNOB_ORDER: KnobId[] = ['relief', 'water', 'ripples', 'coast', 'grid', 'land', 'islands', 'ice', 'rivers', 'polityStyle', 'frontier', 'borders', 'polityTone', 'subPolities', 'lettering', 'realmNames', 'cityNames', 'cityMarkers', 'cityCoastMarks', 'grain'];
+export const KNOB_ORDER: KnobId[] = ['relief', 'water', 'ripples', 'coast', 'grid', 'land', 'islands', 'ice', 'rivers', 'polityStyle', 'frontier', 'borders', 'polityTone', 'subPolities', 'lettering', 'realmNames', 'cityNames', 'cityMarkers', 'cityCoastMarks', 'lineWeight', 'grain'];
 
 export const DEFAULT_STYLE_CHOICE: MapStyleChoice = { preset: 'classic', overrides: {} };
 

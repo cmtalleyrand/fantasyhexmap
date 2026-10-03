@@ -1628,7 +1628,7 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
       kind: 'path',
       d: [...shorelines, ...lakeOutlines],
       stroke: palette.coast,
-      strokeWidth: Math.max(0.8, size * palette.coastWidth),
+      strokeWidth: Math.max(0.8, size * palette.coastWidth * knobs.lineWeight),
       round: true,
     });
   }
@@ -1637,7 +1637,7 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
   if (texturedIce && !thematic && glacierHexes.length > 0 && iceHexes.length > 0 && coastLines.length > 0) {
     const nearPack = nearHexes(cols, rows, size, (i) => (base?.[i] === 'Sea Ice' ? 'Smooth' : null), 1.25);
     prims.push(
-      ...iceSeam(coastLines, size, (p) => nearGlacier(p) !== null && nearPack(p) !== null, mix(palette.seaIce, palette.iceShade, 0.35), Math.max(0.8, size * palette.coastWidth)),
+      ...iceSeam(coastLines, size, (p) => nearGlacier(p) !== null && nearPack(p) !== null, mix(palette.seaIce, palette.iceShade, 0.35), Math.max(0.8, size * palette.coastWidth * knobs.lineWeight)),
     );
   }
 
@@ -1848,7 +1848,7 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
         kind: 'path',
         d,
         stroke: palette.frontier,
-        strokeWidth: Math.max(0.8, size * 0.05),
+        strokeWidth: Math.max(0.8, size * 0.0375 * knobs.lineWeight),
         dash: knobs.frontier === 'dashed'
           ? [size * 0.22, size * 0.12]
           : knobs.frontier === 'dashdot'
@@ -1864,7 +1864,7 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
       kind: 'path',
       d: internal,
       stroke: palette.frontier,
-      strokeWidth: Math.max(0.8, size * 0.045),
+      strokeWidth: Math.max(0.8, size * 0.034 * knobs.lineWeight),
       dash: [size * 0.16, size * 0.1],
       round: true,
     });
