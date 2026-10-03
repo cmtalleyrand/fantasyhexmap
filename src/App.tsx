@@ -843,7 +843,10 @@ export default function App() {
   const emptyMapOverlay = map.layers.base.data ? null : manualMode ? (
     <div className="card map-empty">
       <h3>This map has no land or water yet</h3>
-      <p className="hint">Base Geography is empty, so there is nothing to edit by hand.</p>
+      <p className="hint">Base Geography is empty. Start it as open sea, then paint land onto it.</p>
+      <button className="primary" onClick={() => dispatch({ type: 'startLayer', layer: 'base' })}>
+        Start Base Geography by hand
+      </button>
     </div>
   ) : busyLayers.size > 0 ? (
     <div className="card map-empty" role="status">
