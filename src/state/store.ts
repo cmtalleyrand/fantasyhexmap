@@ -139,6 +139,7 @@ export type Action =
    */
   | { type: 'setHexShape'; indices: number[]; change: HexShapeChange | null }
   | { type: 'clearLayer'; layer: LayerId }
+  | { type: 'startLayer'; layer: LayerId }
   | { type: 'undo'; layer: LayerId }
   | { type: 'redo'; layer: LayerId };
 
@@ -1195,6 +1196,38 @@ export function reducer(map: MapState, action: Action): MapState {
         { ...map, hexShapes: shapes, updatedAt: Date.now() },
         manualEntry('base', `Changed the land share or irregularity of ${changed} hex${changed === 1 ? '' : 'es'} by hand.`),
       );
+    }
+
+    case 'startLayer': {
+      // Begins an empty layer by hand: nothing assigned yet, ready to be painted.
+      const layer = map.layers[action.layer];
+      if (layer.data) return map;
+      const n = map.cols * map.rows;
+      const empty: LayerDataMap[LayerId] =
+        action.layer === 'base'
+          ? (new Array(n).fill('Sea') as BaseGeo[])
+          : action.layer === 'polities'
+            ? { polities: [], owner: new Array(n).fill(null) }
+            : action.layer === 'cities'
+              ? { cities: [] }
+              : action.layer === 'rivers'
+                ? { rivers: [] }
+                : (new Array(n).fill(null) as LayerDataMap[LayerId]);
+      const next = journal(
+        withLayer(
+          map,
+          action.layer,
+          commit(layer as LayerState, {
+            data: empty,
+            warnings: [],
+            notes: null,
+            generatedAt: Date.now(),
+            depVersions: currentDepVersions(map, action.layer),
+          }),
+        ),
+        manualEntry(action.layer, `Started the ${LAYER_META[action.layer].label} layer by hand.`),
+      );
+      return action.layer === 'base' || action.layer === 'rivers' ? reconcile(next) : next;
     }
 
     case 'clearLayer': {

@@ -320,6 +320,15 @@ export default function Inspector(props: InspectorProps) {
               ? `${meta.label} needs ${missing.map((m) => LAYER_META[m].label).join(' and ')} first.`
               : `${meta.label} is empty, so there is nothing to edit yet.`}
           </p>
+          {missing.length === 0 && (
+            <button
+              className="primary"
+              style={{ marginTop: 8, width: '100%' }}
+              onClick={() => dispatch({ type: 'startLayer', layer: activeLayer })}
+            >
+              Start {meta.label} by hand
+            </button>
+          )}
         </div>
       )}
 
