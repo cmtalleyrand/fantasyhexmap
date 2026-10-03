@@ -822,7 +822,7 @@ function politiesPrompt(ctx: PromptContext): BuiltPrompt {
             'hexes - territorial waters, a reef kingdom, a drowned empire - but only where the brief or the setting supports it;',
             `open water is otherwise "${POLITY_UNCLAIMED}".`,
           ]
-        : [`Sea, Sea Ice and Lake hexes are always "${POLITY_UNCLAIMED}". Strait hexes may be owned, like the banks they join.`]),
+        : [`Sea, Sea Ice and Lake hexes are always "${POLITY_UNCLAIMED}". Strait hexes may be owned, like the banks they join; one left "${POLITY_UNCLAIMED}" is shared by the realms owning the land on either side.`]),
     ]),
     '',
     section('DRAWING BORDERS', [
@@ -1057,7 +1057,7 @@ function politiesPaintPrompt(ctx: PromptContext, roster: Roster | null): BuiltPr
             'hexes - territorial waters, a reef kingdom, a drowned empire - but only where the brief or the setting supports it;',
             `open water is otherwise "${POLITY_UNCLAIMED}".`,
           ]
-        : [`Sea, Sea Ice and Lake hexes are always "${POLITY_UNCLAIMED}". Strait hexes may be owned, like the banks they join.`]),
+        : [`Sea, Sea Ice and Lake hexes are always "${POLITY_UNCLAIMED}". Strait hexes may be owned, like the banks they join; one left "${POLITY_UNCLAIMED}" is shared by the realms owning the land on either side.`]),
     ]),
     '',
     section('DRAWING BORDERS', [

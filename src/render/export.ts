@@ -15,6 +15,7 @@ import {
   VEGETATION_VALUES,
 } from '../../shared/types.js';
 import type { PolityNameMin } from './labels.js';
+import { straitSharers } from '../../shared/straits.js';
 import { renderToCanvas } from './canvas.js';
 import { appendLegend, legendSections, type LegendOptions } from './legend.js';
 import { buildScene, singleLayerVisibility, type Scene, type VisibleLayers } from './scene.js';
@@ -237,6 +238,11 @@ export function serializeParseFriendlyExport(map: MapState): string {
           const owner = map.layers.polities.data?.owner[index] ?? null;
           hex.polity = owner;
           hex.polityName = owner ? (polityById.get(owner)?.name ?? null) : null;
+          const base = map.layers.base.data;
+          if (!owner && base) {
+            const sharers = straitSharers(base, map.layers.polities.data?.owner ?? [], map.cols, map.rows, index);
+            if (sharers.size > 0) hex.sharedPolities = [...sharers.keys()];
+          }
         } else {
           hex[id] = (map.layers[id].data as unknown[])[index] ?? null;
         }
