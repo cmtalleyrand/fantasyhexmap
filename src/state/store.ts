@@ -230,9 +230,24 @@ function expandGrid<T>(
   return out;
 }
 
+/**
+ * Grow the map by one line along an edge. A line at the top is two rows: the
+ * grid is odd-r, so one row would turn every old even row odd and slide the
+ * whole map half a hex east, changing which hexes touch (rivers, coasts, island
+ * sides). Two rows keep every row's parity, and so every adjacency, intact.
+ */
 function expandMap(map: MapState, edge: ExpandEdge): MapState {
+  const lines = edge === 'top' ? 2 : 1;
+  if ((edge === 'top' || edge === 'bottom' ? map.rows : map.cols) + lines > MAX_DIM) return map;
+  let next = map;
+  for (let i = 0; i < lines; i++) next = expandOnce(next, edge);
+  const noun = edge === 'top' || edge === 'bottom' ? 'row' : 'column';
+  const added = lines === 2 ? `two ${noun}s (one would shift every row by half a hex)` : `a ${noun}`;
+  return journal(reconcile(next), manualEntry('base', `Added ${added} at the ${edge} using neighbouring hexes.`));
+}
+
+function expandOnce(map: MapState, edge: ExpandEdge): MapState {
   const { cols, rows } = map;
-  if ((edge === 'top' || edge === 'bottom' ? rows : cols) >= MAX_DIM) return map;
   const colShift = edge === 'left' ? 1 : 0;
   const rowShift = edge === 'top' ? 1 : 0;
   const nextCols = cols + (edge === 'left' || edge === 'right' ? 1 : 0);
@@ -311,7 +326,7 @@ function expandMap(map: MapState, edge: ExpandEdge): MapState {
       : map.islandSpecs,
     updatedAt: Date.now(),
   };
-  return journal(reconcile(next), manualEntry('base', `Added a ${edge} ${edge === 'top' || edge === 'bottom' ? 'row' : 'column'} using neighbouring hexes.`));
+  return next;
 }
 
 /**

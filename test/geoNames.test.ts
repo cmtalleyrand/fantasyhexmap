@@ -76,7 +76,7 @@ test('names and island specs follow their hexes when the map grows', () => {
     map = reducer(map, { type: 'setIslandSpec', indices: [at(1, 5)], change: { large: 2 } });
     const expanded = reducer(map, { type: 'expandMap', edge });
     const dc = edge === 'left' ? 1 : 0;
-    const dr = edge === 'top' ? 1 : 0;
+    const dr = edge === 'top' ? 2 : 0;
     const to = (col: number, row: number) => (row + dr) * expanded.cols + col + dc;
     const sea = expanded.geoNames!.find((n) => n.id === 's')!;
     assert.deepEqual(sea.hexes, [to(2, 2), to(1, 5)].sort((a, b) => a - b), edge);

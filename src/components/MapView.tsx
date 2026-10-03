@@ -451,7 +451,7 @@ export default function MapView(props: MapViewProps) {
       <div className="mapzoom" role="toolbar" aria-label="Map navigation">
         <div className="map-expand" aria-label="Expand map">
           <span>add</span>
-          <button className="tiny" disabled={map.rows >= MAX_DIM} onClick={() => props.onExpand('top')} title="Add a row at the top">↑ row</button>
+          <button className="tiny" disabled={map.rows + 2 > MAX_DIM} onClick={() => props.onExpand('top')} title="Add two rows at the top (one would shift every row by half a hex)">↑ 2 rows</button>
           <button className="tiny" disabled={map.rows >= MAX_DIM} onClick={() => props.onExpand('bottom')} title="Add a row at the bottom">↓ row</button>
           <button className="tiny" disabled={map.cols >= MAX_DIM} onClick={() => props.onExpand('left')} title="Add a column at the left">← col</button>
           <button className="tiny" disabled={map.cols >= MAX_DIM} onClick={() => props.onExpand('right')} title="Add a column at the right">→ col</button>
