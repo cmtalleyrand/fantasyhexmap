@@ -22,3 +22,57 @@ test('a port in an isthmus hex stands on the neck, not out in the water of its r
   assert.ok(Math.hypot(p.x - c.x, p.y - c.y) < size * 0.5, 'and near the neck');
   void surfaceEdges;
 });
+
+const lakeRow = (...cells: BaseGeo[]) => cells;
+
+test('land between two lakes is recognised only when the lakes are not neighbours', async () => {
+  const { lakeEdgesOf, isLakeNeck, resolvedSite } = await import('../src/render/sites.ts');
+  const Lk: BaseGeo = 'Lake';
+  // Row 0 of a 3x1 grid: lake, land, lake - the middle hex has lake on its east and west edges.
+  const base = lakeRow(Lk, L, Lk);
+  const edges = lakeEdgesOf({ col: 1, row: 0 }, base, 3);
+  assert.deepEqual(edges, [0, 3]);
+  assert.ok(isLakeNeck(edges));
+  assert.ok(!isLakeNeck([0, 1]), 'neighbouring lake edges are one bay');
+  assert.ok(isLakeNeck([0, 2]), 'lakes two edges apart leave a pass between them');
+  assert.ok(!isLakeNeck([]));
+  const city = { id: 'c', col: 1, row: 0, name: 'C', population: 100, onRiver: false, riverId: null, coastal: true, coastalEdges: [0, 3] } as City;
+  assert.equal(resolvedSite(city, edges).kind, 'neck', 'auto picks the neck');
+  assert.equal(resolvedSite(city).kind, 'coast', 'without the lake edges it is an ordinary shore');
+  assert.equal(resolvedSite({ ...city, site: 'neck' }, edges).kind, 'neck');
+  assert.equal(resolvedSite({ ...city, site: 'neck' }, [0]).kind, 'coast', 'neck is impossible without a second lake');
+  assert.equal(resolvedSite({ ...city, onRiver: true, riverId: 'r' }, edges).kind, 'port', 'a river keeps its priority');
+});
+
+test('a city between two lakes stands midway between them, on land', async () => {
+  const { citySite } = await import('../src/render/sites.ts');
+  const Lk: BaseGeo = 'Lake';
+  const base = lakeRow(Lk, L, Lk);
+  const city = { id: 'c', col: 1, row: 0, name: 'C', population: 100, onRiver: false, riverId: null, coastal: true, coastalEdges: [0, 3] } as City;
+  const c = hexCenter(1, 0, size);
+  const p = citySite(city, { size, base, cols: 3 });
+  assert.ok(Math.hypot(p.x - c.x, p.y - c.y) < 1e-9, 'opposite lakes put it at the centre');
+  // A land strip only the middle third of the hex wide: the city stays on it.
+  const onLand = (q: { x: number; y: number }) => Math.abs(q.x - c.x) < size * 0.3;
+  const q = citySite(city, { size, base, cols: 3, onLand });
+  assert.ok(onLand(q));
+});
+
+test('a city can be placed toward a corner, back from the shore, or at a free offset', async () => {
+  const { citySite, resolvedSite } = await import('../src/render/sites.ts');
+  const base: BaseGeo[] = Array(9).fill('Land');
+  const city = { id: 'c', col: 1, row: 1, name: 'C', population: 100, onRiver: false, riverId: null, coastal: true, coastalEdges: [0] } as City;
+  const c = hexCenter(1, 1, size);
+  const ctx = { size, base, cols: 3 };
+  const corner = citySite({ ...city, site: { corner: 1 } }, ctx);
+  assert.ok(corner.x > c.x && corner.y > c.y, 'corner 1 is the south-east corner');
+  const corner6 = citySite({ ...city, site: { corner: 7 } }, ctx);
+  assert.deepEqual(corner6, corner, 'corners wrap round');
+  const back = citySite({ ...city, site: 'landward' }, ctx);
+  assert.ok(back.x < c.x && Math.abs(back.y - c.y) < 1e-9, 'landward is away from the east shore');
+  assert.equal(resolvedSite({ ...city, coastalEdges: [], site: 'landward' }).kind, 'inland');
+  const free = citySite({ ...city, site: { offset: { x: 0.3, y: -0.2 } } }, ctx);
+  assert.ok(Math.abs(free.x - (c.x + 0.3 * size)) < 1e-9 && Math.abs(free.y - (c.y - 0.2 * size)) < 1e-9);
+  const far = citySite({ ...city, site: { offset: { x: 5, y: 0 } } }, ctx);
+  assert.ok(far.x - c.x <= size * 0.8 + 1e-9, 'an offset stays inside the hex');
+});

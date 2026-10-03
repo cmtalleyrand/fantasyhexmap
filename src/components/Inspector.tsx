@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { hexIndex, indexToOffset, neighbourOf } from '../../shared/hex.js';
 import { canHoldSettlement } from '../../shared/derive.js';
 import { landEdgesOf } from '../../shared/straits.js';
+import { isLakeNeck, lakeEdgesOf } from '../render/sites.js';
 import { holdersOf } from '../../shared/polityShares.js';
 import type { RiverNotice, RiverTool } from '../state/riverTools.js';
 import RiverEditor from './RiverEditor.js';
@@ -716,10 +717,17 @@ function HexShapePanel(props: SubProps) {
 }
 
 const SIDE_NAMES = ['east', 'south-east', 'south-west', 'west', 'north-west', 'north-east'];
+/** The hex's corners, in the order `{ corner }` counts them (corner c lies between edges c-1 and c). */
+const CORNER_NAMES = ['north-east', 'south-east', 'south', 'south-west', 'north-west', 'north'];
 
 function siteValue(site: City['site']): string {
   if (!site || site === 'auto') return 'auto';
-  if (typeof site === 'object') return 'bank' in site ? `bank:${site.bank}` : `${site.river ? 'port' : 'coast'}:${site.coast}`;
+  if (typeof site === 'object') {
+    if ('bank' in site) return `bank:${site.bank}`;
+    if ('corner' in site) return `corner:${site.corner}`;
+    if ('offset' in site) return 'offset';
+    return `${site.river ? 'port' : 'coast'}:${site.coast}`;
+  }
   return site;
 }
 
@@ -727,7 +735,9 @@ function parseSiteValue(value: string): City['site'] {
   if (value.startsWith('bank:')) return { bank: Number(value.slice(5)) };
   if (value.startsWith('coast:')) return { coast: Number(value.slice(6)) };
   if (value.startsWith('port:')) return { coast: Number(value.slice(5)), river: true };
-  return value === 'inland' || value === 'river' ? value : 'auto';
+  if (value.startsWith('corner:')) return { corner: Number(value.slice(7)) };
+  if (value === 'offset') return { offset: { x: 0, y: 0 } };
+  return value === 'inland' || value === 'river' || value === 'neck' || value === 'landward' ? value : 'auto';
 }
 
 /** "sea" or "lake": what lies across one of a city's coastal edges. */
@@ -1446,9 +1456,13 @@ function CityEditor(props: SubProps) {
                   value={siteValue(c.site)}
                   onChange={(e) => dispatch({ type: 'upsertCity', city: { ...c, site: parseSiteValue(e.target.value) } })}
                 >
-                  <option value="auto">Automatic (river port, river, coast, or centre)</option>
+                  <option value="auto">Automatic (river port, river, land between lakes, coast, or centre)</option>
                   <option value="inland">Inland, at the hex centre</option>
                   {c.onRiver && <option value="river">On its river</option>}
+                  {isLakeNeck(lakeEdgesOf(c, map.layers.base.data, map.cols)) && (
+                    <option value="neck">Between the lakes, on the narrow land</option>
+                  )}
+                  {c.coastalEdges.length > 0 && <option value="landward">Back from the shore, on the land side</option>}
                   {map.layers.base.data?.[c.row * map.cols + c.col] === 'Strait' &&
                     landEdgesOf(map.layers.base.data, map.cols, map.rows, c.col, c.row).map((e) => (
                       <option key={`bank${e}`} value={`bank:${e}`}>
@@ -1466,8 +1480,38 @@ function CityEditor(props: SubProps) {
                         On its river where it meets the {waterNameAcross(map, c, e) === 'lake' ? 'lake' : 'coast'}, {SIDE_NAMES[e]} side
                       </option>
                     ))}
+                  {CORNER_NAMES.map((name, k) => (
+                    <option key={`corner${k}`} value={`corner:${k}`}>
+                      Toward the {name} corner
+                    </option>
+                  ))}
+                  <option value="offset">Custom position in the hex</option>
                 </select>
               </div>
+              {c.site && typeof c.site === 'object' && 'offset' in c.site && (
+                <div className="row" style={{ flexBasis: '100%', alignItems: 'center' }}>
+                  {(['x', 'y'] as const).map((axis) => (
+                    <label key={axis} style={{ margin: 0 }}>
+                      {axis === 'x' ? 'East' : 'South'}{' '}
+                      <CommitInput
+                        type="number"
+                        step={0.1}
+                        min={-0.8}
+                        max={0.8}
+                        aria-label={`${axis === 'x' ? 'East' : 'South'} offset of ${c.name}, in hex sizes`}
+                        style={{ width: 70 }}
+                        value={(c.site as { offset: { x: number; y: number } }).offset[axis]}
+                        onCommit={(raw) => {
+                          const v = Math.max(-0.8, Math.min(0.8, Number(raw) || 0));
+                          const offset = (c.site as { offset: { x: number; y: number } }).offset;
+                          dispatch({ type: 'upsertCity', city: { ...c, site: { offset: { ...offset, [axis]: v } } } });
+                        }}
+                      />
+                    </label>
+                  ))}
+                  <span className="hint">in hex sizes from the centre; moved onto land if it falls in water</span>
+                </div>
+              )}
               <div className="hint" style={{ flexBasis: '100%' }}>
                 {c.coastal ? `coastal on edges ${c.coastalEdges.join(', ')}` : 'inland'}
                 {c.onRiver

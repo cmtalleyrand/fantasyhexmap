@@ -766,6 +766,11 @@ test('a generated roster names parents, which decode into parent ids', async () 
   assert.ok(out.warnings.some((w) => w.includes('Nowhere')));
 });
 
+/** Every primitive in a scene, however deeply the clip groups nest them. */
+function flatPrims(prims: Prim[]): Prim[] {
+  return prims.flatMap((p) => (p.kind === 'group' ? [p, ...flatPrims(p.prims)] : [p]));
+}
+
 test('a realm is named across all its parts, its parts smaller, with a dashed line between them', () => {
   const cols = 8;
   const rows = 4;
@@ -787,7 +792,7 @@ test('a realm is named across all its parts, its parts smaller, with a dashed li
   const realm = texts.find((t) => t.text === 'VALDORIA');
   assert.ok(realm, 'the realm, which owns no hexes itself, is named');
   for (const part of texts.filter((t) => t.text !== 'VALDORIA')) assert.ok(part.size < realm.size, `${part.text} is set smaller`);
-  assert.ok(prims.some((p) => p.kind === 'path' && p.dash), 'parts are divided by a dashed line');
+  assert.ok(flatPrims(prims).some((p) => p.kind === 'path' && p.dash), 'parts are divided by a dashed line');
   // With tints, the parts are drawn as shades of the realm's colour, not their own.
   const fills = new Set(prims.filter((p) => p.kind === 'polygon').map((p) => p.fill));
   assert.ok(!fills.has('#3366aa') && !fills.has('#33aa66'));
@@ -962,9 +967,9 @@ test('a lake is treated as sea by realms: its shore carries the band and no real
     });
     if (polityStyle === 'wash') {
       // The band strokes the drawn shore, inside a mask that cuts the lake out.
-      const masks = prims.flatMap((p) => (p.kind === 'group' ? p.prims : [])).filter((p): p is Extract<Prim, { kind: 'group' }> => p.kind === 'group' && p.clipRule === 'evenodd');
+      const masks = flatPrims(prims).filter((p): p is Extract<Prim, { kind: 'group' }> => p.kind === 'group' && p.clipRule === 'evenodd' && JSON.stringify(p.clip).includes(JSON.stringify(body[0])));
       assert.equal(masks.length, 1);
-      const stroke = masks[0]!.prims.find((p) => p.kind === 'path') as Extract<Prim, { kind: 'path' }>;
+      const stroke = flatPrims(masks[0]!.prims).find((p) => p.kind === 'path') as Extract<Prim, { kind: 'path' }>;
       assert.ok(JSON.stringify(stroke.d).includes(JSON.stringify(body[0])), 'the band follows the lake shore');
       assert.ok(JSON.stringify(masks[0]!.clip).includes(JSON.stringify(body[0])), 'the lake is cut out of the band');
     }
@@ -1020,7 +1025,7 @@ test('the frontier line can be switched off, and is drawn in filled mode when on
   visible.polities = true;
   const lines = (frontier: 'none' | 'solid') => {
     const style = resolveStyle({ preset: 'classic', overrides: { frontier } });
-    return buildScene(map, { size: 20, visible, labels: false, style }).prims.filter((p) => p.kind === 'path' && p.stroke === style.palette.frontier).length;
+    return flatPrims(buildScene(map, { size: 20, visible, labels: false, style }).prims).filter((p) => p.kind === 'path' && p.stroke === style.palette.frontier).length;
   };
   assert.equal(lines('none'), 0);
   assert.equal(lines('solid'), 1);
@@ -1579,4 +1584,22 @@ test('the river reach settings offer any distance, or 0 to 90 per cent', () => {
     assert.equal(parseStyleChoice({ preset: 'classic', overrides: { [knob]: 40 } }).overrides[knob], 40);
     assert.equal(parseStyleChoice({ preset: 'classic', overrides: { [knob]: 95 } }).overrides[knob], undefined);
   }
+});
+
+test('realm borders are cut to the drawn land, the frontier and the dashed part lines included', () => {
+  const map = createMapState('Dry', 5, 3);
+  map.layers.base.data = ['Sea', 'Land', 'Land', 'Land', 'Sea', 'Sea', 'Land', 'Lake', 'Land', 'Sea', 'Sea', 'Land', 'Land', 'Land', 'Sea'];
+  map.layers.polities.data = {
+    polities: [{ id: 'k', name: 'K', colour: '#336699' }, { id: 'a', name: 'A', colour: '#aa3333', parentId: 'k' }, { id: 'b', name: 'B', colour: '#3355aa', parentId: 'k' }, { id: 'c', name: 'C', colour: '#33aa55' }],
+    owner: [null, 'a', 'a', 'c', null, null, 'a', 'b', 'c', null, null, 'b', 'b', 'c', null],
+  };
+  const visible = defaultVisibility();
+  visible.polities = true;
+  const style = resolveStyle({ preset: 'parchment', overrides: { polityStyle: 'wash', frontier: 'solid' } });
+  const prims = buildScene(map, { size: 20, visible, labels: false, style }).prims;
+  const unclipped = prims.filter((p) => p.kind === 'path' && p.stroke === style.palette.frontier);
+  assert.equal(unclipped.length, 0, 'no border line is drawn outside a clip');
+  const clipped = flatPrims(prims).filter((p) => p.kind === 'path' && p.stroke === style.palette.frontier);
+  assert.ok(clipped.some((p) => p.kind === 'path' && !p.dash), 'the frontier is drawn');
+  assert.ok(clipped.some((p) => p.kind === 'path' && p.dash), 'the part line is drawn');
 });

@@ -964,3 +964,20 @@ passes, `lakeAim`, `landFix` and `lakeFix` in `scene.ts`). Before this the lake 
 analytic depth and was then smoothed and roughened, which left hexes 14 to 70 points off their share. Not covered:
 a hex with both sea and lake edges (the sea correction decides it), and a hex at 100% (or a plain Land hex)
 beside a lake, where the lake still reaches a little way into it as part of its drawn shape.
+
+## 48. More city sites, and land between two lakes
+
+**Chosen.** `CitySite` gains `'landward'` (back from the shore, on the side away from the water),
+`{ corner }` (toward a hex corner), `{ offset: { x, y } }` (a free point, in hex sizes from the centre, capped
+at 0.8 so it stays in the hex) and `'neck'`. Every site still goes through `onLandNear`, so none can leave a
+city in water.
+
+*Land between two lakes.* A hex with lake on two edges that are not neighbours (`isLakeNeck`: opposite, or two
+apart) is a strip of land between lakes, not a shore. The old coast logic summed the edge directions, which
+cancel for opposite lakes (leaving the centre by accident) and lean toward one lake for the rest. `'neck'`
+stands at the mean of the lake edges' midpoints: the centre for opposite lakes, shifted toward the pass for
+lakes two apart. `'auto'` picks it when there is no river (a river city keeps its river or port site) and the
+Inspector offers it only where it applies; an explicit `'neck'` on a hex that is not one falls back to the
+ordinary resolution. Lakes on neighbouring edges are one bay and stay a coast. The lake edges are found from
+the base layer in `citySite` (`lakeEdgesOf`), so `City` needs no new field and nothing is marked stale.
+Only lake-lake necks are recognised; a strip between a lake and the sea is still a coast.
