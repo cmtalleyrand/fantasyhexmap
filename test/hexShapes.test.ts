@@ -276,6 +276,26 @@ test('a lake shore is drawn ragged by default, follows its own map default, and 
   assert.equal(lakeShape(back), ragged);
 });
 
+test('coastal land beside a lake is drawn at its land share, as beside the sea', () => {
+  const base: BaseGeo[] = Array.from({ length: 25 }, (_, i) => (i === 12 ? 'Lake' : 'Coastal Land'));
+  const lakeArea = (percent: number): number => {
+    const map = mapWith(base, 5, 5);
+    const sized = { ...map, hexDimensions: { ...dims, coastalLandPercent: percent } };
+    const body = scene(sized).prims.find((p) => p.kind === 'path' && p.fill === smooth.palette.lake);
+    assert.ok(body && body.kind === 'path');
+    const pts = body.d.filter((c): c is ['M' | 'L', number, number] => c[0] === 'M' || c[0] === 'L');
+    let twice = 0;
+    pts.forEach((p, i) => {
+      const q = pts[(i + 1) % pts.length]!;
+      twice += p[1] * q[2] - q[1] * p[2];
+    });
+    return Math.abs(twice) / 2;
+  };
+  const full = lakeArea(100);
+  const half = lakeArea(50);
+  assert.ok(half > full * 1.3, `the lake takes more of the coast hexes when they are half land (${half} against ${full})`);
+});
+
 /* ------------------------------------------------------------ drawn land share */
 
 test('a coast hex is inset until the land left is its share of the hex', () => {

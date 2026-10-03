@@ -714,8 +714,13 @@ is not corrected for.
 **What it does not cover.** An Isthmus, a Strait and the mainland of a Mainland-and-islands hex are
 cut from fixed pieces of the hex (a neck or channel a third of a hex wide, banks, a half) and still
 draw that much whatever their share; the share counts in their area only. Their defaults (30% and 40%)
-sit close to what those pieces already show. A coast hex next to a lake is not drawn in from the lake,
-which has a body of its own.
+sit close to what those pieces already show.
+
+**Lakes.** A lake has a body of its own, so a coast hex beside one used to be drawn whole, its share
+ignored. The depth worked out for the hex now counts its lake-facing edges as well as its sea-facing
+ones, and the lake's shore beside that hex lies that far in from the hex's edge, in place of the lake's
+usual outward reach of about a sixth of a hex. The lake is drawn over the hex, so no water strip is
+needed. The shore is still smoothed and roughened like any lake shore, so the share is approximate there.
 
 ## 40. Ice follows the ground it lies on, and every edge resolves to a neighbour
 
