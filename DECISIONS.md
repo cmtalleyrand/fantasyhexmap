@@ -857,7 +857,7 @@ roughened like any lake shore, so the drawn land is approximate.
 
 **In areas.** A lake's share counts as land in a polity's area when the hex is owned.
 
-## Islands: share includes the outline, arrangements, and ripples off by default
+## 45. Islands: share includes the outline, arrangements, and ripples off by default
 
 **Problem.** Islands read larger than their land share, and clusters looked arbitrary. Three causes.
 (1) The size fit (`islandScale`) measured the island's fill only, but the coast's ink is centred on the
