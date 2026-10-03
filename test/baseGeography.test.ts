@@ -48,8 +48,15 @@ test('a glacier is shaded by its elevation and sea ice is drawn as a body of pac
   const visible = { ...defaultVisibility(), elevation: true };
   const prims = buildScene(map, { size: 20, visible, labels: false, style }).prims;
   const fills = prims.filter((p) => p.kind === 'polygon' && p.points.length === 6).map((p) => (p as { fill?: string }).fill);
-  assert.ok(fills.includes(style.palette.ice), 'high ice is the plain ice colour');
-  assert.ok(fills.some((f) => f !== style.palette.ice && f !== style.palette.sea && f !== style.palette.seaIce && f !== undefined && /^#/.test(f)), 'low ice is shaded');
+  const glacierFills = new Set(fills.filter((f) => f !== style.palette.sea && f !== style.palette.seaIce));
+  assert.equal(glacierFills.size, 1, 'glacier hexes share one colour: height is shaded over the sheet, not stepped hex by hex');
+  // Height is shaded over the sheet as soft discs, not hex by hex: dull over low ground, bright over high.
+  const discs = prims
+    .flatMap((p) => (p.kind === 'group' ? p.prims : []))
+    .filter((p): p is Extract<typeof p, { kind: 'circle' }> => p.kind === 'circle');
+  const tones = new Set(discs.map((d) => d.fill));
+  assert.ok(discs.length >= 3, 'the ice is shaded by its ground');
+  assert.ok(tones.size >= 2, 'low and high ice are shaded differently');
   // Sea ice lies on ordinary sea as one body, not as a pale hex.
   assert.ok(!fills.includes(style.palette.seaIce), 'sea ice is not a hex fill');
   const group = prims.find((p) => p.kind === 'group' && p.prims.some((q) => q.kind === 'path' && q.fill === style.palette.seaIce));

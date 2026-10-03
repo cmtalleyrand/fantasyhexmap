@@ -402,6 +402,12 @@ export function coastGeometry(
  */
 export interface Roughness {
   amplitude: (edge: CoastEdge) => number;
+  /**
+   * A steady push (in hex sizes) of the line away from its inside, towards the
+   * outside, round each corner it turns at: negative pulls it inward. Like the
+   * roughening it dies away to nothing at every edge midpoint.
+   */
+  lean?: (edge: CoastEdge) => number;
   noise: (x: number, y: number, k: number) => number;
   size: number;
 }
@@ -416,7 +422,7 @@ const ROUGH_STEPS = 8;
  * neighbouring pieces join without a step and the coast still passes through
  * the midpoint of every edge (where rivers and cities meet it).
  */
-function roughPiece(a: Point, p: Point, b: Point, amplitude: number, rough: Roughness): Point[] {
+function roughPiece(a: Point, p: Point, b: Point, amplitude: number, lean: number, rough: Roughness): Point[] {
   const m0 = mid(a, p);
   const m1 = mid(p, b);
   const at = (t: number): Point => ({
@@ -438,7 +444,7 @@ function roughPiece(a: Point, p: Point, b: Point, amplitude: number, rough: Roug
     const len = Math.hypot(dx, dy) || 1;
     let d = 0;
     for (let h = 0; h < weights.length; h++) d += weights[h]! * Math.sin(Math.PI * (h + 1) * t);
-    d = (d / total) * amplitude * size * 1.6;
+    d = (d / total) * amplitude * size * 1.6 - lean * size * Math.sin(Math.PI * t);
     out.push({ x: here.x - (dy / len) * d, y: here.y + (dx / len) * d });
   }
   out.push(m1);
@@ -722,8 +728,9 @@ export function coastGeometryOf(
       const m0 = mid(a, p);
       const m1 = mid(p, b);
       anchors.set(key(p), { x: (m0.x + 2 * p.x + m1.x) / 4, y: (m0.y + 2 * p.y + m1.y) / 4 });
-      if (rough && amplitude > 0) {
-        const samples = roughPiece(a, p, b, amplitude, rough);
+      const lean = rough?.lean ? (rough.lean(incoming) + rough.lean(outgoing)) / 2 : 0;
+      if (rough && (amplitude > 0 || lean !== 0)) {
+        const samples = roughPiece(a, p, b, amplitude, lean, rough);
         piece[k] = samples;
         anchors.set(key(p), samples[ROUGH_STEPS >> 1]!);
         for (const lobe of roughLobes(a, p, b, samples)) {
