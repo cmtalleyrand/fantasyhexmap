@@ -9,6 +9,7 @@
  * preset later reaches everyone who has not overridden that knob.
  */
 
+import type { CityMarkerSet } from './cityMarkers.js';
 import type { LetteringId } from './lettering.js';
 import { BASE_COLOURS, ISLAND_DOT, MAP_COLOURS } from './palette.js';
 
@@ -49,6 +50,8 @@ export interface StyleKnobs {
   cityNames: 'beside' | 'below';
   /** The typefaces names are set in: a pairing for realms, water and cities. */
   lettering: LetteringId;
+  /** City markers: the app's symbols, the atlas convention of dots and rings, or drawn buildings. */
+  cityMarkers: CityMarkerSet;
   /** The dashed water-coloured marks on a city's coastal edges. */
   cityCoastMarks: boolean;
   /** Paper grain over the whole map. */
@@ -170,6 +173,7 @@ const CLASSIC: PresetInfo = {
     realmNames: 'moderate',
     cityNames: 'beside',
     lettering: 'classic',
+    cityMarkers: 'symbols',
   },
 };
 
@@ -225,6 +229,7 @@ const PARCHMENT: PresetInfo = {
     realmNames: 'moderate',
     cityNames: 'beside',
     lettering: 'storybook',
+    cityMarkers: 'illustrated',
   },
 };
 
@@ -279,6 +284,7 @@ const ATLAS: PresetInfo = {
     realmNames: 'moderate',
     cityNames: 'beside',
     lettering: 'chancery',
+    cityMarkers: 'classic',
   },
 };
 
@@ -333,6 +339,7 @@ const NIGHT: PresetInfo = {
     realmNames: 'moderate',
     cityNames: 'beside',
     lettering: 'storybook',
+    cityMarkers: 'classic',
   },
 };
 
@@ -468,6 +475,14 @@ export const KNOB_OPTIONS: {
       { value: 'uncial', label: 'Uncial (Uncial Antiqua, Garamond)' },
     ],
   },
+  cityMarkers: {
+    label: 'City markers',
+    options: [
+      { value: 'symbols', label: 'Symbols' },
+      { value: 'classic', label: 'Dots and rings' },
+      { value: 'illustrated', label: 'Drawn buildings' },
+    ],
+  },
   cityCoastMarks: {
     label: 'Coastal edge marks on cities',
     options: [
@@ -491,7 +506,7 @@ export const KNOB_OPTIONS: {
   },
 };
 
-export const KNOB_ORDER: KnobId[] = ['relief', 'water', 'ripples', 'coast', 'grid', 'land', 'islands', 'ice', 'rivers', 'polityStyle', 'frontier', 'polityTone', 'subPolities', 'lettering', 'realmNames', 'cityNames', 'cityCoastMarks', 'grain'];
+export const KNOB_ORDER: KnobId[] = ['relief', 'water', 'ripples', 'coast', 'grid', 'land', 'islands', 'ice', 'rivers', 'polityStyle', 'frontier', 'polityTone', 'subPolities', 'lettering', 'realmNames', 'cityNames', 'cityMarkers', 'cityCoastMarks', 'grain'];
 
 export const DEFAULT_STYLE_CHOICE: MapStyleChoice = { preset: 'classic', overrides: {} };
 

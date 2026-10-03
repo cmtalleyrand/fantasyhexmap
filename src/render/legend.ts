@@ -10,6 +10,7 @@
  * legends and neither back end needs to know a legend exists.
  */
 
+import { cityMarker, type CityMarkerSet } from './cityMarkers.js';
 import { fantasyTextEm } from './fonts.js';
 import {
   BASE_COLOURS,
@@ -65,7 +66,7 @@ export type LegendSwatch =
   | { kind: 'island'; sea: string; land: string; variant: 'islands' | 'mainland' | 'isthmus' | 'strait' }
   | { kind: 'line'; colour: string; width: number }
   | { kind: 'coast' }
-  | { kind: 'city'; symbol: CitySymbol; onRiver: boolean }
+  | { kind: 'city'; symbol: CitySymbol; onRiver: boolean; set?: CityMarkerSet; ink?: string; paper?: string }
   | { kind: 'contour'; marks: number; flat: boolean }
   | { kind: 'ramp' };
 
@@ -221,10 +222,14 @@ export function legendSections(
         const used = new Set(cities.map((c) => symbolForPopulation(c.population)));
         for (const { symbol, label } of CITY_ENTRIES) {
           if (!options.onlyUsed || used.has(symbol)) {
-            entries.push({ swatch: { kind: 'city', symbol, onRiver: false }, label });
+            entries.push({
+              swatch: { kind: 'city', symbol, onRiver: false, set: style.knobs.cityMarkers, ink: style.palette.cityFill, paper: style.palette.cityRing },
+              label,
+            });
           }
         }
-        if (!options.onlyUsed || cities.some((c) => c.onRiver)) {
+        // Only the symbols set marks river cities with a blue centre.
+        if (style.knobs.cityMarkers === 'symbols' && (!options.onlyUsed || cities.some((c) => c.onRiver))) {
           entries.push({ swatch: { kind: 'city', symbol: 'village', onRiver: true }, label: 'Blue centre: on a river' });
         }
         if (style.knobs.cityCoastMarks && (!options.onlyUsed || cities.some((c) => c.coastalEdges.length > 0))) {
@@ -359,6 +364,13 @@ function swatchPrims(swatch: LegendSwatch, x: number, cy: number, m: ReturnType<
         dash: [4 * k, 3 * k],
       }];
     case 'city':
+      if (swatch.set && swatch.set !== 'symbols') {
+        return cityMarker(swatch.set, swatch.symbol, { x: cx, y: cy + (swatch.set === 'illustrated' ? 2 * k : 0) }, 8 * k, {
+          ink: swatch.ink ?? MAP_COLOURS.city,
+          paper: swatch.paper ?? MAP_COLOURS.cityRing,
+          river: MAP_COLOURS.river,
+        }, () => 0.5);
+      }
       return [{ kind: 'city', c: { x: cx, y: cy }, r: 8 * k, onRiver: swatch.onRiver, symbol: swatch.symbol }];
     case 'contour': {
       const prims: Prim[] = [box(ELEVATION_COLOURS.Rolling)];

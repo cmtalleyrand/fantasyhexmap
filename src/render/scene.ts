@@ -80,6 +80,7 @@ import {
   type CoastGeometry,
 } from './coast.js';
 import type { CitySymbol, PathCmd, Prim } from './prims.js';
+import { cityMarker, markerExtent } from './cityMarkers.js';
 import { riverCourses, type RiverCourse } from './rivers.js';
 import { citySite } from './sites.js';
 import { escarpment, hillshade, reliefSymbols, vegetationSymbols, type Placed } from './symbols.js';
@@ -1234,10 +1235,13 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
     ]),
   );
   const siteOf = (city: { id: string; col: number; row: number }) => sites.get(city.id) ?? hexCenter(city.col, city.row, size);
+  /** A city marker's radius: grows with population, at a little under the old markers' weight. */
+  const markerRadius = (population: number) =>
+    0.85 * Math.max(size * 0.16, Math.min(size * 0.46, size * 0.1 * Math.log10(Math.max(10, population))));
   if (cities) {
     for (const city of cities.cities) {
       const c = siteOf(city);
-      const r = Math.max(size * 0.16, Math.min(size * 0.46, size * 0.1 * Math.log10(Math.max(10, city.population))));
+      const r = markerRadius(city.population);
       // Mark which edges are coastal, since "coastal" is edge-specific here.
       // Dashed and water-coloured so it never reads as a polity border.
       for (const edge of knobs.cityCoastMarks ? city.coastalEdges : []) {
@@ -1250,16 +1254,12 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
           dash: [size * 0.18, size * 0.14],
         });
       }
-      prims.push({
-        kind: 'city',
-        c,
-        r,
-        onRiver: city.onRiver,
-        symbol: citySymbolForPopulation(city.population),
-        riverDot: palette.river,
-        fill: palette.cityFill,
-        ring: palette.cityRing,
-      });
+      const symbol = citySymbolForPopulation(city.population);
+      if (knobs.cityMarkers === 'symbols') {
+        prims.push({ kind: 'city', c, r, onRiver: city.onRiver, symbol, riverDot: palette.river, fill: palette.cityFill, ring: palette.cityRing });
+      } else {
+        prims.push(...cityMarker(knobs.cityMarkers, symbol, c, r, { ink: palette.cityFill, paper: palette.cityRing, river: palette.river }, (k) => unit(seed, 'city', city.id, k)));
+      }
     }
   }
 
@@ -1268,8 +1268,11 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
   // range names follow their features; city names then take whichever slot
   // around their marker is free of all of those. A realm's name is never
   // pushed aside to make room for a city's.
-  const markerRadius = (population: number) =>
-    Math.max(size * 0.16, Math.min(size * 0.46, size * 0.1 * Math.log10(Math.max(10, population))));
+  /** How far a city's marker reaches round its site, for names to keep clear of. */
+  const markerReach = (population: number) => {
+    const extent = markerExtent(knobs.cityMarkers, citySymbolForPopulation(population));
+    return markerRadius(population) * Math.max(extent.half, (extent.up + extent.down) / 2);
+  };
   const taken: OrientedBox[] = [];
   const lettering = LETTERINGS[knobs.lettering] ?? LETTERINGS.classic;
   const realmRole = lettering.realm;
@@ -1278,7 +1281,7 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
     const obstacles: LabelObstacle[] = [];
     for (const city of cities?.cities ?? []) {
       const c = siteOf(city);
-      const r = markerRadius(city.population);
+      const r = markerReach(city.population);
       obstacles.push({ left: c.x - r, right: c.x + r, top: c.y - r, bottom: c.y + r });
     }
     // Without a hierarchy every realm is named once, from the cache. With one,
@@ -1426,7 +1429,7 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
         id: city.id,
         name: city.name,
         at: siteOf(city),
-        r: markerRadius(city.population),
+        r: markerReach(city.population),
         population: city.population,
       })),
       fontSize,

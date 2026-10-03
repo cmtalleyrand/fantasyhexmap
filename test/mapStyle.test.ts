@@ -702,8 +702,11 @@ test('every preset names in its own ink, and dark styles stay legible', () => {
     const prims = buildScene(map, { size: 20, visible, labels: true, style }).prims;
     const name = prims.find((p): p is Extract<Prim, { kind: 'text' }> => p.kind === 'text' && p.text === 'Harrow');
     assert.equal(name?.fill, style.palette.label, `${preset}: city name ink`);
-    const marker = prims.find((p): p is Extract<Prim, { kind: 'city' }> => p.kind === 'city');
-    assert.equal(marker?.fill, style.palette.cityFill, `${preset}: marker colour`);
+    // The marker is in the preset's city ink, whichever marker set it uses.
+    const marker = prims.find((p) =>
+      (p.kind === 'city' || p.kind === 'circle' || p.kind === 'path') && 'fill' in p && p.fill === style.palette.cityFill,
+    );
+    assert.ok(marker, `${preset}: marker colour`);
   }
   // On the dark preset the names are light.
   const night = resolveStyle({ preset: 'night', overrides: {} }).palette;
@@ -1044,4 +1047,28 @@ test('rivers start and stop on a lake’s drawn shore, and a river widens below 
   const fed = riverCourse(trunk, 20, map.id, { inflows: [{ at: { x: 4.5 * 20 * Math.sqrt(3), y: 20 + 2 * 30 }, run: 10 * 20 }] })!;
   assert.ok(fed.widths.at(-10)! > plain.widths.at(-10)!, 'wider below the confluence');
   assert.equal(fed.widths[2], plain.widths[2], 'unchanged above it');
+});
+
+test('city markers come in three sets, each drawing every size of place', async () => {
+  const map = islandMap();
+  const sizes = [5_000, 30_000, 120_000, 600_000];
+  map.layers.cities.data = {
+    cities: sizes.map((population, k) => ({ id: `c${k}`, col: 2 + (k % 3), row: 1 + Math.floor(k / 3) * 2, name: `C${k}`, population, onRiver: false, riverId: null, coastal: false, coastalEdges: [] })),
+  };
+  const visible = { ...allLayers(), cities: true };
+  for (const cityMarkers of ['symbols', 'classic', 'illustrated'] as const) {
+    const style = resolveStyle({ preset: 'parchment', overrides: { cityMarkers } });
+    const prims = buildScene(map, { size: 20, visible, labels: false, style }).prims;
+    if (cityMarkers === 'symbols') {
+      assert.equal(prims.filter((p) => p.kind === 'city').length, sizes.length);
+    } else {
+      assert.equal(prims.filter((p) => p.kind === 'city').length, 0);
+      const ink = prims.filter((p) => (p.kind === 'circle' || p.kind === 'path') && p.fill === style.palette.cityFill);
+      assert.ok(ink.length >= sizes.length, `${cityMarkers}: every place has a marker`);
+    }
+    // The SVG of each set is well formed.
+    assert.ok(sceneToSvg({ width: 100, height: 100, background: '#fff', prims }, 'x').startsWith('<'));
+  }
+  assert.equal(resolveStyle({ preset: 'parchment', overrides: {} }).knobs.cityMarkers, 'illustrated');
+  assert.equal(resolveStyle({ preset: 'classic', overrides: {} }).knobs.cityMarkers, 'symbols');
 });
