@@ -247,3 +247,30 @@ test('resizing the map moves shape settings with their hexes', () => {
   // Hex (0, 1) was index 2 on a 2-wide grid and is index 3 on a 3-wide one.
   assert.deepEqual(grown.hexShapes, { '3': { type: 'Coastal Land', land: 70 } });
 });
+
+test('a lake shore is drawn ragged by default, follows its own map default, and honours a hex set by hand', () => {
+  const base: BaseGeo[] = Array.from({ length: 25 }, (_, i) => (i === 12 ? 'Lake' : 'Land'));
+  const plain = mapWith(base, 5, 5);
+  assert.equal(plain.defaultLakeIrregularity, undefined);
+  const lakeShape = (map: MapState) => JSON.stringify(scene(map).prims.filter((p) => p.kind === 'path' && p.fill === smooth.palette.lake));
+  const ragged = lakeShape(plain);
+  const asRagged = lakeShape(reducer(plain, { type: 'setDefaultLakeIrregularity', irregular: 'Ragged' }));
+  assert.equal(asRagged, ragged, 'Ragged is the usual lake default');
+  const smoothLake = reducer(plain, { type: 'setDefaultLakeIrregularity', irregular: 'Smooth' });
+  assert.equal(smoothLake.defaultLakeIrregularity, 'Smooth');
+  assert.notEqual(lakeShape(smoothLake), ragged);
+  assert.notEqual(lakeShape(reducer(plain, { type: 'setDefaultLakeIrregularity', irregular: 'Fractured' })), ragged);
+  // The sea coast default does not move a lake's shore.
+  assert.equal(lakeShape(reducer(plain, { type: 'setDefaultIrregularity', irregular: 'Fractured' })), ragged);
+  // Land set to Smooth by hand on every side of the lake overrides the lake default.
+  const around = [6, 7, 8, 11, 13, 16, 17, 18];
+  const pinned = { ...plain, hexShapes: Object.fromEntries(around.map((i) => [String(i), { type: 'Land' as const, irregular: 'Smooth' as const }])) };
+  assert.equal(lakeShape(pinned), ragged, 'Land is not a shaped type, so a stored setting is ignored');
+  const coastal = mapWith(base.map((v) => (v === 'Land' ? 'Coastal Land' : v)), 5, 5);
+  const coastalPinned = { ...coastal, hexShapes: Object.fromEntries(around.map((i) => [String(i), { type: 'Coastal Land' as const, irregular: 'Smooth' as const }])) };
+  assert.equal(lakeShape(coastalPinned), lakeShape(reducer(coastal, { type: 'setDefaultLakeIrregularity', irregular: 'Smooth' })));
+  assert.notEqual(lakeShape(coastalPinned), lakeShape(coastal));
+  const back = reducer(smoothLake, { type: 'setDefaultLakeIrregularity', irregular: null });
+  assert.equal('defaultLakeIrregularity' in back, false);
+  assert.equal(lakeShape(back), ragged);
+});

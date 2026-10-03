@@ -655,6 +655,13 @@ of every shaped hex with none of its own, replacing the per-type defaults (coast
 Wavy); only hexes set by hand keep theirs, so changing it redraws exactly the hexes that follow the
 default. It is stored as `MapState.defaultIrregularity` and cleared by choosing "Each type's own".
 
+**Lake shores.** A lake's shore is roughened the same way, so a lake is not a smooth blob beside a
+ragged sea. It has its own map-wide default, `MapState.defaultLakeIrregularity`, separate from the sea
+coast's and Ragged when absent (this redraws existing lakes: they were smooth). The shore takes the
+setting of the land hex beside it when that hex is a shaped type set by hand (Coastal Land, say), else
+the lake default; the amplitude is eased between hexes and held back where a narrow strip of land
+separates two arms of water, as the lake's outward reach already is.
+
 **What it does not cover.** Sea Ice has irregularity but no land share. The AI layers do not set
 either value; they are hand edits, logged in the journal.
 

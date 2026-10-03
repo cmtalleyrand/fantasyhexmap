@@ -34,6 +34,7 @@ import {
   type HexShape,
   type IslandSpec,
   type Irregularity,
+  lakeShoreIrregularity,
   type BaseGeo,
   type CitiesData,
   type Climate,
@@ -955,6 +956,13 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
       return Math.min(gap, 6 - gap) >= 2;
     }));
   };
+  /** How irregular a lake's shore is at a point: set by the land hex beside it, else by the map's lake default. */
+  const lakeShoreAmplitude = (p: Point): number => {
+    const { col, row } = pixelToOffset(p.x, p.y, size);
+    const j = inBounds(cols, rows, col, row) ? hexIndex(cols, col, row) : -1;
+    const land = j >= 0 && !isWater(j) && !inLakeBody.has(j) ? j : -1;
+    return COAST_AMPLITUDE[lakeShoreIrregularity(land >= 0 ? base?.[land] : null, land >= 0 ? map.hexShapes?.[String(land)] : undefined, map.defaultLakeIrregularity)];
+  };
   const lakeOutlines: PathCmd[] = [];
   /** Each lake's drawn shore (body and the islands in it), by lake. */
   const lakeShores: PathCmd[][] = [];
@@ -967,6 +975,7 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
       size,
       rand,
       (p) => (isThinLand(p) ? 0.1 : 1),
+      { amplitude: lakeShoreAmplitude, noise: (x, y, k) => unit(seed, 'lake', Math.round(x * 1000), Math.round(y * 1000), k) },
     );
     const isles = lake.filter((i) => lakeIslands.has(i)).flatMap(islandPath);
     lakeOutlines.push(...d, ...isles);

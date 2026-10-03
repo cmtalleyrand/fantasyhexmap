@@ -71,6 +71,8 @@ export type Action =
   | { type: 'setAllowUnderwater'; allow: boolean }
   /** Set the irregularity of every shaped hex that has none of its own; null goes back to each type's default. */
   | { type: 'setDefaultIrregularity'; irregular: Irregularity | null }
+  /** Set the irregularity of lake shores whose land has none of its own; null goes back to the usual (Ragged). */
+  | { type: 'setDefaultLakeIrregularity'; irregular: Irregularity | null }
   | { type: 'growMap'; amounts: GrowAmounts }
   | {
       type: 'applyGeneration';
@@ -674,6 +676,20 @@ export function reducer(map: MapState, action: Action): MapState {
         model: null,
         warnings: 0,
       });
+    }
+
+    case 'setDefaultLakeIrregularity': {
+      if ((map.defaultLakeIrregularity ?? null) === action.irregular) return map;
+      const { defaultLakeIrregularity: _old, ...rest } = map;
+      return journal(
+        { ...rest, ...(action.irregular ? { defaultLakeIrregularity: action.irregular } : {}), updatedAt: Date.now() },
+        manualEntry(
+          'base',
+          action.irregular
+            ? `Set the default lake shore irregularity to ${action.irregular}.`
+            : 'Put the default lake shore irregularity back to Ragged.',
+        ),
+      );
     }
 
     case 'setDefaultIrregularity': {

@@ -666,6 +666,8 @@ export default function App() {
       onSaveHexDimensions={(hexDimensions) => dispatch({ type: 'setHexDimensions', hexDimensions })}
       defaultIrregularity={map?.defaultIrregularity ?? null}
       onSaveDefaultIrregularity={(irregular) => dispatch({ type: 'setDefaultIrregularity', irregular })}
+      defaultLakeIrregularity={map?.defaultLakeIrregularity ?? null}
+      onSaveDefaultLakeIrregularity={(irregular) => dispatch({ type: 'setDefaultLakeIrregularity', irregular })}
       allowUnderwater={map ? map.allowUnderwater === true : null}
       map={map}
       onSaveAllowUnderwater={(allow) => dispatch({ type: 'setAllowUnderwater', allow })}
