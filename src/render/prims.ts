@@ -92,6 +92,8 @@ export type Prim =
       clip?: PathCmd[];
       /** How the clip path is filled: nonzero (the default) or evenodd, which cuts overlapping subpaths out. */
       clipRule?: 'nonzero' | 'evenodd';
+      /** The group drawn at this opacity, 0 to 1, as one unit. */
+      opacity?: number;
       prims: Prim[];
     }
   | {
