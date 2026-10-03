@@ -27,6 +27,7 @@ import { isLayerEnabled } from '../../shared/layers.js';
 import { detachOrphanBranches, setRiverNavigability } from '../../shared/riverEdit.js';
 import { cosmeticallyEqual, currentDepVersions, identicalData, trimHistory } from '../../shared/layers.js';
 import { LAYER_META, normaliseSelection } from '../../shared/layers.js';
+import { MAX_DIM } from '../../shared/types.js';
 import type {
   City,
   Decision,
@@ -60,6 +61,7 @@ export type Action =
   | { type: 'setHexDimensions'; hexDimensions: HexDimensions }
   | { type: 'setPlan'; layers: LayerId[] }
   | { type: 'setAllowUnderwater'; allow: boolean }
+  | { type: 'expandMap'; edge: 'top' | 'bottom' | 'left' | 'right' }
   | {
       type: 'applyGeneration';
       layer: LayerId;
@@ -157,6 +159,148 @@ function withLayer(map: MapState, id: LayerId, layer: LayerState): MapState {
 }
 
 const MAX_JOURNAL = 400;
+
+type ExpandEdge = Extract<Action, { type: 'expandMap' }>['edge'];
+
+/**
+ * Insert one boundary line into a flat row-major grid. New cells take the mode
+ * of the old cells touching that position (the mean for numeric population).
+ * Thus the work is linear in the number of stored hexes, while each inferred
+ * value examines at most three donors.
+ */
+function expandGrid<T>(
+  data: T[],
+  cols: number,
+  rows: number,
+  edge: ExpandEdge,
+  numeric = false,
+): T[] {
+  const nextCols = cols + (edge === 'left' || edge === 'right' ? 1 : 0);
+  const nextRows = rows + (edge === 'top' || edge === 'bottom' ? 1 : 0);
+  const colShift = edge === 'left' ? 1 : 0;
+  const rowShift = edge === 'top' ? 1 : 0;
+  const out = new Array<T>(nextCols * nextRows);
+  for (let row = 0; row < rows; row++) {
+    for (let col = 0; col < cols; col++) {
+      out[(row + rowShift) * nextCols + col + colShift] = data[row * cols + col]!;
+    }
+  }
+
+  const newCells: Array<{ col: number; row: number }> = [];
+  if (edge === 'top' || edge === 'bottom') {
+    const row = edge === 'top' ? 0 : nextRows - 1;
+    for (let col = 0; col < nextCols; col++) newCells.push({ col, row });
+  } else {
+    const col = edge === 'left' ? 0 : nextCols - 1;
+    for (let row = 0; row < nextRows; row++) newCells.push({ col, row });
+  }
+  for (const cell of newCells) {
+    const sourceCol = Math.min(cols - 1, Math.max(0, cell.col - colShift));
+    const sourceRow = Math.min(rows - 1, Math.max(0, cell.row - rowShift));
+    const donors: T[] = [];
+    if (edge === 'top' || edge === 'bottom') {
+      for (let dc = -1; dc <= 1; dc++) {
+        const col = sourceCol + dc;
+        if (col >= 0 && col < cols) donors.push(data[sourceRow * cols + col]!);
+      }
+    } else {
+      for (let dr = -1; dr <= 1; dr++) {
+        const row = sourceRow + dr;
+        if (row >= 0 && row < rows) donors.push(data[row * cols + sourceCol]!);
+      }
+    }
+    if (numeric) {
+      const values = donors.filter((value): value is T & number => typeof value === 'number');
+      out[cell.row * nextCols + cell.col] = (values.length
+        ? Math.round(values.reduce((sum, value) => sum + value, 0) / values.length)
+        : null) as T;
+    } else {
+      const counts = new Map<T, number>();
+      for (const value of donors) counts.set(value, (counts.get(value) ?? 0) + 1);
+      out[cell.row * nextCols + cell.col] = [...counts].reduce((best, item) => item[1] > best[1] ? item : best)[0];
+    }
+  }
+  return out;
+}
+
+function expandMap(map: MapState, edge: ExpandEdge): MapState {
+  const { cols, rows } = map;
+  if ((edge === 'top' || edge === 'bottom' ? rows : cols) >= MAX_DIM) return map;
+  const colShift = edge === 'left' ? 1 : 0;
+  const rowShift = edge === 'top' ? 1 : 0;
+  const nextCols = cols + (edge === 'left' || edge === 'right' ? 1 : 0);
+  const nextRows = rows + (edge === 'top' || edge === 'bottom' ? 1 : 0);
+  const layers = { ...map.layers };
+  for (const id of Object.keys(layers) as LayerId[]) {
+    (layers as Record<LayerId, LayerState>)[id] = { ...layers[id], past: [], future: [] };
+  }
+  for (const id of ['base', 'elevation', 'climate', 'vegetation', 'population'] as const) {
+    const layer = map.layers[id];
+    if (!layer.data) continue;
+    layers[id] = {
+      ...layer,
+      data: expandGrid(layer.data as unknown[], cols, rows, edge, id === 'population') as never,
+      version: layer.version + 1,
+      past: [],
+      future: [],
+    };
+  }
+  const expandedBase = layers.base.data;
+  if (expandedBase) {
+    for (const id of ['elevation', 'climate', 'vegetation', 'population'] as const) {
+      const layer = layers[id];
+      if (!layer.data) continue;
+      layer.data = layer.data.map((value, index) => !isWaterSurface(expandedBase[index]) ? value : null) as never;
+    }
+  }
+  const polities = map.layers.polities;
+  if (polities.data) {
+    layers.polities = {
+      ...polities,
+      data: { ...polities.data, owner: expandGrid(polities.data.owner, cols, rows, edge) },
+      version: polities.version + 1,
+      past: [],
+      future: [],
+    };
+  }
+  const cities = map.layers.cities;
+  if (cities.data) {
+    layers.cities = {
+      ...cities,
+      data: { cities: cities.data.cities.map((city) => ({ ...city, col: city.col + colShift, row: city.row + rowShift })) },
+      version: cities.version + 1,
+      past: [],
+      future: [],
+    };
+  }
+  const rivers = map.layers.rivers;
+  if (rivers.data) {
+    layers.rivers = {
+      ...rivers,
+      data: { rivers: rivers.data.rivers.map((river) => ({
+        ...river,
+        segments: river.segments.map((segment) => ({ ...segment, col: segment.col + colShift, row: segment.row + rowShift })),
+      })) },
+      version: rivers.version + 1,
+      past: [],
+      future: [],
+    };
+  }
+  const remapIndex = (index: number) => {
+    const col = index % cols;
+    const row = Math.floor(index / cols);
+    return (row + rowShift) * nextCols + col + colShift;
+  };
+  const next = {
+    ...map,
+    cols: nextCols,
+    rows: nextRows,
+    layers,
+    mountainRanges: map.mountainRanges?.map((range) => ({ ...range, hexes: range.hexes.map(remapIndex) })),
+    updatedAt: Date.now(),
+  };
+  return journal(reconcile(next), manualEntry('base', `Added a ${edge} ${edge === 'top' || edge === 'bottom' ? 'row' : 'column'} using neighbouring hexes.`));
+}
 
 /**
  * Append to the record of how the map came to be. Human actions are logged
@@ -419,6 +563,9 @@ export function reducer(map: MapState, action: Action): MapState {
       );
       return action.allow ? next : dropUnderwater(next);
     }
+
+    case 'expandMap':
+      return expandMap(map, action.edge);
 
     case 'applyGeneration': {
       const layer = map.layers[action.layer];
