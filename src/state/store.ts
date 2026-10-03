@@ -1253,7 +1253,7 @@ export function reducer(map: MapState, action: Action): MapState {
           if (change.land === null) delete next.land;
           else if (change.land !== undefined && hasLandShare(value)) next.land = Math.max(0, Math.min(100, Math.round(change.land)));
           if (change.irregular === null) delete next.irregular;
-          else if (change.irregular !== undefined && isShapedType(value)) next.irregular = change.irregular;
+          else if (change.irregular !== undefined && (isShapedType(value) || value === 'Lake')) next.irregular = change.irregular;
           if (next.land === undefined && next.irregular === undefined) next = undefined;
         }
         if (next) shapes[key] = next;

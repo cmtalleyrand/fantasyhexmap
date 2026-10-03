@@ -914,3 +914,31 @@ placed against it by size, in every marker set: villages and towns stand on the 
 river grazing its edge, and only a metropolis stands on the river, which runs across it as a band and splits
 the marker. The offset is taken from the river's drawn width at that point, on whichever bank is land. The legend
 says "Beside a river". Label placement allows for the band only on a metropolis.
+**Cities.** A city on a river sits in a disc of river water edged in paper, in every marker set; the legend says
+"Blue ring: on a river". Label placement allows for the wider collar.
+
+## 47. Lakes carry their own irregularity; shores vary in strength; coast ink follows line weight
+
+**Lake irregularity.** A lake hex may carry an irregularity for its own shore (`HexShape.irregular` on a Lake
+hex). It beats the land hex beside the shore, which beats the map's lake default. Before this a lake shore
+could take it only from a "shaped" land hex (plain Land beside a lake could not carry one) and the sidebar
+offered nothing on a lake. The lake's reach into narrow land (a strip a hex wide between two waters) is still
+held back, but its roughness is not: the same limiter had been scaling irregularity to almost nothing there,
+so a hex between two lakes looked the same at Smooth and Fractured. Roughness keeps at least 55% of its size.
+
+**Less regular roughness.** A lake shore was three cosines of fixed wavelength at constant strength, and each
+sea-coast piece was normalised to the same peak. The lake's bands now drift in wavelength under a slowly
+varying strength, and each coast piece takes a seeded gain (some nearly calm, a few bold), so shores have calm
+and bold stretches rather than one repeating wobble.
+
+**Ink.** The coastline's stroke width is `size * coastWidth * lineWeight`; the half of it outside the land is
+counted in land shares (decision 45) with that width.
+
+**Lake shores count too (addendum to 47).** A hex whose land share a lake shore sets (a Coastal Land hex with
+less than 100% on a lake, or a lake hex given land) is now measured the way a sea-coast hex is. The lake body
+is drawn, its area in the hex and the length of shore in it are measured, the water is taken as that area less
+the outer half of the outline's ink, and the shore depth is moved until the hex shows its share (up to six
+passes, `lakeAim`, `landFix` and `lakeFix` in `scene.ts`). Before this the lake shore only started from the
+analytic depth and was then smoothed and roughened, which left hexes 14 to 70 points off their share. Not covered:
+a hex with both sea and lake edges (the sea correction decides it), and a hex at 100% (or a plain Land hex)
+beside a lake, where the lake still reaches a little way into it as part of its drawn shape.
