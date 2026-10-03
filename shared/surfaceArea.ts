@@ -1,63 +1,89 @@
 import {
   DEFAULT_HEX_DIMENSIONS,
+  hexShapeFor,
   islandSpecFor,
   type BaseData,
   type BaseGeo,
+  type HexShape,
   type IslandSpec,
   type HexDimensions,
   type PolitiesData,
 } from './types.js';
 
-export function normaliseHexDimensions(value?: Partial<HexDimensions>): HexDimensions {
-  return { ...DEFAULT_HEX_DIMENSIONS, ...value };
+/** Dimensions saved before land shares were set per type carried one island share. */
+type StoredHexDimensions = Partial<HexDimensions> & { islandLandPercent?: number };
+
+export function normaliseHexDimensions(value?: StoredHexDimensions): HexDimensions {
+  const { islandLandPercent, ...rest } = value ?? {};
+  const out = { ...DEFAULT_HEX_DIMENSIONS, ...rest };
+  if (islandLandPercent !== undefined && rest.smallIslandPercent === undefined && rest.largeIslandPercent === undefined) {
+    // The old defaults (60% coast, 40% island) take the current defaults; a share
+    // someone chose becomes the same ratio of small to large islands as before.
+    const untouched = islandLandPercent === 40 && rest.coastalLandPercent === 60;
+    if (untouched) out.coastalLandPercent = DEFAULT_HEX_DIMENSIONS.coastalLandPercent;
+    else {
+      out.smallIslandPercent = Math.round(islandLandPercent / 20) * 5;
+      out.largeIslandPercent = Math.round(islandLandPercent / 10) * 5;
+    }
+  }
+  return out;
 }
 
 /**
- * Returns land area by polity id. A pointy-top hex occupies 3/4 of its
- * flat-to-flat width times its corner-to-corner height.
+ * How much of a hex is land, from 0 to 1. A hex a person has given a land share
+ * takes that. Otherwise it is its type's share (see `HexDimensions`): a coastal
+ * hex, an isthmus, a strait or a glacier has one; an island hex is the sum of its
+ * islands, each large island and each small one taking its own share; and a
+ * mainland-and-islands hex adds the mainland's share to those.
  */
-/**
- * How much of a hex is land. An island hex counts its islands: a large one
- * fills most of the share an island hex is given, a small one a fifth of it;
- * a mainland-and-islands hex is half mainland, an isthmus a little over half.
- */
-export function landFraction(value: BaseGeo | null | undefined, stored: IslandSpec | undefined, dimensions: HexDimensions): number {
-  const island = dimensions.islandLandPercent / 100;
+export function landFraction(
+  value: BaseGeo | null | undefined,
+  stored: IslandSpec | undefined,
+  dimensions: HexDimensions,
+  shape?: HexShape,
+): number {
+  const set = hexShapeFor(value, shape).land;
+  if (set !== undefined) return set / 100;
+  const percent = (n: number) => Math.min(100, Math.max(0, n)) / 100;
   switch (value) {
     case 'Land':
-    case 'Glacier':
       return 1;
+    case 'Glacier':
+      return percent(dimensions.glacierPercent);
     case 'Coastal Land':
-      return dimensions.coastalLandPercent / 100;
+      return percent(dimensions.coastalLandPercent);
     case 'Isthmus':
-      return 0.6;
+      return percent(dimensions.isthmusPercent);
+    case 'Strait':
+      return percent(dimensions.straitPercent);
     case 'Islands':
     case 'Mainland and islands': {
-      // One large island is most of the hex (as the old Large Island), a
-      // second adds less as both shrink to fit; each small one is a share of
-      // a single islet (the old Island counted the whole island share).
       const spec = islandSpecFor(value, stored);
-      const large = spec.large === 0 ? 0 : spec.large === 1 ? Math.max(0.75, island) : Math.max(0.85, island);
-      const islands = Math.min(1, large + spec.small * island * (spec.small === 1 ? 1 : 0.5));
-      return value === 'Islands' ? islands : Math.min(1, 0.5 + islands * 0.5);
+      const islands = spec.large * dimensions.largeIslandPercent + spec.small * dimensions.smallIslandPercent;
+      return percent((value === 'Islands' ? 0 : dimensions.mainlandPercent) + islands);
     }
     default:
       return 0;
   }
 }
 
+/**
+ * Returns land area by polity id. A pointy-top hex occupies 3/4 of its
+ * flat-to-flat width times its corner-to-corner height.
+ */
 export function politySurfaceAreas(
   base: BaseData,
   data: PolitiesData,
   dimensions: HexDimensions,
   specs?: Record<string, IslandSpec>,
+  shapes?: Record<string, HexShape>,
 ): Map<string, number> {
   const hexArea = dimensions.width * dimensions.height * 0.75;
   const areas = new Map(data.polities.map((polity) => [polity.id, 0]));
   for (let index = 0; index < data.owner.length; index++) {
     const owner = data.owner[index];
     if (!owner || !areas.has(owner)) continue;
-    const fraction = landFraction(base[index], specs?.[String(index)], dimensions);
+    const fraction = landFraction(base[index], specs?.[String(index)], dimensions, shapes?.[String(index)]);
     areas.set(owner, areas.get(owner)! + hexArea * fraction);
   }
   return areas;

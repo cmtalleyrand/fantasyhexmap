@@ -615,3 +615,56 @@ sea's depth or ripple bands.
 
 **What it costs.** An old map's polar strip becomes Sea Ice even where it was meant as a land cap; the
 user repaints those hexes as Glacier and fills their land layers.
+
+## 37. Land share and irregularity are per hex, and only for hexes with an edge
+
+**Chosen.** Coastal Land, Islands, Mainland and islands, Isthmus, Strait, Glacier and Sea Ice hexes
+carry two settings: a land share (not Sea Ice, which is all water) and an irregularity (Smooth, Wavy,
+Ragged, Fractured). They live beside the layers, in `MapState.hexShapes`, keyed by hex index and
+holding only what a person has set, with the base type they were set for.
+
+**Land share.** The map-wide defaults are 90% for Coastal Land, 30% for an Isthmus, 40% for a Strait,
+100% for a Glacier, 10% for each small island, 20% for each large one and 30% for any mainland, and
+all of them can be changed in Settings. An island hex is the sum of its islands (a mainland hex adds
+the mainland's 30%), so a hex's share follows its island counts until someone sets it. A hex's own
+share replaces the computed one. It feeds the polity areas in the legend, and an island hex draws its
+islands larger or smaller to match (relative to the share they would have had, so unedited maps look as
+they did). The old `islandLandPercent` is gone; maps saved with the old 60%/40% defaults take the new
+ones, and a share someone had chosen keeps its ratio of small to large islands.
+
+**Why settings carry their type.** A hex repainted from Coastal Land to Strait should not keep a 90%
+that was chosen for a coast. Rather than hunt every place the base layer changes, the settings are
+ignored once the hex is no longer of the type they were made for; this also makes undo of a repaint
+harmless.
+
+**Why "irregularity".** The elevation layer already uses "ruggedness" for terrain (Plateau is high
+but not rugged), and two meanings in one sidebar would have been confusing. The default for each type
+reproduces how it was drawn before (coasts Smooth, islands Wavy), so no existing map changes.
+
+**What irregularity does, and does not.** On a smoothed coast it lets the shore stray from its
+smoothed line by up to about a third of a hex (Fractured), with the fill corrected on both sides of the new line (the
+same sliver mechanism the smoothing already used, so realm bands, lake masks and the water's surface
+follow it). The coast always passes through the middle of each hex edge, where rivers and cities meet
+it. On islands it widens the wobble and adds skerries; on ice it breaks the edge and sheds floes and
+icebergs. In a hex-edged coast style it has no effect on a coast, by design: that style promises exact
+hex geometry. The land share does not move a coast: a coast hex is drawn as a whole hex and its share
+is bookkeeping for area.
+
+**What it does not cover.** Sea Ice has irregularity but no land share. The AI layers do not set
+either value; they are hand edits, logged in the journal.
+
+## 38. Sea ice is one body; a glacier gets a shelf and calves
+
+**Chosen.** Sea Ice hexes are drawn as ordinary sea, with the frozen area's outline traced as a single
+shape over them: smoothed and roughened instead of following the hex grid, closed along the map edge
+where ice runs off it, with a frosted rim, broad overlapping plates and a few cracks inside it, and
+floes breaking away along its open edge. A glacier keeps its hex fill; its coast gets a sloping shelf
+and a bright cliff line, and bergs calve off it. The textured ice setting turns on the cracks, the
+fringe and the shelf; flat ice keeps the body, the rim and some plates.
+
+**Why.** Pale hexes with white blobs read as a grid of tiles, and the hexagonal staircase edge was the
+loudest thing about the polar strip. The pack is clipped to the sea's own clip region, so ice runs up
+to a shore exactly and never over land, and the water's bands carry on underneath it.
+
+**Why only the open edge is roughened.** Ice against land follows the coast the rest of the map uses;
+if it had its own line the two would leave gaps and overlaps along every shore.

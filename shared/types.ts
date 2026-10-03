@@ -138,6 +138,71 @@ export function islandSpecFor(value: BaseGeo | null | undefined, stored: IslandS
   };
 }
 
+/**
+ * How irregular a hex's shoreline or ice edge is drawn. For a coast, an island or an ice edge
+ * it is how far the outline wanders from the plain smoothed line, and how much
+ * broken-off detail (islets, floes, icebergs) lies along it.
+ */
+export type Irregularity = 'Smooth' | 'Wavy' | 'Ragged' | 'Fractured';
+export const IRREGULARITY_VALUES: Irregularity[] = ['Smooth', 'Wavy', 'Ragged', 'Fractured'];
+
+/** Base types whose land share and irregularity can be set: anything with a shoreline or an ice edge. */
+export const SHAPED_TYPES: BaseGeo[] = [
+  'Coastal Land', 'Islands', 'Mainland and islands', 'Isthmus', 'Strait', 'Glacier', 'Sea Ice',
+];
+
+export function isShapedType(value: BaseGeo | null | undefined): boolean {
+  return value !== null && value !== undefined && SHAPED_TYPES.includes(value);
+}
+
+/** Types with a land share: every shaped type but Sea Ice, which is all water. */
+export function hasLandShare(value: BaseGeo | null | undefined): boolean {
+  return isShapedType(value) && value !== 'Sea Ice';
+}
+
+/**
+ * The irregularity a type is drawn with when none is set. These reproduce how the
+ * shapes were drawn before irregularity existed: coasts plain, islands slightly
+ * wavy. Ice is wavy by default.
+ */
+export const DEFAULT_IRREGULARITY: Record<BaseGeo, Irregularity> = {
+  Land: 'Smooth',
+  'Coastal Land': 'Smooth',
+  Sea: 'Smooth',
+  Lake: 'Smooth',
+  Glacier: 'Wavy',
+  'Sea Ice': 'Wavy',
+  Islands: 'Wavy',
+  'Mainland and islands': 'Wavy',
+  Isthmus: 'Smooth',
+  Strait: 'Smooth',
+};
+
+/**
+ * What a person has set on one shaped hex. `land` is the percentage of the hex
+ * that is land, replacing the share its type would give it; `irregular` is how
+ * ragged its outline is. `type` is the base type the settings were made for: they
+ * are ignored once the hex becomes something else.
+ */
+export interface HexShape {
+  type: BaseGeo;
+  land?: number;
+  irregular?: Irregularity;
+}
+
+/** The settings that apply to a hex of this type: nothing when it has changed type or is not shaped. */
+export function hexShapeFor(value: BaseGeo | null | undefined, stored: HexShape | undefined): { land?: number; irregular: Irregularity } {
+  const irregular = value ? DEFAULT_IRREGULARITY[value] : 'Smooth';
+  if (!value || !stored || stored.type !== value || !isShapedType(value)) return { irregular };
+  const land = hasLandShare(value) && typeof stored.land === 'number' && Number.isFinite(stored.land)
+    ? Math.max(0, Math.min(100, stored.land))
+    : undefined;
+  return {
+    ...(land !== undefined ? { land } : {}),
+    irregular: IRREGULARITY_VALUES.includes(stored.irregular as Irregularity) ? (stored.irregular as Irregularity) : irregular,
+  };
+}
+
 export type Elevation =
   | 'Lowland'
   | 'Rolling'
@@ -466,6 +531,11 @@ export interface MapState {
   islandSpecs?: Record<string, IslandSpec>;
   /** Superseded by `islandSpecs`; read from older saves and migrated. */
   islandSides?: Record<string, number>;
+  /**
+   * Land share and irregularity set by hand on shaped hexes (see `SHAPED_TYPES`),
+   * keyed by flat hex index. Absent hexes take their type's defaults.
+   */
+  hexShapes?: Record<string, HexShape>;
   layers: LayersState;
   /** Append-only record of every change, oldest first. */
   journal: JournalEntry[];
@@ -477,8 +547,17 @@ export interface HexDimensions {
   /** Corner-to-corner vertical span of one hex. */
   height: number;
   unit: string;
+  /** Share of a hex that is land, by type, unless a hex sets its own (`MapState.hexShapes`). */
   coastalLandPercent: number;
-  islandLandPercent: number;
+  /** Share of an island hex taken by each large island, and by each small one. */
+  largeIslandPercent: number;
+  smallIslandPercent: number;
+  /** The mainland part of a Mainland and islands hex, before its islands are added. */
+  mainlandPercent: number;
+  isthmusPercent: number;
+  straitPercent: number;
+  /** Glacier is land under ice; less than all of it for a hex at the edge of an ice sheet. */
+  glacierPercent: number;
   /** Increment used when displaying areas (in square `unit`s). */
   areaRounding: number;
   /** Increment used when displaying lengths (in `unit`s). */
@@ -490,8 +569,13 @@ export const DEFAULT_HEX_DIMENSIONS: HexDimensions = {
   // Regular hex: corner-to-corner = flat-to-flat * 2 / sqrt(3).
   height: 11.5470053838,
   unit: 'km',
-  coastalLandPercent: 60,
-  islandLandPercent: 40,
+  coastalLandPercent: 90,
+  largeIslandPercent: 20,
+  smallIslandPercent: 10,
+  mainlandPercent: 30,
+  isthmusPercent: 30,
+  straitPercent: 40,
+  glacierPercent: 100,
   areaRounding: 100,
   lengthRounding: 10,
 };

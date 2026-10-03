@@ -28,9 +28,12 @@ import {
 } from '../../shared/hex.js';
 import {
   LAYER_ORDER,
+  hexShapeFor,
   isIslandType,
   islandSpecFor,
+  type HexShape,
   type IslandSpec,
+  type Irregularity,
   type BaseGeo,
   type CitiesData,
   type Climate,
@@ -80,6 +83,7 @@ import {
   lakeBodyPath,
   lakeComponents,
   type CoastGeometry,
+  type CoastEdge,
 } from './coast.js';
 import type { CitySymbol, PathCmd, Prim } from './prims.js';
 import { cityMarker, markerExtent } from './cityMarkers.js';
@@ -92,6 +96,8 @@ import { measureEpoch, textEm } from './fonts.js';
 import { glyphAdvances, glyphsStraight } from './glyphs.js';
 import { BUNDLED_FACES, LETTERINGS, type FaceRole } from './lettering.js';
 import { signed, unit } from './seed.js';
+import { floeFringe, glacierShelf, nearHexes, pathPolylines, seaIcePrims } from './ice.js';
+import { landFraction, normaliseHexDimensions } from '../../shared/surfaceArea.js';
 import { CLASSIC_STYLE, type MapStyle } from './styles.js';
 import { grainTile } from './texture.js';
 
@@ -235,21 +241,63 @@ interface TracedCoast {
 
 const coastCache = new WeakMap<object, TracedCoast & { key: string }>();
 
+/** How far (in hex sizes) a smoothed coast may stray from its plain line, by irregularity. */
+/** How an island's outline is roughened by irregularity: its wobble against the usual (Irregular), extra control points, and skerries off each large island. */
+const ISLE_IRREGULARITY: Record<Irregularity, { wobble: number; extraPoints: number; skerries: number }> = {
+  Smooth: { wobble: 0.35, extraPoints: 0, skerries: 0 },
+  Wavy: { wobble: 1, extraPoints: 0, skerries: 0 },
+  Ragged: { wobble: 1.6, extraPoints: 4, skerries: 1 },
+  Fractured: { wobble: 2.3, extraPoints: 8, skerries: 3 },
+};
+
+const COAST_AMPLITUDE: Record<Irregularity, number> = { Smooth: 0, Wavy: 0.06, Ragged: 0.12, Fractured: 0.2 };
+
+/** A stable signature of the hexes' shape settings, computed once per settings object. */
+const shapesSignatures = new WeakMap<object, string>();
+function shapesSignature(shapes: Record<string, HexShape> | undefined): string {
+  if (!shapes) return '';
+  let hit = shapesSignatures.get(shapes);
+  if (hit === undefined) {
+    hit = JSON.stringify(shapes);
+    shapesSignatures.set(shapes, hit);
+  }
+  return hit;
+}
+
 function cachedCoast(
   base: ReadonlyArray<BaseGeo | null>,
   cols: number,
   rows: number,
   size: number,
   smooth: boolean,
+  shapes: Record<string, HexShape> | undefined,
+  seed: string,
 ): TracedCoast {
-  const key = `${cols}x${rows}@${size}/${smooth}`;
+  const key = `${cols}x${rows}@${size}/${smooth}/${seed}/${shapesSignature(shapes)}`;
   const hit = coastCache.get(base);
   if (hit && hit.key === key) return hit;
   const lakeIslands = lakeIslandsOf(base, cols, rows);
   const surface = surfaceMap(base, cols, rows, lakeIslands);
   const { lakes } = lakeComponents(base, cols, rows, surface);
+  // How ragged each coast edge is drawn: the larger of the two hexes it divides
+  // (island hexes shape their own islands, not the coast beside them), halved
+  // in a hex split into land and water, where a neck must not be pinched shut.
+  const amplitudeOf = (i: number | undefined): number => {
+    if (i === undefined || base[i] === 'Islands') return 0;
+    return COAST_AMPLITUDE[hexShapeFor(base[i], shapes?.[String(i)]).irregular] * (surface.split.has(i) ? 0.5 : 1);
+  };
   // The sea's coast: lakes count as land here, as they have bodies of their own.
-  const geometry = coastGeometryOf(surfaceEdges(surface, size, (side) => side !== 'sea'), smooth);
+  const geometry = coastGeometryOf(
+    surfaceEdges(surface, size, (side) => side !== 'sea'),
+    smooth,
+    smooth
+      ? {
+          size,
+          amplitude: (edge: CoastEdge) => Math.max(amplitudeOf(edge.hex), amplitudeOf(edge.across)),
+          noise: (x, y, k) => unit(seed, 'coast', Math.round(x * 1000), Math.round(y * 1000), k),
+        }
+      : undefined,
+  );
   const entry = { key, geometry, lakes, lakeIslands, surface };
   coastCache.set(base, entry);
   return entry;
@@ -385,7 +433,7 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
   const population = opts.visible.population ? layers.population.data : null;
   const maxPop = population ? Math.max(1, ...population.map((v) => v ?? 0)) : 1;
 
-  const traced = base ? cachedCoast(base, cols, rows, size, knobs.coast === 'smooth') : null;
+  const traced = base ? cachedCoast(base, cols, rows, size, knobs.coast === 'smooth', map.hexShapes, seed) : null;
   const rawPolities = opts.visible.polities ? layers.polities.data : null;
   // Realm colour is drawn on land only; see landOwners.
   const polities = rawPolities && base
@@ -613,7 +661,8 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
 
   // --- water --------------------------------------------------------------------
   const coast = traced && (knobs.coast !== 'none' || knobs.water !== 'flat') ? traced.geometry : null;
-  const waterColour = (i: number) => (base?.[i] === 'Lake' ? palette.lake : base?.[i] === 'Sea Ice' ? palette.seaIce : palette.sea);
+  // Sea ice lies on ordinary sea; its pack is drawn over the water below.
+  const waterColour = (i: number) => (base?.[i] === 'Lake' ? palette.lake : palette.sea);
   const islands: number[] = [];
   if (base) {
     for (let i = 0; i < base.length; i++) {
@@ -649,6 +698,8 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
     }
   }
 
+  /** How ragged a hex's outline is drawn. */
+  const levelOf = (i: number): Irregularity => hexShapeFor(base?.[i], map.hexShapes?.[String(i)]).irregular;
   const islandRand = (i: number) => (k: number) => unit(seed, 'islet', i, k);
   /** The direction (radians) from an island hex's centre toward the land its coastal groups lie against. */
   const coastward = (i: number, spec: IslandSpec): number => {
@@ -752,41 +803,79 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
     const biggest = islandLayout(i).sort((a, b) => b.rx * b.ry - a.rx * a.ry)[0];
     return biggest?.c ?? c;
   };
+  const dimensions = normaliseHexDimensions(map.hexDimensions);
+  /**
+   * How much bigger or smaller than usual a hex's islands are drawn, from its
+   * land share against the share its islands would have by default.
+   */
+  const islandScale = (i: number): number => {
+    const set = hexShapeFor(base![i], map.hexShapes?.[String(i)]).land;
+    if (set === undefined) return 1;
+    const usual = landFraction(base![i], map.islandSpecs?.[String(i)], dimensions);
+    return usual > 0 ? Math.min(1.3, Math.max(0.5, Math.sqrt(set / 100 / usual))) : 1;
+  };
   /** The islands of an island hex, as closed paths. */
   const islandPath = (i: number): PathCmd[] => {
     const rand = islandRand(i);
     const blob = knobs.islands === 'blob';
+    const level = levelOf(i);
+    const irregular = ISLE_IRREGULARITY[level];
+    const scale = islandScale(i);
     return islandLayout(i).flatMap((isle, k) => {
       const sub = (q: number) => rand(1000 + k * 37 + q);
-      return blob
-        ? blobPath(isle.c, isle.rx, isle.ry, isle.axis, sub, isle.rx > size * 0.3 ? 12 : 9, isle.rx > size * 0.3 ? 0.16 : 0.18)
-        : circlePath(isle.c, Math.sqrt(isle.rx * isle.ry) * 0.9);
+      const big = isle.rx > size * 0.3;
+      const rx = isle.rx * scale;
+      const ry = isle.ry * scale;
+      if (!blob) return circlePath(isle.c, Math.sqrt(rx * ry) * 0.9);
+      const body = blobPath(isle.c, rx, ry, isle.axis, sub, (big ? 12 : 9) + irregular.extraPoints, (big ? 0.16 : 0.18) * irregular.wobble);
+      // Rugged and fractured islands shed skerries along their shores.
+      const skerries: PathCmd[] = [];
+      if (big) {
+        for (let n = 0; n < irregular.skerries; n++) {
+          const a = sub(2000 + n) * Math.PI * 2;
+          const r = size * (0.035 + 0.035 * sub(2100 + n));
+          const out = 1.25 + 0.35 * sub(2200 + n);
+          skerries.push(...blobPath({ x: isle.c.x + Math.cos(a) * rx * out, y: isle.c.y + Math.sin(a) * ry * out }, r * 1.3, r, sub(2300 + n) * Math.PI, (q) => sub(2400 + n * 17 + q), 8, 0.2));
+        }
+      }
+      return [...body, ...skerries];
     });
   };
   const shorelines: PathCmd[] = [...(coast?.paths.flat() ?? []), ...islands.filter((i) => !lakeIslands.has(i)).flatMap(islandPath)];
 
+  /**
+   * The water of one body (the sea, or lakes) as a clip: its whole hexes, the
+   * open water of split hexes, and the corners the coast cuts off. Sea ice is
+   * sea, and open to the same clip.
+   */
+  const waterClip = (body: 'sea' | 'lake'): PathCmd[] | null => {
+    if (!base) return null;
+    const hexes: number[] = [];
+    base.forEach((v, i) => {
+      if (isWater(i) && !isSplit(i) && (v === 'Lake') === (body === 'lake')) hexes.push(i);
+    });
+    // The open water of split hexes.
+    const pieces: PathCmd[] = [];
+    for (const [i, split] of terrain?.split ?? []) {
+      split.sides.forEach((side, p) => {
+        if (side !== body || body === 'lake') return;
+        piecePoints(i % cols, Math.floor(i / cols), p, size).forEach((q, k) => pieces.push([k === 0 ? 'M' : 'L', q.x, q.y]));
+        pieces.push(['Z']);
+      });
+    }
+    if (hexes.length === 0 && pieces.length === 0) return null;
+    return [
+      ...hexesPath(hexes, cols, size),
+      ...pieces,
+      ...(coast?.toWater ?? []).filter((s) => (base[s.donor] === 'Lake') === (body === 'lake')).flatMap((s) => s.d),
+    ];
+  };
+
   // The sea's surface, clipped to the water so the bands stop at the shore.
   if (base && coast && knobs.water !== 'flat' && shorelines.length > 0) {
     for (const body of ['sea', 'lake'] as const) {
-      const hexes: number[] = [];
-      base.forEach((v, i) => {
-        if (isWater(i) && !isSplit(i) && v !== 'Sea Ice' && (v === 'Lake') === (body === 'lake')) hexes.push(i);
-      });
-      // The open water of split hexes.
-      const pieces: PathCmd[] = [];
-      for (const [i, split] of terrain?.split ?? []) {
-        split.sides.forEach((side, p) => {
-          if (side !== body || body === 'lake') return;
-          piecePoints(i % cols, Math.floor(i / cols), p, size).forEach((q, k) => pieces.push([k === 0 ? 'M' : 'L', q.x, q.y]));
-          pieces.push(['Z']);
-        });
-      }
-      if (hexes.length === 0 && pieces.length === 0) continue;
-      const clip = [
-        ...hexesPath(hexes, cols, size),
-        ...pieces,
-        ...coast.toWater.filter((s) => (base[s.donor] === 'Lake') === (body === 'lake')).flatMap((s) => s.d),
-      ];
+      const clip = waterClip(body);
+      if (!clip) continue;
       const water = body === 'lake' ? palette.lake : palette.sea;
       const surface = knobs.water === 'depth'
         ? depthBands(shorelines, size, water, shift(palette.seaShallow, palette.sea, water))
@@ -795,13 +884,49 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
     }
   }
 
-  // --- sea ice -------------------------------------------------------------------
-  // Pack ice over the water: floes of paler ice, cracked apart, on the frozen sea's colour.
-  if (base) {
-    for (let i = 0; i < base.length; i++) {
-      if (base[i] !== 'Sea Ice' || isSplit(i)) continue;
-      prims.push(...iceFloes(hexCenter(i % cols, Math.floor(i / cols), size), size, seed, i, palette.seaIce, palette.iceShade));
+  // --- ice ------------------------------------------------------------------------
+  // Pack ice is one body laid over the sea, and glaciers calve bergs into it.
+  const texturedIce = knobs.ice === 'glacier';
+  const iceHexes: number[] = [];
+  const glacierHexes: number[] = [];
+  base?.forEach((v, i) => {
+    if (v === 'Sea Ice' && !isSplit(i)) iceHexes.push(i);
+    if (v === 'Glacier') glacierHexes.push(i);
+  });
+  const iceColours = {
+    body: palette.seaIce,
+    floe: mix(palette.ice, '#ffffff', 0.5),
+    rim: mix(palette.seaIce, mix(palette.ice, '#ffffff', 0.5), 0.75),
+    crack: mix(palette.seaIce, palette.iceShade, 0.85),
+  };
+  const iceNoise = (x: number, y: number, k: number) => unit(seed, 'ice-edge', Math.round(x * 1000), Math.round(y * 1000), k);
+  const coastLines = coast ? coast.paths.flatMap((d) => pathPolylines(d)) : [];
+  const nearGlacier = nearHexes(cols, rows, size, (i) => (base?.[i] === 'Glacier' ? levelOf(i) : null), 1.15);
+  if (base && (iceHexes.length > 0 || (texturedIce && glacierHexes.length > 0))) {
+    const clip = waterClip('sea');
+    const drawn: Prim[] = [];
+    if (iceHexes.length > 0) {
+      const margin = size * 2;
+      drawn.push(
+        ...seaIcePrims({
+          cols,
+          rows,
+          size,
+          seed,
+          iceHexes,
+          levelOf,
+          isLand: (j) => sides?.[j] === 'land',
+          bounds: { x0: -margin, y0: -margin, x1: width + margin, y1: height + margin },
+          colours: iceColours,
+          textured: texturedIce,
+          organic: knobs.coast === 'smooth',
+          noise: iceNoise,
+        }),
+      );
     }
+    // Bergs break off the glacier's coast, more of them the more irregular it is.
+    if (texturedIce && knobs.coast === 'smooth' && glacierHexes.length > 0 && !thematic) drawn.push(...floeFringe(coastLines, size, seed, nearGlacier, iceColours));
+    if (clip && drawn.length > 0) prims.push({ kind: 'group', clip, prims: drawn });
   }
 
   // --- lakes ----------------------------------------------------------------------
@@ -906,6 +1031,25 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
     const fill = hexFill(s.donor);
     prims.push({ kind: 'path', d: s.d, fill, stroke: fill, strokeWidth: seal });
     for (const overlay of overlays(s.donor)) prims.push({ kind: 'path', d: s.d, fill: overlay });
+  }
+
+  // The slope of a glacier down to the sea, over its own land and the coast
+  // notches filled in for it, and under the grid and the coastline.
+  if (texturedIce && !thematic && glacierHexes.length > 0 && coastLines.length > 0) {
+    const shelf = glacierShelf(coastLines, size, (p) => nearGlacier(p) !== null, {
+      slope: mix(palette.ice, palette.iceShade, 0.5),
+      edge: mix(palette.ice, '#ffffff', 0.8),
+    });
+    if (shelf.length > 0) {
+      prims.push({
+        kind: 'group',
+        clip: [
+          ...hexesPath(glacierHexes, cols, size),
+          ...(coast?.toLand ?? []).filter((s) => base?.[s.donor] === 'Glacier').flatMap((s) => s.d),
+        ],
+        prims: shelf,
+      });
+    }
   }
 
   // --- grid ---------------------------------------------------------------------
@@ -1579,35 +1723,6 @@ function elevationMarks(centre: Point, size: number, elevation: Elevation): Prim
       strokeWidth: Math.max(0.8, size * 0.045),
       round: true,
     });
-  }
-  return prims;
-}
-
-/**
- * Floes of pack ice: a handful of seeded, many-sided slabs, paler than the
- * frozen sea beneath them and edged with the ice's shade, so the sea reads as
- * broken ice rather than as a flat fill.
- */
-function iceFloes(centre: Point, size: number, seed: string, i: number, sea: string, edge: string): Prim[] {
-  const prims: Prim[] = [];
-  const count = 3 + Math.floor(unit(seed, 'floe', i, 'n') * 3);
-  const slab = mix(sea, '#ffffff', 0.55);
-  for (let k = 0; k < count; k++) {
-    // Spread round the hex, clear of the rim so floes stay inside it.
-    const angle = (k / count) * Math.PI * 2 + signed(seed, 'floe', i, k, 'a') * 0.6;
-    const reach = size * (0.12 + 0.4 * unit(seed, 'floe', i, k, 'r'));
-    const x = centre.x + Math.cos(angle) * reach;
-    const y = centre.y + Math.sin(angle) * reach * 0.9;
-    const radius = size * (0.16 + 0.1 * unit(seed, 'floe', i, k, 's'));
-    const sides = 5 + Math.floor(unit(seed, 'floe', i, k, 'v') * 3);
-    const turn = signed(seed, 'floe', i, k, 't') * Math.PI;
-    const points: Point[] = [];
-    for (let v = 0; v < sides; v++) {
-      const a = turn + (v / sides) * Math.PI * 2;
-      const r = radius * (0.7 + 0.3 * unit(seed, 'floe', i, k, 'p', v));
-      points.push({ x: x + Math.cos(a) * r, y: y + Math.sin(a) * r * 0.8 });
-    }
-    prims.push({ kind: 'polygon', points, fill: slab, stroke: edge, strokeWidth: Math.max(0.5, size * 0.025) });
   }
   return prims;
 }

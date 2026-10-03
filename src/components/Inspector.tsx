@@ -11,7 +11,12 @@ import {
   ELEVATION_VALUES,
   BASE_DESCRIPTIONS,
   VEGETATION_GROUPS,
+  IRREGULARITY_VALUES,
+  DEFAULT_IRREGULARITY,
+  hasLandShare,
+  hexShapeFor,
   isIslandType,
+  isShapedType,
   islandSpecFor,
   type BaseGeo,
   type City,
@@ -19,11 +24,13 @@ import {
   type LayerId,
   type MapState,
   type Polity,
+  type Irregularity,
   type VegetationGroup,
 } from '../../shared/types.js';
 import { planMultiLayerEdit } from '../../shared/multiEdit.js';
 import { canSplit, passLabel, type PassSelection } from '../../core/rosters.js';
-import { type Action, type IslandSpecChange } from '../state/store.js';
+import { type Action, type HexShapeChange, type IslandSpecChange } from '../state/store.js';
+import { landFraction, normaliseHexDimensions } from '../../shared/surfaceArea.js';
 import { wouldCycle } from '../../shared/polityTree.js';
 import { contrastingRealmColours } from '../render/hierarchy.js';
 import Legend from './Legend.js';
@@ -572,7 +579,84 @@ function SelectionCard(props: SubProps & { readOnly?: boolean }) {
       {activeLayer === 'base' && only !== null && only in BASE_DESCRIPTIONS && (
         <div className="hint" style={{ margin: 0 }}>{BASE_DESCRIPTIONS[only as BaseGeo]}</div>
       )}
+      {activeLayer === 'base' && !readOnly && <HexShapePanel {...props} />}
       {activeLayer === 'base' && !readOnly && <IslandSidePanel {...props} />}
+    </div>
+  );
+}
+
+/** What each irregularity looks like, for the sidebar. */
+const IRREGULARITY_HINTS: Record<Irregularity, string> = {
+  Smooth: 'Even, rounded outlines.',
+  Wavy: 'A gently wandering outline.',
+  Ragged: 'Headlands and coves; a few skerries and floes break away.',
+  Fractured: 'Deeply broken: jagged shores, many skerries, floes and icebergs.',
+};
+
+const LAND_SHARE_STEPS = Array.from({ length: 21 }, (_, n) => n * 5);
+
+/** The land share and irregularity of the selected shaped hexes (coast, islands, isthmus, strait, ice). */
+function HexShapePanel(props: SubProps) {
+  const { map, dispatch, selected } = props;
+  const base = map.layers.base.data;
+  const hexes = selected.filter((i) => isShapedType(base?.[i]));
+  if (hexes.length === 0) return null;
+  const dims = normaliseHexDimensions(map.hexDimensions);
+  const percentOf = (i: number, withShape: boolean) =>
+    Math.round(landFraction(base![i], map.islandSpecs?.[String(i)], dims, withShape ? map.hexShapes?.[String(i)] : undefined) * 100);
+  const landHexes = hexes.filter((i) => hasLandShare(base![i]));
+  const sharedOf = (values: string[]) => (new Set(values).size === 1 ? values[0]! : '');
+  const land = sharedOf(landHexes.map((i) => String(percentOf(i, true))));
+  const usual = sharedOf(landHexes.map((i) => String(percentOf(i, false))));
+  const irregular = sharedOf(hexes.map((i) => hexShapeFor(base![i], map.hexShapes?.[String(i)]).irregular));
+  const usualIrregular = sharedOf(hexes.map((i) => DEFAULT_IRREGULARITY[base![i]!]));
+  const customised = hexes.some((i) => {
+    const stored = map.hexShapes?.[String(i)];
+    return stored !== undefined && stored.type === base![i];
+  });
+  const set = (change: HexShapeChange | null) => dispatch({ type: 'setHexShape', indices: hexes, change });
+  const landValue = Number(land);
+  return (
+    <div className="stack" style={{ marginTop: 8 }}>
+      <label style={{ margin: 0 }}>Shape of {hexes.length === 1 ? 'this hex' : `these ${hexes.length} hexes`}</label>
+      {landHexes.length > 0 && (
+        <>
+          <label htmlFor="hex-land-share" style={{ margin: 0 }}>Land share</label>
+          <select
+            id="hex-land-share"
+            aria-label="Land share"
+            value={land}
+            onChange={(e) => set({ land: Number(e.target.value) })}
+          >
+            {land === '' && <option value="">Mixed</option>}
+            {land !== '' && !LAND_SHARE_STEPS.includes(landValue) && <option value={land}>{land}%</option>}
+            {LAND_SHARE_STEPS.map((p) => <option key={p} value={String(p)}>{p}%</option>)}
+          </select>
+          <p className="hint" style={{ margin: 0 }}>
+            How much of the hex is land, used for surface areas.{usual !== '' ? ` Usually ${usual}%.` : ''}
+            {landHexes.some((i) => isIslandType(base![i]))
+              ? ` An island hex adds up its islands (${dims.smallIslandPercent}% for each small one, ${dims.largeIslandPercent}% for each large one, plus ${dims.mainlandPercent}% for a mainland); its islands are drawn larger or smaller to match a share you set.`
+              : ''}
+          </p>
+        </>
+      )}
+      <label htmlFor="hex-irregularity" style={{ margin: 0 }}>Irregularity</label>
+      <select
+        id="hex-irregularity"
+        aria-label="Irregularity"
+        value={irregular}
+        onChange={(e) => set({ irregular: e.target.value as Irregularity })}
+      >
+        {irregular === '' && <option value="">Mixed</option>}
+        {IRREGULARITY_VALUES.map((r) => <option key={r} value={r}>{r}</option>)}
+      </select>
+      <p className="hint" style={{ margin: 0 }}>
+        {irregular !== '' ? IRREGULARITY_HINTS[irregular as Irregularity] : 'The selected hexes differ.'}
+        {usualIrregular !== '' ? ` Usually ${usualIrregular.toLowerCase()}.` : ''} Coasts take it only in a smoothed coast style.
+      </p>
+      {customised && (
+        <button className="tiny" onClick={() => set(null)}>Use the usual land share and irregularity</button>
+      )}
     </div>
   );
 }
