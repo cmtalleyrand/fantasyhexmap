@@ -10,7 +10,7 @@
 
 import { FANTASY_FONT_STACK, FONT_STACK } from './fonts.js';
 
-export type LetteringId = 'classic' | 'storybook' | 'oldprint' | 'atlas';
+export type LetteringId = 'classic' | 'storybook' | 'oldprint' | 'chancery' | 'uncial';
 
 export interface FaceRole {
   /** CSS font-family list, the bundled face first. */
@@ -45,7 +45,6 @@ export interface BundledFace {
 }
 
 const serif = 'Georgia, "Times New Roman", serif';
-const sans = '"Helvetica Neue", Arial, sans-serif';
 const fam = (name: string, fallback: string) => `"${name}", ${fallback}`;
 
 export const LETTERINGS: Record<LetteringId, Lettering> = {
@@ -73,17 +72,25 @@ export const LETTERINGS: Record<LetteringId, Lettering> = {
     city: { family: fam('HexMap IM Fell English', serif), weight: 400, italic: false, tracking: 0, scale: 1.15 },
     range: { family: fam('HexMap IM Fell English SC', serif), weight: 400, italic: false, tracking: 0.18 },
   },
-  atlas: {
-    id: 'atlas',
-    realm: { family: fam('HexMap Alegreya Sans SC', sans), weight: 700, italic: false, tracking: 0.16 },
-    water: { family: fam('HexMap Alegreya', serif), weight: 500, italic: true, tracking: 0.3 },
-    river: { family: fam('HexMap Alegreya', serif), weight: 500, italic: true, tracking: 0.06 },
-    city: { family: fam('HexMap Alegreya Sans', sans), weight: 500, italic: false, tracking: 0, scale: 1.1 },
-    range: { family: fam('HexMap Alegreya Sans SC', sans), weight: 500, italic: false, tracking: 0.22 },
+  chancery: {
+    id: 'chancery',
+    realm: { family: fam('HexMap Almendra SC', serif), weight: 400, italic: false, tracking: 0.1 },
+    water: { family: fam('HexMap Almendra', serif), weight: 400, italic: true, tracking: 0.26 },
+    river: { family: fam('HexMap Almendra', serif), weight: 400, italic: true, tracking: 0.05 },
+    city: { family: fam('HexMap Almendra', serif), weight: 400, italic: false, tracking: 0, scale: 1.12 },
+    range: { family: fam('HexMap Almendra SC', serif), weight: 400, italic: false, tracking: 0.18 },
+  },
+  uncial: {
+    id: 'uncial',
+    realm: { family: fam('HexMap Uncial Antiqua', serif), weight: 400, italic: false, tracking: 0.06 },
+    water: { family: fam('HexMap EB Garamond', serif), weight: 500, italic: true, tracking: 0.3 },
+    river: { family: fam('HexMap EB Garamond', serif), weight: 500, italic: true, tracking: 0.06 },
+    city: { family: fam('HexMap EB Garamond', serif), weight: 600, italic: false, tracking: 0, scale: 1.2 },
+    range: { family: fam('HexMap Uncial Antiqua', serif), weight: 400, italic: false, tracking: 0.12 },
   },
 };
 
-export const LETTERING_ORDER: LetteringId[] = ['classic', 'storybook', 'oldprint', 'atlas'];
+export const LETTERING_ORDER: LetteringId[] = ['classic', 'storybook', 'oldprint', 'chancery', 'uncial'];
 
 /** Every bundled face, and the families each pairing needs. */
 export const BUNDLED_FACES: BundledFace[] = [
@@ -95,10 +102,10 @@ export const BUNDLED_FACES: BundledFace[] = [
   { family: 'HexMap IM Fell English', weight: 400, italic: false, file: 'imfell-400' },
   { family: 'HexMap IM Fell English', weight: 400, italic: true, file: 'imfell-400i' },
   { family: 'HexMap IM Fell English SC', weight: 400, italic: false, file: 'imfellsc-400' },
-  { family: 'HexMap Alegreya', weight: 500, italic: true, file: 'alegreya-500i' },
-  { family: 'HexMap Alegreya Sans', weight: 500, italic: false, file: 'alegreyasans-500' },
-  { family: 'HexMap Alegreya Sans SC', weight: 500, italic: false, file: 'alegreyasanssc-500' },
-  { family: 'HexMap Alegreya Sans SC', weight: 700, italic: false, file: 'alegreyasanssc-700' },
+  { family: 'HexMap Almendra', weight: 400, italic: false, file: 'almendra-400' },
+  { family: 'HexMap Almendra', weight: 400, italic: true, file: 'almendra-400i' },
+  { family: 'HexMap Almendra SC', weight: 400, italic: false, file: 'almendrasc-400' },
+  { family: 'HexMap Uncial Antiqua', weight: 400, italic: false, file: 'uncial-400' },
 ];
 
 /** The bundled faces a text set in `family` at this weight and slant would use. */

@@ -17,10 +17,10 @@ import ebgaramond500i from '@fontsource/eb-garamond/files/eb-garamond-latin-500-
 import imfell400 from '@fontsource/im-fell-english/files/im-fell-english-latin-400-normal.woff2?url';
 import imfell400i from '@fontsource/im-fell-english/files/im-fell-english-latin-400-italic.woff2?url';
 import imfellsc400 from '@fontsource/im-fell-english-sc/files/im-fell-english-sc-latin-400-normal.woff2?url';
-import alegreya500i from '@fontsource/alegreya/files/alegreya-latin-500-italic.woff2?url';
-import alegreyasans500 from '@fontsource/alegreya-sans/files/alegreya-sans-latin-500-normal.woff2?url';
-import alegreyasanssc500 from '@fontsource/alegreya-sans-sc/files/alegreya-sans-sc-latin-500-normal.woff2?url';
-import alegreyasanssc700 from '@fontsource/alegreya-sans-sc/files/alegreya-sans-sc-latin-700-normal.woff2?url';
+import almendra400 from '@fontsource/almendra/files/almendra-latin-400-normal.woff2?url';
+import almendra400i from '@fontsource/almendra/files/almendra-latin-400-italic.woff2?url';
+import almendrasc400 from '@fontsource/almendra-sc/files/almendra-sc-latin-400-normal.woff2?url';
+import uncial400 from '@fontsource/uncial-antiqua/files/uncial-antiqua-latin-400-normal.woff2?url';
 import { invalidateTextMeasures } from './fonts.js';
 import { BUNDLED_FACES, letteringFaces, type BundledFace, type LetteringId } from './lettering.js';
 import type { Prim, Scene } from './scene.js';
@@ -34,10 +34,10 @@ const FILES: Record<string, string> = {
   'imfell-400': imfell400,
   'imfell-400i': imfell400i,
   'imfellsc-400': imfellsc400,
-  'alegreya-500i': alegreya500i,
-  'alegreyasans-500': alegreyasans500,
-  'alegreyasanssc-500': alegreyasanssc500,
-  'alegreyasanssc-700': alegreyasanssc700,
+  'almendra-400': almendra400,
+  'almendra-400i': almendra400i,
+  'almendrasc-400': almendrasc400,
+  'uncial-400': uncial400,
 };
 
 const loaded = new Map<string, Promise<void>>();

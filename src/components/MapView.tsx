@@ -268,8 +268,12 @@ export default function MapView(props: MapViewProps) {
       } else if (tool.kind === 'extend') {
         const rivers = map.layers.rivers.data?.rivers ?? [];
         const here = riversThroughHex(rivers, index % map.cols, Math.floor(index / map.cols));
-        if (here.length > 0 && !here.some((r) => r.id === tool.selectedId)) props.onRiverSelect(index);
-        else if (here.length === 0) props.onRiverExtend(index);
+        // With a river selected, clicking another river runs the selected one
+        // into it as a tributary; with none, it picks the river clicked.
+        if (here.some((r) => r.id === tool.selectedId)) {
+          // Already part of the selected river: nothing to extend.
+        } else if (tool.selectedId) props.onRiverExtend(index);
+        else if (here.length > 0) props.onRiverSelect(index);
         onSelectionChange(new Set([index]));
       } else {
         drag.current = { mode: 'riverPaint', touched: new Set([index]) };
@@ -384,7 +388,7 @@ export default function MapView(props: MapViewProps) {
         ? 'Drag to pan · wheel or pinch to zoom'
         : 'Drag to select · Space-drag, right-drag or two fingers to pan';
       if (props.onRiverDraftClick) return `Click hexes from source to mouth · Enter finishes, Esc cancels · ${nav}`;
-      if (props.riverTool?.kind === 'extend') return `Click a hex to extend the selected river to it · ${nav}`;
+      if (props.riverTool?.kind === 'extend') return `Click a hex to extend the selected river to it (a lake upstream to rise in it, another river to flow into it) · ${nav}`;
       if (props.riverTool?.kind === 'navigability') return `Drag along a river to set navigability · ${nav}`;
       if (props.riverTool) return `Click a river to select it, drag one of its hexes to move it · ${nav}`;
       return props.onCityMove
