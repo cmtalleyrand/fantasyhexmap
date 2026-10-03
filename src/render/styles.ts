@@ -91,6 +91,8 @@ export interface StylePalette {
   gridWidth: number;
   river: string;
   riverNonNavigable: string;
+  /** The darker edge a tapered river is drawn with. */
+  riverBank: string;
   riverLabel: string;
   grain: string;
   /** Linework of drawn symbols (peaks, trees) and the shadow side of hill shading. */
@@ -151,6 +153,7 @@ const CLASSIC: PresetInfo = {
     gridWidth: 0.03,
     river: MAP_COLOURS.river,
     riverNonNavigable: MAP_COLOURS.riverNonNavigable,
+    riverBank: MAP_COLOURS.riverBank,
     riverLabel: MAP_COLOURS.riverLabel,
     grain: '#000000',
     ink: '#2f2a22',
@@ -208,6 +211,7 @@ const PARCHMENT: PresetInfo = {
     gridWidth: 0.025,
     river: '#3f7488',
     riverNonNavigable: '#4c8193',
+    riverBank: '#2c5363',
     riverLabel: '#2c4b58',
     grain: '#5c4426',
     ink: '#3a2b1b',
@@ -266,6 +270,7 @@ const ATLAS: PresetInfo = {
     gridWidth: 0.025,
     river: '#4f8fb5',
     riverNonNavigable: '#6aa3c4',
+    riverBank: '#38688a',
     riverLabel: '#2e5f80',
     grain: '#000000',
     ink: '#3b3a36',
@@ -323,6 +328,7 @@ const NIGHT: PresetInfo = {
     gridWidth: 0.025,
     river: '#5fb4e0',
     riverNonNavigable: '#4a9ccc',
+    riverBank: '#2f7fae',
     riverLabel: '#bfe6ff',
     grain: '#000000',
     ink: '#0b1016',
