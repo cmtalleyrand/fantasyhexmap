@@ -371,6 +371,12 @@ export function lakeBodyPath(
   rows: number,
   size: number,
   rand: (k: number) => number,
+  /**
+   * How much of the usual outward reach is allowed at a point on the shore
+   * (1 = all of it). The caller uses it to keep a narrow strip of land between
+   * two arms of water from being swallowed.
+   */
+  reach: (p: Point) => number = () => 1,
 ): PathCmd[] {
   const inside = new Set(hexes);
   const edges: CoastEdge[] = [];
@@ -429,14 +435,32 @@ export function lakeBodyPath(
         + waves.reduce((sum, w) => sum + w.amp * Math.cos(w.h * f + w.phase), 0)
         + 0.04 * Math.cos(local * f + localPhase);
     });
-    const out = pts.map((q, i) => {
+    const normals = pts.map((_, i) => {
       const prev = pts[(i - 1 + pts.length) % pts.length]!;
       const next = pts[(i + 1) % pts.length]!;
       const dx = next.x - prev.x;
       const dy = next.y - prev.y;
       const len = Math.hypot(dx, dy) || 1;
       // The lake lies to the right of the direction of travel; land to the left.
-      return { x: q.x + (dy / len) * push[i]! * size, y: q.y + (-dx / len) * push[i]! * size };
+      return { x: dy / len, y: -dx / len };
+    });
+    // The allowed reach, judged where the shore would land, then eased round
+    // the shore so a held-back stretch narrows smoothly rather than in a step.
+    const allowed = pts.map((q, i) => reach({ x: q.x + normals[i]!.x * 0.2 * size, y: q.y + normals[i]!.y * 0.2 * size }));
+    const span = 5;
+    const eased = allowed.map((_, i) => {
+      let lowest = 1;
+      let sum = 0;
+      for (let k = -span; k <= span; k++) {
+        const v = allowed[(i + k + allowed.length) % allowed.length]!;
+        lowest = Math.min(lowest, v);
+        sum += v;
+      }
+      return (lowest + sum / (2 * span + 1)) / 2;
+    });
+    const out = pts.map((q, i) => {
+      const r = push[i]! * eased[i]! * size;
+      return { x: q.x + normals[i]!.x * r, y: q.y + normals[i]!.y * r };
     });
     smooth(out, 2).forEach((q, i) => d.push([i === 0 ? 'M' : 'L', q.x, q.y]));
     d.push(['Z']);

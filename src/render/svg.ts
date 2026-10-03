@@ -46,7 +46,7 @@ function primToSvg(prim: Prim, defs: Defs): string {
       const body = prim.prims.map((p) => primToSvg(p, defs)).join('\n');
       if (!prim.clip) return `<g>${body}</g>`;
       const id = `clip${defs.next++}`;
-      defs.items.push(`<clipPath id="${id}"><path d="${pathData(prim.clip)}"/></clipPath>`);
+      defs.items.push(`<clipPath id="${id}"><path d="${pathData(prim.clip)}"${prim.clipRule === 'evenodd' ? ' clip-rule="evenodd"' : ''}/></clipPath>`);
       return `<g clip-path="url(#${id})">\n${body}\n</g>`;
     }
     case 'texture': {

@@ -72,7 +72,7 @@ function drawPrim(ctx: Ctx, prim: Prim): void {
       ctx.save();
       if (prim.clip) {
         tracePath(ctx, prim.clip);
-        ctx.clip('nonzero');
+        ctx.clip(prim.clipRule ?? 'nonzero');
       }
       drawPrims(ctx, prim.prims);
       ctx.restore();

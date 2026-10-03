@@ -684,32 +684,62 @@ test('a river city on the coast stands where its river meets the shore', async (
   assert.equal(resolvedSite({ ...city, site: { coast: 0 } }).kind, 'coast', 'coast alone still leaves the river');
 });
 
-test('an island in a lake sits on lake water, and a lake inside one realm is drawn as part of it', () => {
+test('a lake is treated as sea by realms: its shore carries the band and no realm colour reaches its water', () => {
   const cols = 7;
   const rows = 5;
   const map = createMapState('Lake realm', cols, rows);
   const base: BaseGeo[] = Array(cols * rows).fill('Land');
-  // A three-hex lake with an islet in it, all inside one realm.
+  // A three-hex lake with an islet in it, all inside one realm, which also claims the lake.
   for (const i of [2 * cols + 2, 2 * cols + 4, 1 * cols + 3]) base[i] = 'Lake';
   base[2 * cols + 3] = 'Island';
   map.layers.base.data = base;
   map.layers.polities.data = {
     polities: [{ id: 'r', name: 'Realm', colour: '#aa3333' }],
-    owner: base.map((v) => (v === 'Land' ? 'r' : null)),
+    owner: base.map(() => 'r'),
   };
   const visible = defaultVisibility();
   visible.polities = true;
-  const style = resolveStyle({ preset: 'parchment', overrides: {} });
-  const prims = buildScene(map, { size: 20, visible, labels: false, style }).prims;
-  assert.ok(!prims.some((p) => p.kind === 'polygon' && p.fill === style.palette.sea), 'no sea under the lake islet');
-  assert.equal(prims.filter((p) => p.kind === 'path' && p.fill === style.palette.lake).length, 1, 'one lake body');
-  // The realm's border band runs round the realm's outside only: no band loop round the lake.
-  const bands = prims.filter((p): p is Extract<Prim, { kind: 'group' }> => p.kind === 'group' && p.prims.length === 1);
-  const lakeCentre = { x: 20 * Math.sqrt(3) * 3 + 20 * Math.sqrt(3) / 2, y: 20 * 1.5 * 2 + 20 };
-  for (const g of bands) {
-    const pts = (g.prims[0] as { d: PathCmd[] }).d.filter((c) => c[0] !== 'Z').map((c) => ({ x: c[1] as number, y: c[2] as number }));
-    assert.ok(!pts.some((q) => Math.hypot(q.x - lakeCentre.x, q.y - lakeCentre.y) < 20 * 1.2), 'a border band rings the lake');
+  for (const polityStyle of ['wash', 'fill'] as const) {
+    const style = resolveStyle({ preset: 'parchment', overrides: { polityStyle } });
+    const prims = buildScene(map, { size: 20, visible, labels: false, style }).prims;
+    assert.ok(!prims.some((p) => p.kind === 'polygon' && p.fill === style.palette.sea), 'no sea under the lake islet');
+    const bodies = prims.filter((p): p is Extract<Prim, { kind: 'path' }> => p.kind === 'path' && p.fill === style.palette.lake);
+    assert.equal(bodies.length, 1, 'one lake body');
+    const body = bodies[0]!.d;
+    const bodyIndex = prims.indexOf(bodies[0]!);
+    // No realm-coloured hex or sector is painted over the lake body (its islet is land, and may be).
+    prims.slice(bodyIndex + 1).forEach((p) => {
+      if (p.kind === 'polygon') assert.ok(!String(p.fill).includes('170, 51, 51') && p.fill !== '#aa3333', 'realm colour over the lake');
+    });
+    if (polityStyle === 'wash') {
+      // The band strokes the drawn shore, inside a mask that cuts the lake out.
+      const masks = prims.flatMap((p) => (p.kind === 'group' ? p.prims : [])).filter((p): p is Extract<Prim, { kind: 'group' }> => p.kind === 'group' && p.clipRule === 'evenodd');
+      assert.equal(masks.length, 1);
+      const stroke = masks[0]!.prims[0] as Extract<Prim, { kind: 'path' }>;
+      assert.ok(JSON.stringify(stroke.d).includes(JSON.stringify(body[0])), 'the band follows the lake shore');
+      assert.ok(JSON.stringify(masks[0]!.clip).includes(JSON.stringify(body[0])), 'the lake is cut out of the band');
+    }
   }
+});
+
+test('the land a lake hex leaves uncovered takes the colour of the realm it faces', () => {
+  const cols = 6;
+  const rows = 4;
+  const map = createMapState('Shared lake', cols, rows);
+  const base: BaseGeo[] = Array(cols * rows).fill('Land');
+  base[1 * cols + 2] = 'Lake';
+  map.layers.base.data = base;
+  map.layers.polities.data = {
+    polities: [{ id: 'w', name: 'West', colour: '#aa3333' }, { id: 'e', name: 'East', colour: '#3333aa' }],
+    owner: base.map((v, i) => (v === 'Lake' ? 'w' : i % cols <= 2 ? 'w' : 'e')),
+  };
+  const visible = defaultVisibility();
+  visible.polities = true;
+  const style = resolveStyle({ preset: 'classic', overrides: {} });
+  const prims = buildScene(map, { size: 20, visible, labels: false, style }).prims;
+  const triangles = prims.filter((p): p is Extract<Prim, { kind: 'polygon' }> => p.kind === 'polygon' && p.points.length === 3);
+  const fills = new Set(triangles.map((t) => t.fill));
+  assert.ok(fills.has('#aa3333') && fills.has('#3333aa'), 'sectors facing each realm take its colour');
 });
 
 test('small islands are two or three islets, spread apart', () => {
