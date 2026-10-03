@@ -247,9 +247,17 @@ export interface CoastGeometry {
   toWater: Sliver[];
   /** Notches of water the smoothed coast fills in: they become land. */
   toLand: Sliver[];
+  /**
+   * Where the drawn coast passes each hex corner it turns at (by `coastKey`): on a smoothed
+   * or roughened coast that is off the corner itself. Absent for a coast drawn on the hex edges.
+   */
+  anchors: Map<string, Point>;
 }
 
 const key = (p: Point) => `${Math.round(p.x * 100)},${Math.round(p.y * 100)}`;
+
+/** The key `CoastGeometry.anchors` uses for a hex corner. */
+export const coastKey = key;
 
 /** Every land/water boundary of the map, as `surfaceEdges` gives it, with lakes counted as water. */
 export function coastEdges(base: ReadonlyArray<BaseGeo | null>, cols: number, rows: number, size: number): CoastEdge[] {
@@ -681,6 +689,7 @@ export function coastGeometryOf(
   const chains = chainEdges(edges).map((chain) => (inset ? insetChain(chain, inset, strips) : chain));
   const toWater: Sliver[] = [...strips];
   const toLand: Sliver[] = [];
+  const anchors = new Map<string, Point>();
   const paths = chains.map((chain) => {
     if (!smooth || chain.points.length < 3) return hexPath(chain);
     const { points, edges, closed } = chain;
@@ -694,9 +703,14 @@ export function coastGeometryOf(
       const p = points[k]!;
       const b = points[(k + 1) % n]!;
       const amplitude = rough ? Math.max(rough.amplitude(incoming), rough.amplitude(outgoing)) : 0;
+      // The curve's middle is the stretch of the coast nearest the corner.
+      const m0 = mid(a, p);
+      const m1 = mid(p, b);
+      anchors.set(key(p), { x: (m0.x + 2 * p.x + m1.x) / 4, y: (m0.y + 2 * p.y + m1.y) / 4 });
       if (rough && amplitude > 0) {
         const samples = roughPiece(a, p, b, amplitude, rough);
         piece[k] = samples;
+        anchors.set(key(p), samples[ROUGH_STEPS >> 1]!);
         for (const lobe of roughLobes(a, p, b, samples)) {
           const edge = lobe.at <= samples.length / 2 ? incoming : outgoing;
           if (lobe.towardWater) toLand.push({ d: lobe.d, donor: edge.land });
@@ -716,7 +730,7 @@ export function coastGeometryOf(
     }
     return piece.some(Boolean) ? roughPath(points, closed, piece) : smoothPath(points, closed);
   });
-  return { chains, strips, paths, toWater, toLand };
+  return { chains, strips, paths, toWater, toLand, anchors };
 }
 
 /** A smoothed chain in which some corners carry a sampled, roughened curve. */

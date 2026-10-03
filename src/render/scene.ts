@@ -70,6 +70,7 @@ import {
 import {
   blobPath,
   chainEdges,
+  coastKey,
   circlePath,
   coastalIslandSide,
   coastGeometryOf,
@@ -1204,14 +1205,30 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
         addLand(owner, [...pts.map((q, k) => [k === 0 ? 'M' : 'L', q.x, q.y] as PathCmd), ['Z']]);
       });
     }
-    // Where a realm meets the sea, its band follows the coast: the traced
-    // coast edges (through split hexes too) whose land is the realm's.
-    for (const chain of traced?.geometry.chains ?? []) {
-      for (const edge of chain.edges) {
-        const owner = polities.owner[edge.land];
-        if (owner && !isIsland(edge.land)) bands.set(owner, [...(bands.get(owner) ?? []), edge]);
+    // Where a realm meets the sea, its band follows the coast as drawn, ragged
+    // or smoothed (through split hexes too): every coast chain with an edge of
+    // the realm's land, cut to the realm's own ground by the clip below.
+    const coastBands = new Map<string, PathCmd[]>();
+    (traced?.geometry.chains ?? []).forEach((chain, c) => {
+      const path = traced!.geometry.paths[c];
+      if (!path) return;
+      for (const owner of new Set(chain.edges.filter((edge) => !isIsland(edge.land)).map((edge) => polities.owner[edge.land]))) {
+        if (owner) coastBands.set(owner, [...(coastBands.get(owner) ?? []), ...path]);
       }
-    }
+    });
+    /**
+     * A border wandering on land ends on a hex corner, but a drawn coast does not
+     * pass through its corners: the stretch from the corner to the coast joins them.
+     */
+    const toCoast = (a: Point, b: Point, pieces: Point[]): Array<{ from: Point; to: Point }> => {
+      const joins: Array<{ from: Point; to: Point }> = [];
+      const head = traced?.geometry.anchors.get(coastKey(a));
+      const tail = traced?.geometry.anchors.get(coastKey(b));
+      if (head) joins.push({ from: head, to: a });
+      pieces.forEach((q, k) => joins.push({ from: k === 0 ? a : pieces[k - 1]!, to: q }));
+      if (tail) joins.push({ from: b, to: tail });
+      return joins;
+    };
     for (let row = 0; row < rows; row++) {
       for (let col = 0; col < cols; col++) {
         const i = hexIndex(cols, col, row);
@@ -1240,16 +1257,17 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
             // Between two parts of one realm: a single fine dashed line on the
             // edge itself, drawn once, so the realm still reads as one.
             if (j > i) {
-              internal.push(['M', a.x, a.y]);
-              for (const q of raggedEdge(a, b, knobs.borders, seed, size)) internal.push(['L', q.x, q.y]);
+              const joins = toCoast(a, b, raggedEdge(a, b, knobs.borders, seed, size));
+              internal.push(['M', joins[0]!.from.x, joins[0]!.from.y]);
+              for (const { to } of joins) internal.push(['L', to.x, to.y]);
             }
             continue;
           }
           // Between realms on land the border wanders; where it meets the sea
-          // it stays on the coast, which the traced coast edges above cover.
+          // it stays on the coast, which the coast bands above cover.
           const landAcross = inside && across === 'land' && !isIsland(j);
           const pieces = landAcross
-            ? raggedEdge(a, b, knobs.borders, seed, size).map((q, k, all) => ({ from: k === 0 ? a : all[k - 1]!, to: q, land: i, water: j }))
+            ? toCoast(a, b, raggedEdge(a, b, knobs.borders, seed, size)).map((piece) => ({ ...piece, land: i, water: j }))
             : [{ from: a, to: b, land: i, water: j }];
           bands.set(owner, [...(bands.get(owner) ?? []), ...pieces]);
           // A frontier between realms on land, drawn from one side only.
@@ -1280,10 +1298,13 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
         ),
       ),
     ];
-    for (const owner of new Set([...bands.keys(), ...shoreLakes.keys()])) {
-      const loops = chainEdges(bands.get(owner) ?? []).flatMap((chain) =>
-        chain.points.map((p, k) => [k === 0 ? 'M' : 'L', p.x, p.y] as PathCmd).concat(chain.closed ? [['Z'] as PathCmd] : []),
-      );
+    for (const owner of new Set([...bands.keys(), ...coastBands.keys(), ...shoreLakes.keys()])) {
+      const loops = [
+        ...coastBands.get(owner) ?? [],
+        ...chainEdges(bands.get(owner) ?? []).flatMap((chain) =>
+          chain.points.map((p, k) => [k === 0 ? 'M' : 'L', p.x, p.y] as PathCmd).concat(chain.closed ? [['Z'] as PathCmd] : []),
+        ),
+      ];
       const shores = [...(shoreLakes.get(owner) ?? [])].flatMap((k) => lakeShores[k] ?? []);
       const colour = polityColour.get(owner) ?? '#888888';
       prims.push({

@@ -3,7 +3,7 @@ import test from 'node:test';
 import { hexEdgePoints, hexIndex, inBounds, neighbourOf } from '../shared/hex.ts';
 import { createMapState } from '../shared/layers.ts';
 import type { BaseGeo, MapState } from '../shared/types.ts';
-import { chainEdges, coastEdges, coastGeometry, raggedEdge, sideOf } from '../src/render/coast.ts';
+import { chainEdges, coastEdges, coastGeometry, coastKey, raggedEdge, sideOf } from '../src/render/coast.ts';
 import type { PathCmd, Prim } from '../src/render/prims.ts';
 import { riverCourse } from '../src/render/rivers.ts';
 import { buildScene, defaultVisibility } from '../src/render/scene.ts';
@@ -1152,4 +1152,21 @@ test('border irregularity: straight keeps hex edges, and both sides of an edge d
   assert.equal(resolveStyle({ preset: 'classic', overrides: {} }).knobs.borders, 'ragged', 'ragged by default');
   assert.equal(parseStyleChoice({ preset: 'classic', overrides: { borders: 'wild' } }).overrides.borders, 'wild');
   assert.equal(parseStyleChoice({ preset: 'classic', overrides: { borders: 'bogus' } }).overrides.borders, undefined);
+});
+
+test('a smoothed coast says where it passes each corner, so a border can run out to it; a hex-edge coast does not', () => {
+  const map = islandMap();
+  const base = map.layers.base.data!;
+  const size = 10;
+  const smoothed = coastGeometry(base, map.cols, map.rows, size, true);
+  const plain = coastGeometry(base, map.cols, map.rows, size, false);
+  assert.equal(plain.anchors.size, 0);
+  assert.ok(smoothed.anchors.size > 0);
+  for (const chain of smoothed.chains) {
+    for (const corner of chain.points) {
+      const at = smoothed.anchors.get(coastKey(corner));
+      if (!at) continue;
+      assert.ok(Math.hypot(at.x - corner.x, at.y - corner.y) < size, 'the coast passes within a hex of the corner it rounds');
+    }
+  }
 });
