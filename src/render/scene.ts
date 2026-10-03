@@ -1395,10 +1395,10 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
     return COAST_AMPLITUDE[lakeShoreIrregularity(land >= 0 ? base?.[land] : null, land >= 0 ? map.hexShapes?.[String(land)] : undefined, map.defaultLakeIrregularity)];
   };
   /** How far in a partly-land hex beside the lake has its shore drawn, at a point on it; negative elsewhere. */
-  const lakeShoreInset = (p: Point): number => {
+  const lakeShoreInset = (p: Point): number | null => {
     const { col, row } = pixelToOffset(p.x, p.y, size);
-    if (!inBounds(cols, rows, col, row)) return -1;
-    return traced?.insets.get(hexIndex(cols, col, row)) ?? -1;
+    if (!inBounds(cols, rows, col, row)) return null;
+    return traced?.insets.get(hexIndex(cols, col, row)) ?? null;
   };
   const lakeOutlines: PathCmd[] = [];
   /** Each lake's drawn shore (body and the islands in it), by lake. */

@@ -816,7 +816,7 @@ reshaped hex no longer reaches all of it).
   less a channel of uniform width to each sea neighbour. Both stay whole at any share. With three or more
   such neighbours (which would leave pockets), and for a mainland, land is laid along the edges shared with
   land, deeper as the share grows, so it stays joined to them.
-- A split hex whose water is a lake keeps its shore. A coast hex beside a lake counts its lake edges towards its depth (the lake is drawn over it, as in decision 39), and is cut only from the sea.
+- A split hex (isthmus, strait, mainland) beside a lake has the lake's shore moved by one distance, found so the land left is its share (into the land, or out into the lake when it has too little); the lake is drawn over the hex, so nothing else changes. Lake shores are smoothed and roughened heavily, so this is approximate (30% drew 35%, 70% drew 64% in a test). A coast hex beside a lake counts its lake edges towards its depth (the lake is drawn over it, as in decision 39), and is cut only from the sea.
 - Smoothed and roughened coasts move some land; the cut is repeated, up to twice, to the share less what the coast moved.
   The Hex coast style is exact; smooth styles are within about a point, a few at the thinnest necks.
 
