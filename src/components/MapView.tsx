@@ -48,6 +48,11 @@ export interface MapViewProps {
   onRiverExtend: (index: number) => void;
   /** A navigability stroke finished over these hexes. */
   onRiverPaint: (indices: number[]) => void;
+  /**
+   * The hexes of the place name being painted into, or null when none is armed. They stay outlined
+   * under the pointer, and strokes add to the selection rather than replacing it.
+   */
+  paintHexes?: number[] | null;
   /** Shown over the middle of the map, such as the first step on an empty map. */
   overlay?: React.ReactNode;
   /** Messages pinned to the top of the map: errors and the outcome of the last action. */
@@ -139,10 +144,10 @@ export default function MapView(props: MapViewProps) {
       size: HEX_SIZE,
       visible,
       labels,
-      selection: riverDraftSelection ?? selection,
+      selection: riverDraftSelection ?? (props.paintHexes ? new Set([...props.paintHexes, ...selection]) : selection),
       hover,
     });
-  }, [map, visible, labels, selection, hover, props.riverDraft]);
+  }, [map, visible, labels, selection, hover, props.riverDraft, props.paintHexes]);
 
   // Fit the map into the viewport the first time it is laid out, and again
   // whenever a different map (a load, an import, a new map) takes its place.
@@ -296,11 +301,13 @@ export default function MapView(props: MapViewProps) {
       }
     }
 
-    const additive = e.shiftKey || e.ctrlKey || e.metaKey;
+    // Painting a name only ever adds: the name's own hexes stay shown and a stroke never un-selects.
+    const painting = !!props.paintHexes && !!onStrokeEnd;
+    const additive = painting || e.shiftKey || e.ctrlKey || e.metaKey;
     const touched = new Set<number>([index]);
     drag.current = { mode: 'select', additive, touched };
     const next = additive ? new Set(selection) : new Set<number>();
-    if (additive && selection.has(index)) next.delete(index);
+    if (additive && !painting && selection.has(index)) next.delete(index);
     else next.add(index);
     onSelectionChange(next);
   };

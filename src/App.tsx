@@ -413,6 +413,12 @@ export default function App() {
     [runGeneration, selectedLayers, undoLayers],
   );
 
+  // The armed name's hexes, outlined on the map while painting so its current extent is visible.
+  const paintHexes = useMemo(() => {
+    if (!map || !geoPaintId || activeLayer !== 'base') return null;
+    return geoNamesOf(map).find((n) => n.id === geoPaintId)?.hexes ?? null;
+  }, [map, geoPaintId, activeLayer]);
+
   const onStrokeEnd = useCallback(
     (indices: number[]) => {
       if (!map || indices.length === 0) return;
@@ -1145,6 +1151,7 @@ export default function App() {
           onRiverMove={onRiverMove}
           onRiverExtend={onRiverExtend}
           onRiverPaint={onRiverPaint}
+          paintHexes={paintHexes}
           overlay={emptyMapOverlay}
           banner={banner}
         />
