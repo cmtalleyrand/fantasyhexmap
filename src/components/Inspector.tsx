@@ -608,8 +608,8 @@ function HexShapePanel(props: SubProps) {
   const sharedOf = (values: string[]) => (new Set(values).size === 1 ? values[0]! : '');
   const land = sharedOf(landHexes.map((i) => String(percentOf(i, true))));
   const usual = sharedOf(landHexes.map((i) => String(percentOf(i, false))));
-  const irregular = sharedOf(hexes.map((i) => hexShapeFor(base![i], map.hexShapes?.[String(i)]).irregular));
-  const usualIrregular = sharedOf(hexes.map((i) => DEFAULT_IRREGULARITY[base![i]!]));
+  const irregular = sharedOf(hexes.map((i) => hexShapeFor(base![i], map.hexShapes?.[String(i)], map.defaultIrregularity).irregular));
+  const usualIrregular = map.defaultIrregularity ?? sharedOf(hexes.map((i) => DEFAULT_IRREGULARITY[base![i]!]));
   const customised = hexes.some((i) => {
     const stored = map.hexShapes?.[String(i)];
     return stored !== undefined && stored.type === base![i];

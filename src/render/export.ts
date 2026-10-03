@@ -297,7 +297,7 @@ export function serializeParseFriendlyExport(map: MapState): string {
       ? { islandSpecsNote: 'map.islandSpecs maps an Islands or Mainland and islands hex\'s flat index to {large: 0-2, small: 0-5, coastal?: {large?, small?}, side?: edge 0..5}: how many islands it holds, which groups lie against the coast (or the mainland), and the side they lie against (absent: the side facing land). Hexes without an entry take their type\'s default.' }
       : {}),
     ...(map.hexShapes && Object.keys(map.hexShapes).length
-      ? { hexShapesNote: 'map.hexShapes maps a flat hex index to {type, land?: 0-100, irregular?: Smooth | Wavy | Ragged | Fractured}: the percentage of that hex that is land and how ragged its shoreline or ice edge is drawn, set by hand on Coastal Land, Islands, Mainland and islands, Isthmus, Strait, Glacier and Sea Ice hexes. They apply only while the hex is still of the base type named in `type`; hexes without an entry take the map-wide land shares in map.hexDimensions.' }
+      ? { hexShapesNote: 'map.hexShapes maps a flat hex index to {type, land?: 0-100, irregular?: Smooth | Wavy | Ragged | Fractured}: the percentage of that hex that is land and how ragged its shoreline or ice edge is drawn, set by hand on Coastal Land, Islands, Mainland and islands, Isthmus, Strait, Glacier and Sea Ice hexes. They apply only while the hex is still of the base type named in `type`; hexes without an entry take the map-wide land shares in map.hexDimensions. map.defaultIrregularity, when present, is the irregularity of every shaped hex that has none of its own; otherwise each type uses its own default.' }
       : {}),
   };
 

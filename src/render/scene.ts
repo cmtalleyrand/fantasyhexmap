@@ -271,9 +271,10 @@ function cachedCoast(
   size: number,
   smooth: boolean,
   shapes: Record<string, HexShape> | undefined,
+  defaultIrregularity: Irregularity | undefined,
   seed: string,
 ): TracedCoast {
-  const key = `${cols}x${rows}@${size}/${smooth}/${seed}/${shapesSignature(shapes)}`;
+  const key = `${cols}x${rows}@${size}/${smooth}/${seed}/${defaultIrregularity ?? ''}/${shapesSignature(shapes)}`;
   const hit = coastCache.get(base);
   if (hit && hit.key === key) return hit;
   const lakeIslands = lakeIslandsOf(base, cols, rows);
@@ -284,7 +285,7 @@ function cachedCoast(
   // in a hex split into land and water, where a neck must not be pinched shut.
   const amplitudeOf = (i: number | undefined): number => {
     if (i === undefined || base[i] === 'Islands') return 0;
-    return COAST_AMPLITUDE[hexShapeFor(base[i], shapes?.[String(i)]).irregular] * (surface.split.has(i) ? 0.5 : 1);
+    return COAST_AMPLITUDE[hexShapeFor(base[i], shapes?.[String(i)], defaultIrregularity).irregular] * (surface.split.has(i) ? 0.5 : 1);
   };
   // The sea's coast: lakes count as land here, as they have bodies of their own.
   const geometry = coastGeometryOf(
@@ -434,7 +435,7 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
   const population = opts.visible.population ? layers.population.data : null;
   const maxPop = population ? Math.max(1, ...population.map((v) => v ?? 0)) : 1;
 
-  const traced = base ? cachedCoast(base, cols, rows, size, knobs.coast === 'smooth', map.hexShapes, seed) : null;
+  const traced = base ? cachedCoast(base, cols, rows, size, knobs.coast === 'smooth', map.hexShapes, map.defaultIrregularity, seed) : null;
   const rawPolities = opts.visible.polities ? layers.polities.data : null;
   // Realm colour is drawn on land only; see landOwners.
   const polities = rawPolities && base
@@ -700,7 +701,7 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
   }
 
   /** How ragged a hex's outline is drawn. */
-  const levelOf = (i: number): Irregularity => hexShapeFor(base?.[i], map.hexShapes?.[String(i)]).irregular;
+  const levelOf = (i: number): Irregularity => hexShapeFor(base?.[i], map.hexShapes?.[String(i)], map.defaultIrregularity).irregular;
   const islandRand = (i: number) => (k: number) => unit(seed, 'islet', i, k);
   /** The direction (radians) from an island hex's centre toward the land its coastal groups lie against. */
   const coastward = (i: number, spec: IslandSpec): number => {

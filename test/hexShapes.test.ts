@@ -139,6 +139,31 @@ test('a smooth coast is drawn exactly as it was before irregularity existed', ()
   assert.notEqual(commandCount(scene(rough).prims), commandCount(scene(plain).prims));
 });
 
+test('the map default irregularity applies to hexes with none of their own, and to nothing unshaped', () => {
+  assert.equal(hexShapeFor('Coastal Land', undefined, 'Ragged').irregular, 'Ragged');
+  assert.equal(hexShapeFor('Islands', undefined, 'Smooth').irregular, 'Smooth');
+  assert.equal(hexShapeFor('Coastal Land', { type: 'Coastal Land', land: 50 }, 'Ragged').irregular, 'Ragged');
+  // A hex's own setting wins, as does nothing for a stale one set for another type.
+  assert.equal(hexShapeFor('Coastal Land', { type: 'Coastal Land', irregular: 'Smooth' }, 'Ragged').irregular, 'Smooth');
+  assert.equal(hexShapeFor('Strait', { type: 'Coastal Land', irregular: 'Smooth' }, 'Ragged').irregular, 'Ragged');
+  assert.equal(hexShapeFor('Land', undefined, 'Ragged').irregular, 'Smooth');
+  assert.equal(hexShapeFor('Coastal Land', undefined, null).irregular, 'Smooth');
+});
+
+test('changing the default irregularity redraws default hexes only', () => {
+  const base: BaseGeo[] = ['Sea', 'Coastal Land', 'Land', 'Coastal Land', 'Sea', 'Sea', 'Coastal Land', 'Land', 'Coastal Land', 'Sea'];
+  const plain = mapWith(base, 5, 2);
+  const rough = reducer(plain, { type: 'setDefaultIrregularity', irregular: 'Fractured' });
+  assert.equal(rough.defaultIrregularity, 'Fractured');
+  assert.notEqual(commandCount(scene(rough).prims), commandCount(scene(plain).prims));
+  // Every coast hex pinned to Smooth by hand ignores the default.
+  const pinned = { ...rough, hexShapes: Object.fromEntries(base.map((v, i) => [String(i), { type: v, irregular: 'Smooth' as const }]).filter(([, s]) => (s as { type: string }).type === 'Coastal Land')) };
+  assert.equal(commandCount(scene(pinned).prims), commandCount(scene(plain).prims));
+  const back = reducer(rough, { type: 'setDefaultIrregularity', irregular: null });
+  assert.equal('defaultIrregularity' in back, false);
+  assert.equal(commandCount(scene(back).prims), commandCount(scene(plain).prims));
+});
+
 test('a roughened coast still passes through the midpoint of every coast edge, and corrects the fills it crosses', () => {
   const base: BaseGeo[] = Array.from({ length: 36 }, (_, i) => ((i % 6) < 3 ? 'Coastal Land' : 'Sea'));
   const size = 30;

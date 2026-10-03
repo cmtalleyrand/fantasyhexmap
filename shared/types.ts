@@ -190,9 +190,18 @@ export interface HexShape {
   irregular?: Irregularity;
 }
 
-/** The settings that apply to a hex of this type: nothing when it has changed type or is not shaped. */
-export function hexShapeFor(value: BaseGeo | null | undefined, stored: HexShape | undefined): { land?: number; irregular: Irregularity } {
-  const irregular = value ? DEFAULT_IRREGULARITY[value] : 'Smooth';
+/**
+ * The settings that apply to a hex of this type: nothing when it has changed type or is not shaped.
+ * A hex with no irregularity of its own takes `mapDefault` (`MapState.defaultIrregularity`) when
+ * the map has one, else its type's default.
+ */
+export function hexShapeFor(
+  value: BaseGeo | null | undefined,
+  stored: HexShape | undefined,
+  mapDefault?: Irregularity | null,
+): { land?: number; irregular: Irregularity } {
+  const fallback = mapDefault && IRREGULARITY_VALUES.includes(mapDefault) && isShapedType(value) ? mapDefault : undefined;
+  const irregular = fallback ?? (value ? DEFAULT_IRREGULARITY[value] : 'Smooth');
   if (!value || !stored || stored.type !== value || !isShapedType(value)) return { irregular };
   const land = hasLandShare(value) && typeof stored.land === 'number' && Number.isFinite(stored.land)
     ? Math.max(0, Math.min(100, stored.land))
@@ -536,6 +545,11 @@ export interface MapState {
    * keyed by flat hex index. Absent hexes take their type's defaults.
    */
   hexShapes?: Record<string, HexShape>;
+  /**
+   * The irregularity of every shaped hex that has none of its own (`hexShapes`).
+   * Absent: each type uses its own default (`DEFAULT_IRREGULARITY`).
+   */
+  defaultIrregularity?: Irregularity;
   layers: LayersState;
   /** Append-only record of every change, oldest first. */
   journal: JournalEntry[];

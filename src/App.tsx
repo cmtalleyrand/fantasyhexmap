@@ -664,6 +664,8 @@ export default function App() {
       initialTab={settingsTab}
       hexDimensions={map ? normaliseHexDimensions(map.hexDimensions) : null}
       onSaveHexDimensions={(hexDimensions) => dispatch({ type: 'setHexDimensions', hexDimensions })}
+      defaultIrregularity={map?.defaultIrregularity ?? null}
+      onSaveDefaultIrregularity={(irregular) => dispatch({ type: 'setDefaultIrregularity', irregular })}
       allowUnderwater={map ? map.allowUnderwater === true : null}
       map={map}
       onSaveAllowUnderwater={(allow) => dispatch({ type: 'setAllowUnderwater', allow })}

@@ -650,6 +650,11 @@ icebergs. In a hex-edged coast style it has no effect on a coast, by design: tha
 hex geometry. The land share does not move a coast: a coast hex is drawn as a whole hex and its share
 is bookkeeping for area.
 
+**A map-wide default.** Settings → Map has a "Default irregularity". When set, it is the irregularity
+of every shaped hex with none of its own, replacing the per-type defaults (coasts Smooth, islands
+Wavy); only hexes set by hand keep theirs, so changing it redraws exactly the hexes that follow the
+default. It is stored as `MapState.defaultIrregularity` and cleared by choosing "Each type's own".
+
 **What it does not cover.** Sea Ice has irregularity but no land share. The AI layers do not set
 either value; they are hand edits, logged in the journal.
 

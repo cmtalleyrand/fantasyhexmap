@@ -9,7 +9,7 @@ import {
 import { clampPolityOpacity, insecureOrigin, looksLikeKey, type Prefs } from '../api/settings.js';
 import { cryptoAvailable } from '../api/keyvault.js';
 import type { TransportMode } from '../api/client.js';
-import type { HexDimensions, MapState } from '../../shared/types.js';
+import { IRREGULARITY_VALUES, type HexDimensions, type Irregularity, type MapState } from '../../shared/types.js';
 import { POLITY_NAME_MIN_OPTIONS, parsePolityNameMin } from '../render/labels.js';
 import HexSizeInput from './HexSizeInput.js';
 import MapStylePicker from './MapStylePicker.js';
@@ -41,6 +41,9 @@ export interface SettingsDialogProps {
   /** The open map, for the style previews; null on the create screen. */
   map?: MapState | null;
   onSaveAllowUnderwater: (allow: boolean) => void;
+  /** The open map's default irregularity; null means each type uses its own. */
+  defaultIrregularity?: Irregularity | null;
+  onSaveDefaultIrregularity?: (next: Irregularity | null) => void;
   initialTab?: SettingsTab;
   /** Manual mode has no use for the generation and key tabs. Default: 'ai'. */
   editorMode?: 'ai' | 'manual';
@@ -51,6 +54,7 @@ export default function SettingsDialog(props: SettingsDialogProps) {
   const [prefs, setPrefs] = useState<Prefs>(props.prefs);
   const [hex, setHex] = useState<HexDimensions | null>(props.hexDimensions);
   const [underwater, setUnderwater] = useState<boolean | null>(props.allowUnderwater);
+  const [irregular, setIrregular] = useState<Irregularity | null>(props.defaultIrregularity ?? null);
   const [reveal, setReveal] = useState(false);
   const [protect, setProtect] = useState(props.locked);
   const [passphrase, setPassphrase] = useState('');
@@ -86,6 +90,7 @@ export default function SettingsDialog(props: SettingsDialogProps) {
 
   const save = () => {
     if (hex && hex !== props.hexDimensions) props.onSaveHexDimensions(hex);
+    if (hex && irregular !== (props.defaultIrregularity ?? null)) props.onSaveDefaultIrregularity?.(irregular);
     if (underwater !== null && underwater !== props.allowUnderwater) {
       props.onSaveAllowUnderwater(underwater);
     }
@@ -127,6 +132,21 @@ export default function SettingsDialog(props: SettingsDialogProps) {
           <div className="stack">
             <h3>Hex size</h3>
             <HexSizeInput value={hex} onChange={setHex} />
+            <h3>Irregularity</h3>
+            <label htmlFor="default-irregularity">Default irregularity</label>
+            <select
+              id="default-irregularity"
+              aria-label="Default irregularity"
+              value={irregular ?? ''}
+              onChange={(e) => setIrregular(e.target.value === '' ? null : (e.target.value as Irregularity))}
+            >
+              <option value="">Each type's own (coasts smooth, islands and ice wavy)</option>
+              {IRREGULARITY_VALUES.map((r) => <option key={r} value={r}>{r}</option>)}
+            </select>
+            <p className="hint">
+              How ragged shorelines and ice edges are drawn on every coast, island, isthmus, strait and ice
+              hex whose irregularity you have not set by hand. Hexes you have set keep their own.
+            </p>
             {underwater !== null && (
               <>
                 <h3>Water</h3>
