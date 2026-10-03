@@ -95,7 +95,7 @@ export default function Legend({ layer, map }: { layer: LayerId; map: MapState }
       const polities = map.layers.polities.data?.polities ?? [];
       const dimensions = normaliseHexDimensions(map.hexDimensions);
       const areas = map.layers.base.data && map.layers.polities.data
-        ? politySurfaceAreas(map.layers.base.data, map.layers.polities.data, dimensions, map.islandSpecs, map.hexShapes)
+        ? politySurfaceAreas(map.layers.base.data, map.layers.polities.data, dimensions, map.islandSpecs, map.hexShapes, map.cols)
         : new Map<string, number>();
       if (polities.length === 0) return <div className="hint">No polities yet.</div>;
       return (

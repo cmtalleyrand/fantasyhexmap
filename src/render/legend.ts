@@ -244,7 +244,7 @@ export function legendSections(
         const base = map.layers.base.data;
         const dimensions = normaliseHexDimensions(map.hexDimensions);
         const areas = options.polityAreas && data && base
-          ? politySurfaceAreas(base, data, dimensions, map.islandSpecs, map.hexShapes)
+          ? politySurfaceAreas(base, data, dimensions, map.islandSpecs, map.hexShapes, map.cols)
           : null;
         const owned = usedValues(data?.owner);
         const all = data?.polities ?? [];

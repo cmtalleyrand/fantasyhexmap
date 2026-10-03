@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { hexIndex, indexToOffset, neighbourOf } from '../../shared/hex.js';
 import { canHoldSettlement } from '../../shared/derive.js';
+import { landEdgesOf } from '../../shared/straits.js';
 import type { RiverNotice, RiverTool } from '../state/riverTools.js';
 import RiverEditor from './RiverEditor.js';
 import GeoNamesEditor from './GeoNamesEditor.js';
@@ -665,10 +666,12 @@ const SIDE_NAMES = ['east', 'south-east', 'south-west', 'west', 'north-west', 'n
 
 function siteValue(site: City['site']): string {
   if (!site || site === 'auto') return 'auto';
-  return typeof site === 'object' ? `${site.river ? 'port' : 'coast'}:${site.coast}` : site;
+  if (typeof site === 'object') return 'bank' in site ? `bank:${site.bank}` : `${site.river ? 'port' : 'coast'}:${site.coast}`;
+  return site;
 }
 
 function parseSiteValue(value: string): City['site'] {
+  if (value.startsWith('bank:')) return { bank: Number(value.slice(5)) };
   if (value.startsWith('coast:')) return { coast: Number(value.slice(6)) };
   if (value.startsWith('port:')) return { coast: Number(value.slice(5)), river: true };
   return value === 'inland' || value === 'river' ? value : 'auto';
@@ -908,7 +911,7 @@ function PolityEditor(props: SubProps) {
         </label>
       </div>
       <p className="hint" style={{ margin: 0 }}>
-        Assignment is a strict partition: a hex has one owner or none.{' '}
+        Assignment is a strict partition: a hex has one owner or none; a strait left unclaimed is shared by the realms on its banks.{' '}
         {map.allowUnderwater
           ? 'Underwater claims are allowed on this map.'
           : 'Claims on water are ignored.'}{' '}
@@ -1090,6 +1093,12 @@ function CityEditor(props: SubProps) {
                   <option value="auto">Automatic (river port, river, coast, or centre)</option>
                   <option value="inland">Inland, at the hex centre</option>
                   {c.onRiver && <option value="river">On its river</option>}
+                  {map.layers.base.data?.[c.row * map.cols + c.col] === 'Strait' &&
+                    landEdgesOf(map.layers.base.data, map.cols, map.rows, c.col, c.row).map((e) => (
+                      <option key={`bank${e}`} value={`bank:${e}`}>
+                        On the strait's bank, {SIDE_NAMES[e]} side
+                      </option>
+                    ))}
                   {c.coastalEdges.map((e) => (
                     <option key={e} value={`coast:${e}`}>
                       {waterNameAcross(map, c, e) === 'lake' ? 'Lakeshore' : 'Coast'}, {SIDE_NAMES[e]} side

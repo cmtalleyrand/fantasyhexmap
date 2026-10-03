@@ -25,13 +25,14 @@ export interface SiteContext {
 /** How far toward a coastal edge a port is drawn, as a fraction of the hex size. */
 const COAST_REACH = 0.55;
 
-export type ResolvedSite = 'inland' | 'river' | 'coast' | 'port';
+export type ResolvedSite = 'inland' | 'river' | 'coast' | 'port' | 'bank';
 
 /** The site a city is actually drawn at, after 'auto' and any impossible choice are resolved. */
 export function resolvedSite(city: City): { kind: ResolvedSite; edges: number[] } {
   const site = city.site ?? 'auto';
   if (site === 'inland') return { kind: 'inland', edges: [] };
   if (site === 'river') return city.onRiver ? { kind: 'river', edges: [] } : { kind: 'inland', edges: [] };
+  if (typeof site === 'object' && 'bank' in site) return { kind: 'bank', edges: [site.bank] };
   if (typeof site === 'object') {
     const edges = city.coastalEdges.includes(site.coast) ? [site.coast] : city.coastalEdges;
     if (edges.length === 0) return city.onRiver && site.river ? { kind: 'river', edges: [] } : { kind: 'inland', edges: [] };
@@ -75,6 +76,9 @@ function onLine(line: Point[] | null | undefined, target: Point, centre: Point, 
   return best;
 }
 
+/** How far toward its edge a city on a strait's bank is drawn: out on the land tip, past the channel. */
+const BANK_REACH = 0.66;
+
 export function citySite(city: City, ctx: SiteContext): Point {
   const { size } = ctx;
   const centre = hexCenter(city.col, city.row, size);
@@ -87,6 +91,10 @@ export function citySite(city: City, ctx: SiteContext): Point {
   // would otherwise pull the city out of it.
   const reach = size * 0.8;
   if (kind === 'river') return onLine(line, centre, centre, reach) ?? centre;
+  if (kind === 'bank') {
+    const tip = towardEdges(centre, edges, size);
+    return tip ? { x: centre.x + (tip.x - centre.x) * (BANK_REACH / COAST_REACH), y: centre.y + (tip.y - centre.y) * (BANK_REACH / COAST_REACH) } : centre;
+  }
   const shore = towardEdges(centre, edges, size);
   if (kind === 'port') {
     // Where the river comes nearest the shore; without a drawn curve, on the shore.

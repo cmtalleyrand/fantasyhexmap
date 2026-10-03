@@ -373,10 +373,11 @@ export interface City {
 }
 
 /**
- * `{ coast }` stands on that coastal edge; `{ coast, river: true }` stands
+ * `{ bank }` stands on the tip of land on that edge of a strait hex, in the
+ * realm whose land lies there. `{ coast }` stands on that coastal edge; `{ coast, river: true }` stands
  * where its river meets that coast - a river port.
  */
-export type CitySite = 'auto' | 'inland' | 'river' | { coast: number; river?: boolean };
+export type CitySite = 'auto' | 'inland' | 'river' | { coast: number; river?: boolean } | { bank: number };
 
 export interface Polity {
   id: string;

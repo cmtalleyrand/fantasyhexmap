@@ -1109,3 +1109,15 @@ test('dragging a river’s source onto a lake makes it flow out of the lake; its
   assert.ok(!('error' in intoLake), 'error' in intoLake ? intoLake.error : '');
   assert.equal(intoLake.river.terminus, 'Lake');
 });
+
+test('a city can stand on either bank of a strait', async () => {
+  const { citySite, resolvedSite } = await import('../src/render/sites.ts');
+  const { hexCenter } = await import('../shared/hex.ts');
+  const city = { id: 'c', col: 1, row: 0, name: 'C', population: 100, onRiver: false, riverId: null, coastal: true, coastalEdges: [], site: { bank: 0 } };
+  const ctx = { size: 20, base: ['Land', 'Strait', 'Land'] as const, cols: 3 };
+  const centre = hexCenter(1, 0, 20);
+  assert.equal(resolvedSite(city).kind, 'bank');
+  const east = citySite(city, ctx);
+  const west = citySite({ ...city, site: { bank: 3 } }, ctx);
+  assert.ok(east.x > centre.x + 5 && west.x < centre.x - 5, 'each bank is on its own side of the channel');
+});

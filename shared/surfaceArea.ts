@@ -9,6 +9,7 @@ import {
   type HexDimensions,
   type PolitiesData,
 } from './types.js';
+import { straitSharers } from './straits.js';
 
 /** Dimensions saved before land shares were set per type carried one island share. */
 type StoredHexDimensions = Partial<HexDimensions> & { islandLandPercent?: number };
@@ -77,13 +78,23 @@ export function politySurfaceAreas(
   dimensions: HexDimensions,
   specs?: Record<string, IslandSpec>,
   shapes?: Record<string, HexShape>,
+  /** Grid width; with it, an unowned strait's area is shared between the realms on its banks. */
+  cols?: number,
 ): Map<string, number> {
   const hexArea = dimensions.width * dimensions.height * 0.75;
   const areas = new Map(data.polities.map((polity) => [polity.id, 0]));
   for (let index = 0; index < data.owner.length; index++) {
     const owner = data.owner[index];
-    if (!owner || !areas.has(owner)) continue;
     const fraction = landFraction(base[index], specs?.[String(index)], dimensions, shapes?.[String(index)]);
+    if (!owner) {
+      // An unowned strait is shared by the realms on its banks.
+      if (!cols) continue;
+      for (const [id, share] of straitSharers(base, data.owner, cols, data.owner.length / cols, index)) {
+        if (areas.has(id)) areas.set(id, areas.get(id)! + hexArea * fraction * share);
+      }
+      continue;
+    }
+    if (!areas.has(owner)) continue;
     areas.set(owner, areas.get(owner)! + hexArea * fraction);
   }
   return areas;
