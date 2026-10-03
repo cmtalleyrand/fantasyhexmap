@@ -722,6 +722,13 @@ ones, and the lake's shore beside that hex lies that far in from the hex's edge,
 usual outward reach of about a sixth of a hex. The lake is drawn over the hex, so no water strip is
 needed. The shore is still smoothed and roughened like any lake shore, so the share is approximate there.
 
+**Cities stand on the drawn land.** A city's site (a port's shore, a bank, the centre) is a fixed
+point in its hex, which the inset coast and the split hexes (isthmus, strait, mainland-and-islands) can
+leave in water. `citySite` now asks `landTest` (the same pieces and insets the coast is drawn from) and,
+when the site is not land with a little room round it, takes the nearest point that is: first back along
+the way to the hex centre, so a port keeps to its shore side, then anywhere in the hex. Island hexes
+keep their own island centre. The test ignores the coast's smoothing and roughening, hence the room.
+
 ## 40. Ice follows the ground it lies on, and every edge resolves to a neighbour
 
 **Chosen.** Three changes to how ice is drawn, all in the textured ice setting unless stated.

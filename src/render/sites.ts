@@ -20,6 +20,8 @@ export interface SiteContext {
   riverLine?: (riverId: string) => Point[] | null;
   /** The centre of the land in an island hex, which need not be the hex centre. */
   islandCentre?: (index: number) => Point | null;
+  /** Whether a point is land as the coast is drawn (insets and split hexes included). */
+  onLand?: (p: Point) => boolean;
 }
 
 /** How far toward a coastal edge a port is drawn, as a fraction of the hex size. */
@@ -79,7 +81,47 @@ function onLine(line: Point[] | null | undefined, target: Point, centre: Point, 
 /** How far toward its edge a city on a strait's bank is drawn: out on the land tip, past the channel. */
 const BANK_REACH = 0.66;
 
+/**
+ * `want` if it stands on land with some room round it; else the nearest such
+ * point, looking first back along the way to the hex centre (so a port stays on
+ * its shore side) and then anywhere in the hex. A hex with no room anywhere
+ * falls back to any land at all, then to `want`.
+ */
+function onLandNear(want: Point, centre: Point, size: number, onLand: (p: Point) => boolean): Point {
+  for (const room of [size * 0.12, 0]) {
+    const clear = (p: Point) =>
+      onLand(p) && (room === 0 || [0, 1, 2, 3, 4, 5].every((k) => onLand({ x: p.x + Math.cos((k * Math.PI) / 3) * room, y: p.y + Math.sin((k * Math.PI) / 3) * room })));
+    for (let t = 0; t <= 1.0001; t += 0.1) {
+      const p = { x: want.x + (centre.x - want.x) * t, y: want.y + (centre.y - want.y) * t };
+      if (clear(p)) return p;
+    }
+    let best: Point | null = null;
+    let d = Infinity;
+    for (let r = 0.1; r <= 0.9; r += 0.1) {
+      for (let k = 0; k < 24; k++) {
+        const a = (k * Math.PI) / 12;
+        const p = { x: centre.x + Math.cos(a) * size * r, y: centre.y + Math.sin(a) * size * r };
+        const dp = Math.hypot(p.x - want.x, p.y - want.y);
+        if (dp < d && clear(p)) {
+          d = dp;
+          best = p;
+        }
+      }
+    }
+    if (best) return best;
+  }
+  return want;
+}
+
 export function citySite(city: City, ctx: SiteContext): Point {
+  const site = rawSite(city, ctx);
+  if (!ctx.onLand) return site;
+  // An island's own drawn land is not part of the coast's, so it is left where it is.
+  if (isIslandType(ctx.base?.[city.row * ctx.cols + city.col] ?? null)) return site;
+  return onLandNear(site, hexCenter(city.col, city.row, ctx.size), ctx.size, ctx.onLand);
+}
+
+function rawSite(city: City, ctx: SiteContext): Point {
   const { size } = ctx;
   const centre = hexCenter(city.col, city.row, size);
   const index = city.row * ctx.cols + city.col;

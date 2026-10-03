@@ -77,6 +77,7 @@ import {
   coastalIslandSide,
   coastGeometryOf,
   landInsetDepth,
+  landTest,
   lakeIslandsOf,
   pieceDonor,
   piecePoints,
@@ -247,6 +248,8 @@ interface TracedCoast {
   surface: SurfaceMap;
   /** How far in from its own edges each partly-land hex (Coastal Land, Glacier) has its water-facing edges drawn. */
   insets: Map<number, number>;
+  /** Whether a point is land as drawn, for placing things that must stand on it. */
+  onLand: (p: Point) => boolean;
 }
 
 const coastCache = new WeakMap<object, TracedCoast & { key: string }>();
@@ -334,7 +337,7 @@ function cachedCoast(
         }
       : undefined,
   );
-  const entry = { key, geometry, lakes, lakeIslands, surface, insets };
+  const entry = { key, geometry, lakes, lakeIslands, surface, insets, onLand: landTest(surface, wetEdges, insets, size) };
   coastCache.set(base, entry);
   return entry;
 }
@@ -1722,6 +1725,7 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
         cols,
         riverLine: (id) => courses.get(id) ?? null,
         islandCentre: (i) => islandCentre(i),
+        onLand: traced?.onLand,
       }),
     ]),
   );
