@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { hexIndex, indexToOffset, neighbourOf } from '../../shared/hex.js';
 import { canHoldSettlement } from '../../shared/derive.js';
 import { landEdgesOf } from '../../shared/straits.js';
+import { holdersOf } from '../../shared/polityShares.js';
 import type { RiverNotice, RiverTool } from '../state/riverTools.js';
 import RiverEditor from './RiverEditor.js';
 import GeoNamesEditor from './GeoNamesEditor.js';
@@ -946,6 +947,8 @@ function PolityEditor(props: SubProps) {
   const [shadeWithContrast, setShadeWithContrast] = useState(true);
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
   const [copied, setCopied] = useState<string | null>(null);
+  const [shareWith, setShareWith] = useState('');
+  const [sharePercent, setSharePercent] = useState(50);
   // Kept with the other brush values in App, so a brush stroke on the map assigns to it.
   const target = props.brush.polities ?? '';
   const setTarget = (id: string) => props.setBrush('polities', id);
@@ -954,16 +957,19 @@ function PolityEditor(props: SubProps) {
   const outline = useMemo(() => polityOutline(data.polities), [data.polities]);
   const ownCount = useMemo(() => {
     const counts = new Map<string, number>();
-    for (const id of data.owner) if (id) counts.set(id, (counts.get(id) ?? 0) + 1);
+    data.owner.forEach((_, i) => {
+      for (const [id, part] of holdersOf(data, i)) counts.set(id, (counts.get(id) ?? 0) + part);
+    });
     return counts;
-  }, [data.owner]);
+  }, [data]);
   const byId = useMemo(() => new Map(data.polities.map((p) => [p.id, p])), [data.polities]);
   const partsOf = (id: string) => {
     const set = descendantsOf(data.polities, id);
     set.delete(id);
     return set;
   };
-  const hexesOf = (ids: Set<string>) => data.owner.flatMap((id, i) => (id && ids.has(id) ? [i] : []));
+  const hexesOf = (ids: Set<string>) => data.owner.flatMap((_, i) => (holdersOf(data, i).some(([id]) => ids.has(id)) ? [i] : []));
+  const count = (n: number) => String(Math.round(n * 10) / 10);
 
   // A part whose realm is folded away is hidden with it.
   const hidden = new Set<string>();
@@ -1040,8 +1046,46 @@ function PolityEditor(props: SubProps) {
           brush
         </label>
       </div>
+      <div>
+        <label>Or share selected hexes between that polity and</label>
+        <div className="row">
+          <select className="grow" value={shareWith} onChange={(e) => setShareWith(e.target.value)}>
+            <option value="">(choose a polity)</option>
+            {outline
+              .filter(({ polity: p }) => p.id !== target)
+              .map(({ polity: p, depth }) => (
+                <option key={p.id} value={p.id}>
+                  {'\u00a0\u00a0'.repeat(depth)}
+                  {depth > 0 ? '↳ ' : ''}
+                  {p.name}
+                </option>
+              ))}
+          </select>
+          <input
+            type="number"
+            min={5}
+            max={95}
+            step={5}
+            style={{ width: 56 }}
+            value={sharePercent}
+            title="Percentage of each hex given to the second polity"
+            onChange={(e) => setSharePercent(Math.min(95, Math.max(5, Number(e.target.value) || 50)))}
+          />
+          <span style={{ alignSelf: 'center' }}>%</span>
+        </div>
+        <button
+          style={{ marginTop: 4 }}
+          disabled={selected.length === 0 || !target || !shareWith}
+          title={target ? undefined : 'Choose the polity to assign to above first'}
+          onClick={() =>
+            dispatch({ type: 'shareHexes', indices: selected, first: target, second: shareWith, share: sharePercent / 100 })
+          }
+        >
+          Share {selected.length} hexes ({100 - sharePercent}% / {sharePercent}%)
+        </button>
+      </div>
       <p className="hint" style={{ margin: 0 }}>
-        Assignment is a strict partition: a hex has one owner or none; a strait left unclaimed is shared by the realms on its banks.{' '}
+        A hex has one owner, none, or is shared between two polities in the proportion you choose; a strait left unclaimed is shared by the realms on its banks.{' '}
         {map.allowUnderwater
           ? 'Underwater claims are allowed on this map.'
           : 'Claims on water are ignored.'}{' '}
@@ -1155,24 +1199,24 @@ function PolityEditor(props: SubProps) {
                   <span className="grow" />
                   <button
                     className="tiny"
-                    title={`Select the ${own} hexes ${p.name} holds directly`}
+                    title={`Select the ${count(own)} hexes ${p.name} holds directly`}
                     onClick={() => {
                       props.setSelection(new Set(hexesOf(new Set([p.id]))));
                       setTarget(p.id);
                     }}
                   >
-                    {own}
+                    {count(own)}
                   </button>
                   {parts > 0 && (
                     <button
                       className="tiny"
-                      title={`Select all ${total} hexes of ${p.name} and its parts`}
+                      title={`Select all ${count(total)} hexes of ${p.name} and its parts`}
                       onClick={() => {
                         props.setSelection(new Set(hexesOf(new Set([p.id, ...partIds]))));
                         setTarget(p.id);
                       }}
                     >
-                      Σ {total}
+                      Σ {count(total)}
                     </button>
                   )}
                 </div>

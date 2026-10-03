@@ -481,8 +481,18 @@ export interface CitiesData {
 }
 export interface PolitiesData {
   polities: Polity[];
-  /** Polity id owning each hex, or null for unclaimed / non-land. */
+  /** Polity id owning each hex, or null for unclaimed / non-land. A shared hex lists its larger holder here. */
   owner: (string | null)[];
+  /**
+   * Hexes held by two polities, keyed by hex index. `polityId` is the second
+   * holder and `share` (0-1, exclusive) the fraction of the hex it holds; the
+   * `owner` entry holds the rest. Absent or empty when no hex is shared.
+   */
+  shares?: Record<string, HexShare>;
+}
+export interface HexShare {
+  polityId: string;
+  share: number;
 }
 export type PopulationData = (number | null)[];
 

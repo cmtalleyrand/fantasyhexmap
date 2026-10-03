@@ -1,3 +1,4 @@
+import { holdersOf } from '../../shared/polityShares.js';
 import type { PolityNameMin } from '../render/labels.js';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { hexIndex, pixelToOffset, gridPixelSize, inBounds } from '../../shared/hex.js';
@@ -420,8 +421,12 @@ export default function MapView(props: MapViewProps) {
     if (population !== null && population !== undefined) bits.push(`pop ${population.toLocaleString()}`);
     const owner = map.layers.polities.data?.owner[hover];
     if (owner) {
-      const polity = map.layers.polities.data?.polities.find((p) => p.id === owner);
-      if (polity) bits.push(polity.name);
+      const data = map.layers.polities.data!;
+      const names = holdersOf(data, hover).flatMap(([id, part]) => {
+        const polity = data.polities.find((p) => p.id === id);
+        return polity ? [part < 1 ? `${polity.name} ${Math.round(part * 100)}%` : polity.name] : [];
+      });
+      if (names.length > 0) bits.push(names.join(' / '));
     }
     for (const river of riversThroughHex(map.layers.rivers.data?.rivers ?? [], col, row)) {
       const seg = river.segments.find((x) => x.col === col && x.row === row);
