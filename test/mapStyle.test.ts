@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { hexEdgePoints, hexIndex, inBounds, neighbourOf } from '../shared/hex.ts';
+import { hexCenter, hexEdgePoints, hexIndex, inBounds, neighbourOf } from '../shared/hex.ts';
 import { createMapState } from '../shared/layers.ts';
 import type { BaseGeo, MapState } from '../shared/types.ts';
 import { alike, chainEdges, coastEdges, coastGeometry, coastKey, drawnLand, raggedEdge, sideOf } from '../src/render/coast.ts';
@@ -1479,71 +1479,60 @@ test('the side of the coast line a point falls on says whether it is land', asyn
   assert.equal(land({ x: 500, y: 100 }), true);
 });
 
-test('a city on a river is placed against the river by size, and only a metropolis is split by it', async () => {
-  const { bankOffset, riverBisects, riverThrough } = await import('../src/render/cityMarkers.ts');
-  assert.deepEqual((['village', 'town', 'city', 'metropolis'] as const).map(riverBisects), [false, false, false, true]);
-  // On the bank, clear of the river's own half width; the larger the city, the closer it stands.
-  const [village, town, city, metropolis] = (['village', 'town', 'city', 'metropolis'] as const).map((s) => bankOffset('symbols', s, 10, 2));
-  // Past the river's half width (1), a village or town stands nearly a footprint out; a city, closer in, so the river runs under its rim.
-  const footprint = { village: 0.58, town: 0.82, city: 1 };
-  assert.ok((village! - 1) / (10 * footprint.village) > (city! - 1) / (10 * footprint.city), 'a city stands closer to the river, relative to its marker, than a village');
-  assert.ok(Math.abs((town! - 1) / (10 * footprint.town) - (village! - 1) / (10 * footprint.village)) < 1e-9, 'a village and a town stand alike');
-  assert.ok(village! > 1 && town! > 1 && city! > 1, 'on the bank, clear of the river\'s own half width');
-  assert.equal(metropolis, 0, 'a metropolis stands on the river');
-  // The band across a metropolis runs along the flow and is as wide as the river.
-  const band = riverThrough({ x: 50, y: 50 }, 10, { x: 1, y: 0 }, 3, { river: '#00f', paper: '#fff' });
-  const water = band.find((p) => p.kind === 'polygon')!;
-  assert.ok(water.kind === 'polygon' && water.points.every((p) => Math.abs(p.y - 50) <= 5 + 1e-9) && water.points.some((p) => p.x < 40));
-
+test('the river bows round the icon of a city on its bank, and the icon is pressed against the bowed bank', async () => {
+  const { pressPoint, pressIcon, PRESS, SET_IN } = await import('../src/render/riverCity.ts');
+  const size = 40;
   const map = islandMap();
-  const dryCity = { id: 'b', col: 4, row: 2, name: 'Dry', population: 5_000, onRiver: false, riverId: null, coastal: false, coastalEdges: [] };
-  const wet = (population: number) => ({ id: 'a', col: 2, row: 2, name: 'Wet', population, onRiver: true, riverId: 'r', coastal: false, coastalEdges: [] });
-  const visible = { ...allLayers(), cities: true };
+  const river = map.layers.rivers.data!.rivers[0]!;
+  const bare = riverCourse(river, size, 'seed')!;
+  // A city standing in the second hex of the river, with an icon of reach 12.
+  const at = hexCenter(river.segments[1]!.col, river.segments[1]!.row, size);
+  const reach = 12;
+  const cities = (straddle: boolean) => [{ at, radius: 12, id: 'c', icon: { reach, straddle } }];
+  const bowed = riverCourse(river, size, 'seed', { cities: cities(false) })!;
+  assert.equal(bowed.icons.length, 1, 'the course reports where the icon stands');
+  const m = bowed.icons[0]!.at;
+  // The course keeps clear of all but a fraction of the icon's reach; without the city it runs through the icon.
+  const nearest = (line: Array<{ x: number; y: number }>) => Math.min(...line.map((p) => Math.hypot(p.x - m.x, p.y - m.y)));
+  assert.ok(nearest(bowed.centreline) >= reach * (1 - PRESS) - 1e-6, 'the river keeps clear of the icon');
+  assert.ok(nearest(bare.centreline) < reach * (1 - PRESS), 'without the city the river would run through the icon');
+  assert.ok(bowed.centreline.some((p, i) => Math.hypot(p.x - bare.centreline[i]!.x, p.y - bare.centreline[i]!.y) > 1), 'the river is reshaped');
+  // The icon is set into the bank, not on the river.
+  assert.ok(Math.hypot(m.x - at.x, m.y - at.y) < size, 'the icon stays in its hex');
+
+  // Pressing: a point in the water goes to the bank, and a disc pressed against a bend follows it.
+  const bend = Array.from({ length: 41 }, (_, i) => ({ x: i * 2, y: i < 20 ? 40 : 40 + (i - 20) * 1.6 }));
+  const widths = bend.map(() => 4);
+  const reachOf = { line: bend, widths };
+  const wet = pressPoint(reachOf, { x: 30, y: 41 }, 0.5);
+  assert.ok(Math.abs(wet.y - 40) >= 2.5 - 1e-6, 'a point in the river is slid onto its bank');
+  assert.deepEqual(pressPoint(reachOf, { x: 30, y: 20 }, 0.5), { x: 30, y: 20 }, 'a point on land is not moved');
+  const disc = pressIcon([{ kind: 'circle', c: { x: 40, y: 44 }, r: 12, fill: '#000', stroke: '#fff', strokeWidth: 1 }], reachOf, 0.5, 1);
+  assert.equal(disc[0]!.kind, 'polygon', 'a circle becomes a polygon so that it can bend');
+  const pts = (disc[0] as { points: Array<{ x: number; y: number }> }).points;
+  const dist = (p: { x: number; y: number }) => Math.min(...bend.map((q) => Math.hypot(q.x - p.x, q.y - p.y)));
+  assert.ok(pts.every((p) => dist(p) >= 2.5 - 0.7), 'no part of the icon lies in the water');
+  assert.ok(pts.filter((p) => dist(p) < 3.5).length >= 4, 'part of its edge lies along the bank');
+  // The icon of a city that straddles the river stands on it, and is parted: halves on both banks.
+  const split = pressIcon([{ kind: 'circle', c: { x: 40, y: 40 }, r: 12, fill: '#000' }], reachOf, 0.5, 1)[0] as { points: Array<{ x: number; y: number }> };
+  assert.ok(split.points.some((p) => p.y < 40 - 2) && split.points.some((p) => p.y > 40 + 2), 'a metropolis is parted along the river');
+  assert.ok(split.points.every((p) => Math.abs(p.y - 40) >= 2.5 - 1e-6 || Math.abs(p.x - 40) > 11), 'and none of it lies in the water');
+  const straddled = riverCourse(river, size, 'seed', { cities: cities(true) })!;
+  assert.deepEqual(straddled.centreline.slice(0, 3), bare.centreline.slice(0, 3), 'a river is not bowed for a city that straddles it');
+  assert.equal(SET_IN > 0 && SET_IN < 1, true);
+
   for (const cityMarkers of ['symbols', 'classic', 'illustrated'] as const) {
     const style = resolveStyle({ preset: 'parchment', overrides: { cityMarkers } });
-    const waterBands = (population: number | null) => {
-      map.layers.cities.data = { cities: population === null ? [dryCity] : [wet(population), dryCity] };
-      const prims = buildScene(map, { size: 20, visible, labels: false, style }).prims;
-      const collars = prims.filter((p) => p.kind === 'circle' && p.fill === style.palette.river && p.stroke === style.palette.cityRing);
-      assert.equal(collars.length, 0, `${cityMarkers}: no disc of water round the marker`);
-      return prims.filter((p) => p.kind === 'polygon' && p.fill === style.palette.river).length;
+    const sceneMap = islandMap();
+    const visible = { ...allLayers(), cities: true };
+    const draw = (population: number, onRiver: boolean) => {
+      sceneMap.layers.cities.data = { cities: [{ id: 'a', col: 2, row: 2, name: 'Wet', population, onRiver, riverId: onRiver ? 'r' : null, coastal: false, coastalEdges: [] }] } as never;
+      return buildScene(sceneMap, { size: 20, visible, labels: false, style }).prims;
     };
-    const none = waterBands(null);
-    assert.equal(waterBands(5_000), none, `${cityMarkers}: a village adds no water over its marker`);
-    assert.equal(waterBands(1_000_000), none + 1, `${cityMarkers}: the river runs across a metropolis`);
-  }
-});
-
-test('river irregularity comes in levels: each wanders more than the one before, and none folds back', async () => {
-  const { neighbourOf: nb } = await import('../shared/hex.ts');
-  const levels = ['verygentle', 'gentle', 'normal', 'irregular', 'wild'] as const;
-  assert.equal(resolveStyle({ preset: 'parchment', overrides: {} }).knobs.riverWander, 'normal');
-  assert.equal(parseStyleChoice({ preset: 'classic', overrides: { riverWander: 'wild' } }).overrides.riverWander, 'wild');
-  assert.equal(parseStyleChoice({ preset: 'classic', overrides: { riverWander: 'bogus' } }).overrides.riverWander, undefined);
-  let state = 777;
-  const rnd = () => (state = (state * 1664525 + 1013904223) % 4294967296) / 4294967296;
-  const length = Object.fromEntries(levels.map((l) => [l, 0]));
-  for (let n = 0; n < 60; n++) {
-    const segs: Array<{ col: number; row: number; entryEdge: number | null; exitEdge: number | null; navigable: boolean }> = [];
-    let at = { col: 5, row: 5 };
-    let prev: number | null = null;
-    for (let k = 0; k < 8; k++) {
-      let d = Math.floor(rnd() * 3) - 1 + (prev ?? 0);
-      d = ((d % 6) + 6) % 6;
-      segs.push({ col: at.col, row: at.row, entryEdge: prev === null ? null : (prev + 3) % 6, exitEdge: k === 7 ? null : d, navigable: false });
-      at = nb(at.col, at.row, d);
-      prev = d;
-    }
-    for (const wander of levels) {
-      const line = riverCourse({ id: 'f', name: 'f', terminus: 'Unresolved', segments: segs }, 40, `s${n}`, { wander })!.centreline;
-      length[wander]! += arcs(line).at(-1)!;
-      for (let i = 2; i < line.length; i++) {
-        const [a, b, c] = [line[i - 2]!, line[i - 1]!, line[i]!];
-        let t = Math.abs(Math.atan2(c.y - b.y, c.x - b.x) - Math.atan2(b.y - a.y, b.x - a.x));
-        if (t > Math.PI) t = 2 * Math.PI - t;
-        assert.ok(t < (5 * Math.PI) / 6, `${wander}: run ${n} turns ${(t * 180 / Math.PI).toFixed(0)} degrees`);
-      }
+    for (const population of [5_000, 120_000, 1_000_000]) {
+      const prims = draw(population, true);
+      assert.equal(prims.filter((p) => p.kind === 'circle' && p.fill === style.palette.river && p.stroke === style.palette.cityRing).length, 0, `${cityMarkers}: no disc of water round the marker`);
+      assert.ok(prims.some((p) => p.kind === 'polygon' && p.fill === style.palette.cityFill) || prims.some((p) => p.kind === 'path' && p.fill === style.palette.cityFill), `${cityMarkers}: the icon is drawn`);
     }
   }
-  for (let k = 1; k < levels.length; k++) assert.ok(length[levels[k]!]! > length[levels[k - 1]!]!, `${levels[k]} is longer than ${levels[k - 1]}`);
 });

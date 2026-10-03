@@ -97,7 +97,8 @@ import {
   raggedEdge,
 } from './coast.js';
 import { polygonPath, type CitySymbol, type PathCmd, type Prim } from './prims.js';
-import { bankOffset, capitalCrown, cityMarker, markerExtent, riverBisects, riverThrough } from './cityMarkers.js';
+import { capitalCrown, cityMarker, iconReach, markerExtent, riverBisects, symbolMarker } from './cityMarkers.js';
+import { pressIcon } from './riverCity.js';
 import { landBySide, riverCourses, type RiverCourse } from './rivers.js';
 import { citySite, resolvedSite } from './sites.js';
 import { escarpment, hillshade, reliefSymbols, vegetationSymbols, type Placed } from './symbols.js';
@@ -2255,7 +2256,19 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
         };
       }, (opts.visible.cities ? layers.cities.data?.cities ?? [] : [])
         .filter((city) => city.onRiver && city.riverId)
-        .map((city) => ({ riverId: city.riverId!, at: hexCenter(city.col, city.row, size), radius: markerRadius(city.population) })), knobs.riverWander)
+        .map((city) => {
+          const symbol = citySymbolForPopulation(city.population);
+          return {
+            riverId: city.riverId!,
+            id: city.id,
+            at: hexCenter(city.col, city.row, size),
+            radius: markerRadius(city.population),
+            // A city on its river (not a port at the shore) is set into the bank and shapes the course.
+            icon: resolvedSite(city).kind === 'river'
+              ? { reach: iconReach(knobs.cityMarkers, symbol, markerRadius(city.population)), straddle: riverBisects(symbol) }
+              : undefined,
+          };
+        }), knobs.riverWander)
     : new Map();
   // Everything a river draws, cut to the land below: over a lake or the sea it does not show, so a river through a lake
   // shows on either side of the water only.
@@ -2392,6 +2405,7 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
 
   // --- cities --------------------------------------------------------------
   const cities = opts.visible.cities ? layers.cities.data : null;
+  const riverIcons = new Map<string, Point>([...tapering.values()].flatMap((course) => course.icons.map((icon) => [icon.id, icon.at] as [string, Point])));
   const sites = new Map<string, Point>(
     (cities?.cities ?? []).map((city) => [
       city.id,
@@ -2400,9 +2414,8 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
         base,
         cols,
         riverLine: (id) => courses.get(id) ?? null,
-        // A river city stands on the bank, by size; only the largest stands on the river itself.
-        riverOffset: (c, i) =>
-          bankOffset(knobs.cityMarkers, citySymbolForPopulation(c.population), markerRadius(c.population), widthProfiles.get(c.riverId ?? '')?.[i] ?? size * 0.05),
+        // A river city's icon is set into the bank, where the course was bowed round it.
+        riverIcon: (id) => riverIcons.get(id) ?? null,
         islandCentre: (i) => islandCentre(i),
         onLand: traced?.onLand,
       }),
@@ -2426,30 +2439,21 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
         });
       }
       const symbol = citySymbolForPopulation(city.population);
-      if (knobs.cityMarkers === 'symbols') {
+      const colours = { ink: palette.cityFill, paper: palette.cityRing, river: palette.river };
+      const line = city.riverId && resolvedSite(city).kind === 'river' ? courses.get(city.riverId) : null;
+      const widths = city.riverId ? widthProfiles.get(city.riverId) : null;
+      if (line && widths) {
+        // The icon is pressed against the river's bank (a metropolis, standing on the river, is parted by it),
+        // so its silhouette follows the river's own bank line.
+        const plain = knobs.cityMarkers === 'symbols'
+          ? symbolMarker(symbol, c, r, colours, true)
+          : cityMarker(knobs.cityMarkers, symbol, c, r, colours, (k) => unit(seed, 'city', city.id, k));
+        const bankHalf = Math.max(1, size * 0.04) / 2;
+        prims.push(...pressIcon(plain, { line, widths }, bankHalf + Math.max(0.8, r * 0.16) / 2, Math.max(0.5, r * 0.08), riverBisects(symbol) ? undefined : c));
+      } else if (knobs.cityMarkers === 'symbols') {
         prims.push({ kind: 'city', c, r, onRiver: city.onRiver, symbol, riverDot: palette.river, fill: palette.cityFill, ring: palette.cityRing });
       } else {
-        prims.push(...cityMarker(knobs.cityMarkers, symbol, c, r, { ink: palette.cityFill, paper: palette.cityRing, river: palette.river }, (k) => unit(seed, 'city', city.id, k)));
-      }
-      // The river runs across the largest cities, splitting the marker.
-      const line = city.riverId ? courses.get(city.riverId) : null;
-      if (line && riverBisects(symbol) && resolvedSite(city).kind === 'river') {
-        let k = 0;
-        let d = Infinity;
-        line.forEach((q, i) => {
-          const dq = Math.hypot(q.x - c.x, q.y - c.y);
-          if (dq < d) {
-            d = dq;
-            k = i;
-          }
-        });
-        const a = line[Math.max(0, k - 1)]!;
-        const b = line[Math.min(line.length - 1, k + 1)]!;
-        const len = Math.hypot(b.x - a.x, b.y - a.y);
-        if (len > 0) {
-          const width = widthProfiles.get(city.riverId!)?.[k] ?? size * 0.05;
-          prims.push(...riverThrough(c, r, { x: (b.x - a.x) / len, y: (b.y - a.y) / len }, width, { river: palette.river, bank: palette.riverBank, paper: palette.cityRing }));
-        }
+        prims.push(...cityMarker(knobs.cityMarkers, symbol, c, r, colours, (k) => unit(seed, 'city', city.id, k)));
       }
       if (city.capital) {
         prims.push(...capitalCrown(knobs.cityMarkers, symbol, c, r, { ink: palette.cityFill, paper: palette.cityRing }));
@@ -2463,10 +2467,9 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
   // around their marker is free of all of those. A realm's name is never
   // pushed aside to make room for a city's.
   /** How far a city's marker reaches round its site, for names to keep clear of. */
-  const markerReach = (population: number, capital = false, onRiver = false) => {
+  const markerReach = (population: number, capital = false) => {
     const extent = markerExtent(knobs.cityMarkers, citySymbolForPopulation(population), capital);
-    // The river across a metropolis reaches a little past its marker.
-    return markerRadius(population) * Math.max(extent.half, (extent.up + extent.down) / 2, onRiver && riverBisects(citySymbolForPopulation(population)) ? 1.4 : 0);
+    return markerRadius(population) * Math.max(extent.half, (extent.up + extent.down) / 2);
   };
   const taken: OrientedBox[] = [];
   const lettering = LETTERINGS[knobs.lettering] ?? LETTERINGS.classic;
@@ -2485,7 +2488,7 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
     const obstacles: LabelObstacle[] = [];
     for (const city of cities?.cities ?? []) {
       const c = siteOf(city);
-      const r = markerReach(city.population, city.capital, city.onRiver);
+      const r = markerReach(city.population, city.capital);
       obstacles.push({ left: c.x - r, right: c.x + r, top: c.y - r, bottom: c.y + r });
     }
     // Without a hierarchy every realm is named once, from the cache. With one,
@@ -2578,7 +2581,7 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
   // City markers, which river names keep clear of.
   const cityBoxes: OrientedBox[] = (cities?.cities ?? []).map((city) => {
     const c = siteOf(city);
-    const reach = markerReach(city.population, city.capital, city.onRiver) * 1.15;
+    const reach = markerReach(city.population, city.capital) * 1.15;
     return { cx: c.x, cy: c.y, halfW: reach, halfH: reach, rotation: 0 };
   });
 
@@ -2692,7 +2695,7 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
         id: city.id,
         name: shown(city),
         at: siteOf(city),
-        r: markerReach(city.population, city.capital, city.onRiver),
+        r: markerReach(city.population, city.capital),
         population: city.population,
       })),
       fontSize,
@@ -2728,7 +2731,7 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
     prims,
     markers: (cities?.cities ?? []).map((city) => {
       const c = siteOf(city);
-      const reach = markerReach(city.population, city.capital, city.onRiver);
+      const reach = markerReach(city.population, city.capital);
       return { cx: c.x, cy: c.y, halfW: reach, halfH: reach, rotation: 0 };
     }),
   };

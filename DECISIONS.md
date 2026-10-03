@@ -910,11 +910,15 @@ merging two rivers bridges a lake, and the prompts say rivers may link lakes. Wh
 hidden (the river is the lake there), so it shows on either side. Rivers that begin or end at a lake still stop
 at its shore.
 
-**Cities.** A city on a river is no longer ringed in a disc of water. The river keeps its course and the marker is
-placed against it by size, in every marker set: villages and towns stand on the bank, a city on the bank with the
-river grazing its edge, and only a metropolis stands on the river, which runs across it as a band and splits
-the marker. The offset is taken from the river's drawn width at that point, on whichever bank is land. The legend
-says "Beside a river". Label placement allows for the band only on a metropolis.
+**Cities.** A city on a river is no longer ringed in a disc of water, and the river and the icon shape each other
+(`riverCity.ts`). The river bows out round the icon of a city on its bank, keeping clear of all but a small
+fraction of the icon's reach, in a smooth arc (the calming of the wander near cities is gone, so the river's own
+shape shows); the icon is set into the bank and then squashed against the bowed bank, every point that would lie
+in the water shifted across the river's direction onto the bank, so its edge follows the bank line whatever curve
+that has. Only a metropolis stands on the river itself: the river is left as it is, and the icon is parted along
+it, halves on either bank. The same pressing draws the legend swatch. Tried and dropped: a straight band over
+the icon, a clip cutting the icon along the river, icons rebuilt as parts laid along the bank, and sliding points
+radially to the nearest bank point (it folded tips into stalks and flaps).
 
 **River irregularity is a setting.** Style knob `riverWander` (Very gentle, Gentle, Normal, Irregular, Wild; Normal by
 default) sets the swing of the wander, how many passes pull the hex-edge crossings taut (fewer leaves the hex walk's
