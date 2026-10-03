@@ -1482,7 +1482,7 @@ test('a city on a river is placed against the river by size, and only a metropol
   const { bankOffset, riverBisects, riverThrough } = await import('../src/render/cityMarkers.ts');
   assert.deepEqual((['village', 'town', 'city', 'metropolis'] as const).map(riverBisects), [false, false, false, true]);
   // On the bank, clear of the river's own half width; the larger the city, the closer it stands.
-  const [village, town, city, metropolis] = (['village', 'town', 'city', 'metropolis'] as const).map((s) => bankOffset(s, 10, 2));
+  const [village, town, city, metropolis] = (['village', 'town', 'city', 'metropolis'] as const).map((s) => bankOffset('symbols', s, 10, 2));
   assert.ok(village! > 10 * 0.5 + 1 && town! <= village! && city! < town!, 'smaller cities stand further out');
   assert.equal(metropolis, 0, 'a metropolis stands on the river');
   // The band across a metropolis runs along the flow and is as wide as the river.

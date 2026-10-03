@@ -31,14 +31,21 @@ export interface MarkerColours {
  * placed against it, by size.
  *
  * - village, town: on the bank, the marker's rim just over the bank line;
- * - city: on the bank, with the river grazing the marker's edge;
+ * - city: on the bank, with the river running under the marker's rim;
  * - metropolis: on the river itself, which runs across the marker and splits it
  *   (`riverThrough`), the one size large enough to straddle the water.
  *
- * Each figure is how far the marker's centre stands from the river's centre
- * line, past the river's own half width, in marker radii (null: on the line).
+ * Each figure is how far the marker's centre stands from the river's edge, as a
+ * fraction of the marker's own footprint (null: on the river's line).
  */
-const BANK_STANDOFF: Record<CitySymbol, number | null> = { village: 0.8, town: 0.8, city: 0.7, metropolis: null };
+const BANK_STANDOFF: Record<CitySymbol, number | null> = { village: 0.9, town: 0.9, city: 0.6, metropolis: null };
+
+/** The body of each marker as drawn, in marker radii: the sets draw the same size at different scales. */
+const FOOTPRINT: Record<CityMarkerSet, Record<CitySymbol, number>> = {
+  symbols: { village: 0.58, town: 0.82, city: 1, metropolis: 1 },
+  classic: { village: 0.4, town: 0.62, city: 0.8, metropolis: 0.9 },
+  illustrated: { village: 0.5, town: 0.6, city: 0.65, metropolis: 0.9 },
+};
 
 /** Whether the river runs across a city marker of this size, splitting it. */
 export function riverBisects(symbol: CitySymbol): boolean {
@@ -46,9 +53,9 @@ export function riverBisects(symbol: CitySymbol): boolean {
 }
 
 /** How far a river city's marker stands from its river's centre line, for a river `width` wide; 0 where the river runs across it. */
-export function bankOffset(symbol: CitySymbol, r: number, width: number): number {
+export function bankOffset(set: CityMarkerSet, symbol: CitySymbol, r: number, width: number): number {
   const standoff = BANK_STANDOFF[symbol];
-  return standoff === null ? 0 : width / 2 + r * standoff;
+  return standoff === null ? 0 : width / 2 + r * FOOTPRINT[set][symbol] * standoff;
 }
 
 /**

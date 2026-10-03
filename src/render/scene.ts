@@ -2326,7 +2326,7 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
         riverLine: (id) => courses.get(id) ?? null,
         // A river city stands on the bank, by size; only the largest stands on the river itself.
         riverOffset: (c, i) =>
-          bankOffset(citySymbolForPopulation(c.population), markerRadius(c.population), widthProfiles.get(c.riverId ?? '')?.[i] ?? size * 0.05),
+          bankOffset(knobs.cityMarkers, citySymbolForPopulation(c.population), markerRadius(c.population), widthProfiles.get(c.riverId ?? '')?.[i] ?? size * 0.05),
         islandCentre: (i) => islandCentre(i),
         onLand: traced?.onLand,
       }),

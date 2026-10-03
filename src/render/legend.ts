@@ -381,7 +381,7 @@ function swatchPrims(swatch: LegendSwatch, x: number, cy: number, m: ReturnType<
       // A capital's swatch sits lower, to leave room for its crown. A river city stands on the
       // bank of a river that runs across the swatch, as it does on the map.
       const R = swatch.capital ? 6 * k : swatch.onRiver ? 6 * k : 8 * k;
-      const bank = swatch.onRiver ? bankOffset(swatch.symbol, R, 2 * k) : 0;
+      const bank = swatch.onRiver ? bankOffset(set, swatch.symbol, R, 2 * k) : 0;
       const at = { x: cx, y: cy + (swatch.capital ? 3 * k : 0) - bank / 2 };
       const crown = swatch.capital ? capitalCrown(set, swatch.symbol, at, R, { ink, paper }) : [];
       const water: Prim[] = swatch.onRiver
