@@ -7,6 +7,7 @@ import {
   stalenessOf,
 } from '../../shared/layers.js';
 import { generationOrder } from '../../shared/generationQueue.js';
+import { customLayersOf } from '../../shared/customLayers.js';
 import { type LayerId, type MapState } from '../../shared/types.js';
 import type { VisibleLayers } from '../render/scene.js';
 import type { EditorMode } from '../state/workspace.js';
@@ -28,6 +29,11 @@ export interface LayerPipelineProps {
   /** Generate exactly these layers, in dependency order. */
   onGenerateLayers: (layers: LayerId[]) => void;
   onEditPlan: () => void;
+  /** The custom layer being edited, if one is chosen instead of a built-in layer. */
+  activeCustom: string | null;
+  onSelectCustom: (id: string) => void;
+  onAddCustom: () => void;
+  onToggleCustomShown: (id: string) => void;
 }
 
 /** An eye, open or struck through: whether a layer is drawn on the map. */
@@ -90,7 +96,7 @@ export default function LayerPipeline(props: LayerPipelineProps) {
         return (
           <div
             key={id}
-            className={['layer-row', id === activeLayer ? 'active' : '', unlocked ? '' : 'locked'].join(' ')}
+            className={['layer-row', id === activeLayer && !props.activeCustom ? 'active' : '', unlocked ? '' : 'locked'].join(' ')}
             onClick={() => unlocked && props.onSelect(id)}
             title={unlocked ? meta.blurb : `Needs ${missing.map((m) => LAYER_META[m].label).join(', ')} first`}
           >
@@ -148,6 +154,49 @@ export default function LayerPipeline(props: LayerPipelineProps) {
             ) : (
               <span className="badge empty">empty</span>
             )}
+          </div>
+        );
+      })}
+
+      <div className="row" style={{ alignItems: 'baseline', marginTop: 10 }}>
+        <h2 style={{ flex: 1 }}>Custom layers</h2>
+        <button className="tiny" onClick={props.onAddCustom} title="Add a layer of your own, with categories you define">
+          + add layer
+        </button>
+      </div>
+      {customLayersOf(map).length === 0 && (
+        <p className="hint" style={{ margin: '4px 0' }}>
+          None yet. A custom layer marks hexes with categories you define - trade routes, quest
+          areas, anything the built-in layers do not cover.
+        </p>
+      )}
+      {customLayersOf(map).map((layer) => {
+        const count = Object.keys(layer.values).length;
+        return (
+          <div
+            key={layer.id}
+            className={['layer-row', layer.id === props.activeCustom ? 'active' : ''].join(' ')}
+            onClick={() => props.onSelectCustom(layer.id)}
+            title={`${layer.categories.length} categor${layer.categories.length === 1 ? 'y' : 'ies'}`}
+          >
+            <button
+              type="button"
+              className="eye"
+              aria-pressed={layer.shown}
+              aria-label={`${layer.shown ? 'Hide' : 'Show'} ${layer.name} on the map`}
+              title={layer.shown ? 'Shown on the map - click to hide' : 'Hidden - click to show'}
+              onClick={(e) => {
+                e.stopPropagation();
+                props.onToggleCustomShown(layer.id);
+              }}
+            >
+              <EyeIcon open={layer.shown} />
+            </button>
+            <span className="name">
+              <b>{layer.name}</b>
+              <small>{count === 0 ? 'Nothing assigned yet' : `${count} hex${count === 1 ? '' : 'es'}`}</small>
+            </span>
+            <span className={`badge ${count > 0 ? 'ok' : 'empty'}`}>custom</span>
           </div>
         );
       })}

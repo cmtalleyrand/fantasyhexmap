@@ -79,7 +79,8 @@ export interface LegendEntry {
 }
 
 export interface LegendSection {
-  id: LayerId;
+  /** A built-in layer's id, or `custom:<id>` for a user-defined layer. */
+  id: LayerId | `custom:${string}`;
   title: string;
   entries: LegendEntry[];
 }
@@ -101,6 +102,20 @@ function symbolForPopulation(population: number): CitySymbol {
   if (population <= 50_000) return 'town';
   if (population <= 250_000) return 'city';
   return 'metropolis';
+}
+
+/** One section per shown custom layer that has something assigned, listing the categories in use. */
+export function customLegendSections(map: MapState, options: LegendOptions): LegendSection[] {
+  const sections: LegendSection[] = [];
+  for (const layer of map.customLayers ?? []) {
+    if (!layer.shown) continue;
+    const used = new Set(Object.values(layer.values));
+    const entries: LegendEntry[] = layer.categories
+      .filter((c) => !options.onlyUsed || used.has(c.id))
+      .map((c) => ({ swatch: { kind: 'fill', colour: c.colour }, label: c.name }));
+    if (used.size > 0 && entries.length > 0) sections.push({ id: `custom:${layer.id}`, title: layer.name, entries });
+  }
+  return sections;
 }
 
 /**
