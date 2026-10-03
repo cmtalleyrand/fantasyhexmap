@@ -51,6 +51,7 @@ import { parseMapImport, prepareLoadedMap } from './state/import.js';
 import SavesDialog from './components/SavesDialog.js';
 import FileMenu from './components/FileMenu.js';
 import Modal from './components/Modal.js';
+import ResizeMapDialog from './components/ResizeMapDialog.js';
 import NewMapDialog from './components/NewMapDialog.js';
 import CommitInput from './components/CommitInput.js';
 import { appReducer, reducer, type Action } from './state/store.js';
@@ -79,6 +80,7 @@ export default function App() {
   const [showPlan, setShowPlan] = useState(false);
   const [showSaves, setShowSaves] = useState(false);
   const [showExport, setShowExport] = useState(false);
+  const [showResize, setShowResize] = useState(false);
   const [showNewMap, setShowNewMap] = useState(false);
   const [webchatLayer, setWebchatLayer] = useState<LayerId | null>(null);
   // A passphrase-protected key lives on disk as ciphertext; the plaintext only
@@ -844,6 +846,16 @@ export default function App() {
       )}
       {decisionLog}
       {webchat}
+      {showResize && (
+        <ResizeMapDialog
+          map={map}
+          onGrow={(amounts) => {
+            dispatch({ type: 'growMap', amounts });
+            setSelection(new Set());
+          }}
+          onClose={() => setShowResize(false)}
+        />
+      )}
       {showExport && (
         <Modal label="Export image" className="wide" onClose={() => setShowExport(false)}>
           <ExportPanel
@@ -920,6 +932,9 @@ export default function App() {
           title="What the AI decided while generating this map, and why"
         >
           decisions ({(map.journal ?? []).reduce((n, e) => n + e.decisions.length, 0)})
+        </button>
+        <button className="tiny" onClick={() => setShowResize(true)} title="Add rows or columns around the map">
+          ⤢ resize map
         </button>
         <button
           className="tiny settings-btn"
@@ -1058,10 +1073,6 @@ export default function App() {
           onRiverMove={onRiverMove}
           onRiverExtend={onRiverExtend}
           onRiverPaint={onRiverPaint}
-          onExpand={(edge) => {
-            dispatch({ type: 'expandMap', edge });
-            setSelection(new Set());
-          }}
           overlay={emptyMapOverlay}
           banner={banner}
         />

@@ -63,7 +63,7 @@ export type Action =
   | { type: 'setHexDimensions'; hexDimensions: HexDimensions }
   | { type: 'setPlan'; layers: LayerId[] }
   | { type: 'setAllowUnderwater'; allow: boolean }
-  | { type: 'expandMap'; edge: 'top' | 'bottom' | 'left' | 'right' }
+  | { type: 'growMap'; amounts: GrowAmounts }
   | {
       type: 'applyGeneration';
       layer: LayerId;
@@ -167,7 +167,15 @@ function withLayer(map: MapState, id: LayerId, layer: LayerState): MapState {
 
 const MAX_JOURNAL = 400;
 
-type ExpandEdge = Extract<Action, { type: 'expandMap' }>['edge'];
+type GrowEdge = 'top' | 'bottom' | 'left' | 'right';
+
+/** How many lines (0-2) to add on each side of the map. */
+export interface GrowAmounts {
+  top?: number;
+  bottom?: number;
+  left?: number;
+  right?: number;
+}
 
 /**
  * Insert one boundary line into a flat row-major grid. New cells take the mode
@@ -179,7 +187,7 @@ function expandGrid<T>(
   data: T[],
   cols: number,
   rows: number,
-  edge: ExpandEdge,
+  edge: GrowEdge,
   numeric = false,
 ): T[] {
   const nextCols = cols + (edge === 'left' || edge === 'right' ? 1 : 0);
@@ -231,27 +239,92 @@ function expandGrid<T>(
 }
 
 /**
- * Grow the map by one line along an edge. A line at the top is two rows: the
- * grid is odd-r, so one row would turn every old even row odd and slide the
- * whole map half a hex east, changing which hexes touch (rivers, coasts, island
- * sides). Two rows keep every row's parity, and so every adjacency, intact.
+ * Where each hex of a grid goes when the map is re-laid out, and how a flat
+ * per-hex array is rebuilt for the new size.
  */
-function expandMap(map: MapState, edge: ExpandEdge): MapState {
-  const lines = edge === 'top' ? 2 : 1;
-  if ((edge === 'top' || edge === 'bottom' ? map.rows : map.cols) + lines > MAX_DIM) return map;
-  let next = map;
-  for (let i = 0; i < lines; i++) next = expandOnce(next, edge);
-  const noun = edge === 'top' || edge === 'bottom' ? 'row' : 'column';
-  const added = lines === 2 ? `two ${noun}s (one would shift every row by half a hex)` : `a ${noun}`;
-  return journal(reconcile(next), manualEntry('base', `Added ${added} at the ${edge} using neighbouring hexes.`));
+interface Relayout {
+  nextCols: number;
+  nextRows: number;
+  place: (col: number, row: number) => { col: number; row: number };
+  grid: <T>(data: T[], numeric: boolean) => T[];
 }
 
-function expandOnce(map: MapState, edge: ExpandEdge): MapState {
-  const { cols, rows } = map;
-  const colShift = edge === 'left' ? 1 : 0;
-  const rowShift = edge === 'top' ? 1 : 0;
-  const nextCols = cols + (edge === 'left' || edge === 'right' ? 1 : 0);
-  const nextRows = rows + (edge === 'top' || edge === 'bottom' ? 1 : 0);
+/**
+ * Grow the map by `amounts` lines per side.
+ *
+ * The grid is odd-r: odd rows sit half a hex east. A line added at the left,
+ * right or bottom leaves every old hex where it was relative to its neighbours.
+ * One row at the top turns every old even row odd, which would slide the map
+ * half a hex and change which hexes touch (breaking rivers, coasts, island
+ * sides), so it is done as a half-hex shift of the whole map and costs one extra
+ * column. Two rows at the top keep every row's parity and need nothing extra.
+ */
+/** The amounts as whole numbers 0-2, and the size the map would reach (one row at the top adds a column). */
+export function growPlan(map: Pick<MapState, 'cols' | 'rows'>, amounts: GrowAmounts) {
+  const n = (v: number | undefined) => Math.max(0, Math.min(2, Math.floor(v ?? 0)));
+  const top = n(amounts.top);
+  const bottom = n(amounts.bottom);
+  const left = n(amounts.left);
+  const right = n(amounts.right);
+  const sheared = top === 1 ? 1 : 0;
+  const cols = map.cols + left + right + sheared;
+  const rows = map.rows + top + bottom;
+  return { top, bottom, left, right, sheared, cols, rows, fits: cols <= MAX_DIM && rows <= MAX_DIM };
+}
+
+function growMap(map: MapState, amounts: GrowAmounts): MapState {
+  const { top, bottom, left, right, sheared, fits } = growPlan(map, amounts);
+  if (top + bottom + left + right === 0 || !fits) return map;
+  let next = map;
+  const plain = (edge: GrowEdge) => {
+    next = relayout(next, {
+      nextCols: next.cols + (edge === 'left' || edge === 'right' ? 1 : 0),
+      nextRows: next.rows + (edge === 'top' || edge === 'bottom' ? 1 : 0),
+      place: (col, row) => ({ col: col + (edge === 'left' ? 1 : 0), row: row + (edge === 'top' ? 1 : 0) }),
+      grid: (data, numeric) => expandGrid(data, next.cols, next.rows, edge, numeric),
+    });
+  };
+  for (let i = 0; i < top; i++) plain('top');
+  if (sheared) {
+    // Every old row moves down one; the rows that become even move east a column
+    // (their old neighbours keep their relative positions), the rest stay. The
+    // gaps this leaves at the ends of rows copy the cell beside them.
+    const cols = next.cols;
+    next = relayout(next, {
+      nextCols: cols + 1,
+      nextRows: next.rows,
+      place: (col, row) => ({ col: col + (row % 2 === 0 ? 1 : 0), row }),
+      grid: (data) => {
+        const out: typeof data = [];
+        for (let row = 0; row < next.rows; row++) {
+          const line = data.slice(row * cols, (row + 1) * cols);
+          if (row % 2 === 0) out.push(line[0]!, ...line);
+          else out.push(...line, line[cols - 1]!);
+        }
+        return out;
+      },
+    });
+  }
+  for (let i = 0; i < bottom; i++) plain('bottom');
+  for (let i = 0; i < left; i++) plain('left');
+  for (let i = 0; i < right; i++) plain('right');
+
+  const parts: string[] = [];
+  const plural = (count: number, noun: string) => `${count} ${noun}${count === 1 ? '' : 's'}`;
+  if (top) parts.push(`${plural(top, 'row')} at the top`);
+  if (bottom) parts.push(`${plural(bottom, 'row')} at the bottom`);
+  if (left) parts.push(`${plural(left, 'column')} on the left`);
+  if (right) parts.push(`${plural(right, 'column')} on the right`);
+  const note = sheared ? ' One row at the top shifts the grid half a hex, so a column was added too.' : '';
+  return journal(
+    reconcile(next),
+    manualEntry('base', `Added ${parts.join(', ')} using neighbouring hexes.${note}`),
+  );
+}
+
+function relayout(map: MapState, to: Relayout): MapState {
+  const { cols } = map;
+  const { nextCols, nextRows, place } = to;
   const layers = { ...map.layers };
   for (const id of Object.keys(layers) as LayerId[]) {
     (layers as Record<LayerId, LayerState>)[id] = { ...layers[id], past: [], future: [] };
@@ -261,7 +334,7 @@ function expandOnce(map: MapState, edge: ExpandEdge): MapState {
     if (!layer.data) continue;
     layers[id] = {
       ...layer,
-      data: expandGrid(layer.data as unknown[], cols, rows, edge, id === 'population') as never,
+      data: to.grid(layer.data as unknown[], id === 'population') as never,
       version: layer.version + 1,
       past: [],
       future: [],
@@ -279,7 +352,7 @@ function expandOnce(map: MapState, edge: ExpandEdge): MapState {
   if (polities.data) {
     layers.polities = {
       ...polities,
-      data: { ...polities.data, owner: expandGrid(polities.data.owner, cols, rows, edge) },
+      data: { ...polities.data, owner: to.grid(polities.data.owner, false) },
       version: polities.version + 1,
       past: [],
       future: [],
@@ -289,7 +362,7 @@ function expandOnce(map: MapState, edge: ExpandEdge): MapState {
   if (cities.data) {
     layers.cities = {
       ...cities,
-      data: { cities: cities.data.cities.map((city) => ({ ...city, col: city.col + colShift, row: city.row + rowShift })) },
+      data: { cities: cities.data.cities.map((city) => ({ ...city, ...place(city.col, city.row) })) },
       version: cities.version + 1,
       past: [],
       future: [],
@@ -301,7 +374,7 @@ function expandOnce(map: MapState, edge: ExpandEdge): MapState {
       ...rivers,
       data: { rivers: rivers.data.rivers.map((river) => ({
         ...river,
-        segments: river.segments.map((segment) => ({ ...segment, col: segment.col + colShift, row: segment.row + rowShift })),
+        segments: river.segments.map((segment) => ({ ...segment, ...place(segment.col, segment.row) })),
       })) },
       version: rivers.version + 1,
       past: [],
@@ -309,11 +382,10 @@ function expandOnce(map: MapState, edge: ExpandEdge): MapState {
     };
   }
   const remapIndex = (index: number) => {
-    const col = index % cols;
-    const row = Math.floor(index / cols);
-    return (row + rowShift) * nextCols + col + colShift;
+    const at = place(index % cols, Math.floor(index / cols));
+    return at.row * nextCols + at.col;
   };
-  const next = {
+  return {
     ...map,
     cols: nextCols,
     rows: nextRows,
@@ -326,7 +398,6 @@ function expandOnce(map: MapState, edge: ExpandEdge): MapState {
       : map.islandSpecs,
     updatedAt: Date.now(),
   };
-  return next;
 }
 
 /**
@@ -603,8 +674,8 @@ export function reducer(map: MapState, action: Action): MapState {
       return action.allow ? next : dropUnderwater(next);
     }
 
-    case 'expandMap':
-      return expandMap(map, action.edge);
+    case 'growMap':
+      return growMap(map, action.amounts);
 
     case 'applyGeneration': {
       const layer = map.layers[action.layer];
