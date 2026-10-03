@@ -69,6 +69,8 @@ export type Action =
   | { type: 'setHexDimensions'; hexDimensions: HexDimensions }
   | { type: 'setPlan'; layers: LayerId[] }
   | { type: 'setAllowUnderwater'; allow: boolean }
+  /** Set the irregularity of every shaped hex that has none of its own; null goes back to each type's default. */
+  | { type: 'setDefaultIrregularity'; irregular: Irregularity | null }
   | { type: 'growMap'; amounts: GrowAmounts }
   | {
       type: 'applyGeneration';
@@ -672,6 +674,20 @@ export function reducer(map: MapState, action: Action): MapState {
         model: null,
         warnings: 0,
       });
+    }
+
+    case 'setDefaultIrregularity': {
+      if ((map.defaultIrregularity ?? null) === action.irregular) return map;
+      const { defaultIrregularity: _old, ...rest } = map;
+      return journal(
+        { ...rest, ...(action.irregular ? { defaultIrregularity: action.irregular } : {}), updatedAt: Date.now() },
+        manualEntry(
+          'base',
+          action.irregular
+            ? `Set the default irregularity to ${action.irregular}.`
+            : 'Put the default irregularity back to each type\'s own.',
+        ),
+      );
     }
 
     case 'setAllowUnderwater': {
