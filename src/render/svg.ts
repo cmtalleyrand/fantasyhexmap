@@ -45,10 +45,11 @@ function primToSvg(prim: Prim, defs: Defs): string {
     case 'group': {
       const body = prim.prims.map((p) => primToSvg(p, defs)).join('\n');
       const opacity = prim.opacity !== undefined ? ` opacity="${prim.opacity}"` : '';
-      if (!prim.clip) return `<g${opacity}>${body}</g>`;
+      const shift = prim.translate ? ` transform="translate(${n(prim.translate.x)} ${n(prim.translate.y)})"` : '';
+      if (!prim.clip) return `<g${shift}${opacity}>${body}</g>`;
       const id = `clip${defs.next++}`;
       defs.items.push(`<clipPath id="${id}"><path d="${pathData(prim.clip)}"${prim.clipRule === 'evenodd' ? ' clip-rule="evenodd"' : ''}/></clipPath>`);
-      return `<g clip-path="url(#${id})"${opacity}>\n${body}\n</g>`;
+      return `<g${shift}><g clip-path="url(#${id})"${opacity}>\n${body}\n</g></g>`;
     }
     case 'texture': {
       const id = prim.tile.id;

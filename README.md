@@ -354,6 +354,12 @@ known, it also gives a rough cost; the decision record keeps the same figures.
   the map (or every value a layer can take), show polity land areas, list each river with its
   length, and head the legend with the map's name. Long legends continue in further columns. The panel is built from the same scene
   primitives as the map, so PNG and SVG legends are identical.
+- **Map furniture.** Image export can add a frame (a double rule just inside the page edge, with a parchment margin band
+  between it and the map), the map's name as a title, a scale bar and a compass rose. The scale bar is derived from the
+  configured width of one hex (rounded down to 1, 2, 2.5 or 5 times a power of ten). Each piece is searched for in open sea,
+  clear of land, names, city markers, the legend and the other pieces; a piece that fits nowhere goes in the margin band, which
+  grows on that side to hold it. "Check names for overlaps" in the export panel, or `npx tsx scripts/audit-labels.ts map.json`,
+  reports every overlap among names, markers and furniture.
 - **Markdown** (File menu, or the decisions dialog). The decision record: what the model chose, why, and what you changed by hand.
 - **JSON.** The full map state including the decision record, with or without undo history, and a
   matching import.

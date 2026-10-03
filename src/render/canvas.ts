@@ -71,6 +71,7 @@ function drawPrim(ctx: Ctx, prim: Prim): void {
     case 'group': {
       ctx.save();
       if (prim.opacity !== undefined) ctx.globalAlpha *= prim.opacity;
+      if (prim.translate) ctx.translate(prim.translate.x, prim.translate.y);
       if (prim.clip) {
         tracePath(ctx, prim.clip);
         ctx.clip(prim.clipRule ?? 'nonzero');

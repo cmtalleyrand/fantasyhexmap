@@ -18,6 +18,8 @@ import type { PolityNameMin } from './labels.js';
 import { straitSharers } from '../../shared/straits.js';
 import { renderToCanvas } from './canvas.js';
 import { appendLegend, legendSections, type LegendOptions } from './legend.js';
+import { auditScene, type AuditIssue } from './audit.js';
+import { addMarginalia, marginaliaWanted, type MarginaliaOptions } from './marginalia.js';
 import { buildScene, singleLayerVisibility, type Scene, type VisibleLayers } from './scene.js';
 import { sceneToSvg } from './svg.js';
 import { CLASSIC_STYLE, elevationStyleOf, type ElevationStyle, type MapStyle } from './styles.js';
@@ -41,6 +43,8 @@ export interface ExportOptions {
   transparentBackground?: boolean;
   /** Append a legend panel to the right of the map. Omit or null for a bare map. */
   legend?: LegendOptions | null;
+  /** Frame, title, scale bar and compass. Omit or null for a bare map. */
+  marginalia?: MarginaliaOptions | null;
 }
 
 function download(blob: Blob, filename: string): void {
@@ -84,15 +88,30 @@ export function buildExportScene(map: MapState, visible: VisibleLayers, opts: Ex
     hover: null,
     transparentBackground: opts.transparentBackground ?? false,
   });
-  if (!opts.legend) return scene;
-  const sections = legendSections(
-    map,
-    visible,
-    opts.elevationStyle ?? elevationStyleOf(opts.style ?? CLASSIC_STYLE),
-    opts.legend,
-    opts.style,
-  );
-  return appendLegend(scene, sections, opts.legend.title ? map.name : null, size);
+  const furniture = marginaliaWanted(opts.marginalia) ? opts.marginalia : null;
+  let out = scene;
+  if (opts.legend) {
+    const sections = legendSections(
+      map,
+      visible,
+      opts.elevationStyle ?? elevationStyleOf(opts.style ?? CLASSIC_STYLE),
+      opts.legend,
+      opts.style,
+    );
+    // A title set on the map is not repeated at the head of the legend.
+    out = appendLegend(scene, sections, opts.legend.title && !furniture?.title ? map.name : null, size);
+  }
+  return furniture ? addMarginalia(map, out, size, furniture, opts.style) : out;
+}
+
+/**
+ * Lay the export out as `exportComposite` would and report every overlap among
+ * its names and map furniture (see audit.ts). Nothing is downloaded.
+ */
+export async function auditExport(map: MapState, visible: VisibleLayers, opts: ExportOptions): Promise<AuditIssue[]> {
+  const fonts = await import('./fontFiles.js');
+  await fonts.loadLettering((opts.style ?? CLASSIC_STYLE).knobs.lettering);
+  return auditScene(map, buildExportScene(map, visible, opts), opts.size ?? 32);
 }
 
 async function emit(

@@ -23,7 +23,7 @@ import {
 import { CLASSIC_STYLE, type ElevationStyle, type MapStyle } from './styles.js';
 import { polityDisplayColours } from './hierarchy.js';
 import { descendantsOf } from '../../shared/polityTree.js';
-import { thematicLayer, type CitySymbol, type Prim, type Scene, type VisibleLayers } from './scene.js';
+import { thematicLayer, withLandOf, type CitySymbol, type Prim, type Scene, type VisibleLayers } from './scene.js';
 import { LAYER_META } from '../../shared/layers.js';
 import { formatLength, riverLength } from '../../shared/riverLength.js';
 import { riverLabel } from '../../shared/riverEdit.js';
@@ -579,5 +579,5 @@ export function appendLegend(
     x += widths[ci]! + m.columnGap;
   });
 
-  return { ...scene, width, height, prims };
+  return withLandOf({ ...scene, width, height, prims }, scene);
 }
