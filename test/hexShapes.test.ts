@@ -409,3 +409,17 @@ test('the scene draws an isthmus differently at different land shares', () => {
   const draw = (land: number) => JSON.stringify(scene({ ...map, hexShapes: { '4': { type: 'Isthmus', land } } }).prims);
   assert.notEqual(draw(20), draw(80));
 });
+
+test('an isthmus beside lakes has the lake shore moved to its land share', () => {
+  const K: BaseGeo = 'Lake';
+  const L: BaseGeo = 'Land';
+  const base: BaseGeo[] = [L, L, L, L, L, K, K, L, K, K, L, L, L, L, L, L, L, L, L, L];
+  const base5 = [L, K, K, L, L, L, K, K, L, L, L, K, K, L, L, L, L, L, L, L, L, K, K, L, L].slice(0, 25);
+  void base;
+  const map = mapWith(base5.map((v, i) => (i === 12 ? ('Isthmus' as BaseGeo) : v)), 5, 5);
+  const surface = surfaceMap(map.layers.base.data!, 5, 5);
+  assert.ok(surface.split.has(12));
+  const at = (land: number) => shapeCoast([], surface, 10, new Map([[12, { share: land, kind: 'neck' as const }]]), [])?.insets.get(12) ?? 0;
+  assert.ok(at(0.2) > at(0.4), 'less land moves the shore further into it');
+  assert.ok(at(0.95) < 0, 'more land than the hex has moves the shore out into the lake');
+});

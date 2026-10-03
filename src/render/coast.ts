@@ -991,11 +991,12 @@ export function lakeBodyPath(
    */
   rough?: { amplitude: (p: Point) => number; noise: (x: number, y: number, k: number) => number },
   /**
-   * For a land hex that is only partly land (a Coastal Land hex under 100%), how far in from its own
-   * edge its shore is drawn, in pixels, at a point on that hex; a negative value elsewhere. The shore
-   * then lies exactly that far in, in place of the usual outward reach, so the land left is its share.
+   * For a land hex that is only partly land (a Coastal Land hex under 100%, or an isthmus, strait or
+   * mainland beside the lake), how far in from the lake's edge its shore is drawn, in pixels, at a point
+   * on that hex (negative: out into the lake); null elsewhere. The shore then lies exactly that far in,
+   * in place of the usual outward reach, so the land left is its share.
    */
-  inset: (p: Point) => number = () => -1,
+  inset: (p: Point) => number | null = () => null,
 ): PathCmd[] {
   const d: PathCmd[] = [];
   chainEdges(edges).forEach((chain, c) => {
@@ -1067,7 +1068,7 @@ export function lakeBodyPath(
     const depths = pts.map((q, i) => inset({ x: q.x + normals[i]!.x * 0.2 * size, y: q.y + normals[i]!.y * 0.2 * size }));
     const out = smooth(
       pts.map((q, i) => {
-        const r = depths[i]! >= 0 ? depths[i]! * eased[i]! : push[i]! * eased[i]! * size;
+        const r = depths[i]! !== null ? depths[i]! : push[i]! * eased[i]! * size;
         return { x: q.x + normals[i]!.x * r, y: q.y + normals[i]!.y * r };
       }),
       2,

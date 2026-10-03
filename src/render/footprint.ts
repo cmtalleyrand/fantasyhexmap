@@ -260,6 +260,40 @@ function reshapeSplit(hex: Split, target: number, hexArea: number): Reshaped {
 }
 
 /**
+ * How far a lake's shore beside a split hex must move from the boundary of the hex's
+ * water pieces for the land left to be `target` of `hexArea`: into the land (positive)
+ * when the hex has more land than that, into the water (negative) when it has less.
+ * The boundary of every water piece (or land piece) moves by the same distance.
+ */
+function lakeShoreOffset(land: Frag[], water: Frag[], target: number, hexArea: number, domain: Poly): number {
+  const natural = land.reduce((sum, f) => sum + polyArea(f.poly), 0) / hexArea;
+  if (Math.abs(natural - target) < 1e-5) return 0;
+  const shrinking = target < natural;
+  const dilate = (poly: Poly, d: number): Poly => {
+    let out = domain;
+    for (let k = 0; k < poly.length && out.length > 0; k++) out = cut(out, poly[k]!, poly[(k + 1) % poly.length]!, -d, 'right');
+    return out;
+  };
+  const landAt = (d: number): number => {
+    if (shrinking) {
+      const wet = water.map((w) => dilate(w.poly, d));
+      return land.reduce((sum, l) => sum + without(l.poly, wet).reduce((a, p) => a + polyArea(p), 0), 0) / hexArea;
+    }
+    const dry = land.map((l) => dilate(l.poly, d));
+    const taken = water.reduce((sum, w) => sum + without(w.poly, []).reduce((a, p) => a + polyArea(p), 0) - without(w.poly, dry).reduce((a, p) => a + polyArea(p), 0), 0);
+    return natural + taken / hexArea;
+  };
+  let low = 0;
+  let high = Math.hypot(domain[0]!.x - domain[2]!.x, domain[0]!.y - domain[2]!.y);
+  for (let k = 0; k < 36 && high - low > high * 1e-6; k++) {
+    const mid = (low + high) / 2;
+    if (shrinking ? landAt(mid) > target : landAt(mid) < target) low = mid;
+    else high = mid;
+  }
+  return shrinking ? (low + high) / 2 : -(low + high) / 2;
+}
+
+/**
  * What reshaping a split hex to `land` moves against the pieces it was cut into:
  * the land the pieces had and `land` does not (water drawn over it, in the donor
  * of the nearest water), and the water `land` takes (land drawn over it).
@@ -305,6 +339,8 @@ function reshapeCoastHex(corners: Poly, wet: CoastEdge[], target: number, lake: 
 
 /** What reshaping a hex gives and takes, and the land it is left with. */
 export interface HexShape {
+  /** A split hex beside a lake: only the lake's shore moves, by `depth`, and nothing else is reshaped. */
+  lake?: boolean;
   depth?: number;
   strips: Frag[];
   grown: Frag[];
@@ -397,10 +433,16 @@ export function shapeCoast(
       const result = reshapeCoastHex(corners, wetEdges.get(i) ?? [], share, lakeWet.get(i) ?? []);
       return result ? { depth: result.depth, strips: result.strips, grown: [], land: result.land.map((poly) => ({ poly, hex: i, donor: i })) } : null;
     }
-    // Water that is a lake has a body of its own and keeps its shore.
-    if (split.sides.some((s) => s === 'lake')) return null;
     const pieces = split.sides.map((side, p) => ({ side, poly: piecePoints(col, row, p, size), donor: split.donors[p]! }));
     const land = pieces.filter((p) => p.side === 'land');
+    if (split.sides.some((s) => s === 'lake')) {
+      // A lake has a body of its own, drawn over the hex: only its shore moves (see `lakeBodyPath`).
+      const c = hexCenter(col, row, size);
+      const r = size * 3;
+      const domain: Poly = [{ x: c.x - r, y: c.y - r }, { x: c.x + r, y: c.y - r }, { x: c.x + r, y: c.y + r }, { x: c.x - r, y: c.y + r }];
+      const offset = lakeShoreOffset(land, pieces.filter((p) => p.side === 'lake'), share, hexArea, domain);
+      return offset === 0 ? null : { depth: offset, strips: [], grown: [], land: [] , lake: true };
+    }
     const water = pieces.filter((p) => p.side === 'sea');
     const dry = [0, 1, 2, 3, 4, 5].filter((e) => split.sides[6 + e] === 'land');
     const wet = [0, 1, 2, 3, 4, 5].filter((e) => split.sides[6 + e] === 'sea');
@@ -443,9 +485,10 @@ export function shapeCoast(
     grown.push(...result.grown);
     if (result.water) waterLeft.set(i, result.water);
     if (result.depth !== undefined) insets.set(i, result.depth);
+    if (result.lake) continue;
     reshaped.set(i, result.land);
   }
-  if (reshaped.size === 0) return null;
+  if (reshaped.size === 0 && insets.size === 0) return null;
 
   // Every hex's land, hex by hex: whole hexes and unmoved pieces as they were.
   // Only a reshaped hex and the hexes beside it can have a different coast.
