@@ -428,7 +428,9 @@ export function validateRivers(
   for (const r of rivers) {
     const segs = r.segments.filter((s) => inBounds(cols, rows, s.col, s.row));
     for (const s of segs) {
-      if (isWater(base[hexIndex(cols, s.col, s.row)])) overWater.push(`${s.col},${s.row}`);
+      // A river may run through a lake (it flows in and out of it), so only the sea and its kin are an error.
+      const here = base[hexIndex(cols, s.col, s.row)];
+      if (isWater(here) && here !== 'Lake') overWater.push(`${s.col},${s.row}`);
     }
     if (segs.length === 0) {
       warnings.push(`River "${r.name}" had no on-map segments and was dropped.`);

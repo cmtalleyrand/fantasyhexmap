@@ -10,7 +10,7 @@ import {
   riverSystemLength,
   stepLength,
 } from '../shared/riverLength.ts';
-import { buildRiverFromPath } from '../shared/validate.ts';
+import { buildRiverFromPath, validateRivers } from '../shared/validate.ts';
 import { reducer } from '../src/state/store.ts';
 import { DEFAULT_HEX_DIMENSIONS, type BaseData, type River } from '../shared/types.ts';
 
@@ -100,13 +100,13 @@ test('three pieces chain in flow order whatever order they are picked in', () =>
   assert.deepEqual(result.absorbed.sort(), ['a', 'c']);
 });
 
-test('a bridge that would cross water is refused', () => {
+test('a bridge that would cross the sea is refused', () => {
   const sea: BaseData = base.map((v, i) => (i % COLS === 3 ? 'Sea' : v));
   const west = buildRiverFromPath({ name: 'west', path: [{ col: 0, row: 2 }, { col: 1, row: 2 }] }, 'west', sea, null, COLS, ROWS, [])!;
   const east = buildRiverFromPath({ name: 'east', path: [{ col: 5, row: 2 }, { col: 6, row: 2 }, { col: 7, row: 2 }] }, 'east', sea, null, COLS, ROWS, [])!;
   const result = mergeRivers([west, east], 'west', sea, null, COLS, ROWS);
   assert.ok('error' in result);
-  assert.match(result.error, /crosses water/);
+  assert.match(result.error, /crosses the sea/);
 });
 
 test('reversing a river swaps source and mouth and finds a new way out', () => {
@@ -150,4 +150,21 @@ test('the legend can list every river with its length', async () => {
       .entries.map((e) => e.label);
   assert.ok(!labels(false).some((l) => l.startsWith('Kelder')));
   assert.ok(labels(true).includes('Kelder - 50 km'));
+});
+
+test('a bridge across a lake joins two rivers into one that flows through it', () => {
+  const lake: BaseData = base.map((v, i) => (i % COLS === 3 && Math.floor(i / COLS) === 2 ? 'Lake' : v));
+  const west = buildRiverFromPath({ name: 'west', path: [{ col: 0, row: 2 }, { col: 1, row: 2 }, { col: 2, row: 2 }] }, 'west', lake, null, COLS, ROWS, [])!;
+  const east = buildRiverFromPath({ name: 'east', path: [{ col: 4, row: 2 }, { col: 5, row: 2 }, { col: 6, row: 2 }] }, 'east', lake, null, COLS, ROWS, [])!;
+  const result = mergeRivers([west, east], 'west', lake, null, COLS, ROWS);
+  assert.ok(!('error' in result), 'error' in result ? result.error : '');
+  assert.equal(result.river.segments.length, 7);
+  assert.ok(result.river.segments.some((s) => s.col === 3 && s.row === 2), 'the lake hex is part of the river');
+});
+
+test('a river may run through a lake without a warning', () => {
+  const lake: BaseData = base.map((v, i) => (i % COLS === 3 && Math.floor(i / COLS) === 2 ? 'Lake' : v));
+  const thru = river('thru', [[1, 2], [2, 2], [3, 2], [4, 2], [5, 2]]);
+  const checked = validateRivers([thru], lake, COLS, ROWS);
+  assert.equal(checked.warnings.length, 0);
 });

@@ -23,9 +23,16 @@
  * swing shrinks, so streams wander and big rivers run calm, and it is held
  * inside the river's own hexes.
  *
- * The river is drawn as a filled outline whose width grows with distance from
- * the source, eases up where it becomes navigable, and flares at a mouth into
- * sea or lake.
+ * A bend that turns tightly (a hook, or a 120 degree turn in one hex) is then
+ * smoothed over by arc length, as a river's own bends are wider than the hex
+ * walk's, with the line kept inside the river's hexes and its ends held fixed.
+ *
+ * The river is drawn as a filled outline. It rises as a thread that is half the
+ * normal width by the time it leaves its source hex, then grows to the normal
+ * width. A tributary adds a little to the river it joins, distance from the
+ * source adds up to a fifth (for the longest river on the map; shorter rivers
+ * add in proportion), and navigable water is a tenth wider. A mouth into the
+ * sea or a lake flares, and a mouth into the sea is cut at the shore as drawn.
  */
 
 import { canonicalEdgeId, hexCenter, hexEdgePoints, pixelToOffset, type Point } from '../../shared/hex.js';
@@ -59,7 +66,24 @@ const JOIN_FLOW = 0.6;
 const MEANDER = 0.14;
 const CAP_STEPS = 6;
 /** How far a river runs on into the lake it empties into, in hex sizes. */
-const MOUTH_REACH = 0.3;
+const MOUTH_REACH = 0.12;
+/** The normal width of a river, in hex sizes. */
+const NORMAL_WIDTH = 0.045;
+/** What a tributary adds to the river it joins, as a fraction of the normal width. */
+const TRIBUTARY_WIDENS = 0.05;
+/** What distance from the source adds, at most, to the longest river: a fraction of the normal width. */
+const LENGTH_WIDENS = 0.2;
+/** What navigable water adds, as a fraction of the normal width. */
+const NAVIGABLE_WIDENS = 0.1;
+/** How wide a river is as it leaves its source hex, as a fraction of the normal width. */
+const SOURCE_EXIT_WIDTH = 0.5;
+/** Distance from a hex centre to the middle of an edge, in hex sizes. */
+const CENTRE_TO_EDGE = Math.sqrt(3) / 2;
+/** The reach, in hex sizes, of the Gaussian that smooths a bend (its standard deviation). */
+const BEND_SIGMA = 0.42;
+const BEND_PASSES = 2;
+/** The turn, in radians, across the reach of the smoothing, between which a bend is smoothed less and then not at all. */
+const HAIRPIN: [number, number] = [(80 * Math.PI) / 180, (160 * Math.PI) / 180];
 
 interface Slide {
   a: Point;
@@ -108,8 +132,15 @@ export interface CourseEnds {
    * it at its mouth, so it starts and ends exactly on the shore.
    */
   inWater?: ((p: Point) => boolean) | null;
-  /** Rivers flowing in along the way: the length upstream of each, added to the width below where it joins. */
-  inflows?: Array<{ at: Point; run: number }>;
+  /** Rivers flowing in along the way: each widens the river below where it joins. */
+  inflows?: Array<{ at: Point }>;
+  /** The length of the longest river on the map, which sets how much distance from the source widens a river. */
+  longest?: number;
+  /**
+   * Whether a point is land as drawn (the coast as traced, with its land shares
+   * and roughening). A river into the sea is cut at the shore, where it flares.
+   */
+  onLand?: ((p: Point) => boolean) | null;
   /**
    * Cities on this river: each hex's centre and its marker's radius. The marker
    * sits on the course, so a river that ends at a city stops under its icon
@@ -216,6 +247,132 @@ function catmullRom(p0: Point, p1: Point, p2: Point, p3: Point, samples: number)
   return out;
 }
 
+/** The point `at` along a line whose cumulative arc lengths are `s` (clamped to its ends). */
+function pointAt(line: Point[], s: number[], at: number): Point {
+  const n = line.length;
+  if (at <= 0) return line[0]!;
+  if (at >= s[n - 1]!) return line[n - 1]!;
+  let lo = 0;
+  let hi = n - 1;
+  while (hi - lo > 1) {
+    const mid = (lo + hi) >> 1;
+    if (s[mid]! <= at) lo = mid;
+    else hi = mid;
+  }
+  const u = (at - s[lo]!) / (s[hi]! - s[lo]! || 1);
+  return { x: line[lo]!.x + (line[hi]!.x - line[lo]!.x) * u, y: line[lo]!.y + (line[hi]!.y - line[lo]!.y) * u };
+}
+
+/**
+ * Smooth the tight bends of a sampled line: each point moves towards the
+ * Gaussian-weighted mean of the points near it by arc length, so a hook the hex
+ * walk leaves becomes a wide bend. A point never leaves `allowed`, and the
+ * smoothing fades out towards both ends, which stay where they are.
+ */
+function easeBy(line: Point[], size: number, allowed: (p: Point) => boolean, strength: number): Point[] {
+  const n = line.length;
+  if (n < 5) return line;
+  const sigma = BEND_SIGMA * size;
+  const arcs = (pts: Point[]): number[] => {
+    const s = [0];
+    for (let i = 1; i < pts.length; i++) s.push(s[i - 1]! + Math.hypot(pts[i]!.x - pts[i - 1]!.x, pts[i]!.y - pts[i - 1]!.y));
+    return s;
+  };
+  // A hairpin is a turn too tight to widen without a cusp: the more the line turns across the reach of
+  // the smoothing, the less it is smoothed. The allowance is judged on the line as it comes, and spread
+  // so that it falls away over the reach of the smoothing rather than switching off at the apex.
+  const s0 = arcs(line);
+  const turned = line.map((p, i) => {
+    const behind = pointAt(line, s0, s0[i]! - sigma);
+    const ahead = pointAt(line, s0, s0[i]! + sigma);
+    let turn = Math.abs(Math.atan2(ahead.y - p.y, ahead.x - p.x) - Math.atan2(p.y - behind.y, p.x - behind.x));
+    if (turn > Math.PI) turn = 2 * Math.PI - turn;
+    return 1 - smoothstep((turn - HAIRPIN[0]) / (HAIRPIN[1] - HAIRPIN[0]));
+  });
+  const allow = line.map((_, i) => {
+    let least = 1;
+    for (let k = i; k >= 0 && s0[i]! - s0[k]! <= sigma; k--) least = Math.min(least, turned[k]!);
+    for (let k = i + 1; k < n && s0[k]! - s0[i]! <= sigma; k++) least = Math.min(least, turned[k]!);
+    return least;
+  });
+  const eased = allow.map((_, i) => {
+    let sum = 0;
+    let count = 0;
+    for (let k = i; k >= 0 && s0[i]! - s0[k]! <= sigma / 2; k--, count++) sum += allow[k]!;
+    for (let k = i + 1; k < n && s0[k]! - s0[i]! <= sigma / 2; k++, count++) sum += allow[k]!;
+    return sum / count;
+  });
+  let cur = line;
+  for (let pass = 0; pass < BEND_PASSES; pass++) {
+    const s = arcs(cur);
+    const total = s[n - 1]!;
+    const step = (k: number) => ((s[Math.min(n - 1, k + 1)]! - s[Math.max(0, k - 1)]!) / 2) || 1e-6;
+    cur = cur.map((p, i) => {
+      let sx = 0;
+      let sy = 0;
+      let sw = 0;
+      for (let k = i; k >= 0 && s[i]! - s[k]! <= 2.5 * sigma; k--) {
+        const w = Math.exp(-0.5 * ((s[i]! - s[k]!) / sigma) ** 2) * step(k);
+        sx += cur[k]!.x * w;
+        sy += cur[k]!.y * w;
+        sw += w;
+      }
+      for (let k = i + 1; k < n && s[k]! - s[i]! <= 2.5 * sigma; k++) {
+        const w = Math.exp(-0.5 * ((s[k]! - s[i]!) / sigma) ** 2) * step(k);
+        sx += cur[k]!.x * w;
+        sy += cur[k]!.y * w;
+        sw += w;
+      }
+      const fade = smoothstep(Math.min(s[i]!, total - s[i]!) / (0.9 * size)) * eased[i]! * strength;
+      const goal = { x: p.x + (sx / sw - p.x) * fade, y: p.y + (sy / sw - p.y) * fade };
+      for (let f = 1; f > 0.1; f /= 2) {
+        const q = { x: p.x + (goal.x - p.x) * f, y: p.y + (goal.y - p.y) * f };
+        if (allowed(q)) return q;
+      }
+      return p;
+    });
+  }
+  // Smoothing draws the points together where a hook was; lay them out evenly again.
+  const arc = arcs(cur);
+  const was = s0[n - 1]!;
+  const keep = Math.max(2, Math.round((arc[n - 1]! / was) * (n - 1)) + 1);
+  const out: Point[] = [];
+  let k = 0;
+  for (let j = 0; j < keep; j++) {
+    const at = (arc[n - 1]! * j) / (keep - 1);
+    while (k < n - 2 && arc[k + 1]! < at) k++;
+    const span = arc[k + 1]! - arc[k]! || 1;
+    const u = Math.min(1, Math.max(0, (at - arc[k]!) / span));
+    out.push({ x: cur[k]!.x + (cur[k + 1]!.x - cur[k]!.x) * u, y: cur[k]!.y + (cur[k + 1]!.y - cur[k]!.y) * u });
+  }
+  return out;
+}
+
+/** The sharpest turn between consecutive segments of a line, in radians. */
+function sharpest(line: Point[]): number {
+  let worst = 0;
+  for (let i = 2; i < line.length; i++) {
+    const [a, b, c] = [line[i - 2]!, line[i - 1]!, line[i]!];
+    let t = Math.abs(Math.atan2(c.y - b.y, c.x - b.x) - Math.atan2(b.y - a.y, b.x - a.x));
+    if (t > Math.PI) t = 2 * Math.PI - t;
+    worst = Math.max(worst, t);
+  }
+  return worst;
+}
+
+/**
+ * `easeBy` at full strength, or the most of it that leaves no turn sharper than the line
+ * began with (or a quarter turn): smoothing a tight loop can pinch it, and that is not a bend.
+ */
+export function easeBends(line: Point[], size: number, allowed: (p: Point) => boolean): Point[] {
+  const limit = Math.max(sharpest(line), Math.PI / 4) * 1.05;
+  for (const strength of [1, 0.6, 0.3]) {
+    const eased = easeBy(line, size, allowed, strength);
+    if (sharpest(eased) <= limit) return eased;
+  }
+  return line;
+}
+
 export function riverCourse(river: River, size: number, seed: string, ends: CourseEnds = {}): RiverCourse | null {
   const ctrl = controls(river, size, seed, ends);
   if (ctrl.length < 2) return null;
@@ -240,6 +397,24 @@ export function riverCourse(river: River, size: number, seed: string, ends: Cour
       navigable.push(ctrl[i + 1]!.navigable);
     }
   }
+  // The river's own hexes: its line is kept inside them.
+  const hexes = new Set(river.segments.map((s) => `${s.col},${s.row}`));
+  const inHexes = (p: Point): boolean => {
+    const here = pixelToOffset(p.x, p.y, size);
+    if (hexes.has(`${here.col},${here.row}`)) return true;
+    // A point exactly on an edge may round either way.
+    return [0, 1, 2, 3, 4, 5].some((k) => {
+      const q = pixelToOffset(p.x + Math.cos(k) * size * 0.04, p.y + Math.sin(k) * size * 0.04, size);
+      return hexes.has(`${q.col},${q.row}`);
+    });
+  };
+  // A little give at the edge of the corridor, so a bend that must cut a corner is eased rather than kinked.
+  const nearHexes = (p: Point): boolean =>
+    inHexes(p) || [0, 1, 2, 3, 4, 5].some((k) => inHexes({ x: p.x + Math.cos((k * Math.PI) / 3) * size * 0.14, y: p.y + Math.sin((k * Math.PI) / 3) * size * 0.14 }));
+  const smoothed = easeBends(centreline, size, nearHexes);
+  navigable = smoothed.map((_, i) => navigable[Math.round((i / Math.max(1, smoothed.length - 1)) * (navigable.length - 1))]!);
+  centreline = smoothed;
+
   // Cut the course at the shore where it leaves its source lake and where it
   // reaches the lake it empties into.
   const wet = ends.inWater;
@@ -279,6 +454,46 @@ export function riverCourse(river: River, size: number, seed: string, ends: Cour
       ];
     }
     if (centreline.length < 2) return null;
+  }
+
+  // A river into the sea ends where the coast is drawn: cut where it leaves the
+  // land, or carried on until it does, so it flares at its true mouth.
+  const land = ends.onLand;
+  if (land && river.terminus === 'Sea' && !ends.beyond && centreline.length >= 2) {
+    const dry = (p: Point) => land(p) || Boolean(wet?.(p));
+    const bisect = (inside: Point, outside: Point): Point => {
+      let a = inside;
+      let b = outside;
+      for (let k = 0; k < 12; k++) {
+        const m = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+        if (dry(m)) a = m;
+        else b = m;
+      }
+      return a;
+    };
+    let last = centreline.length - 1;
+    while (last >= 0 && !dry(centreline[last]!)) last--;
+    if (last >= 1) {
+      if (last < centreline.length - 1) {
+        centreline = [...centreline.slice(0, last + 1), bisect(centreline[last]!, centreline[last + 1]!)];
+        navigable = [...navigable.slice(0, last + 1), navigable[last]!];
+      } else {
+        // Carry on along the last heading to the shore (a coast that bulges past the hex's edge).
+        const a = centreline[last - 1]!;
+        const b = centreline[last]!;
+        const len = Math.hypot(b.x - a.x, b.y - a.y) || 1;
+        let from = b;
+        for (let k = 1; k <= 14; k++) {
+          const q = { x: b.x + ((b.x - a.x) / len) * size * 0.05 * k, y: b.y + ((b.y - a.y) / len) * size * 0.05 * k };
+          if (!dry(q)) {
+            centreline = [...centreline, bisect(from, q)];
+            navigable = [...navigable, navigable[last]!];
+            break;
+          }
+          from = q;
+        }
+      }
+    }
   }
 
   // Where each city's marker sits on the course: its nearest sample within the hex.
@@ -345,13 +560,14 @@ export function riverCourse(river: River, size: number, seed: string, ends: Cour
         k = i;
       }
     });
-    for (let i = k; i < added.length; i++) added[i]! += inflow.run * smoothstep((cum[i]! - cum[k]!) / size);
+    for (let i = k; i < added.length; i++) added[i]! += smoothstep((cum[i]! - cum[k]!) / size);
   }
-  const target = centreline.map((_, i) => {
-    const run = (cum[i]! + head + added[i]!) / size;
-    const narrow = Math.min(0.085, 0.032 + 0.004 * run);
-    return navigable[i] ? Math.min(0.17, Math.max(narrow, 0.115 + 0.003 * run)) : narrow;
-  });
+  // Width as a multiple of the normal: a tributary adds a twentieth where it joins, distance from the source
+  // up to a fifth (the longest river on the map reaches it), and navigable water a tenth.
+  const longest = Math.max(ends.longest ?? 0, total + head, size);
+  const target = centreline.map((_, i) =>
+    1 + LENGTH_WIDENS * Math.min(1, (cum[i]! + head) / longest) + TRIBUTARY_WIDENS * added[i]! + (navigable[i] ? NAVIGABLE_WIDENS : 0),
+  );
   // Ease the change into navigable water, and past a confluence, over a couple of hexes.
   const reach = Math.round(SAMPLES_PER_SPAN * 1.25);
   const base = target.map((_, i) => {
@@ -362,26 +578,17 @@ export function riverCourse(river: River, size: number, seed: string, ends: Cour
       sum += target[k]! * w;
       weight += w;
     }
-    return (sum / weight) * size;
+    return (sum / weight) * size * NORMAL_WIDTH;
   });
 
   // Meander: a gentle seeded wander across the line. Its wavelength grows with
   // the river's width and its swing shrinks, and it dies away at the ends so a
   // fork or confluence still lands on its host's line.
-  const hexes = new Set(river.segments.map((s) => `${s.col},${s.row}`));
-  const inHexes = (p: Point): boolean => {
-    const here = pixelToOffset(p.x, p.y, size);
-    if (hexes.has(`${here.col},${here.row}`)) return true;
-    // A point exactly on an edge may round either way.
-    return [0, 1, 2, 3, 4, 5].some((k) => {
-      const q = pixelToOffset(p.x + Math.cos(k) * size * 0.04, p.y + Math.sin(k) * size * 0.04, size);
-      return hexes.has(`${q.col},${q.row}`);
-    });
-  };
   const phase1 = signed(seed, 'meander', river.id, 1) * Math.PI;
   const phase2 = signed(seed, 'meander', river.id, 2) * Math.PI;
   const swing = centreline.map((_, i) => {
-    const fraction = base[i]! / size;
+    // Scaled to the widths the meander was tuned for.
+    const fraction = (base[i]! / size) * 2.2;
     const wavelength = size * (1.6 + 12 * fraction);
     const amplitude = size * MEANDER * (1 - 0.5 * smoothstep((fraction - 0.04) / 0.13));
     let fade = smoothstep(cum[i]! / (0.8 * size)) * smoothstep((total - cum[i]!) / (0.8 * size));
@@ -421,7 +628,8 @@ export function riverCourse(river: River, size: number, seed: string, ends: Cour
     const reach = Math.abs(offset[i]!);
     const limit = reach > room[i]! ? room[i]! / reach : 1;
     for (let f = limit; f > 0.2 * limit; f /= 2) {
-      if (inHexes({ x: p.x + normals[i]!.x * offset[i]! * f, y: p.y + normals[i]!.y * offset[i]! * f })) return f;
+      const q = { x: p.x + normals[i]!.x * offset[i]! * f, y: p.y + normals[i]!.y * offset[i]! * f };
+      if (inHexes(q) && (!land || land(q) || wet?.(q))) return f;
     }
     return 0;
   });
@@ -440,12 +648,18 @@ export function riverCourse(river: River, size: number, seed: string, ends: Cour
   const atCity = sites.some(({ p, radius }) => Math.hypot(centreline[0]!.x - p.x, centreline[0]!.y - p.y) < radius * 1.2);
   const widths = base.map((w0, i) => {
     let w = w0;
-    // A spring starts as a thread; a distributary, a lake outflow and a tributary's end do not.
-    if (!river.branchOf && !ends.before && !atCity) w *= 0.2 + 0.8 * smoothstep(cum[i]! / (0.6 * size));
+    // A spring starts as a thread that is half the normal width where it leaves its hex, and
+    // reaches the normal width over the next; a distributary and a lake outflow do not.
+    if (!river.branchOf && !ends.before && !atCity) {
+      const d = cum[i]! / size;
+      w *= d < CENTRE_TO_EDGE
+        ? 0.08 + (SOURCE_EXIT_WIDTH - 0.08) * smoothstep(d / CENTRE_TO_EDGE)
+        : SOURCE_EXIT_WIDTH + (1 - SOURCE_EXIT_WIDTH) * smoothstep(d - CENTRE_TO_EDGE);
+    }
     // Flare over the last half hex where the river meets standing water.
     if (river.terminus === 'Sea' || river.terminus === 'Lake') {
       const fromMouth = (total - cum[i]!) / size;
-      if (fromMouth < 0.7) w *= 1 + 0.75 * (1 - fromMouth / 0.7) ** 2;
+      if (fromMouth < 0.7) w *= 1 + 0.6 * (1 - fromMouth / 0.7) ** 2;
     }
     return w;
   });
@@ -483,7 +697,8 @@ export function riverCourse(river: River, size: number, seed: string, ends: Cour
     }
     return out;
   };
-  const endCap = capAt(last, 1);
+  // A river into the sea is cut square at the shore rather than rounded off into the water.
+  const endCap = land && river.terminus === 'Sea' && !ends.beyond ? [] : capAt(last, 1);
   const startCap = capAt(0, -1);
   const outline: PathCmd[] = [];
   left.forEach((p, i) => outline.push([i === 0 ? 'M' : 'L', p.x, p.y]));
@@ -496,6 +711,52 @@ export function riverCourse(river: River, size: number, seed: string, ends: Cour
   // A river that comes out of a lake is open at its start too.
   const bank = river.branchOf || ends.before ? [left, right] : [[...left].reverse().concat(startCap, right)];
   return { centreline: line, widths, outline, bank };
+}
+
+/**
+ * Whether a point is land, judged by the coast as drawn. The coast lines are
+ * oriented with the land on their right (as `drawnLand` relies on), so near a
+ * line the side a point falls on says whether it is land, however the coast
+ * has been reshaped, smoothed or roughened. Away from every line (further than
+ * `reach`) the answer is `elsewhere`'s, which knows only the hexes.
+ */
+export function landBySide(lines: Point[][], reach: number, elsewhere: (p: Point) => boolean): (p: Point) => boolean {
+  const cell = reach;
+  const grid = new Map<string, Array<[Point, Point]>>();
+  const add = (cx: number, cy: number, seg: [Point, Point]) => {
+    const key = `${cx},${cy}`;
+    const list = grid.get(key);
+    if (list) list.push(seg);
+    else grid.set(key, [seg]);
+  };
+  for (const line of lines) {
+    for (let k = 0; k + 1 < line.length; k++) {
+      const a = line[k]!;
+      const b = line[k + 1]!;
+      // File the segment under every cell its box touches, so a query looks in one.
+      const x0 = Math.floor((Math.min(a.x, b.x) - reach) / cell);
+      const x1 = Math.floor((Math.max(a.x, b.x) + reach) / cell);
+      const y0 = Math.floor((Math.min(a.y, b.y) - reach) / cell);
+      const y1 = Math.floor((Math.max(a.y, b.y) + reach) / cell);
+      for (let cx = x0; cx <= x1; cx++) for (let cy = y0; cy <= y1; cy++) add(cx, cy, [a, b]);
+    }
+  }
+  return (p) => {
+    let best = reach;
+    let side = 0;
+    for (const [a, b] of grid.get(`${Math.floor(p.x / cell)},${Math.floor(p.y / cell)}`) ?? []) {
+      const dx = b.x - a.x;
+      const dy = b.y - a.y;
+      const len2 = dx * dx + dy * dy || 1e-9;
+      const u = Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / len2));
+      const d = Math.hypot(p.x - (a.x + dx * u), p.y - (a.y + dy * u));
+      if (d < best) {
+        best = d;
+        side = dx * (p.y - a.y) - dy * (p.x - a.x);
+      }
+    }
+    return side !== 0 ? side > 0 : elsewhere(p);
+  };
 }
 
 /** The point of `line` nearest `p`. */
@@ -525,7 +786,7 @@ export function riverCourses(
   rivers: River[],
   size: number,
   seed: string,
-  lakeEnds: (river: River) => Pick<CourseEnds, 'before' | 'beyond' | 'inWater'> = () => ({}),
+  lakeEnds: (river: River) => Pick<CourseEnds, 'before' | 'beyond' | 'inWater' | 'onLand'> = () => ({}),
   cities: Array<{ riverId: string; at: Point; radius: number }> = [],
 ): Map<string, RiverCourse> {
   const out = new Map<string, RiverCourse>();
@@ -552,13 +813,8 @@ export function riverCourses(
     const host = hostOf(r);
     if (host) tributaries.set(host, [...(tributaries.get(host) ?? []), r]);
   }
-  /** Length of a river and everything flowing into it, roughly, from its hex count. */
-  const upstream = (r: River, seen = new Set<string>()): number => {
-    if (seen.has(r.id)) return 0;
-    seen.add(r.id);
-    const own = r.segments.length * Math.sqrt(3) * size;
-    return own + (tributaries.get(r.id) ?? []).reduce((sum, t) => sum + upstream(t, seen), 0);
-  };
+  // The longest river's own length (not its tributaries'): it sets how much distance from the source widens a river.
+  const longest = Math.max(0, ...rivers.map((r) => r.segments.length * Math.sqrt(3) * size));
   const pending = new Set(rivers.map((r) => r.id));
   const needs = (r: River): string[] => {
     const deps: string[] = [];
@@ -574,9 +830,10 @@ export function riverCourses(
     const ends: CourseEnds = {
       ...lakeEnds(r),
       cities: cities.filter((c) => c.riverId === r.id),
+      longest,
       inflows: (tributaries.get(r.id) ?? []).map((t) => {
         const end = t.segments.at(-1)!;
-        return { at: hexCenter(end.col, end.row, size), run: upstream(t) };
+        return { at: hexCenter(end.col, end.row, size) };
       }),
     };
     if (first && first.entryEdge === null && r.branchOf) {

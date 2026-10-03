@@ -877,3 +877,37 @@ unchanged apart from the shared grain): chain (hotspot trail, largest at one end
 bowed away from the land), barrier (a staggered row of long narrow islands off a coast) and ring (atoll).
 They replace the coastal-group checkboxes, which apply to scattered islands only. A crowded arrangement is
 drawn smaller than its share rather than run together, as before.
+
+## 46. Slimmer rivers that keep to the land, run through lakes and mark their cities
+
+**Problem.** Tapered rivers read heavy, hooked where the hex walk turned tightly, were cut square by a clip at
+the old hex edge where a coast hex had been reshaped to its land share, and could run past the shore into the
+sea. A river could not cross a lake, and a city on a river was shown by a blue dot too small to see (and by
+nothing at all in the classic and illustrated marker sets).
+
+**Width.** A river's width is a multiple of one normal width (0.045 of a hex). It leaves its source hex at half
+that (a thread at the spring) and reaches the normal width over the next hex. Each tributary adds a twentieth of
+the normal width below its confluence, distance from the source adds up to a fifth (the longest river on the map
+reaches it; a shorter river adds in proportion to its distance, so every river is measured against the same
+yardstick), and navigable water is a tenth wider, eased in over about a hex. Together these make rivers about
+half as heavy as before; the bank stroke is thinner to match.
+
+**Bends.** After the course is fitted through the edge crossings it is smoothed by arc length (a Gaussian about
+0.4 of a hex across), kept inside the river's own hexes (with a little give at the corners) and held fixed at
+both ends so confluences and forks still land on their host. A turn that is already close to a hairpin is
+smoothed less, and if smoothing would leave any turn sharper than the line began with, it is applied at a
+smaller strength or not at all: a bend is widened, never pinched.
+
+**Coast.** A river into the sea is cut where the coast is drawn, found from the coast lines themselves (land is
+on the right of each line, so the side a point falls on says whether it is land, however the coast has been
+reshaped, smoothed or roughened), and flares there; where the coast bulges past the hex's edge the river is
+carried on to it. Points of the course that would swing off the land are pulled back. This replaces the clip
+over the water strips, which cut the mouth off flat at the hex's old edge.
+
+**Lakes.** A river may run through a lake: validation no longer warns about a lake hex in the middle of a path,
+merging two rivers bridges a lake, and the prompts say rivers may link lakes. Where it crosses the water it is
+hidden (the river is the lake there), so it shows on either side. Rivers that begin or end at a lake still stop
+at its shore.
+
+**Cities.** A city on a river sits in a disc of river water edged in paper, in every marker set; the legend says
+"Blue ring: on a river". Label placement allows for the wider collar.
