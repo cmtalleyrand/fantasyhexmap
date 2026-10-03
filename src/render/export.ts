@@ -268,7 +268,7 @@ export function serializeParseFriendlyExport(map: MapState): string {
       vegetation: 'array of hexCount strings or null',
       population: 'array of hexCount numbers or null',
       rivers:
-        'data.rivers: [{id, name, terminus, branchOf?, segments:[{col,row,entryEdge|null,exitEdge|null,navigable}]}]. Segments run source to mouth; entryEdge is null at the source.',
+        'data.rivers: [{id, name, terminus, branchOf?, joins?, fromLake?, segments:[{col,row,entryEdge|null,exitEdge|null,navigable}]}]. Segments run source to mouth; entryEdge is null at a spring source, or the edge shared with the lake when fromLake. branchOf names the river a distributary leaves (its first segment is in the fork hex); joins names the river a tributary flows into (terminus "River"; its last segment is in the confluence hex, with exitEdge null).',
       cities:
         'data.cities: [{id,col,row,name,population,onRiver,riverId|null,coastal,coastalEdges:number[],site?}]. site is where the marker is drawn: "auto", "inland", "river" or {coast: edge}.',
       polities: 'data.polities: [{id,name,shortName?,colour,parentId?}]; parentId names the larger polity this one is part of, which may own no hexes itself. data.owner: array of hexCount polity ids (the most specific polity) or null',
@@ -280,7 +280,7 @@ export function serializeParseFriendlyExport(map: MapState): string {
       climate: CLIMATE_VALUES,
       vegetation: VEGETATION_VALUES,
       vegetationGroups: VEGETATION_GROUPS,
-      riverTermini: ['Sea', 'Lake', 'OffMap', 'Unresolved'],
+      riverTermini: ['Sea', 'Lake', 'River', 'OffMap', 'Unresolved'],
     },
     hexList:
       'Top-level `hexes` repeats the per-hex layers as one object per hex for convenience; it is derived from map.layers and carries nothing extra.',
@@ -291,8 +291,8 @@ export function serializeParseFriendlyExport(map: MapState): string {
     ...(map.waterNames?.length
       ? { waterNamesNote: 'map.waterNames[] names seas, bays and lakes; hexes are flat indices (row * cols + col).' }
       : {}),
-    ...(map.islandSides && Object.keys(map.islandSides).length
-      ? { islandSidesNote: 'map.islandSides maps a Coastal Island hex\'s flat index to the edge (0..5) its islet lies against; absent hexes face the nearest land.' }
+    ...(map.islandSpecs && Object.keys(map.islandSpecs).length
+      ? { islandSpecsNote: 'map.islandSpecs maps an Islands or Mainland and islands hex\'s flat index to {large: 0-2, small: 0-5, coastal?: {large?, small?}, side?: edge 0..5}: how many islands it holds, which groups lie against the coast (or the mainland), and the side they lie against (absent: the side facing land). Hexes without an entry take their type\'s default.' }
       : {}),
   };
 

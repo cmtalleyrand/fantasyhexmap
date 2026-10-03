@@ -24,9 +24,19 @@ interface PathHex extends Offset {
   navigable: boolean;
 }
 
-/** The river's hexes in flow order, plus the water hex it empties into if any. */
+/**
+ * The river's hexes in flow order, plus the lake it flows out of and the water
+ * hex it empties into, if any.
+ */
 function pathOf(river: River, base: BaseData, cols: number, rows: number): PathHex[] {
   const path: PathHex[] = river.segments.map((s) => ({ col: s.col, row: s.row, navigable: s.navigable }));
+  const first = river.segments[0];
+  if (river.fromLake && first && first.entryEdge !== null) {
+    const l = neighbourOf(first.col, first.row, first.entryEdge);
+    if (inBounds(cols, rows, l.col, l.row) && base[hexIndex(cols, l.col, l.row)] === 'Lake') {
+      path.unshift({ ...l, navigable: false });
+    }
+  }
   const last = river.segments[river.segments.length - 1];
   if (last && last.exitEdge !== null) {
     const m = neighbourOf(last.col, last.row, last.exitEdge);
@@ -35,6 +45,12 @@ function pathOf(river: River, base: BaseData, cols: number, rows: number): PathH
     }
   }
   return path;
+}
+
+/** 1 when `path` (from `pathOf`) opens with the lake the river flows out of, else 0. */
+function sourceOffset(river: River, path: PathHex[]): number {
+  const first = river.segments[0];
+  return first && path[0] && (path[0].col !== first.col || path[0].row !== first.row) ? 1 : 0;
 }
 
 /** Cut any loop: if a hex recurs, drop everything between its two visits. */
@@ -55,22 +71,26 @@ function rebuild(
   elevation: ElevationData | null,
   cols: number,
   rows: number,
+  others: River[],
+  keepBranch = true,
 ): RiverEditResult {
   if (path.some((p) => !inBounds(cols, rows, p.col, p.row))) {
     return { error: 'That would route the river off the map.' };
   }
   const warnings: string[] = [];
   const rebuilt = buildRiverFromPath(
-    { name: river.name, path, navigable: path.map((p) => p.navigable) },
+    { name: river.name, path, navigable: path.map((p) => p.navigable), joins: river.joins },
     river.id,
     base,
     elevation,
     cols,
     rows,
     warnings,
+    others,
   );
   if (!rebuilt) return { error: 'That would leave the river with no land to run through.' };
-  return { river: rebuilt, warnings };
+  // A branch stays one while it still leaves from its parent (detachOrphanBranches checks).
+  return { river: keepBranch && river.branchOf ? { ...rebuilt, branchOf: river.branchOf } : rebuilt, warnings };
 }
 
 /** Hexes strictly after `from` up to and including `to` along a straight line. */
@@ -91,6 +111,7 @@ export function moveRiverSegment(
   elevation: ElevationData | null,
   cols: number,
   rows: number,
+  others: River[] = [],
 ): RiverEditResult {
   const seg = river.segments[index];
   if (!seg) return { error: 'That hex is not part of the river.' };
@@ -100,16 +121,18 @@ export function moveRiverSegment(
     return { error: 'A river segment cannot be moved into water; the river ends on its own where it meets water.' };
   }
   const path = pathOf(river, base, cols, rows);
-  const prev = path[index - 1];
-  const next = path[index + 1];
+  // The path may open with the lake the river flows out of.
+  const at = index + sourceOffset(river, path);
+  const prev = path[at - 1];
+  const next = path[at + 1];
   const moved: PathHex = { ...target, navigable: seg.navigable };
   const joined: PathHex[] = [
-    ...path.slice(0, index),
+    ...path.slice(0, at),
     ...(prev ? leg(prev, target, seg.navigable) : [moved]),
     ...(next ? leg(target, next, seg.navigable).slice(0, -1) : []),
-    ...path.slice(index + 1),
+    ...path.slice(at + 1),
   ];
-  return rebuild(river, withoutLoops(joined), base, elevation, cols, rows);
+  return rebuild(river, withoutLoops(joined), base, elevation, cols, rows, others);
 }
 
 /**
@@ -123,19 +146,21 @@ export function removeRiverSegment(
   elevation: ElevationData | null,
   cols: number,
   rows: number,
+  others: River[] = [],
 ): RiverEditResult | null {
   if (!river.segments[index]) return { error: 'That hex is not part of the river.' };
   if (river.segments.length <= 1) return null;
   const path = pathOf(river, base, cols, rows);
-  const prev = path[index - 1];
-  const next = path[index + 1];
+  const at = index + sourceOffset(river, path);
+  const prev = path[at - 1];
+  const next = path[at + 1];
   const bridge = prev && next ? leg(prev, next, river.segments[index]!.navigable).slice(0, -1) : [];
   const gone = river.segments[index]!;
   if (bridge.some((h) => h.col === gone.col && h.row === gone.row)) {
     return { error: 'That hex is needed to connect its neighbours. Move it instead.' };
   }
-  const joined = [...path.slice(0, index), ...bridge, ...path.slice(index + 1)];
-  return rebuild(river, withoutLoops(joined), base, elevation, cols, rows);
+  const joined = [...path.slice(0, at), ...bridge, ...path.slice(at + 1)];
+  return rebuild(river, withoutLoops(joined), base, elevation, cols, rows, others);
 }
 
 /**
@@ -151,6 +176,7 @@ export function extendRiver(
   elevation: ElevationData | null,
   cols: number,
   rows: number,
+  others: River[] = [],
 ): RiverEditResult {
   if (!inBounds(cols, rows, target.col, target.row)) return { error: 'That is off the map.' };
   if (river.segments.some((s) => s.col === target.col && s.row === target.row)) {
@@ -162,15 +188,20 @@ export function extendRiver(
   const targetIsWater = isWater(base[hexIndex(cols, target.col, target.row)]);
   const toSource = hexDistance(first, target);
   const toMouth = hexDistance(last, target);
-  const land = pathOf(river, base, cols, rows).filter((p) => !isWater(base[hexIndex(cols, p.col, p.row)]));
+  const full = pathOf(river, base, cols, rows);
+  const land = full.filter((p) => !isWater(base[hexIndex(cols, p.col, p.row)]));
+  // The lake the river flows out of stays its source unless the source end is extended.
+  const lakeHead = full.slice(0, sourceOffset(river, full));
   const inherit = (from: RiverSegment) => from.navigable;
+  const targetIsLake = base[hexIndex(cols, target.col, target.row)] === 'Lake';
 
-  if (!targetIsWater && toSource < toMouth) {
+  // Upstream to land, or up into a lake, which the river then flows out of.
+  if ((!targetIsWater || targetIsLake) && toSource < toMouth) {
     const run = leg(first, target, inherit(first)).reverse();
-    return rebuild(river, withoutLoops([...run, ...land]), base, elevation, cols, rows);
+    return rebuild(river, withoutLoops([...run, ...land]), base, elevation, cols, rows, others);
   }
   const run = leg(last, target, inherit(last));
-  return rebuild(river, withoutLoops([...land, ...run]), base, elevation, cols, rows);
+  return rebuild(river, withoutLoops([...lakeHead, ...land, ...run]), base, elevation, cols, rows, others);
 }
 
 /**
@@ -187,6 +218,7 @@ export function buildBranch(
   elevation: ElevationData | null,
   cols: number,
   rows: number,
+  others: River[] = [],
 ): RiverEditResult {
   const forkSeg = parent.segments.find((s) => s.col === fork.col && s.row === fork.row);
   if (!forkSeg) return { error: 'A branch has to leave from one of the river\'s own hexes.' };
@@ -203,6 +235,7 @@ export function buildBranch(
     cols,
     rows,
     warnings,
+    others,
   );
   if (!river) return { error: 'That branch would have no land to run through.' };
   return { river: { ...river, branchOf: parent.id }, warnings };
@@ -210,19 +243,31 @@ export function buildBranch(
 
 /**
  * Branches whose fork hex is no longer on their parent (the parent moved, was
- * trimmed or was removed) stop being branches and become ordinary rivers.
+ * trimmed or was removed) stop being branches and become ordinary rivers, and
+ * tributaries whose river no longer reaches their confluence hex lose it.
  * Returns the same array when nothing needed detaching.
  */
 export function detachOrphanBranches(rivers: River[]): River[] {
   let changed = false;
-  const out = rivers.map((r) => {
-    if (r.branchOf === undefined) return r;
-    const parent = rivers.find((p) => p.id === r.branchOf);
-    const fork = r.segments[0];
-    if (parent && fork && parent.segments.some((s) => s.col === fork.col && s.row === fork.row)) return r;
-    changed = true;
-    const { branchOf: _gone, ...rest } = r;
-    return rest;
+  const on = (id: string, hex: RiverSegment | undefined) => {
+    const other = rivers.find((p) => p.id === id);
+    return Boolean(other && hex && other.segments.some((s) => s.col === hex.col && s.row === hex.row));
+  };
+  const out = rivers.map((river) => {
+    let r = river;
+    if (r.branchOf !== undefined && !on(r.branchOf, r.segments[0])) {
+      changed = true;
+      const { branchOf: _gone, ...rest } = r;
+      r = rest;
+    }
+    // Likewise a tributary whose river no longer runs through its last hex
+    // ends inland until it is reconnected.
+    if (r.joins !== undefined && !on(r.joins, r.segments.at(-1))) {
+      changed = true;
+      const { joins: _gone, ...rest } = r;
+      r = { ...rest, terminus: 'Unresolved' };
+    }
+    return r;
   });
   return changed ? out : rivers;
 }
@@ -271,9 +316,17 @@ export function reverseRiver(
   elevation: ElevationData | null,
   cols: number,
   rows: number,
+  others: River[] = [],
 ): RiverEditResult {
   if (river.segments.length < 2) return { error: 'A one-hex river has no direction to reverse.' };
-  return rebuild(river, landPath(river).reverse(), base, elevation, cols, rows);
+  // The lake a river flowed out of becomes the lake it flows into, and the
+  // water it emptied into is dropped (a river cannot rise in the sea).
+  const path = pathOf(river, base, cols, rows).reverse();
+  while (path.length > 1 && isWater(base[hexIndex(cols, path[0]!.col, path[0]!.row)]) && base[hexIndex(cols, path[0]!.col, path[0]!.row)] !== 'Lake') {
+    path.shift();
+  }
+  const { joins: _joins, ...unjoined } = river;
+  return rebuild(unjoined, path, base, elevation, cols, rows, others, false);
 }
 
 export type RiverMergeResult =
@@ -333,6 +386,7 @@ export function mergeRivers(
   elevation: ElevationData | null,
   cols: number,
   rows: number,
+  others: River[] = [],
 ): RiverMergeResult {
   if (pieces.length < 2) return { error: 'Pick at least two rivers to join.' };
   const keep = pieces.find((r) => r.id === keepId);
@@ -376,7 +430,7 @@ export function mergeRivers(
   }
 
   const looped = withoutLoops(path);
-  const rebuilt = rebuild(keep, looped, base, elevation, cols, rows);
+  const rebuilt = rebuild(keep, looped, base, elevation, cols, rows, others);
   if ('error' in rebuilt) return rebuilt;
   const absorbedIds = new Set(pieces.filter((r) => r.id !== keepId).map((r) => r.id));
   // The joined river is a branch only if its upstream piece was one, of a river not being joined.

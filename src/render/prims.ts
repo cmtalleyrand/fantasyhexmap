@@ -90,6 +90,8 @@ export type Prim =
       /** Children drawn as one unit, optionally clipped to a region (nonzero rule). */
       kind: 'group';
       clip?: PathCmd[];
+      /** How the clip path is filled: nonzero (the default) or evenodd, which cuts overlapping subpaths out. */
+      clipRule?: 'nonzero' | 'evenodd';
       prims: Prim[];
     }
   | {

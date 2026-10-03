@@ -12,6 +12,7 @@
  * whichever pass the user is running by hand.
  */
 
+import { neighbourOf } from '../shared/hex.js';
 import * as z from 'zod/v4';
 
 import type { LayerId } from '../shared/types.js';
@@ -223,11 +224,22 @@ export function rosterOnlyResponse(
     const entries = roster.kind === 'rivers' ? roster.entries : [];
     const existing = ctx.rivers?.rivers ?? [];
     return {
-      rivers: existing.map((river, i) => ({
-        name: entries[i]?.name ?? river.name,
-        path: river.segments.map((s) => ({ col: s.col, row: s.row })),
-        navigable: river.segments.map((s) => s.navigable),
-      })),
+      rivers: existing.map((river, i) => {
+        const first = river.segments[0];
+        // The lake a river flows out of leads its path, as the model would write it.
+        const lake = river.fromLake && first && first.entryEdge !== null ? neighbourOf(first.col, first.row, first.entryEdge) : null;
+        const nameOf = (id: string | undefined) => {
+          const k = existing.findIndex((o) => o.id === id);
+          return k >= 0 ? entries[k]?.name ?? existing[k]!.name : undefined;
+        };
+        return {
+          name: entries[i]?.name ?? river.name,
+          path: [...(lake ? [{ col: lake.col, row: lake.row }] : []), ...river.segments.map((s) => ({ col: s.col, row: s.row }))],
+          navigable: [...(lake ? [false] : []), ...river.segments.map((s) => s.navigable)],
+          ...(river.joins ? { joins: nameOf(river.joins) } : {}),
+          ...(river.branchOf ? { branchOf: nameOf(river.branchOf) } : {}),
+        };
+      }),
       notes,
       decisions,
     };

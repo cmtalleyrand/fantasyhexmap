@@ -52,21 +52,28 @@ const TOOLS: { id: ToolButton; label: string; hint: string }[] = [
   {
     id: 'draw',
     label: 'Draw new',
-    hint: 'Click hexes from source to mouth; hexes that do not touch are joined by a straight run. End on the Sea or Lake it empties into, or on a border hex.',
+    hint: 'Click hexes from source to mouth; hexes that do not touch are joined by a straight run. Start on a Lake to have the river flow out of it. End on the Sea or Lake it empties into, on another river it flows into, or on a border hex.',
   },
 ];
 
-function terminusText(river: River): string {
-  switch (river.terminus) {
-    case 'Sea':
-      return 'reaches the sea';
-    case 'Lake':
-      return 'flows into a lake';
-    case 'OffMap':
-      return 'runs off the map';
-    default:
-      return 'ends inland, with no outlet';
-  }
+function terminusText(river: River, rivers: River[] = []): string {
+  const end = (() => {
+    switch (river.terminus) {
+      case 'Sea':
+        return 'reaches the sea';
+      case 'Lake':
+        return 'flows into a lake';
+      case 'River': {
+        const host = rivers.find((r) => r.id === river.joins);
+        return host ? `flows into the ${host.name}` : 'flows into another river';
+      }
+      case 'OffMap':
+        return 'runs off the map';
+      default:
+        return 'ends inland, with no outlet';
+    }
+  })();
+  return river.fromLake ? `rises in a lake and ${end}` : end;
 }
 
 /** Top-level rivers in data order, each followed by its branches. */
@@ -223,7 +230,7 @@ function DraftCard(
     if (draft.length < 2 || !base) return;
     const id = `riv_${Date.now().toString(36)}`;
     if (parent) {
-      const result = buildBranch(parent, path[0]!, path, id, base, map.layers.elevation.data, map.cols, map.rows);
+      const result = buildBranch(parent, path[0]!, path, id, base, map.layers.elevation.data, map.cols, map.rows, rivers);
       if ('error' in result) {
         setNotice({ kind: 'error', text: result.error });
         return;
@@ -240,6 +247,7 @@ function DraftCard(
         map.cols,
         map.rows,
         warnings,
+        rivers,
       );
       if (!river) {
         setNotice({ kind: 'error', text: warnings.at(-1) ?? 'That river has no land to run through.' });
@@ -330,7 +338,7 @@ function SelectedRiver(
 
   const reverse = () => {
     if (!base) return;
-    const result = reverseRiver(river, base, map.layers.elevation.data, map.cols, map.rows);
+    const result = reverseRiver(river, base, map.layers.elevation.data, map.cols, map.rows, rivers);
     if ('error' in result) {
       setNotice({ kind: 'error', text: result.error });
       return;
@@ -338,7 +346,7 @@ function SelectedRiver(
     dispatch({ type: 'updateRiver', river: result.river });
     setNotice({
       kind: 'info',
-      text: `${river.name} now flows the other way and ${terminusText(result.river)}.${
+      text: `${river.name} now flows the other way and ${terminusText(result.river, rivers)}.${
         river.branchOf ? ' It no longer leaves its parent river, so it is no longer a branch.' : ''
       }`,
     });
@@ -346,7 +354,7 @@ function SelectedRiver(
 
   const removePicked = () => {
     if (!base || pickedIndex < 0) return;
-    const result = removeRiverSegment(river, pickedIndex, base, map.layers.elevation.data, map.cols, map.rows);
+    const result = removeRiverSegment(river, pickedIndex, base, map.layers.elevation.data, map.cols, map.rows, rivers);
     if (result === null) {
       props.setSelection(new Set());
       dispatch({ type: 'removeRiver', id: river.id });
@@ -370,7 +378,7 @@ function SelectedRiver(
       <div className="river-facts">
         <span className="river-length">{formatLength(props.length, props.unit, props.rounding)}</span>
         <span className="hint">
-          {river.segments.length} hex{river.segments.length === 1 ? '' : 'es'} · {terminusText(river)} ·{' '}
+          {river.segments.length} hex{river.segments.length === 1 ? '' : 'es'} · {terminusText(river, rivers)} ·{' '}
           {navigable === 0 ? 'not navigable' : navigable === river.segments.length ? 'navigable throughout' : `${navigable} hexes navigable`}
         </span>
       </div>
@@ -507,7 +515,7 @@ function RiverList(
   const join = () => {
     const base = map.layers.base.data;
     if (!base || !keep || tickedRivers.length < 2) return;
-    const result = mergeRivers(tickedRivers, keep.id, base, map.layers.elevation.data, map.cols, map.rows);
+    const result = mergeRivers(tickedRivers, keep.id, base, map.layers.elevation.data, map.cols, map.rows, rivers.filter((r) => !tickedRivers.includes(r)));
     if ('error' in result) {
       setNotice({ kind: 'error', text: result.error });
       return;

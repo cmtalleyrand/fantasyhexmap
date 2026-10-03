@@ -7,7 +7,7 @@
  * decode-and-validate path rather than a shortcut around it.
  */
 
-import { hexIndex, inBounds, neighbourOf } from '../shared/hex.js';
+import { hexDistance, hexIndex, inBounds, neighbourOf } from '../shared/hex.js';
 import { isLandLike, isWater, ELEVATION_FLOW_RANK } from '../shared/derive.js';
 import {
   BASE_CHARS,
@@ -57,8 +57,8 @@ function buildBase(ctx: PromptContext): BaseGeo[] {
       land += (rng() - 0.5) * 0.35;
       const i = hexIndex(cols, col, row);
       if (land > 0.55) data[i] = 'Land';
-      else if (land > 0.42) data[i] = rng() < 0.35 ? (rng() < 0.5 ? 'Coastal Island' : 'Large Island') : 'Land';
-      else if (land > 0.33 && rng() < 0.25) data[i] = rng() < 0.5 ? 'Island' : 'Small Islands';
+      else if (land > 0.42) data[i] = rng() < 0.35 ? (rng() < 0.5 ? 'Mainland and islands' : 'Islands') : 'Land';
+      else if (land > 0.33 && rng() < 0.25) data[i] = 'Islands';
     }
   }
   // Polar ice caps.
@@ -210,55 +210,92 @@ function buildRivers(ctx: PromptContext) {
   const elev = ctx.elevation;
   const rng = makeRng('riv' + ctx.description);
   const target = Math.max(2, Math.round((cols * rows) / 110));
-  const rivers: { name: string; path: { col: number; row: number }[]; navigable: boolean[] }[] = [];
-  const used = new Set<string>();
-  let attempts = 0;
-  while (rivers.length < target && attempts < target * 40) {
-    attempts++;
-    const col = Math.floor(rng() * cols);
-    const row = Math.floor(rng() * rows);
-    const i = hexIndex(cols, col, row);
-    if (!isLandLike(base[i])) continue;
-    const startRank = elev ? ELEVATION_FLOW_RANK[elev[i] ?? 'Lowland'] : 2;
-    if (startRank < 2) continue;
-    const path: { col: number; row: number }[] = [{ col, row }];
-    const seen = new Set([`${col},${row}`]);
-    let cur = { col, row };
-    let reached = false;
+  type Hex = { col: number; row: number };
+  const rivers: { name: string; path: Hex[]; navigable: boolean[]; joins?: string }[] = [];
+  /** Which river each hex already carries. */
+  const owner = new Map<string, string>();
+  const key = (h: Hex) => `${h.col},${h.row}`;
+  const rank = (j: number) => (elev ? ELEVATION_FLOW_RANK[elev[j] ?? 'Lowland'] : 0);
+
+  /**
+   * Walk downhill from `path` until water, or (when `join`) another river's
+   * hex. Returns the path and the river joined, or null when it peters out.
+   */
+  const walk = (path: Hex[], join: boolean): { path: Hex[]; joins?: string } | null => {
+    const seen = new Set(path.map(key));
+    let cur = path[path.length - 1]!;
     for (let step = 0; step < cols + rows; step++) {
-      let best: { col: number; row: number } | null = null;
+      let best: Hex | null = null;
       let bestRank = Infinity;
       for (let e = 0; e < 6; e++) {
         const n = neighbourOf(cur.col, cur.row, e);
-        if (!inBounds(cols, rows, n.col, n.row)) continue;
-        if (seen.has(`${n.col},${n.row}`)) continue;
+        if (!inBounds(cols, rows, n.col, n.row) || seen.has(key(n))) continue;
         const j = hexIndex(cols, n.col, n.row);
-        if (isWater(base[j])) {
+        if (isWater(base[j]) || (join && owner.has(key(n)))) {
           best = n;
           bestRank = -1;
           break;
         }
-        if (!isLandLike(base[j])) continue;
-        const rank = elev ? ELEVATION_FLOW_RANK[elev[j] ?? 'Lowland'] : 0;
-        if (rank + rng() * 0.4 < bestRank) {
-          bestRank = rank;
+        if (!isLandLike(base[j]) || owner.has(key(n))) continue;
+        const r = rank(j);
+        if (r + rng() * 0.4 < bestRank) {
+          bestRank = r;
           best = n;
         }
       }
-      if (!best) break;
+      if (!best) return null;
       path.push(best);
-      seen.add(`${best.col},${best.row}`);
-      if (isWater(base[hexIndex(cols, best.col, best.row)])) {
-        reached = true;
-        break;
-      }
+      seen.add(key(best));
+      if (isWater(base[hexIndex(cols, best.col, best.row)])) return { path };
+      if (owner.has(key(best))) return { path, joins: owner.get(key(best)) };
       cur = best;
     }
-    if (!reached || path.length < 4) continue;
-    if (path.some((p) => used.has(`${p.col},${p.row}`))) continue;
-    for (const p of path) used.add(`${p.col},${p.row}`);
-    const navigable = path.map((_, k) => k > path.length * 0.5);
-    rivers.push({ name: `River ${rivers.length + 1}`, path, navigable });
+    return null;
+  };
+  const add = (name: string, path: Hex[], joins?: string) => {
+    for (const p of path) if (!owner.has(key(p)) && isLandLike(base[hexIndex(cols, p.col, p.row)])) owner.set(key(p), name);
+    const navigable = path.map((_, k) => !joins && k > path.length * 0.5);
+    rivers.push({ name, path, navigable, ...(joins ? { joins } : {}) });
+  };
+  const randomHigh = (): Hex | null => {
+    const col = Math.floor(rng() * cols);
+    const row = Math.floor(rng() * rows);
+    const i = hexIndex(cols, col, row);
+    if (!isLandLike(base[i]) || owner.has(`${col},${row}`) || rank(i) < 2) return null;
+    return { col, row };
+  };
+
+  // Trunk rivers, each reaching water on its own.
+  for (let attempts = 0; rivers.length < target && attempts < target * 40; attempts++) {
+    const start = randomHigh();
+    if (!start) continue;
+    const run = walk([start], false);
+    if (!run || run.path.length < 4) continue;
+    add(`River ${rivers.length + 1}`, run.path);
+  }
+  // A few tributaries, which stop where they reach a trunk.
+  const trunks = rivers.length;
+  for (let attempts = 0; rivers.length < trunks + Math.ceil(trunks / 2) && attempts < target * 40; attempts++) {
+    const start = randomHigh();
+    if (!start) continue;
+    const run = walk([start], true);
+    if (!run?.joins || run.path.length < 3) continue;
+    add(`River ${rivers.length + 1}`, run.path, run.joins);
+  }
+  // One river flowing out of a lake, where a lake has land to drain across.
+  for (let i = 0; i < base.length; i++) {
+    if (base[i] !== 'Lake') continue;
+    const lake = { col: i % cols, row: Math.floor(i / cols) };
+    const shore = [0, 1, 2, 3, 4, 5]
+      .map((e) => neighbourOf(lake.col, lake.row, e))
+      .filter((n) => inBounds(cols, rows, n.col, n.row) && isLandLike(base[hexIndex(cols, n.col, n.row)]) && !owner.has(key(n)));
+    if (shore.length === 0) continue;
+    const run = walk([lake, shore.sort((a, b) => rank(hexIndex(cols, a.col, a.row)) - rank(hexIndex(cols, b.col, b.row)))[0]!], true);
+    // It must leave the lake for somewhere else, not curl back into it.
+    const end = run?.path.at(-1);
+    if (!run || run.path.length < 4 || (end && base[hexIndex(cols, end.col, end.row)] === 'Lake' && hexDistance(end, lake) <= 2)) continue;
+    add(`River ${rivers.length + 1}`, run.path, run.joins);
+    break;
   }
   return rivers;
 }

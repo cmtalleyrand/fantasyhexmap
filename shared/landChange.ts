@@ -90,7 +90,17 @@ export function riversWithoutHexes(
           if (inBounds(cols, rows, m.col, m.row) && isWater(base[hexIndex(cols, m.col, m.row)])) path.push(m);
         }
       }
-      const piece = buildRiverFromPath(
+      // Where the piece used to come from: a hex now flooded into a lake (the
+      // piece flows out of it), or the lake the whole river rose in.
+      const firstSeg = river.segments[run[0]!]!;
+      if (firstSeg.entryEdge !== null && (run[0]! > 0 || river.fromLake)) {
+        const p = neighbourOf(firstSeg.col, firstSeg.row, firstSeg.entryEdge);
+        if (inBounds(cols, rows, p.col, p.row) && base[hexIndex(cols, p.col, p.row)] === 'Lake') {
+          path.unshift(p);
+          navigable.unshift(false);
+        }
+      }
+      let piece = buildRiverFromPath(
         { name: n === 0 ? river.name : `${river.name} (lower course${n > 1 ? ` ${n}` : ''})`, path, navigable },
         n === 0 ? river.id : `${river.id}_${n + 1}`,
         base,
@@ -99,7 +109,12 @@ export function riversWithoutHexes(
         rows,
         [],
       );
-      if (piece) out.push(n === 0 && river.branchOf !== undefined ? { ...piece, branchOf: river.branchOf } : piece);
+      if (!piece) return;
+      // The tail still flows into the river it joined.
+      if (!next && river.joins !== undefined && piece.segments.at(-1)?.exitEdge === null) {
+        piece = { ...piece, joins: river.joins, terminus: 'River' };
+      }
+      out.push(n === 0 && river.branchOf !== undefined ? { ...piece, branchOf: river.branchOf } : piece);
     });
   }
   return out;

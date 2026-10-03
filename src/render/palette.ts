@@ -11,10 +11,13 @@ export const BASE_COLOURS: Record<BaseGeo, string> = {
   Land: '#c4d49b',
   'Coastal Land': '#d9c58f',
   Ice: '#e4eef3',
-  Island: '#1d3b57', // sea substrate; the landmass is drawn as a dot on top
-  'Coastal Island': '#1d3b57',
-  'Large Island': '#1d3b57',
-  'Small Islands': '#1d3b57',
+  // Sea substrate: the islands are drawn on top.
+  Islands: '#1d3b57',
+  // Split hexes: the colour of their land; the water in them is drawn over it.
+  'Mainland and islands': '#d9c58f',
+  Isthmus: '#d9c58f',
+  // A channel of sea: its banks take the colours of the land they face.
+  Strait: '#1d3b57',
 };
 
 export const ISLAND_DOT = '#cbbd93';
