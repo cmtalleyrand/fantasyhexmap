@@ -160,7 +160,7 @@ function drawPrim(ctx: Ctx, prim: Prim): void {
       ctx.textAlign = prim.anchor === 'start' ? 'left' : prim.anchor === 'end' ? 'right' : 'center';
       ctx.textBaseline = 'middle';
       if (prim.halo) {
-        ctx.lineWidth = Math.max(2, prim.size * 0.28);
+        ctx.lineWidth = Math.max(1.5, prim.size * 0.15);
         ctx.strokeStyle = prim.halo;
         ctx.lineJoin = 'round';
         ctx.strokeText(prim.text, 0, 0, prim.maxWidth);

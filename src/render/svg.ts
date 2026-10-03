@@ -111,7 +111,7 @@ function primToSvg(prim: Prim, defs: Defs): string {
       // paint-order lets the halo sit behind the glyphs, matching strokeText/fillText
       // in the canvas renderer so the two outputs agree.
       const halo = prim.halo
-        ? ` stroke="${prim.halo}" stroke-width="${n(Math.max(2, prim.size * 0.28))}" stroke-linejoin="round" paint-order="stroke"`
+        ? ` stroke="${prim.halo}" stroke-width="${n(Math.max(1.5, prim.size * 0.15))}" stroke-linejoin="round" paint-order="stroke"`
         : '';
       const transform = prim.rotation
         ? ` transform="rotate(${n(prim.rotation * 180 / Math.PI)} ${n(prim.at.x)} ${n(prim.at.y)})"`

@@ -86,7 +86,7 @@ const WRAP_PENALTY = 0.02;
 const MIN_FONT = 7;
 /** Moderate realm-name type, in hex sizes. */
 const MODERATE_MIN = 0.45;
-const MODERATE_MAX = 1.1;
+const MODERATE_MAX = 1.5;
 /** The smallest moderate type for a realm of FLOOR_FROM_HEXES hexes or more, in hex sizes. */
 const MODERATE_FLOOR = 0.42;
 const FLOOR_FROM_HEXES = 8;
@@ -233,11 +233,11 @@ export function placePolityLabels(input: LabelInput): PolityLabel[] {
     // letters so big they cannot fit without crossing water and neighbours.
     const scale = input.scale ?? 1;
     const moderate = (input.sizing ?? 'moderate') === 'moderate';
-    // Moderate type grows with the fourth root of the area (a realm sixteen
-    // times larger gets type twice the size), between about half a hex and a
-    // hex; filling type grows with the square root, up to 2.2 hexes.
+    // Moderate type grows with the cube root of the area (a realm eight times
+    // larger gets type twice the size), between about half a hex and a hex and
+    // a half; filling type grows with the square root, up to 2.2 hexes.
     const idealSize = moderate
-      ? size * scale * Math.min(MODERATE_MAX, Math.max(MODERATE_MIN, 0.36 * Math.sqrt(Math.sqrt(owned.length))))
+      ? size * scale * Math.min(MODERATE_MAX, Math.max(MODERATE_MIN, 0.32 * Math.cbrt(owned.length)))
       : Math.min(size * MAX_FONT_HEXES * scale, size * 0.28 * scale * Math.sqrt(owned.length));
     // A realm of any size keeps type at least this large, letting more of the
     // name run over neighbouring land rather than shrinking to a footnote.
