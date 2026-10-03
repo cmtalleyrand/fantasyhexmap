@@ -1,9 +1,11 @@
 import { useState } from 'react';
 import { LAYER_META, plannedLayers } from '../../shared/layers.js';
 import { type LayerId, type MapState } from '../../shared/types.js';
-import { exportComposite, exportLayer } from '../render/export.js';
+import type { AuditIssue } from '../render/audit.js';
+import { auditExport, exportComposite, exportLayer } from '../render/export.js';
 import type { PolityNameMin } from '../render/labels.js';
 import { DEFAULT_LEGEND_OPTIONS, legendLayers } from '../render/legend.js';
+import type { MarginaliaOptions } from '../render/marginalia.js';
 import type { VisibleLayers } from '../render/scene.js';
 import type { ElevationStyle, MapStyle } from '../render/styles.js';
 
@@ -73,6 +75,9 @@ export default function ExportPanel({
   const [riverLengths, setRiverLengths] = useState(DEFAULT_LEGEND_OPTIONS.riverLengths);
   // Stored as exclusions so a layer switched on later is in the legend by default.
   const [legendExclude, setLegendExclude] = useState<LayerId[]>([]);
+  // Off to begin with, so an export is the bare map until furniture is asked for.
+  const [furniture, setFurniture] = useState<MarginaliaOptions>({ frame: false, title: false, scaleBar: false, compass: false });
+  const [overlaps, setOverlaps] = useState<AuditIssue[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const run = (fn: () => Promise<void>) => {
@@ -91,6 +96,7 @@ export default function ExportPanel({
     legend: legend
       ? { exclude: legendExclude, onlyUsed, polityAreas, riverLengths, title: legendTitle }
       : null,
+    marginalia: Object.values(furniture).some(Boolean) ? furniture : null,
   };
 
   const legendChoices = legendLayers(map, visible, elevationStyle);
@@ -130,6 +136,27 @@ export default function ExportPanel({
         <Check checked={landNames} onChange={setLandNames}>
           Render land feature and island names
         </Check>
+
+        <div>
+          <label>Map furniture</label>
+          <div className="stack">
+            <Check checked={furniture.frame} onChange={(on) => setFurniture({ ...furniture, frame: on })}>
+              Frame (double rule and margin band)
+            </Check>
+            <Check checked={furniture.title} onChange={(on) => setFurniture({ ...furniture, title: on })}>
+              Map name as a title
+            </Check>
+            <Check checked={furniture.scaleBar} onChange={(on) => setFurniture({ ...furniture, scaleBar: on })}>
+              Scale bar (from the width of one hex)
+            </Check>
+            <Check checked={furniture.compass} onChange={(on) => setFurniture({ ...furniture, compass: on })}>
+              Compass rose
+            </Check>
+          </div>
+          <p className="hint" style={{ marginTop: 4 }}>
+            Each piece is set in open sea clear of land, names and the legend, or in the margin band when the sea has no room.
+          </p>
+        </div>
 
         <Check checked={legend} onChange={setLegend}>
           Include a legend
@@ -216,6 +243,36 @@ export default function ExportPanel({
             Single-layer exports keep the base geography as a substrate so land-only layers are
             readable, and drop labels unless the layer is cities or polities (river and range names go with their own layers).
           </p>
+        </div>
+
+        <div>
+          <button
+            onClick={() =>
+              run(async () => {
+                setOverlaps(null);
+                setOverlaps(await auditExport(map, visible, { ...opts, labels, riverNames, rangeNames, seaNames, landNames }));
+              })
+            }
+          >
+            Check names for overlaps
+          </button>
+          {overlaps && (
+            <div className={overlaps.length === 0 ? 'hint' : 'notice warn'} style={{ marginTop: 4 }}>
+              {overlaps.length === 0 ? (
+                'No overlaps among the names and map furniture of this export.'
+              ) : (
+                <>
+                  {overlaps.length} overlap{overlaps.length === 1 ? '' : 's'}:
+                  <ul style={{ margin: '4px 0 0', paddingLeft: 18 }}>
+                    {overlaps.slice(0, 12).map((o, i) => (
+                      <li key={i}>{o.message}</li>
+                    ))}
+                    {overlaps.length > 12 && <li>and {overlaps.length - 12} more</li>}
+                  </ul>
+                </>
+              )}
+            </div>
+          )}
         </div>
 
         {error && <div className="notice error">{error}</div>}

@@ -17,6 +17,15 @@ export type PathCmd =
 
 export type CitySymbol = 'village' | 'town' | 'city' | 'metropolis';
 
+/** What a piece of lettering names; the renderers ignore it, the collision audit reads it. */
+export type LabelKind = 'polity' | 'city' | 'river' | 'range' | 'land' | 'water' | 'title' | 'scale' | 'compass';
+
+export interface LabelTag {
+  kind: LabelKind;
+  /** For a polity name, the polity it names, so the audit can tell its own ground from a neighbour's. */
+  owner?: string;
+}
+
 export type Prim =
   | {
       kind: 'polygon';
@@ -68,6 +77,7 @@ export type Prim =
       font?: string;
       italic?: boolean;
       rotation?: number;
+      tag?: LabelTag;
       /**
        * The same text set glyph by glyph (along a curve, or letter-spaced).
        * When present it replaces drawing `text` at `at`; `text` stays the
@@ -94,6 +104,8 @@ export type Prim =
       clipRule?: 'nonzero' | 'evenodd';
       /** The group drawn at this opacity, 0 to 1, as one unit. */
       opacity?: number;
+      /** The group shifted by this much; its clip and children are in its own, unshifted coordinates. */
+      translate?: Point;
       prims: Prim[];
     }
   | {

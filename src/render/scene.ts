@@ -126,6 +126,39 @@ export interface Scene {
   height: number;
   background: string;
   prims: Prim[];
+  /** City markers (with the room names leave round them), for collision checks. */
+  markers?: OrientedBox[];
+  /** Where the map's own top-left corner lies on the page, once a frame has grown the page around it. */
+  origin?: Point;
+  /** Map furniture placed by `addMarginalia`, for collision checks. */
+  furniture?: FurniturePlacement[];
+}
+
+/** One piece of map furniture as placed: what it is, where it sits, and what surface it sits on. */
+export interface FurniturePlacement {
+  kind: 'title' | 'scale' | 'compass' | 'legend';
+  box: OrientedBox;
+  /** Open sea on the map, the margin band round it, or the legend's own panel beside it. */
+  where: 'sea' | 'band' | 'panel';
+}
+
+/**
+ * Whether a point of the map is land as drawn (coasts and islands), for
+ * collision checks. Kept beside the scene rather than in it so that a scene
+ * stays plain data that can be compared and serialised; a copy of a scene
+ * picks the test up again through `withLandOf`.
+ */
+const landTests = new WeakMap<object, (p: Point) => boolean>();
+
+export function landTestOf(scene: Scene): ((p: Point) => boolean) | undefined {
+  return landTests.get(scene);
+}
+
+/** `scene`, a copy or extension of `source`, answering the same land questions. */
+export function withLandOf<T extends Scene>(scene: T, source: Scene): T {
+  const test = landTests.get(source);
+  if (test) landTests.set(scene, test);
+  return scene;
 }
 
 export type VisibleLayers = Record<LayerId, boolean>;
@@ -425,7 +458,7 @@ const RELIEF_FADE_REACH = 0.35;
 const TINT_ALPHA = 0.32;
 
 /** Blend two #rrggbb colours; `t` = 0 gives `a`. */
-function mix(a: string, b: string, t: number): string {
+export function mix(a: string, b: string, t: number): string {
   const pa = /^#([0-9a-f]{6})$/i.exec(a);
   const pb = /^#([0-9a-f]{6})$/i.exec(b);
   if (!pa || !pb) return t < 0.5 ? a : b;
@@ -451,7 +484,7 @@ function shift(colour: string, from: string, to: string): string {
 export function buildScene(map: MapState, opts: SceneOptions): Scene {
   const scene = buildStaticScene(map, opts);
   const decoration = decorationPrims(map, opts);
-  return decoration.length > 0 ? { ...scene, prims: [...scene.prims, ...decoration] } : scene;
+  return decoration.length > 0 ? withLandOf({ ...scene, prims: [...scene.prims, ...decoration] }, scene) : scene;
 }
 
 /** Hover and selection outlines: the only part of the scene that changes as the pointer moves. */
@@ -1268,6 +1301,31 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
   };
   const sizedIsles = (i: number): Isle[] => sizedIslesAt(i, islandScale(i));
   const islandPath = (i: number): PathCmd[] => islandPathAt(i, islandScale(i));
+
+  /** Whether a point is land as drawn: the coast's land, or one of the islands of an island hex. */
+  const isleMemo = new Map<number, Isle[]>();
+  const landAt = (p: Point): boolean => {
+    if (!base) return false;
+    if (traced?.onLand(p)) return true;
+    const at = pixelToOffset(p.x, p.y, size);
+    // An island may reach a little past its own hex.
+    const near = [at, ...[0, 1, 2, 3, 4, 5].map((e) => neighbourOf(at.col, at.row, e))];
+    for (const { col, row } of near) {
+      if (!inBounds(cols, rows, col, row)) continue;
+      const j = row * cols + col;
+      if (!isIslandType(base[j]) || terrain?.split.has(j)) continue;
+      let isles = isleMemo.get(j);
+      if (!isles) isleMemo.set(j, (isles = sizedIsles(j)));
+      for (const isle of isles) {
+        const dx = p.x - isle.c.x;
+        const dy = p.y - isle.c.y;
+        const u = dx * Math.cos(isle.axis) + dy * Math.sin(isle.axis);
+        const v = -dx * Math.sin(isle.axis) + dy * Math.cos(isle.axis);
+        if ((u / isle.rx) ** 2 + (v / isle.ry) ** 2 <= 1) return true;
+      }
+    }
+    return false;
+  };
 
   /** The coast's paths, those that run off the map carried on to the page's edge. */
   const coastPaths = coast?.paths.map((d, c) => extendToRim(d, coast.chains[c]?.closed ?? true, rimBounds, size)) ?? [];
@@ -2108,6 +2166,7 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
             fantasy: true,
             font: realmRole.family,
             rotation: label.rotation,
+            tag: { kind: 'polity', owner: label.polityId },
             ...(realmRole.tracking > 0
               ? { glyphs: glyphsStraight(line, label.size, at, label.rotation, { ...realmRole, weight }) }
               : {}),
@@ -2165,6 +2224,7 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
         font: lettering.river.family,
         italic: lettering.river.italic,
         rotation: l.rotation,
+        tag: { kind: 'river' },
         glyphs: l.glyphs,
       });
       for (const g of l.glyphs ?? []) {
@@ -2188,6 +2248,7 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
         font: rangeRole.family,
         italic: rangeRole.italic,
         rotation: l.rotation,
+        tag: { kind: 'range' },
         glyphs: l.glyphs,
       });
       taken.push({ cx: l.at.x, cy: l.at.y, halfW: (roleEm(rangeRole, l.text) * l.size) / 2, halfH: l.size * 0.6, rotation: l.rotation });
@@ -2215,6 +2276,7 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
         font: lettering.water.family,
         italic: lettering.water.italic,
         rotation: l.rotation,
+        tag: { kind: 'water' },
         glyphs: l.glyphs,
       });
       for (const g of l.glyphs ?? []) {
@@ -2238,6 +2300,7 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
         font: landRole.family,
         italic: landRole.italic,
         rotation: l.rotation,
+        tag: { kind: 'land' },
         glyphs: l.glyphs,
       });
       taken.push({ cx: l.at.x, cy: l.at.y, halfW: (roleEm(landRole, l.text) * l.size) / 2, halfH: l.size * 0.6, rotation: l.rotation });
@@ -2274,19 +2337,27 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
         weight: lettering.city.weight,
         anchor: p.anchor,
         font: lettering.city.family,
+        tag: { kind: 'city' },
         ...(lettering.city.italic ? { italic: true } : {}),
       });
     }
   }
 
-  return {
+  const scene: Scene = {
     width,
     height,
     // The sea colour, so the half-hex notches along the left and right edges
     // read as more sea rather than as a black serrated border.
     background: opts.transparentBackground ? 'transparent' : palette.sea,
     prims,
+    markers: (cities?.cities ?? []).map((city) => {
+      const c = siteOf(city);
+      const reach = markerReach(city.population, city.capital);
+      return { cx: c.x, cy: c.y, halfW: reach, halfH: reach, rotation: 0 };
+    }),
   };
+  landTests.set(scene, landAt);
+  return scene;
 }
 
 /** Elevation drawn as stacked marks, one more per step of height. */

@@ -829,3 +829,7 @@ islands merging, they are drawn as large as they can be and no larger, and never
 First draw of a 50 x 50 map is slower (~0.7 s against ~0.15 s); later edits reuse what was cut.
 
 **Irregularity defaults.** Every shaped type (coasts, islands, isthmuses, straits, mainlands, ice) now defaults to Ragged, and Settings lists each type's default.
+
+## 43. Map furniture is searched for, and the audit checks it independently
+
+The frame grows the page by a margin instead of covering the map's edge, so the margin band is guaranteed empty and is where a piece goes when open sea has no room. The scene is wrapped in a translated group (`group.translate`) rather than rewritten. Pieces are placed on a coarse occupancy grid (non-sea hexes, name boxes, city markers, the legend panel, placed pieces); `audit.ts` re-tests the result rectangle against rectangle and against land as drawn (`landTestOf`, kept beside the scene so scenes stay plain data). Known gap, found by the audit: realm names are placed on hex ownership, so a realm whose land is a few small islands can have its name printed across them.
