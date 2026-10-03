@@ -57,8 +57,8 @@ function buildBase(ctx: PromptContext): BaseGeo[] {
       land += (rng() - 0.5) * 0.35;
       const i = hexIndex(cols, col, row);
       if (land > 0.55) data[i] = 'Land';
-      else if (land > 0.42) data[i] = rng() < 0.35 ? (rng() < 0.5 ? 'Coastal Island' : 'Large Island') : 'Land';
-      else if (land > 0.33 && rng() < 0.25) data[i] = rng() < 0.5 ? 'Island' : 'Small Islands';
+      else if (land > 0.42) data[i] = rng() < 0.35 ? (rng() < 0.5 ? 'Mainland and islands' : 'Islands') : 'Land';
+      else if (land > 0.33 && rng() < 0.25) data[i] = 'Islands';
     }
   }
   // Polar ice caps.

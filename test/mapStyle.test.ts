@@ -28,7 +28,7 @@ function islandMap(): MapState {
   ];
   for (const [col, row] of land) base[hexIndex(cols, col!, row!)] = 'Land';
   base[hexIndex(cols, 3, 3)] = 'Lake';
-  base[hexIndex(cols, 7, 1)] = 'Island';
+  base[hexIndex(cols, 7, 1)] = 'Islands';
   for (let col = 0; col < cols; col++) base[hexIndex(cols, col, rows - 1)] = 'Ice';
   map.layers.base.data = base;
   map.layers.rivers.data = {
@@ -213,7 +213,7 @@ test('editing one hex leaves the decoration of distant hexes unchanged', () => {
   const style = resolveStyle({ preset: 'parchment', overrides: { water: 'flat' } });
   const before = buildScene(map, { size: 20, visible: defaultVisibility(), labels: false, style });
   const edited = structuredClone(map);
-  edited.layers.base.data![hexIndex(map.cols, 0, 0)] = 'Island';
+  edited.layers.base.data![hexIndex(map.cols, 0, 0)] = 'Islands';
   const after = buildScene(edited, { size: 20, visible: defaultVisibility(), labels: false, style });
   const islet = (scene: typeof before, c: { x: number; y: number }) =>
     scene.prims.filter((p) => p.kind === 'path' && p.fill === style.palette.island)
@@ -344,44 +344,106 @@ test('a tributary ends on its parent river and a distributary starts on it', asy
   assert.ok(onLine(courses.get('branch')!.centreline[0]!), 'the distributary leaves the main river');
 });
 
-test('the island types round-trip through the base codec and count as land', async () => {
+test('the new base types round-trip through the codec, and old island types migrate to Islands', async () => {
   const { encodeBase, decodeBase } = await import('../shared/codec.ts');
-  const { isLandLike } = await import('../shared/derive.ts');
-  const values: BaseGeo[] = ['Island', 'Coastal Island', 'Large Island', 'Small Islands'];
-  const decoded = decodeBase(encodeBase(values, 4, 1), 4, 1);
-  assert.deepEqual(decoded.data, values);
-  for (const v of values) assert.ok(isLandLike(v), `${v} carries land layers`);
+  const { isLandLike, isWater } = await import('../shared/derive.ts');
+  const { migrateLegacyIslands } = await import('../shared/islandMigration.ts');
+  const values: BaseGeo[] = ['Islands', 'Mainland and islands', 'Isthmus', 'Strait'];
+  assert.deepEqual(decodeBase(encodeBase(values, 4, 1), 4, 1).data, values);
+  for (const v of ['Islands', 'Mainland and islands', 'Isthmus'] as BaseGeo[]) assert.ok(isLandLike(v), `${v} carries land layers`);
+  assert.ok(isWater('Strait') && !isLandLike('Strait'));
+  // The retired codec characters still read, as Islands.
+  assert.deepEqual(decodeBase(['ab'], 2, 1).data, ['Islands', 'Islands']);
+  // A saved map with the four old types, one with a stored side.
+  const map = createMapState('Old', 4, 1);
+  map.layers.base.data = ['Island', 'Coastal Island', 'Large Island', 'Small Islands'] as unknown as BaseGeo[];
+  map.islandSides = { '1': 4 };
+  const migrated = migrateLegacyIslands(map);
+  assert.deepEqual(migrated.layers.base.data, ['Islands', 'Islands', 'Islands', 'Islands']);
+  assert.deepEqual(migrated.islandSpecs, {
+    '0': { large: 0, small: 1 },
+    '1': { large: 1, small: 0, coastal: { large: true }, side: 4 },
+    '2': { large: 1, small: 0 },
+    '3': { large: 0, small: 3 },
+  });
+  assert.equal(migrated.islandSides, undefined);
+  assert.equal(migrateLegacyIslands(migrated), migrated, 'a current map is left alone');
 });
 
-test('each island type draws its land inside its own hex, and a coastal island faces the nearest land', async () => {
-  const { coastalIslandSide } = await import('../src/render/coast.ts');
+test('an Islands hex draws the islands its spec asks for, inside its hex, coastal ones toward land', async () => {
   const { hexCenter, pixelToOffset } = await import('../shared/hex.ts');
   const size = 20;
-  for (const kind of ['Island', 'Coastal Island', 'Large Island', 'Small Islands'] as BaseGeo[]) {
+  const specs = [
+    { large: 1, small: 0 },
+    { large: 2, small: 0 },
+    { large: 0, small: 5 },
+    { large: 1, small: 3 },
+    { large: 2, small: 2, coastal: { large: true } },
+    { large: 0, small: 4, coastal: { small: true } },
+  ];
+  for (const spec of specs) {
     const map = createMapState('Islands', 3, 3);
-    map.layers.base.data = ['Land', 'Sea', 'Sea', 'Land', kind, 'Sea', 'Sea', 'Sea', 'Sea'];
+    map.layers.base.data = ['Land', 'Sea', 'Sea', 'Land', 'Islands', 'Sea', 'Sea', 'Sea', 'Sea'];
+    map.islandSpecs = { '4': spec };
     for (const preset of PRESET_ORDER) {
       const style = resolveStyle({ preset, overrides: {} });
       const prims = buildScene(map, { size, visible: defaultVisibility(), labels: false, style }).prims;
-      const land = prims.filter((p) => (p.kind === 'path' || p.kind === 'circle') && p.fill === style.palette.island);
-      assert.ok(land.length > 0, `${kind} (${preset}) draws land`);
-      for (const p of land) {
-        const pts = p.kind === 'circle'
-          ? [p.c]
-          : (p as { d: PathCmd[] }).d.filter((c) => c[0] !== 'Z').map((c) => ({ x: c.at(-2) as number, y: c.at(-1) as number }));
-        for (const q of pts) {
-          const { col, row } = pixelToOffset(q.x, q.y, size);
-          assert.deepEqual([col, row], [1, 1], `${kind} (${preset}) stays in its hex`);
-        }
+      const land = prims.filter((p): p is Extract<Prim, { kind: 'path' }> => p.kind === 'path' && p.fill === style.palette.island);
+      assert.equal(land.length, 1, `${JSON.stringify(spec)} (${preset}) draws its islands as one shape`);
+      const subpaths = land[0]!.d.filter((c) => c[0] === 'M').length;
+      assert.equal(subpaths, spec.large + spec.small, `${JSON.stringify(spec)} (${preset}) island count`);
+      const pts = land[0]!.d.filter((c) => c[0] !== 'Z').map((c) => ({ x: c.at(-2) as number, y: c.at(-1) as number }));
+      for (const q of pts) {
+        const { col, row } = pixelToOffset(q.x, q.y, size);
+        assert.deepEqual([col, row], [1, 1], `${JSON.stringify(spec)} (${preset}) stays in its hex`);
+      }
+      if (spec.coastal) {
+        // The land lies west; a coastal group's islands sit on the west side of the hex.
+        const c = hexCenter(1, 1, size);
+        const mean = pts.reduce((sum, q) => sum + q.x, 0) / pts.length;
+        assert.ok(mean < c.x, `${JSON.stringify(spec)} (${preset}) lies toward the land`);
       }
     }
   }
-  // Hex (1,1) sits on an odd row; its land neighbours are west (0,1) and north-west (1,0)... here only (0,0) and (0,1).
-  const base: BaseGeo[] = ['Land', 'Sea', 'Sea', 'Land', 'Coastal Island', 'Sea', 'Sea', 'Sea', 'Sea'];
-  const side = coastalIslandSide(base, 3, 3, 4);
-  const c = hexCenter(1, 1, 1);
-  const towards = Math.atan2(hexCenter(0, 1, 1).y - c.y, hexCenter(0, 1, 1).x - c.x);
-  assert.ok(Math.abs(((side * Math.PI) / 3 - towards + 3 * Math.PI) % (2 * Math.PI) - Math.PI) <= Math.PI / 3 + 1e-9);
+});
+
+test('an isthmus is a neck of land, a strait a channel of water, and a mainland coast keeps its islands offshore', async () => {
+  const { surfaceMap, surfaceEdges, CORE } = await import('../src/render/coast.ts');
+  const { hexCenter } = await import('../shared/hex.ts');
+  const size = 20;
+  // West-east: land, the split hex, land (or sea), with sea (or land) north and south.
+  const row = (top: BaseGeo, middle: BaseGeo[], bottom: BaseGeo): BaseGeo[] => [top, top, top, ...middle, bottom, bottom, bottom];
+  const isthmus = surfaceMap(row('Sea', ['Land', 'Isthmus', 'Land'], 'Sea'), 3, 3);
+  const neck = isthmus.split.get(4)!;
+  assert.ok(neck.sides.slice(0, 6).every((s) => s === 'land'), 'the centre of an isthmus is land');
+  assert.equal(neck.sides[6], 'land', 'it reaches the land to the east');
+  assert.equal(neck.sides[9], 'land', 'and to the west');
+  assert.ok(neck.sides.slice(6).filter((s) => s === 'sea').length >= 2, 'with sea on its other sides');
+  // The coast runs through the hex, within the inner corners' reach of its centre.
+  const c = hexCenter(1, 1, size);
+  const inner = surfaceEdges(isthmus, size, (s) => s === 'land').filter((e) => Math.hypot(e.from.x - c.x, e.from.y - c.y) < size * CORE + 1e-6);
+  assert.ok(inner.length > 0, 'the coast passes inside the isthmus hex');
+
+  const strait = surfaceMap(row('Land', ['Sea', 'Strait', 'Sea'], 'Land'), 3, 3);
+  const channel = strait.split.get(4)!;
+  assert.ok(channel.sides.slice(0, 6).every((s) => s === 'sea'), 'the centre of a strait is water');
+  assert.equal(channel.sides[6], 'sea');
+  assert.equal(channel.sides[9], 'sea');
+  // Banks take the colours of the land they face.
+  channel.sides.forEach((side, p) => {
+    if (side === 'land') assert.notEqual(channel.donors[p], 4, 'a bank borrows its neighbour');
+  });
+
+  // A mainland coast with islands: land to the west, sea elsewhere.
+  const map = createMapState('Coast', 3, 3);
+  map.layers.base.data = ['Sea', 'Sea', 'Sea', 'Land', 'Mainland and islands', 'Sea', 'Sea', 'Sea', 'Sea'];
+  map.islandSpecs = { '4': { large: 1, small: 2 } };
+  const style = resolveStyle({ preset: 'parchment', overrides: {} });
+  const prims = buildScene(map, { size, visible: defaultVisibility(), labels: false, style }).prims;
+  const isles = prims.filter((p): p is Extract<Prim, { kind: 'path' }> => p.kind === 'path' && p.fill === style.palette.island);
+  const pts = isles[0]!.d.filter((q) => q[0] === 'M').map((q) => ({ x: q[1] as number, y: q[2] as number }));
+  assert.equal(pts.length, 3);
+  for (const q of pts) assert.ok(q.x > c.x - size * 0.2, 'the islands lie off the mainland, in the water');
 });
 
 test('a city is drawn at its site: centre, river, or toward its chosen coast', async () => {
@@ -596,7 +658,7 @@ test('realms can be filled, washed along their borders, or outlined, and islet h
   const rows = 3;
   const map = createMapState('Modes', cols, rows);
   const base: BaseGeo[] = Array(cols * rows).fill('Land');
-  base[5] = 'Island';
+  base[5] = 'Islands';
   map.layers.base.data = base;
   map.layers.polities.data = {
     polities: [{ id: 'a', name: 'Avel', colour: '#aa3333' }, { id: 'b', name: 'Brin', colour: '#3355aa' }],
@@ -691,7 +753,7 @@ test('a lake is treated as sea by realms: its shore carries the band and no real
   const base: BaseGeo[] = Array(cols * rows).fill('Land');
   // A three-hex lake with an islet in it, all inside one realm, which also claims the lake.
   for (const i of [2 * cols + 2, 2 * cols + 4, 1 * cols + 3]) base[i] = 'Lake';
-  base[2 * cols + 3] = 'Island';
+  base[2 * cols + 3] = 'Islands';
   map.layers.base.data = base;
   map.layers.polities.data = {
     polities: [{ id: 'r', name: 'Realm', colour: '#aa3333' }],
@@ -740,16 +802,6 @@ test('the land a lake hex leaves uncovered takes the colour of the realm it face
   const triangles = prims.filter((p): p is Extract<Prim, { kind: 'polygon' }> => p.kind === 'polygon' && p.points.length === 3);
   const fills = new Set(triangles.map((t) => t.fill));
   assert.ok(fills.has('#aa3333') && fills.has('#3333aa'), 'sectors facing each realm take its colour');
-});
-
-test('small islands are two or three islets, spread apart', () => {
-  const map = createMapState('Isles', 3, 3);
-  map.layers.base.data = ['Sea', 'Sea', 'Sea', 'Sea', 'Small Islands', 'Sea', 'Sea', 'Sea', 'Sea'];
-  const style = resolveStyle({ preset: 'parchment', overrides: {} });
-  const isles = buildScene(map, { size: 20, visible: defaultVisibility(), labels: false, style }).prims
-    .filter((p): p is Extract<Prim, { kind: 'path' }> => p.kind === 'path' && p.fill === style.palette.island);
-  const count = isles[0]!.d.filter((c) => c[0] === 'M').length;
-  assert.ok(count >= 2 && count <= 3, `${count} islets`);
 });
 
 test('automatic colours contrast neighbouring realms and shade each realm’s parts from it', async () => {

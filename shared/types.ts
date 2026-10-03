@@ -45,27 +45,76 @@ export type BaseGeo =
   | 'Sea'
   | 'Lake'
   | 'Ice'
-  | 'Island'
-  | 'Coastal Island'
-  | 'Large Island'
-  | 'Small Islands';
+  | 'Islands'
+  | 'Mainland and islands'
+  | 'Isthmus'
+  | 'Strait';
 export const BASE_GEO_VALUES: BaseGeo[] = [
-  'Land', 'Coastal Land', 'Sea', 'Lake', 'Ice', 'Island', 'Coastal Island', 'Large Island', 'Small Islands',
+  'Land', 'Coastal Land', 'Sea', 'Lake', 'Ice', 'Islands', 'Mainland and islands', 'Isthmus', 'Strait',
 ];
 
 /**
- * Sea hexes that hold land: one small islet, an islet lying against one side
- * of the hex close to a coast, one island filling most of the hex, or a
- * scatter of islets.
+ * Island types of maps saved before islands were described by counts. They are
+ * read and migrated (see `migrateLegacyIslands`), never written.
  */
-export const ISLAND_TYPES: BaseGeo[] = ['Island', 'Coastal Island', 'Large Island', 'Small Islands'];
+export type LegacyIslandGeo = 'Island' | 'Coastal Island' | 'Large Island' | 'Small Islands';
+export const LEGACY_ISLAND_VALUES: LegacyIslandGeo[] = ['Island', 'Coastal Island', 'Large Island', 'Small Islands'];
+
+/**
+ * Hexes that hold islands: open sea with islands in it, or part of a mainland
+ * coast with islands off it. How many islands, and where, is in `islandSpecs`.
+ */
+export const ISLAND_TYPES: BaseGeo[] = ['Islands', 'Mainland and islands'];
 
 export function isIslandType(value: BaseGeo | null | undefined): boolean {
-  return value === 'Island' || value === 'Coastal Island' || value === 'Large Island' || value === 'Small Islands';
+  return value === 'Islands' || value === 'Mainland and islands';
+}
+
+/**
+ * Hexes drawn partly land and partly water: a coast with islands off it, a
+ * neck of land between two waters, and a channel of water between two lands.
+ */
+export function isSplitType(value: BaseGeo | null | undefined): boolean {
+  return value === 'Mainland and islands' || value === 'Isthmus' || value === 'Strait';
 }
 
 /** Hex types that carry land-only layer values (elevation, climate, vegetation, population). */
-export const LAND_LIKE: BaseGeo[] = ['Land', 'Coastal Land', ...ISLAND_TYPES];
+export const LAND_LIKE: BaseGeo[] = ['Land', 'Coastal Land', 'Islands', 'Mainland and islands', 'Isthmus'];
+
+/**
+ * How the islands of an Islands or Mainland-and-islands hex are drawn: up to
+ * two large islands and five small ones (at least one island in all). A
+ * coastal group lies against the hex's side facing land (`side`, or the
+ * nearest land when absent) - for a mainland hex, against the mainland.
+ */
+export interface IslandSpec {
+  large: number;
+  small: number;
+  coastal?: { large?: boolean; small?: boolean };
+  /** Edge 0-5 the coastal groups lie against; absent means the side facing land. */
+  side?: number;
+}
+
+export const DEFAULT_ISLAND_SPECS: Record<'Islands' | 'Mainland and islands', IslandSpec> = {
+  Islands: { large: 1, small: 0 },
+  'Mainland and islands': { large: 0, small: 2 },
+};
+
+/** A stored spec, clamped to the allowed counts; the type's default when absent or empty. */
+export function islandSpecFor(value: BaseGeo | null | undefined, stored: IslandSpec | undefined): IslandSpec {
+  const fallback = value === 'Mainland and islands' ? DEFAULT_ISLAND_SPECS['Mainland and islands'] : DEFAULT_ISLAND_SPECS.Islands;
+  if (!stored) return fallback;
+  const large = Math.max(0, Math.min(2, Math.round(Number(stored.large) || 0)));
+  const small = Math.max(0, Math.min(5, Math.round(Number(stored.small) || 0)));
+  if (large + small === 0) return fallback;
+  const side = typeof stored.side === 'number' && stored.side >= 0 && stored.side < 6 ? Math.floor(stored.side) : undefined;
+  return {
+    large,
+    small,
+    coastal: { large: Boolean(stored.coastal?.large), small: Boolean(stored.coastal?.small) },
+    ...(side !== undefined ? { side } : {}),
+  };
+}
 
 export type Elevation =
   | 'Lowland'
@@ -375,10 +424,11 @@ export interface MapState {
   /** Named seas, bays and lakes. */
   waterNames?: WaterName[];
   /**
-   * For Coastal Island hexes: which edge (0-5, see the EDGES note above) the
-   * islet lies against, keyed by flat hex index. Absent means the side facing
-   * the nearest land.
+   * How the islands of Islands and Mainland-and-islands hexes are drawn, keyed
+   * by flat hex index. Absent hexes take their type's default.
    */
+  islandSpecs?: Record<string, IslandSpec>;
+  /** Superseded by `islandSpecs`; read from older saves and migrated. */
   islandSides?: Record<string, number>;
   layers: LayersState;
   /** Append-only record of every change, oldest first. */

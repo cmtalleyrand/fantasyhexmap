@@ -30,10 +30,10 @@ function Swatch({ colour, label }: { colour: string; label: string }) {
 }
 
 const ISLAND_NOTES: Partial<Record<BaseGeo, string>> = {
-  Island: 'a small islet in the sea',
-  'Coastal Island': 'an islet lying against one side, near a coast',
-  'Large Island': 'one island filling most of the hex',
-  'Small Islands': 'a scatter of islets',
+  Islands: 'sea holding one or two large islands and up to five small ones',
+  'Mainland and islands': 'part of a mainland coast, with islands off it',
+  Isthmus: 'a neck of land between two waters',
+  Strait: 'a channel of water between two lands',
 };
 
 export default function Legend({ layer, map }: { layer: LayerId; map: MapState }) {
@@ -100,7 +100,7 @@ export default function Legend({ layer, map }: { layer: LayerId; map: MapState }
       const polities = map.layers.polities.data?.polities ?? [];
       const dimensions = normaliseHexDimensions(map.hexDimensions);
       const areas = map.layers.base.data && map.layers.polities.data
-        ? politySurfaceAreas(map.layers.base.data, map.layers.polities.data, dimensions)
+        ? politySurfaceAreas(map.layers.base.data, map.layers.polities.data, dimensions, map.islandSpecs)
         : new Map<string, number>();
       if (polities.length === 0) return <div className="hint">No polities yet.</div>;
       return (

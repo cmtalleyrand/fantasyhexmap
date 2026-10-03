@@ -29,6 +29,8 @@ import {
 import {
   LAYER_ORDER,
   isIslandType,
+  islandSpecFor,
+  type IslandSpec,
   type BaseGeo,
   type CitiesData,
   type Climate,
@@ -63,9 +65,15 @@ import {
   chainEdges,
   circlePath,
   coastalIslandSide,
-  coastGeometry,
+  coastGeometryOf,
+  lakeIslandsOf,
+  pieceDonor,
+  piecePoints,
+  pieceSurface,
+  surfaceEdges,
+  surfaceMap,
+  type SurfaceMap,
   hexesPath,
-  isletPath,
   sideOf,
   lakeBodyPath,
   lakeComponents,
@@ -213,10 +221,14 @@ function cachedPolityLabels(
  * array. Lakes are drawn as bodies of their own (see `lakeBodyPath`), so they
  * are traced as land here, and so are islands that stand in a lake.
  */
-const coastCache = new WeakMap<
-  object,
-  { key: string; geometry: CoastGeometry; lakes: number[][]; lakeIslands: Set<number> }
->();
+interface TracedCoast {
+  geometry: CoastGeometry;
+  lakes: number[][];
+  lakeIslands: Set<number>;
+  surface: SurfaceMap;
+}
+
+const coastCache = new WeakMap<object, TracedCoast & { key: string }>();
 
 function cachedCoast(
   base: ReadonlyArray<BaseGeo | null>,
@@ -224,14 +236,16 @@ function cachedCoast(
   rows: number,
   size: number,
   smooth: boolean,
-): { geometry: CoastGeometry; lakes: number[][]; lakeIslands: Set<number> } {
+): TracedCoast {
   const key = `${cols}x${rows}@${size}/${smooth}`;
   const hit = coastCache.get(base);
   if (hit && hit.key === key) return hit;
-  const { lakes, lakeIslands } = lakeComponents(base, cols, rows);
-  const traced = base.slice();
-  for (const lake of lakes) for (const i of lake) traced[i] = 'Land';
-  const entry = { key, geometry: coastGeometry(traced, cols, rows, size, smooth), lakes, lakeIslands };
+  const lakeIslands = lakeIslandsOf(base, cols, rows);
+  const surface = surfaceMap(base, cols, rows, lakeIslands);
+  const { lakes } = lakeComponents(base, cols, rows, surface);
+  // The sea's coast: lakes count as land here, as they have bodies of their own.
+  const geometry = coastGeometryOf(surfaceEdges(surface, size, (side) => side !== 'sea'), smooth);
+  const entry = { key, geometry, lakes, lakeIslands, surface };
   coastCache.set(base, entry);
   return entry;
 }
@@ -247,7 +261,7 @@ const landOwnerCache = new WeakMap<object, { base: object; owner: (string | null
 function landOwners(owner: (string | null)[], base: ReadonlyArray<BaseGeo | null>): (string | null)[] {
   const hit = landOwnerCache.get(owner);
   if (hit && hit.base === base) return hit.owner;
-  const out = owner.map((o, i) => (base[i] === 'Sea' || base[i] === 'Lake' ? null : o));
+  const out = owner.map((o, i) => (base[i] === 'Sea' || base[i] === 'Lake' || base[i] === 'Strait' ? null : o));
   landOwnerCache.set(owner, { base, owner: out });
   return out;
 }
@@ -354,11 +368,12 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
   const baseColour = (value: BaseGeo): string => {
     switch (value) {
       case 'Sea':
-      case 'Island':
-      case 'Coastal Island':
-      case 'Large Island':
-      case 'Small Islands':
+      case 'Islands':
+      case 'Strait':
         return palette.sea;
+      case 'Mainland and islands':
+      case 'Isthmus':
+        return uniformLand ? palette.land : palette.coastalLand;
       case 'Lake':
         return palette.lake;
       case 'Land':
@@ -413,6 +428,7 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
 
   const lakeBodies = traced?.lakes ?? [];
   const lakeIslands = traced?.lakeIslands ?? new Set<number>();
+  const terrain = traced?.surface ?? null;
   const inLakeBody = new Set(lakeBodies.flat());
   // A small lake's hexes are drawn as land, then the lake body over them.
   /** The colour a hex finally shows: its fill with every overlay laid over it. */
@@ -443,7 +459,9 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
     return i;
   };
   /** A lake hex (not an island in it): drawn as land under the lake's body. */
-  const isLakeHex = (i: number) => inLakeBody.has(i) && !lakeIslands.has(i);
+  const isLakeHex = (i: number) => inLakeBody.has(i) && !lakeIslands.has(i) && !terrain?.split.has(i);
+  /** A hex drawn partly land and partly water (see `surfaceMap`). */
+  const isSplit = (i: number) => Boolean(terrain?.split.has(i));
   /**
    * The land hex each of a lake hex's six sectors (the triangle from the
    * centre to edge e) takes its ground and realm colour from: the land across
@@ -487,6 +505,7 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
       const i = hexIndex(cols, col, row);
       if (isWater(i)) continue;
       const corners = hexCorners(col, row, size);
+      if (isSplit(i)) continue;
       if (isLakeHex(i)) {
         // Sector by sector, in the colours of the land each faces.
         lakeSectorDonors(i).forEach((donor, e) => {
@@ -545,13 +564,31 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
   const islands: number[] = [];
   if (base) {
     for (let i = 0; i < base.length; i++) {
-      if (!isWater(i)) continue;
+      if (isIslandType(base[i]) && !lakeIslands.has(i)) islands.push(i);
+      if (!isWater(i) || isSplit(i)) continue;
       const fill = waterColour(i);
       prims.push({ kind: 'polygon', points: hexCorners(i % cols, Math.floor(i / cols), size), fill, stroke: fill, strokeWidth: seal });
-      if (isIslandType(base[i])) islands.push(i);
     }
     // Islands in a lake are drawn on the lake's body, after it.
     for (const i of lakeIslands) islands.push(i);
+    // Split hexes piece by piece: land in the colours of the land it is (or
+    // faces), sea in the sea's, and lake water as land under the lake's body.
+    for (const [i, split] of terrain?.split ?? []) {
+      const col = i % cols;
+      const row = Math.floor(i / cols);
+      split.sides.forEach((side, p) => {
+        const points = piecePoints(col, row, p, size);
+        if (side === 'sea') {
+          const fill = waterColour(split.donors[p]!);
+          prims.push({ kind: 'polygon', points, fill, stroke: fill, strokeWidth: seal });
+          return;
+        }
+        const donor = side === 'land' ? split.donors[p]! : isWater(i) ? lakeShoreDonor(i) : i;
+        const fill = hexFill(donor);
+        prims.push({ kind: 'polygon', points, fill, stroke: fill, strokeWidth: seal });
+        for (const overlay of overlays(donor)) prims.push({ kind: 'polygon', points, fill: overlay });
+      });
+    }
     // Corners of land that the smoothed coast cuts off become water.
     for (const s of coast?.toWater ?? []) {
       const fill = waterColour(s.donor);
@@ -560,53 +597,118 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
   }
 
   const islandRand = (i: number) => (k: number) => unit(seed, 'islet', i, k);
-  const coastalSide = (i: number): number => {
-    const stored = map.islandSides?.[String(i)];
-    return stored !== undefined && stored >= 0 && stored < 6 ? stored : coastalIslandSide(base!, cols, rows, i);
+  /** The direction (radians) from an island hex's centre toward the land its coastal groups lie against. */
+  const coastward = (i: number, spec: IslandSpec): number => {
+    const split = terrain?.split.get(i);
+    if (split) {
+      // Toward the mainland: the mean direction of the sectors that are land.
+      let x = 0;
+      let y = 0;
+      split.sides.forEach((side, p) => {
+        if (p >= 6 && side === 'land') {
+          x += Math.cos(((p - 6) * Math.PI) / 3);
+          y += Math.sin(((p - 6) * Math.PI) / 3);
+        }
+      });
+      if (x !== 0 || y !== 0) return Math.atan2(y, x);
+    }
+    const side = spec.side ?? coastalIslandSide(base!, cols, rows, i);
+    return (side * Math.PI) / 3;
   };
-  /** Where the land of an island hex is centred: off-centre only for a coastal island. */
-  const islandCentre = (i: number): Point => {
-    const c = hexCenter(i % cols, Math.floor(i / cols), size);
-    if (base?.[i] !== 'Coastal Island') return c;
-    const angle = (coastalSide(i) * Math.PI) / 3;
-    return { x: c.x + Math.cos(angle) * size * 0.4, y: c.y + Math.sin(angle) * size * 0.4 };
-  };
-  /** The land in an island hex, as one or more closed paths. */
-  const islandPath = (i: number): PathCmd[] => {
+  interface Isle {
+    c: Point;
+    rx: number;
+    ry: number;
+    axis: number;
+  }
+  /**
+   * Where the islands of an island hex lie and how big they are. Large
+   * islands fill most of the hex (one), or share it (two); small ones ring
+   * them. A coastal group lies against the side facing land, or for a
+   * mainland hex just off the mainland; on a mainland hex everything keeps to
+   * the water half.
+   */
+  const islandLayout = (i: number): Isle[] => {
     const c = hexCenter(i % cols, Math.floor(i / cols), size);
     const rand = islandRand(i);
-    const blob = knobs.islands === 'blob';
-    switch (base?.[i]) {
-      case 'Coastal Island': {
-        // Against one side of the hex, stretched along that side.
-        const angle = (coastalSide(i) * Math.PI) / 3;
-        const at = islandCentre(i);
-        return blob
-          ? blobPath(at, size * 0.44, size * 0.27, angle + Math.PI / 2, rand, 10)
-          : circlePath(at, size * 0.3);
-      }
-      case 'Large Island':
-        return blob
-          ? blobPath(c, size * 0.74, size * 0.62, rand(99) * Math.PI, rand, 12, 0.16)
-          : circlePath(c, size * 0.62);
-      case 'Small Islands': {
-        // Two or three islets, spread well apart round the hex.
-        const count = 2 + Math.floor(rand(200) * 2);
-        const d: PathCmd[] = [];
-        const turn = rand(250) * Math.PI * 2;
-        for (let k = 0; k < count; k++) {
-          const a = turn + ((k + (rand(300 + k) - 0.5) * 0.3) / count) * Math.PI * 2;
-          const r = size * (0.42 + rand(400 + k) * 0.12);
-          const at = { x: c.x + Math.cos(a) * r, y: c.y + Math.sin(a) * r };
-          const rr = size * (0.14 + rand(500 + k) * 0.06);
-          const sub = (q: number) => rand(1000 + k * 37 + q);
-          d.push(...(blob ? blobPath(at, rr * 1.25, rr, sub(99) * Math.PI, sub, 8, 0.18) : circlePath(at, rr)));
+    const spec = islandSpecFor(base![i], map.islandSpecs?.[String(i)]);
+    const mainland = Boolean(terrain?.split.has(i));
+    const toward = coastward(i, spec);
+    // The direction the free (non-coastal) islands lie: the open water.
+    const out = mainland ? toward + Math.PI : rand(250) * Math.PI * 2;
+    const at = (angle: number, r: number, along = 0): Point => ({
+      x: c.x + Math.cos(angle) * r * size - Math.sin(angle) * along * size,
+      y: c.y + Math.sin(angle) * r * size + Math.cos(angle) * along * size,
+    });
+    const isles: Isle[] = [];
+    const nl = spec.large;
+    const ns = spec.small;
+    const coastalLarge = Boolean(spec.coastal?.large);
+    const coastalSmall = Boolean(spec.coastal?.small);
+    if (nl > 0) {
+      const crowded = ns > 0 && !coastalSmall;
+      if (mainland) {
+        const r = coastalLarge ? 0.3 : 0.52;
+        for (let k = 0; k < nl; k++) {
+          const along = nl === 1 ? 0 : (k - 0.5) * 0.56;
+          isles.push({ c: at(toward + Math.PI, r, along), rx: (nl === 1 ? 0.34 : 0.26) * size, ry: (nl === 1 ? 0.24 : 0.19) * size, axis: toward + Math.PI / 2 });
         }
-        return d;
+      } else if (coastalLarge) {
+        for (let k = 0; k < nl; k++) {
+          const along = nl === 1 ? 0 : (k - 0.5) * 0.6;
+          isles.push({ c: at(toward, 0.4, along), rx: (nl === 1 ? 0.44 : 0.3) * size, ry: (nl === 1 ? 0.27 : 0.2) * size, axis: toward + Math.PI / 2 });
+        }
+      } else if (nl === 1) {
+        isles.push({ c, rx: (crowded ? 0.52 : 0.74) * size, ry: (crowded ? 0.44 : 0.62) * size, axis: rand(99) * Math.PI });
+      } else {
+        const axis = rand(98) * Math.PI;
+        for (const sign of [-1, 1]) {
+          isles.push({ c: at(axis, sign * 0.36), rx: (crowded ? 0.32 : 0.4) * size, ry: (crowded ? 0.26 : 0.32) * size, axis: axis + Math.PI / 2 + (rand(97 + sign) - 0.5) });
+        }
       }
-      default:
-        return blob ? isletPath(c, size, rand) : circlePath(c, size * 0.34);
     }
+    for (let k = 0; k < ns; k++) {
+      const rr = size * (0.12 + rand(500 + k) * 0.05) * (ns >= 4 ? 0.82 : 1);
+      let p: Point;
+      if (coastalSmall) {
+        // In a line along the coast (or the mainland's shore).
+        const along = (k - (ns - 1) / 2) * 0.3 + (rand(300 + k) - 0.5) * 0.08;
+        p = mainland ? at(toward + Math.PI, 0.28 + rand(400 + k) * 0.08, along) : at(toward, 0.56 + rand(400 + k) * 0.08, along);
+      } else if (mainland) {
+        const spread = Math.min(Math.PI * 0.8, 0.5 * ns);
+        const a = out + (ns === 1 ? 0 : (k / (ns - 1) - 0.5) * spread) + (rand(300 + k) - 0.5) * 0.2;
+        p = at(a, 0.56 + rand(400 + k) * 0.1);
+      } else {
+        // Round the hex, clear of any large island.
+        const free = nl > 0 && coastalLarge ? Math.PI * 1.3 : Math.PI * 2;
+        const start = nl > 0 && coastalLarge ? toward + Math.PI - free / 2 : out;
+        const a = start + ((k + 0.5) / ns) * free + (rand(300 + k) - 0.5) * 0.3;
+        p = at(a, (nl > 0 && !coastalLarge ? 0.62 : 0.45) + rand(400 + k) * 0.1);
+      }
+      isles.push({ c: p, rx: rr * 1.25, ry: rr, axis: rand(600 + k) * Math.PI });
+    }
+    return isles;
+  };
+  /** Where a city in an island hex stands: on the mainland, or on its largest island. */
+  const islandCentre = (i: number): Point => {
+    const c = hexCenter(i % cols, Math.floor(i / cols), size);
+    if (terrain?.split.has(i)) {
+      const toward = coastward(i, islandSpecFor(base![i], map.islandSpecs?.[String(i)]));
+      return { x: c.x + Math.cos(toward) * size * 0.5, y: c.y + Math.sin(toward) * size * 0.5 };
+    }
+    const biggest = islandLayout(i).sort((a, b) => b.rx * b.ry - a.rx * a.ry)[0];
+    return biggest?.c ?? c;
+  };
+  /** The islands of an island hex, as closed paths. */
+  const islandPath = (i: number): PathCmd[] => {
+    const rand = islandRand(i);
+    const blob = knobs.islands === 'blob';
+    return islandLayout(i).flatMap((isle, k) => {
+      const sub = (q: number) => rand(1000 + k * 37 + q);
+      return blob
+        ? blobPath(isle.c, isle.rx, isle.ry, isle.axis, sub, isle.rx > size * 0.3 ? 12 : 9, isle.rx > size * 0.3 ? 0.16 : 0.18)
+        : circlePath(isle.c, Math.sqrt(isle.rx * isle.ry) * 0.9);
+    });
   };
   const shorelines: PathCmd[] = [...(coast?.paths.flat() ?? []), ...islands.filter((i) => !lakeIslands.has(i)).flatMap(islandPath)];
 
@@ -615,11 +717,21 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
     for (const body of ['sea', 'lake'] as const) {
       const hexes: number[] = [];
       base.forEach((v, i) => {
-        if (isWater(i) && (v === 'Lake') === (body === 'lake')) hexes.push(i);
+        if (isWater(i) && !isSplit(i) && (v === 'Lake') === (body === 'lake')) hexes.push(i);
       });
-      if (hexes.length === 0) continue;
+      // The open water of split hexes.
+      const pieces: PathCmd[] = [];
+      for (const [i, split] of terrain?.split ?? []) {
+        split.sides.forEach((side, p) => {
+          if (side !== body || body === 'lake') return;
+          piecePoints(i % cols, Math.floor(i / cols), p, size).forEach((q, k) => pieces.push([k === 0 ? 'M' : 'L', q.x, q.y]));
+          pieces.push(['Z']);
+        });
+      }
+      if (hexes.length === 0 && pieces.length === 0) continue;
       const clip = [
         ...hexesPath(hexes, cols, size),
+        ...pieces,
         ...coast.toWater.filter((s) => (base[s.donor] === 'Lake') === (body === 'lake')).flatMap((s) => s.d),
       ];
       const water = body === 'lake' ? palette.lake : palette.sea;
@@ -658,7 +770,12 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
   lakeBodies.forEach((lake, k) => lake.forEach((i) => lakeOf.set(i, k)));
   for (const lake of lakeBodies) {
     const rand = (k: number) => unit(seed, 'lake', lake[0]!, k);
-    const d = lakeBodyPath(lake, cols, rows, size, rand, (p) => (isThinLand(p) ? 0.1 : 1));
+    const d = lakeBodyPath(
+      surfaceEdges(terrain!, size, (side) => side === 'lake', new Set(lake)),
+      size,
+      rand,
+      (p) => (isThinLand(p) ? 0.1 : 1),
+    );
     const isles = lake.filter((i) => lakeIslands.has(i)).flatMap(islandPath);
     lakeOutlines.push(...d, ...isles);
     lakeShores.push([...d, ...isles]);
@@ -700,7 +817,6 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
   // --- islands ------------------------------------------------------------------
   const islandLand = uniformLand ? palette.land : palette.island;
   for (const i of islands) {
-    const c = hexCenter(i % cols, Math.floor(i / cols), size);
     const owner = polities?.owner[i];
     const fill = owner
       ? (() => {
@@ -708,19 +824,14 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
           return polityOpacity < 1 ? withAlpha(solid, polityOpacity) : solid;
         })()
       : null;
-    if (knobs.islands === 'blob' || base?.[i] !== 'Island' || knobs.polityStyle !== 'fill') {
-      const d = islandPath(i);
-      prims.push({ kind: 'path', d, fill: islandLand });
-      // Only the landmass belongs to the polity; the surrounding sea stays sea.
-      if (fill && knobs.polityStyle === 'fill') prims.push({ kind: 'path', d, fill });
-      if (fill && knobs.polityStyle === 'wash') prims.push({ kind: 'path', d, fill: withAlpha(polityColour.get(owner!) ?? '#777777', 0.55) });
-      if (fill && knobs.polityStyle === 'tint') prims.push({ kind: 'path', d, fill: withAlpha(polityColour.get(owner!) ?? '#777777', 0.6) });
-      if (fill && knobs.polityStyle === 'outline') {
-        prims.push({ kind: 'path', d, stroke: polityColour.get(owner!) ?? '#777777', strokeWidth: Math.max(1, size * 0.08), round: true });
-      }
-    } else {
-      prims.push({ kind: 'circle', c, r: size * 0.34, fill: islandLand });
-      if (fill) prims.push({ kind: 'circle', c, r: size * 0.34, fill });
+    const d = islandPath(i);
+    prims.push({ kind: 'path', d, fill: islandLand });
+    // Only the landmass belongs to the polity; the surrounding sea stays sea.
+    if (fill && knobs.polityStyle === 'fill') prims.push({ kind: 'path', d, fill });
+    if (fill && knobs.polityStyle === 'wash') prims.push({ kind: 'path', d, fill: withAlpha(polityColour.get(owner!) ?? '#777777', 0.55) });
+    if (fill && knobs.polityStyle === 'tint') prims.push({ kind: 'path', d, fill: withAlpha(polityColour.get(owner!) ?? '#777777', 0.6) });
+    if (fill && knobs.polityStyle === 'outline') {
+      prims.push({ kind: 'path', d, stroke: polityColour.get(owner!) ?? '#777777', strokeWidth: Math.max(1, size * 0.08), round: true });
     }
   }
 
@@ -780,8 +891,10 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
     const regions = new Map<string, number[]>();
     const bands = new Map<string, Array<{ from: Point; to: Point; land: number; water: number }>>();
     const frontier: Array<{ from: Point; to: Point; land: number; water: number }> = [];
-    // An island in a lake is part of the lake's body, which belongs to the realm round it.
-    const isIsland = (i: number) => isIslandType(base?.[i]) && !lakeIslands.has(i);
+    // Island hexes carry their realm's colour on their islands alone. (An
+    // island in a lake is part of the lake's body, and a mainland coast with
+    // islands has a realm's land in it.)
+    const isIsland = (i: number) => base?.[i] === 'Islands' && !lakeIslands.has(i);
     /** The lakes each realm's band runs round: its shore follows the drawn lake, not the hex edges. */
     const shoreLakes = new Map<string, Set<number>>();
     const touchLake = (owner: string, j: number) => {
@@ -802,9 +915,26 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
         touchLake(owner, i);
       });
     }
-    for (const sliver of coast?.toLand ?? []) {
+    for (const sliver of traced?.geometry.toLand ?? []) {
       const owner = polities.owner[sliver.donor];
       if (owner) addLand(owner, sliver.d);
+    }
+    // The banks of a strait belong to the realms whose land they face.
+    for (const [i, split] of terrain?.split ?? []) {
+      split.sides.forEach((side, p) => {
+        const owner = side === 'land' ? polities.owner[split.donors[p]!] : null;
+        if (!owner || split.donors[p] === i) return;
+        const pts = piecePoints(i % cols, Math.floor(i / cols), p, size);
+        addLand(owner, [...pts.map((q, k) => [k === 0 ? 'M' : 'L', q.x, q.y] as PathCmd), ['Z']]);
+      });
+    }
+    // Where a realm meets the sea, its band follows the coast: the traced
+    // coast edges (through split hexes too) whose land is the realm's.
+    for (const chain of traced?.geometry.chains ?? []) {
+      for (const edge of chain.edges) {
+        const owner = polities.owner[edge.land];
+        if (owner && !isIsland(edge.land)) bands.set(owner, [...(bands.get(owner) ?? []), edge]);
+      }
     }
     for (let row = 0; row < rows; row++) {
       for (let col = 0; col < cols; col++) {
@@ -812,16 +942,23 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
         const owner = polities.owner[i];
         if (!owner || isIsland(i)) continue;
         regions.set(owner, [...(regions.get(owner) ?? []), i]);
+        if (lakeOf.has(i)) touchLake(owner, i);
         for (let e = 0; e < 6; e++) {
           const n = neighbourOf(col, row, e);
           const inside = inBounds(cols, rows, n.col, n.row);
           const j = inside ? hexIndex(cols, n.col, n.row) : -1;
-          const other = inside && !isIsland(j) ? polities.owner[j] ?? null : null;
-          if (other === owner) continue;
-          if (inside && isLakeHex(j)) {
+          // What meets this edge on either side, piece by piece: water on
+          // either side is coast, which the coast edges above already cover.
+          const mine = terrain ? pieceSurface(terrain, i, 6 + e) : 'land';
+          const across = inside && terrain ? pieceSurface(terrain, j, 6 + ((e + 3) % 6)) : null;
+          if (inside && (across === 'lake' || isLakeHex(j))) {
             touchLake(owner, j);
             continue;
           }
+          if (mine !== 'land' || (inside && across !== 'land' && across !== null)) continue;
+          const acrossDonor = inside && terrain ? pieceDonor(terrain, j, 6 + ((e + 3) % 6)) : j;
+          const other = inside && !isIsland(j) ? polities.owner[acrossDonor] ?? null : null;
+          if (other === owner) continue;
           const [a, b] = hexEdgePoints(col, row, e, size);
           if (other && topLevel.get(other) === topLevel.get(owner)) {
             // Between two parts of one realm: a single fine dashed line on the
@@ -832,7 +969,7 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
           const edge = { from: a, to: b, land: i, water: j };
           bands.set(owner, [...(bands.get(owner) ?? []), edge]);
           // A frontier between realms on land, drawn from one side only.
-          const landAcross = inside && !isWater(j) && !isIsland(j) && !isLakeHex(j);
+          const landAcross = inside && across === 'land' && !isIsland(j);
           if (landAcross && (other === null || owner < other)) frontier.push(edge);
         }
       }
@@ -849,8 +986,16 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
     // and every lake body are cut out of where a band may be painted.
     const landMask: PathCmd[] = [
       ['M', -size, -size], ['L', width + size, -size], ['L', width + size, height + size], ['L', -size, height + size], ['Z'],
-      ...(coast?.toWater ?? []).flatMap((sliver) => sliver.d),
+      ...(traced?.geometry.toWater ?? []).flatMap((sliver) => sliver.d),
       ...lakeOutlines,
+      // The sea in split hexes (their lake water lies under the lake bodies).
+      ...[...(terrain?.split ?? [])].flatMap(([i, split]) =>
+        split.sides.flatMap((side, p) =>
+          side === 'sea'
+            ? [...piecePoints(i % cols, Math.floor(i / cols), p, size).map((q, k) => [k === 0 ? 'M' : 'L', q.x, q.y] as PathCmd), ['Z'] as PathCmd]
+            : [],
+        ),
+      ),
     ];
     for (const owner of new Set([...bands.keys(), ...shoreLakes.keys()])) {
       const loops = chainEdges(bands.get(owner) ?? []).flatMap((chain) =>

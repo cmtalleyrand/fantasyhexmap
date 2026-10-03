@@ -291,8 +291,8 @@ export function serializeParseFriendlyExport(map: MapState): string {
     ...(map.waterNames?.length
       ? { waterNamesNote: 'map.waterNames[] names seas, bays and lakes; hexes are flat indices (row * cols + col).' }
       : {}),
-    ...(map.islandSides && Object.keys(map.islandSides).length
-      ? { islandSidesNote: 'map.islandSides maps a Coastal Island hex\'s flat index to the edge (0..5) its islet lies against; absent hexes face the nearest land.' }
+    ...(map.islandSpecs && Object.keys(map.islandSpecs).length
+      ? { islandSpecsNote: 'map.islandSpecs maps an Islands or Mainland and islands hex\'s flat index to {large: 0-2, small: 0-5, coastal?: {large?, small?}, side?: edge 0..5}: how many islands it holds, which groups lie against the coast (or the mainland), and the side they lie against (absent: the side facing land). Hexes without an entry take their type\'s default.' }
       : {}),
   };
 

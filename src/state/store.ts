@@ -14,7 +14,8 @@
  */
 
 import { recomputeCityFacts, canHoldSettlement } from '../../shared/derive.js';
-import { isIslandType } from '../../shared/types.js';
+import { isIslandType, islandSpecFor, type IslandSpec } from '../../shared/types.js';
+import { migrateLegacyIslands } from '../../shared/islandMigration.js';
 import { withValidParents } from '../../shared/polityTree.js';
 import {
   baseTransitions,
@@ -45,9 +46,12 @@ import type {
   TokenUsage,
 } from '../../shared/types.js';
 
-/** Hexes whose surface is open water: seas and lakes, and the sea around islands. */
+/** A change to island hexes' specs: counts, coastal groups, and the side (null: automatic). */
+export type IslandSpecChange = Partial<Omit<IslandSpec, 'side' | 'coastal'>> & { coastal?: IslandSpec['coastal']; side?: number | null };
+
+/** Hexes whose surface is open water: seas, lakes and straits, and the sea round islands. */
 export function isWaterSurface(v: BaseGeo | null | undefined): boolean {
-  return v === 'Sea' || v === 'Lake' || isIslandType(v);
+  return v === 'Sea' || v === 'Lake' || v === 'Strait' || v === 'Islands';
 }
 
 export type Action =
@@ -97,8 +101,16 @@ export type Action =
   | { type: 'nameWaterBody'; id: string; name: string; indices: number[] }
   | { type: 'renameWaterBody'; id: string; name: string }
   | { type: 'removeWaterBody'; id: string }
-  /** Which side of their hex Coastal Island hexes lie against; null restores the automatic side. */
-  | { type: 'setIslandSide'; indices: number[]; edge: number | null }
+  /**
+   * Change how the islands of island hexes are drawn: their counts, which
+   * groups lie against the coast, and the side they lie against (null: the
+   * side facing land). A null change restores each hex's default.
+   */
+  | {
+      type: 'setIslandSpec';
+      indices: number[];
+      change: IslandSpecChange | null;
+    }
   | { type: 'clearLayer'; layer: LayerId }
   | { type: 'undo'; layer: LayerId }
   | { type: 'redo'; layer: LayerId };
@@ -354,7 +366,7 @@ function propagateBaseEdit(
 export function reducer(map: MapState, action: Action): MapState {
   switch (action.type) {
     case 'load':
-      return action.map;
+      return migrateLegacyIslands(action.map);
 
     case 'setMeta':
       return {
@@ -759,28 +771,30 @@ export function reducer(map: MapState, action: Action): MapState {
       );
     }
 
-    case 'setIslandSide': {
+    case 'setIslandSpec': {
       const base = map.layers.base.data;
       if (!base) return map;
-      const sides = { ...(map.islandSides ?? {}) };
+      const specs = { ...(map.islandSpecs ?? {}) };
       let changed = 0;
       for (const i of action.indices) {
-        if (base[i] !== 'Coastal Island') continue;
+        if (!isIslandType(base[i])) continue;
         const key = String(i);
-        if (action.edge === null) {
-          if (key in sides) {
-            delete sides[key];
-            changed++;
-          }
-        } else if (sides[key] !== action.edge) {
-          sides[key] = action.edge;
-          changed++;
+        const before = JSON.stringify(specs[key] ?? null);
+        if (action.change === null) delete specs[key];
+        else {
+          const current = islandSpecFor(base[i], specs[key]);
+          const { side, coastal, ...counts } = action.change;
+          const next: IslandSpec = { ...current, ...counts, coastal: { ...current.coastal, ...coastal } };
+          if (side === null) delete next.side;
+          else if (side !== undefined) next.side = side;
+          specs[key] = islandSpecFor(base[i], next);
         }
+        if (JSON.stringify(specs[key] ?? null) !== before) changed++;
       }
       if (changed === 0) return map;
       return journal(
-        { ...map, islandSides: sides, updatedAt: Date.now() },
-        manualEntry('base', `Set the side ${changed} coastal island${changed === 1 ? '' : 's'} lie against by hand.`),
+        { ...map, islandSpecs: specs, updatedAt: Date.now() },
+        manualEntry('base', `Changed the islands of ${changed} hex${changed === 1 ? '' : 'es'} by hand.`),
       );
     }
 

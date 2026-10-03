@@ -9,7 +9,10 @@ import {
   CLIMATE_VALUES,
   ELEVATION_VALUES,
   VEGETATION_GROUPS,
+  isIslandType,
+  islandSpecFor,
   type City,
+  type IslandSpec,
   type LayerId,
   type MapState,
   type Polity,
@@ -17,7 +20,7 @@ import {
 } from '../../shared/types.js';
 import { planMultiLayerEdit } from '../../shared/multiEdit.js';
 import { canSplit, passLabel, type PassSelection } from '../../core/rosters.js';
-import { isWaterSurface, type Action } from '../state/store.js';
+import { isWaterSurface, type Action, type IslandSpecChange } from '../state/store.js';
 import { wouldCycle } from '../../shared/polityTree.js';
 import { contrastingRealmColours } from '../render/hierarchy.js';
 import Legend from './Legend.js';
@@ -500,30 +503,77 @@ function waterNameAcross(map: MapState, city: City, edge: number): string {
   return map.layers.base.data?.[n.row * map.cols + n.col] === 'Lake' ? 'lake' : 'sea';
 }
 
-/** Choose which side of its hex a Coastal Island lies against. */
+/** How the islands of the selected island hexes are drawn: counts, coastal groups and side. */
 function IslandSidePanel(props: SubProps) {
   const { map, dispatch, selected } = props;
   const base = map.layers.base.data;
-  const coastal = selected.filter((i) => base?.[i] === 'Coastal Island');
-  if (coastal.length === 0) return null;
-  const sides = new Set(coastal.map((i) => map.islandSides?.[String(i)] ?? -1));
-  const current = sides.size === 1 ? String([...sides][0]) : '';
+  const hexes = selected.filter((i) => isIslandType(base?.[i]));
+  if (hexes.length === 0) return null;
+  const specs = hexes.map((i) => islandSpecFor(base![i], map.islandSpecs?.[String(i)]));
+  /** The shared value of `pick` across the selection, or '' when mixed. */
+  const shared = (pick: (s: IslandSpec) => string) => {
+    const values = new Set(specs.map(pick));
+    return values.size === 1 ? [...values][0]! : '';
+  };
+  const set = (change: IslandSpecChange) => dispatch({ type: 'setIslandSpec', indices: hexes, change });
+  const large = shared((s) => String(s.large));
+  const small = shared((s) => String(s.small));
+  const side = shared((s) => String(s.side ?? -1));
+  const coastalLarge = shared((s) => String(Boolean(s.coastal?.large)));
+  const coastalSmall = shared((s) => String(Boolean(s.coastal?.small)));
+  const mainland = hexes.every((i) => base![i] === 'Mainland and islands');
   return (
     <div className="stack" style={{ marginTop: 8 }}>
-      <label htmlFor="island-side">Coastal island side ({coastal.length} selected)</label>
+      <h2>Islands ({hexes.length} hex{hexes.length === 1 ? '' : 'es'})</h2>
+      <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+        <label>
+          Large islands{' '}
+          <select value={large} onChange={(e) => set({ large: Number(e.target.value) })}>
+            {large === '' && <option value="">Mixed</option>}
+            {[0, 1, 2].map((n) => <option key={n} value={String(n)}>{n}</option>)}
+          </select>
+        </label>
+        <label>
+          Small islands{' '}
+          <select value={small} onChange={(e) => set({ small: Number(e.target.value) })}>
+            {small === '' && <option value="">Mixed</option>}
+            {[0, 1, 2, 3, 4, 5].map((n) => <option key={n} value={String(n)}>{n}</option>)}
+          </select>
+        </label>
+      </div>
+      <label>
+        <input
+          type="checkbox"
+          checked={coastalLarge === 'true'}
+          ref={(el) => { if (el) el.indeterminate = coastalLarge === ''; }}
+          onChange={(e) => set({ coastal: { large: e.target.checked } })}
+        />{' '}
+        Large islands lie against the {mainland ? 'mainland' : 'coast'}
+      </label>
+      <label>
+        <input
+          type="checkbox"
+          checked={coastalSmall === 'true'}
+          ref={(el) => { if (el) el.indeterminate = coastalSmall === ''; }}
+          onChange={(e) => set({ coastal: { small: e.target.checked } })}
+        />{' '}
+        Small islands lie against the {mainland ? 'mainland' : 'coast'}
+      </label>
+      <label htmlFor="island-side">Side they lie against</label>
       <select
         id="island-side"
-        value={current}
-        onChange={(e) => dispatch({ type: 'setIslandSide', indices: coastal, edge: e.target.value === '-1' ? null : Number(e.target.value) })}
+        value={side}
+        onChange={(e) => set({ side: e.target.value === '-1' ? null : Number(e.target.value) })}
       >
-        {current === '' && <option value="">Mixed</option>}
+        {side === '' && <option value="">Mixed</option>}
         <option value="-1">Automatic (faces the nearest land)</option>
         {SIDE_NAMES.map((name, e) => (
           <option key={e} value={String(e)}>
-            Against the {name} side
+            The {name} side
           </option>
         ))}
       </select>
+      <p className="hint" style={{ margin: 0 }}>A hex needs at least one island; setting both counts to 0 restores its default.</p>
     </div>
   );
 }

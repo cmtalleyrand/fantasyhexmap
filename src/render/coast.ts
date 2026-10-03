@@ -17,19 +17,201 @@
  * the curve is repainted with the colour of the side it now belongs to.
  */
 
-import { hexCorners, hexEdgePoints, hexIndex, inBounds, neighbourOf, type Point } from '../../shared/hex.js';
+import { hexCenter, hexCorners, hexEdgePoints, hexIndex, inBounds, neighbourOf, type Point } from '../../shared/hex.js';
 import { isIslandType, type BaseGeo } from '../../shared/types.js';
 import type { PathCmd } from './prims.js';
 
 export type Side = 'land' | 'water';
 
-/** Which side of the coast a hex is on. Island hexes of every kind are sea with land drawn on top. */
+/**
+ * Which side of the coast a hex is on, taken whole. Islands hexes are sea
+ * with land drawn on top; a strait is water and an isthmus or a mainland
+ * coast with islands is land (their split into land and water is in
+ * `surfaceMap`).
+ */
 export function sideOf(value: BaseGeo | null | undefined): Side | null {
   if (!value) return null;
-  return value === 'Sea' || value === 'Lake' || isIslandType(value) ? 'water' : 'land';
+  return value === 'Sea' || value === 'Lake' || value === 'Islands' || value === 'Strait' ? 'water' : 'land';
 }
 
-interface CoastEdge {
+/* ------------------------------------------------------------ split hexes */
+
+/**
+ * What a piece of the map's surface is: land, sea, or lake water.
+ */
+export type Surface = 'land' | 'sea' | 'lake';
+
+/**
+ * A hex drawn partly land and partly water is cut into twelve pieces: six
+ * inner triangles round the centre (pieces 0-5: the centre and the inner
+ * corners k and k + 1) and six rim pieces between them and the hex edges
+ * (pieces 6-11: inner corners k, k + 1 and hex corners k, k + 1, against edge
+ * k). The inner corners lie CORE of the way from the centre to the corners, so
+ * a neck of land or a channel of water through the inner triangles is a
+ * little under half a hex wide before the coast is smoothed.
+ */
+export const CORE = 0.42;
+
+export interface SplitHex {
+  /** The surface of each of the twelve pieces. */
+  sides: Surface[];
+  /** For each piece, the hex whose colours it takes: its own land, or the land or water it faces. */
+  donors: number[];
+}
+
+export interface SurfaceMap {
+  cols: number;
+  rows: number;
+  /** Each hex's surface taken whole; for a split hex, the surface of most of it. */
+  whole: Array<Surface | null>;
+  split: Map<number, SplitHex>;
+}
+
+/** The corners of piece `p` of hex (col, row), in the same turning order as a hex's own corners. */
+export function piecePoints(col: number, row: number, p: number, size: number): Point[] {
+  const c = hexCenter(col, row, size);
+  const corners = hexCorners(col, row, size);
+  const inner = corners.map((q) => ({ x: c.x + (q.x - c.x) * CORE, y: c.y + (q.y - c.y) * CORE }));
+  const k = p % 6;
+  const k1 = (k + 1) % 6;
+  return p < 6 ? [c, inner[k]!, inner[k1]!] : [inner[k]!, corners[k]!, corners[k1]!, inner[k1]!];
+}
+
+/**
+ * Every hex's surface, with isthmus, strait and mainland-with-islands hexes
+ * split into pieces:
+ *
+ * - An isthmus is land with its rims facing water turned to water, leaving a
+ *   neck through the centre joining the land on either side.
+ * - A strait is water with its rims facing land turned to land (banks taking
+ *   the colours of the land they face), leaving a channel through the centre.
+ * - A mainland coast with islands is land in the sectors facing land and
+ *   water in the rest, where its islands are drawn.
+ *
+ * Water in a split hex is lake where the water it joins is lake. An island
+ * hex in a lake (`lakeIslands`) is lake water with its islands drawn on it.
+ */
+export function surfaceMap(
+  base: ReadonlyArray<BaseGeo | null>,
+  cols: number,
+  rows: number,
+  lakeIslands: ReadonlySet<number> = new Set(),
+): SurfaceMap {
+  const wholeOf = (i: number): Surface | null => {
+    const v = base[i];
+    if (!v) return null;
+    if (v === 'Lake' || lakeIslands.has(i)) return 'lake';
+    return sideOf(v) === 'water' ? 'sea' : 'land';
+  };
+  const whole = base.map((_, i) => wholeOf(i));
+  const split = new Map<number, SplitHex>();
+  for (let i = 0; i < base.length; i++) {
+    const v = base[i];
+    if (v !== 'Isthmus' && v !== 'Strait' && v !== 'Mainland and islands') continue;
+    const col = i % cols;
+    const row = Math.floor(i / cols);
+    const across = [0, 1, 2, 3, 4, 5].map((e) => {
+      const n = neighbourOf(col, row, e);
+      if (!inBounds(cols, rows, n.col, n.row)) return { j: -1, side: null as Surface | null };
+      const j = hexIndex(cols, n.col, n.row);
+      return { j, side: wholeOf(j) };
+    });
+    const wet = across.filter((a) => a.side === 'sea' || a.side === 'lake');
+    const dry = across.filter((a) => a.side === 'land');
+    if (wet.length === 0 || dry.length === 0) continue;
+    // Water in the hex is lake if any of the water it opens on is lake.
+    const water: Surface = wet.some((a) => a.side === 'lake') ? 'lake' : 'sea';
+    const waterDonor = (wet.find((a) => a.side === water) ?? wet[0]!).j;
+    const sides: Surface[] = [];
+    const donors: number[] = [];
+    for (let p = 0; p < 12; p++) {
+      const facing = across[p % 6]!;
+      const facesWater = facing.side === 'sea' || facing.side === 'lake';
+      let side: Surface;
+      if (v === 'Isthmus') side = p >= 6 && facesWater ? facing.side! : 'land';
+      else if (v === 'Strait') side = p >= 6 && facing.side === 'land' ? 'land' : p >= 6 && facesWater ? facing.side! : water;
+      else side = facing.side === 'land' ? 'land' : water;
+      sides.push(side);
+      if (side === 'land') donors.push(v === 'Strait' ? facing.j : i);
+      else donors.push(p >= 6 && facesWater ? facing.j : waterDonor);
+    }
+    split.set(i, { sides, donors });
+  }
+  return { cols, rows, whole, split };
+}
+
+/** The surface of piece `p` (0-11) of hex `i`. */
+export function pieceSurface(map: SurfaceMap, i: number, p: number): Surface | null {
+  return map.split.get(i)?.sides[p] ?? map.whole[i] ?? null;
+}
+
+/** The hex whose colours piece `p` of hex `i` takes. */
+export function pieceDonor(map: SurfaceMap, i: number, p: number): number {
+  return map.split.get(i)?.donors[p] ?? i;
+}
+
+/**
+ * Every boundary between pieces in `inside` and pieces not in it, oriented
+ * with the inside on the right (the way a hex's own edges run), so they chain
+ * into loops. `land` and `water` on each edge are the donor hexes of the
+ * inside and outside pieces. With `only`, just the boundaries of those hexes.
+ */
+export function surfaceEdges(
+  map: SurfaceMap,
+  size: number,
+  inside: (s: Surface) => boolean,
+  only?: ReadonlySet<number>,
+): CoastEdge[] {
+  const { cols, rows } = map;
+  const edges: CoastEdge[] = [];
+  const isIn = (i: number, p: number) => {
+    const side = pieceSurface(map, i, p);
+    return side !== null && inside(side);
+  };
+  const hexes = only ? [...only] : Array.from({ length: cols * rows }, (_, i) => i);
+  for (const i of hexes) {
+    const col = i % cols;
+    const row = Math.floor(i / cols);
+    /** The rim piece across hex edge e, as [hex, piece], or null off the map. */
+    const outward = (e: number): [number, number] | null => {
+      const n = neighbourOf(col, row, e);
+      if (!inBounds(cols, rows, n.col, n.row)) return null;
+      return [hexIndex(cols, n.col, n.row), 6 + ((e + 3) % 6)];
+    };
+    const emit = (from: Point, to: Point, p: number, other: [number, number] | null) => {
+      if (!other || isIn(other[0], other[1])) return;
+      edges.push({ from, to, land: pieceDonor(map, i, p), water: pieceDonor(map, other[0], other[1]) });
+    };
+    if (!map.split.has(i)) {
+      if (!isIn(i, 6)) continue;
+      for (let e = 0; e < 6; e++) {
+        const [a, b] = hexEdgePoints(col, row, e, size);
+        emit(a, b, 6 + e, outward(e));
+      }
+      continue;
+    }
+    for (let p = 0; p < 12; p++) {
+      if (!isIn(i, p)) continue;
+      const k = p % 6;
+      const pts = piecePoints(col, row, p, size);
+      if (p < 6) {
+        // Centre -> inner k, inner k -> inner k+1, inner k+1 -> centre.
+        emit(pts[0]!, pts[1]!, p, [i, (k + 5) % 6]);
+        emit(pts[1]!, pts[2]!, p, [i, 6 + k]);
+        emit(pts[2]!, pts[0]!, p, [i, (k + 1) % 6]);
+      } else {
+        // Inner k -> corner k, corner k -> corner k+1 (the hex edge), corner k+1 -> inner k+1, inner k+1 -> inner k.
+        emit(pts[0]!, pts[1]!, p, [i, 6 + ((k + 5) % 6)]);
+        emit(pts[1]!, pts[2]!, p, outward(k));
+        emit(pts[2]!, pts[3]!, p, [i, 6 + ((k + 1) % 6)]);
+        emit(pts[3]!, pts[0]!, p, [i, k]);
+      }
+    }
+  }
+  return edges;
+}
+
+export interface CoastEdge {
   from: Point;
   to: Point;
   land: number;
@@ -62,23 +244,9 @@ export interface CoastGeometry {
 
 const key = (p: Point) => `${Math.round(p.x * 100)},${Math.round(p.y * 100)}`;
 
+/** Every land/water boundary of the map, as `surfaceEdges` gives it, with lakes counted as water. */
 export function coastEdges(base: ReadonlyArray<BaseGeo | null>, cols: number, rows: number, size: number): CoastEdge[] {
-  const edges: CoastEdge[] = [];
-  for (let row = 0; row < rows; row++) {
-    for (let col = 0; col < cols; col++) {
-      const i = hexIndex(cols, col, row);
-      if (sideOf(base[i]) !== 'land') continue;
-      for (let e = 0; e < 6; e++) {
-        const n = neighbourOf(col, row, e);
-        if (!inBounds(cols, rows, n.col, n.row)) continue;
-        const j = hexIndex(cols, n.col, n.row);
-        if (sideOf(base[j]) !== 'water') continue;
-        const [from, to] = hexEdgePoints(col, row, e, size);
-        edges.push({ from, to, land: i, water: j });
-      }
-    }
-  }
-  return edges;
+  return surfaceEdges(surfaceMap(base, cols, rows), size, (s) => s === 'land');
 }
 
 export function chainEdges(edges: CoastEdge[]): CoastChain[] {
@@ -175,7 +343,12 @@ export function coastGeometry(
   size: number,
   smooth: boolean,
 ): CoastGeometry {
-  const chains = chainEdges(coastEdges(base, cols, rows, size));
+  return coastGeometryOf(coastEdges(base, cols, rows, size), smooth);
+}
+
+/** The coast along `edges` (from `surfaceEdges`), traced into chains and optionally smoothed. */
+export function coastGeometryOf(edges: CoastEdge[], smooth: boolean): CoastGeometry {
+  const chains = chainEdges(edges);
   const toWater: Sliver[] = [];
   const toLand: Sliver[] = [];
   const paths = chains.map((chain) => {
@@ -184,11 +357,17 @@ export function coastGeometry(
     const n = points.length;
     for (let k = closed ? 0 : 1; k < (closed ? n : n - 1); k++) {
       const incoming = edges[(k - 1 + edges.length) % edges.length]!;
-      const outgoing = edges[k % edges.length]!;
-      const d = sliverPath(points[(k - 1 + n) % n]!, points[k]!, points[(k + 1) % n]!);
-      // Two coast edges of the same land hex meet at a corner that sticks out
-      // into the water; edges of two different land hexes meet in a notch.
-      if (incoming.land === outgoing.land) toWater.push({ d, donor: incoming.water });
+      const a = points[(k - 1 + n) % n]!;
+      const p = points[k]!;
+      const b = points[(k + 1) % n]!;
+      const d = sliverPath(a, p, b);
+      // With land on the right, a right turn rounds a corner of land that
+      // sticks out into the water, and a left turn fills a notch of water.
+      // Straight on (pieces of a split hex meeting in line) needs neither.
+      const turn = (p.x - a.x) * (b.y - p.y) - (p.y - a.y) * (b.x - p.x);
+      const scale = Math.hypot(p.x - a.x, p.y - a.y) * Math.hypot(b.x - p.x, b.y - p.y) || 1;
+      if (Math.abs(turn) / scale < 1e-6) continue;
+      if (turn > 0) toWater.push({ d, donor: incoming.water });
       else toLand.push({ d, donor: incoming.land });
     }
     return smoothPath(points, closed);
@@ -366,9 +545,7 @@ export function coastalIslandSide(
  * wound the other way, so a nonzero fill leaves them as land.
  */
 export function lakeBodyPath(
-  hexes: number[],
-  cols: number,
-  rows: number,
+  edges: CoastEdge[],
   size: number,
   rand: (k: number) => number,
   /**
@@ -378,19 +555,6 @@ export function lakeBodyPath(
    */
   reach: (p: Point) => number = () => 1,
 ): PathCmd[] {
-  const inside = new Set(hexes);
-  const edges: CoastEdge[] = [];
-  for (const i of hexes) {
-    const col = i % cols;
-    const row = Math.floor(i / cols);
-    for (let e = 0; e < 6; e++) {
-      const n = neighbourOf(col, row, e);
-      const j = inBounds(cols, rows, n.col, n.row) ? hexIndex(cols, n.col, n.row) : -1;
-      if (j >= 0 && inside.has(j)) continue;
-      const [from, to] = hexEdgePoints(col, row, e, size);
-      edges.push({ from, to, land: i, water: j });
-    }
-  }
   const d: PathCmd[] = [];
   chainEdges(edges).forEach((chain, c) => {
     const corners = chain.points;
@@ -473,14 +637,14 @@ export function lakeBodyPath(
  * neighbours are all lake belongs to its lake: it is drawn on lake water,
  * not sea.
  */
-export function lakeComponents(
+export function lakeIslandsOf(
   base: ReadonlyArray<BaseGeo | null>,
   cols: number,
   rows: number,
-): { lakes: number[][]; lakeIslands: Set<number> } {
+): Set<number> {
   const lakeIslands = new Set<number>();
   for (let i = 0; i < base.length; i++) {
-    if (!isIslandType(base[i])) continue;
+    if (base[i] !== 'Islands') continue;
     let lake = 0;
     let other = 0;
     for (let e = 0; e < 6; e++) {
@@ -492,11 +656,26 @@ export function lakeComponents(
     }
     if (lake > 0 && other === 0) lakeIslands.add(i);
   }
-  const member = (i: number) => base[i] === 'Lake' || lakeIslands.has(i);
+  return lakeIslands;
+}
+
+/**
+ * Every lake, as connected groups of the hexes holding its water: lake hexes,
+ * island hexes in it (see `lakeIslandsOf`), and split hexes with lake water.
+ */
+export function lakeComponents(
+  base: ReadonlyArray<BaseGeo | null>,
+  cols: number,
+  rows: number,
+  surface: SurfaceMap = surfaceMap(base, cols, rows, lakeIslandsOf(base, cols, rows)),
+): { lakes: number[][]; lakeIslands: Set<number> } {
+  const lakeIslands = lakeIslandsOf(base, cols, rows);
+  const member = (i: number) =>
+    surface.whole[i] === 'lake' || Boolean(surface.split.get(i)?.sides.includes('lake'));
   const seen = new Uint8Array(base.length);
   const lakes: number[][] = [];
   for (let i = 0; i < base.length; i++) {
-    if (seen[i] || base[i] !== 'Lake') continue;
+    if (seen[i] || !member(i)) continue;
     const component: number[] = [];
     const stack = [i];
     seen[i] = 1;

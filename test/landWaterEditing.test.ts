@@ -39,7 +39,7 @@ test('land turned to sea or lake clears the land-only layers at once', () => {
 });
 
 test('land-only layers clear for every land form, and each clear is undoable', () => {
-  for (const land of ['Land', 'Coastal Land', 'Island'] as const) {
+  for (const land of ['Land', 'Coastal Land', 'Islands', 'Mainland and islands', 'Isthmus'] as const) {
     const map = strip();
     map.layers.base.data = [land, land, land, land, land];
     const next = setBase(map, [2], 'Sea');
@@ -110,11 +110,11 @@ test('new land only fills layers that are enabled and generated', () => {
   assert.equal(next.layers.population.data?.[1], null);
 });
 
-test('an Island hex raised from the sea is lowland', () => {
+test('an Islands hex raised from the sea is lowland', () => {
   const map = strip();
   map.layers.base.data = ['Land', 'Sea', 'Land', 'Land', 'Land'];
   map.layers.elevation.data = ['Mountains', null, 'Mountains', 'Mountains', 'Mountains'];
-  assert.equal(setBase(map, [1], 'Island').layers.elevation.data?.[1], 'Lowland');
+  assert.equal(setBase(map, [1], 'Islands').layers.elevation.data?.[1], 'Lowland');
   assert.equal(setBase(map, [1], 'Land').layers.elevation.data?.[1], 'Highland');
 });
 
