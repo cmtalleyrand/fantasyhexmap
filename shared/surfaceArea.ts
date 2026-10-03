@@ -25,6 +25,7 @@ export function landFraction(value: BaseGeo | null | undefined, stored: IslandSp
   const island = dimensions.islandLandPercent / 100;
   switch (value) {
     case 'Land':
+    case 'Glacier':
       return 1;
     case 'Coastal Land':
       return dimensions.coastalLandPercent / 100;

@@ -23,7 +23,7 @@ export const GEO_KIND_LABEL: Record<GeoNameKind, { singular: string; plural: str
   land: {
     singular: 'Land feature',
     plural: 'Land features',
-    accepts: 'Land hexes: Land, Coastal Land, Isthmus, Mainland and islands, and Ice. Not water and not island-sea hexes.',
+    accepts: 'Land hexes: Land, Coastal Land, Isthmus, Mainland and islands, and Glacier. Not water and not island-sea hexes.',
   },
   island: {
     singular: 'Island',
@@ -35,7 +35,7 @@ export const GEO_KIND_LABEL: Record<GeoNameKind, { singular: string; plural: str
 
 /** Dry land of every kind, including the land half of a split hex. Island-sea hexes are not land. */
 export function isLandHex(v: BaseGeo | null | undefined): boolean {
-  return v === 'Land' || v === 'Coastal Land' || v === 'Isthmus' || v === 'Mainland and islands' || v === 'Ice';
+  return v === 'Land' || v === 'Coastal Land' || v === 'Isthmus' || v === 'Mainland and islands' || v === 'Glacier';
 }
 
 /**
@@ -83,7 +83,7 @@ export function geoEligibility(
 ): (index: number) => boolean {
   switch (kind) {
     case 'sea':
-      return (i) => base[i] === 'Sea' || base[i] === 'Strait' || base[i] === 'Islands';
+      return (i) => base[i] === 'Sea' || base[i] === 'Sea Ice' || base[i] === 'Strait' || base[i] === 'Islands';
     case 'lake':
       return (i) => base[i] === 'Lake';
     case 'land':

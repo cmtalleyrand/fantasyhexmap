@@ -7,9 +7,12 @@
  *   island lying against the side it lay against.
  * - Large Island becomes Islands with one large island.
  * - Small Islands (a scatter) becomes Islands with three small islands.
+ *
+ * Maps saved when ice was a type of its own hold Ice hexes, which carry no land
+ * values: they become Sea Ice (a Glacier is land and would need elevation).
  */
 
-import type { BaseGeo, IslandSpec, LegacyIslandGeo, MapState } from './types.js';
+import { LEGACY_ICE_VALUE, type BaseGeo, type IslandSpec, type LegacyIslandGeo, type MapState } from './types.js';
 
 const LEGACY_SPECS: Record<LegacyIslandGeo, IslandSpec> = {
   Island: { large: 0, small: 1 },
@@ -18,29 +21,34 @@ const LEGACY_SPECS: Record<LegacyIslandGeo, IslandSpec> = {
   'Small Islands': { large: 0, small: 3 },
 };
 
-function isLegacy(value: unknown): value is LegacyIslandGeo {
+function isLegacyIsland(value: unknown): value is LegacyIslandGeo {
   return typeof value === 'string' && value in LEGACY_SPECS;
 }
 
+function isLegacy(value: unknown): boolean {
+  return isLegacyIsland(value) || value === LEGACY_ICE_VALUE;
+}
+
 /** The current type for a stored base value: legacy island types become Islands. */
-export function currentBaseValue(value: BaseGeo | LegacyIslandGeo | null | undefined): BaseGeo | null | undefined {
-  return isLegacy(value) ? 'Islands' : value;
+export function currentBaseValue(value: BaseGeo | LegacyIslandGeo | typeof LEGACY_ICE_VALUE | null | undefined): BaseGeo | null | undefined {
+  if (value === LEGACY_ICE_VALUE) return 'Sea Ice';
+  return isLegacyIsland(value) ? 'Islands' : value;
 }
 
 /**
- * Rewrite legacy island types in the base layer (and its undo history) and
+ * Rewrite legacy island and ice types in the base layer (and its undo history) and
  * record their specs. Returns the same map when there is nothing to migrate.
  */
 export function migrateLegacyIslands(map: MapState): MapState {
   const layer = map.layers?.base;
-  const data = layer?.data as Array<BaseGeo | LegacyIslandGeo | null> | null | undefined;
+  const data = layer?.data as Array<BaseGeo | LegacyIslandGeo | typeof LEGACY_ICE_VALUE | null> | null | undefined;
   const hasLegacy = (values: unknown[] | null | undefined) => Boolean(values?.some(isLegacy));
   if (!layer || (!hasLegacy(data) && !layer.past?.some((s) => hasLegacy(s.data)) && !layer.future?.some((s) => hasLegacy(s.data)) && !map.islandSides)) {
     return map;
   }
   const specs: Record<string, IslandSpec> = { ...(map.islandSpecs ?? {}) };
   data?.forEach((value, i) => {
-    if (!isLegacy(value) || specs[String(i)]) return;
+    if (!isLegacyIsland(value) || specs[String(i)]) return;
     const side = value === 'Coastal Island' ? map.islandSides?.[String(i)] : undefined;
     specs[String(i)] = { ...LEGACY_SPECS[value], ...(side !== undefined ? { side } : {}) };
   });

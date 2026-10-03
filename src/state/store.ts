@@ -54,7 +54,7 @@ export type IslandSpecChange = Partial<Omit<IslandSpec, 'side' | 'coastal'>> & {
 
 /** Hexes whose surface is open water: seas, lakes and straits, and the sea round islands. */
 export function isWaterSurface(v: BaseGeo | null | undefined): boolean {
-  return v === 'Sea' || v === 'Lake' || v === 'Strait' || v === 'Islands';
+  return v === 'Sea' || v === 'Sea Ice' || v === 'Lake' || v === 'Strait' || v === 'Islands';
 }
 
 export type Action =

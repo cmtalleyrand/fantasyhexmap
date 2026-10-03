@@ -597,3 +597,21 @@ complete, in pipeline order, later layers consistent with the earlier ones as ju
 layer must already have data (the dialog says which do not). One reply is one round trip, so unlike
 the in-app run it is all-or-nothing on import, and each layer runs as a single pass. The journal
 records the instruction against each imported layer.
+
+## 36. Ice is a kind of land and a kind of sea
+
+**Chosen.** The single `Ice` base type is replaced by `Glacier` (code `g`) and `Sea Ice` (code `f`).
+A Glacier is land: it carries elevation, climate, vegetation and population like any other land hex,
+can hold cities and be claimed, and is named as a land feature. Sea Ice is water: it carries no land
+values, rivers end in it, and it belongs to the sea it freezes. Maps saved with `Ice` load it as Sea
+Ice (migrated alongside the old island types, see `migrateLegacyIslands`): those hexes had no land
+values, so Sea Ice is the one reading that needs no invented data.
+
+**Drawing.** A Glacier is the ice colour, darkened toward the ice shade on low ground and left bright
+on high ground, and takes the relief the style shows (marks, hill shading, drawn symbols); the
+"Textured" ice setting adds crevasses only where the ground is flat. Sea Ice is a frozen-sea colour
+with seeded floes of paler ice cracked apart by the ice shade, drawn over the water and clear of the
+sea's depth or ripple bands.
+
+**What it costs.** An old map's polar strip becomes Sea Ice even where it was meant as a land cap; the
+user repaints those hexes as Glacier and fills their land layers.

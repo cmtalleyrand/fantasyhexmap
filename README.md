@@ -170,10 +170,10 @@ assumed — because nothing later will correct it.
 
 | Layer | Values | Applies to |
 | --- | --- | --- |
-| Base Geography | Land, Coastal Land, Sea, Lake, Ice, Island | every hex |
-| Elevation / Ruggedness | Lowland, Rolling, Hills, Highland, Mountains, Plateau | Land, Coastal Land, Island |
-| Climate | full Köppen (Af…EF, 21 codes) | Land, Coastal Land, Island |
-| Vegetation | 19 leaf categories in four groups | Land, Coastal Land, Island |
+| Base Geography | Land, Coastal Land, Glacier, Sea, Sea Ice, Lake, Islands, Mainland and islands, Isthmus, Strait | every hex |
+| Elevation / Ruggedness | Lowland, Rolling, Hills, Highland, Mountains, Plateau | Land, Coastal Land, Glacier, Island |
+| Climate | full Köppen (Af…EF, 21 codes) | Land, Coastal Land, Glacier, Island |
+| Vegetation | 19 leaf categories in four groups | Land, Coastal Land, Glacier, Island |
 | Rivers | edge-to-edge paths, navigability per segment | Land, Coastal Land, Island |
 | Cities | name, population, river and coastal-edge references | Land, Coastal Land, Island |
 | Polities | strict partition: one owner per land hex, or none | Land, Coastal Land, Island |

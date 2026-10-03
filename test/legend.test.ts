@@ -75,7 +75,7 @@ test('onlyUsed trims entries to values on the map; turning it off lists the full
   assert.deepEqual(used.find((s) => s.id === 'vegetation')!.entries.map((e) => e.label), ['Prairie', 'Boreal Forest']);
 
   const all = legendSections(map, visibility('vegetation'), 'colour', opts({ onlyUsed: false }));
-  assert.equal(all.find((s) => s.id === 'base')!.entries.length, 9, 'every base value, the four island types included');
+  assert.equal(all.find((s) => s.id === 'base')!.entries.length, 10, 'every base value, the four island types included');
   assert.equal(all.find((s) => s.id === 'vegetation')!.entries.length, 19);
 });
 

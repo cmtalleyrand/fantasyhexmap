@@ -16,7 +16,7 @@ import {
 import { sceneToSvg } from '../src/render/svg.ts';
 import { encodePng } from '../src/render/texture.ts';
 
-/** A 9x7 sea with an irregular island, a one-hex lake in it, ice along the bottom and an islet. */
+/** A 9x7 sea with an irregular island, a one-hex lake in it, glacier along the bottom and an islet. */
 function islandMap(): MapState {
   const cols = 9;
   const rows = 7;
@@ -29,7 +29,7 @@ function islandMap(): MapState {
   for (const [col, row] of land) base[hexIndex(cols, col!, row!)] = 'Land';
   base[hexIndex(cols, 3, 3)] = 'Lake';
   base[hexIndex(cols, 7, 1)] = 'Islands';
-  for (let col = 0; col < cols; col++) base[hexIndex(cols, col, rows - 1)] = 'Ice';
+  for (let col = 0; col < cols; col++) base[hexIndex(cols, col, rows - 1)] = 'Glacier';
   map.layers.base.data = base;
   map.layers.rivers.data = {
     rivers: [{
@@ -73,7 +73,7 @@ test('every land/water edge lies on exactly one coast chain, and chains join end
     for (let k = 0; k + 1 < chain.edges.length; k++) assert.ok(close(chain.edges[k]!.to, chain.edges[k + 1]!.from));
     if (chain.closed) assert.ok(close(chain.edges.at(-1)!.to, chain.edges[0]!.from));
   }
-  // The island's outer shore and the lake's shore close; the ice shore runs off both map edges.
+  // The island's outer shore and the lake's shore close; the glacier shore runs off both map edges.
   assert.equal(chains.filter((c) => c.closed).length, 2);
   assert.equal(chains.filter((c) => !c.closed).length, 1);
 });

@@ -16,19 +16,19 @@ import type {
 } from './types.js';
 
 /** Open water: a river empties into it, a city beside it is on the coast. A strait is a channel of it. */
-export const WATER: BaseGeo[] = ['Sea', 'Lake', 'Strait'];
+export const WATER: BaseGeo[] = ['Sea', 'Lake', 'Strait', 'Sea Ice'];
 
 export function isWater(v: BaseGeo | undefined): boolean {
-  return v === 'Sea' || v === 'Lake' || v === 'Strait';
+  return v === 'Sea' || v === 'Lake' || v === 'Strait' || v === 'Sea Ice';
 }
 
 export function isLandLike(v: BaseGeo | undefined): boolean {
-  return v === 'Land' || v === 'Coastal Land' || v === 'Isthmus' || isIslandType(v);
+  return v === 'Land' || v === 'Coastal Land' || v === 'Glacier' || v === 'Isthmus' || isIslandType(v);
 }
 
 /**
  * Whether a city may stand on, or a polity own, a hex of this type. Land always
- * qualifies; Sea and Lake only when the map opts in to underwater settlement.
+ * qualifies; Sea, Lake and Sea Ice only when the map opts in to underwater settlement.
  */
 export function canHoldSettlement(v: BaseGeo | undefined, allowUnderwater: boolean | undefined): boolean {
   return isLandLike(v) || (allowUnderwater === true && isWater(v));

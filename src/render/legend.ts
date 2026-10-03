@@ -140,7 +140,8 @@ export function legendSections(
     'Coastal Land': style.knobs.land === 'uniform' ? palette.land : palette.coastalLand,
     Sea: palette.sea,
     Lake: palette.lake,
-    Ice: palette.ice,
+    Glacier: palette.ice,
+    'Sea Ice': palette.seaIce,
   };
   const sections: LegendSection[] = [];
   const keep = <T>(all: readonly T[], used: Set<T>) =>

@@ -10,7 +10,9 @@ export const BASE_COLOURS: Record<BaseGeo, string> = {
   Lake: '#2f6f8f',
   Land: '#c4d49b',
   'Coastal Land': '#d9c58f',
-  Ice: '#e4eef3',
+  Glacier: '#e4eef3',
+  // Frozen sea: pale, with a cold tint of the water under it.
+  'Sea Ice': '#c9dde8',
   // Sea substrate: the islands are drawn on top.
   Islands: '#1d3b57',
   // Split hexes: the colour of their land; the water in them is drawn over it.

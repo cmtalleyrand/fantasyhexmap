@@ -416,15 +416,30 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
         return palette.land;
       case 'Coastal Land':
         return uniformLand ? palette.land : palette.coastalLand;
-      case 'Ice':
+      case 'Glacier':
         return palette.ice;
+      case 'Sea Ice':
+        return palette.seaIce;
     }
+  };
+
+  /**
+   * How far a glacier's ice is darkened toward its shade colour by the ground
+   * under it: low ice (a sheet or shelf) is dull and bluish, ice on high ground
+   * is bright. Only where elevation is shown.
+   */
+  const GLACIER_SHADE: Record<Elevation, number> = {
+    Lowland: 0.45, Rolling: 0.32, Hills: 0.2, Plateau: 0.12, Highland: 0.06, Mountains: 0,
+  };
+  const glacierFill = (i: number): string => {
+    const height = elevationData?.[i];
+    return height ? mix(palette.ice, palette.iceShade, GLACIER_SHADE[height]) : palette.ice;
   };
 
   const hexFill = (i: number): string => {
     let fill = MAP_COLOURS.emptyHex;
     const baseValue = base ? base[i] : null;
-    if (baseValue) fill = baseColour(baseValue);
+    if (baseValue) fill = baseValue === 'Glacier' && !thematic ? glacierFill(i) : baseColour(baseValue);
     if (thematic) {
       const value =
         thematic === 'elevation'
@@ -557,7 +572,9 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
       const fill = hexFill(own);
       prims.push({ kind: 'polygon', points: corners, fill, stroke: fill, strokeWidth: seal });
 
-      if (knobs.ice === 'glacier' && base?.[i] === 'Ice' && fill === palette.ice) {
+      // Crevasses crack flat ice; on rising ground the relief marks show instead.
+      const iceHeight = elevationData?.[i];
+      if (knobs.ice === 'glacier' && base?.[i] === 'Glacier' && !thematic && (!iceHeight || iceHeight === 'Lowland' || iceHeight === 'Rolling')) {
         prims.push(...crevasses(hexCenter(col, row, size), size, seed, i, palette.iceShade));
       }
 
@@ -596,7 +613,7 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
 
   // --- water --------------------------------------------------------------------
   const coast = traced && (knobs.coast !== 'none' || knobs.water !== 'flat') ? traced.geometry : null;
-  const waterColour = (i: number) => (base?.[i] === 'Lake' ? palette.lake : palette.sea);
+  const waterColour = (i: number) => (base?.[i] === 'Lake' ? palette.lake : base?.[i] === 'Sea Ice' ? palette.seaIce : palette.sea);
   const islands: number[] = [];
   if (base) {
     for (let i = 0; i < base.length; i++) {
@@ -753,7 +770,7 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
     for (const body of ['sea', 'lake'] as const) {
       const hexes: number[] = [];
       base.forEach((v, i) => {
-        if (isWater(i) && !isSplit(i) && (v === 'Lake') === (body === 'lake')) hexes.push(i);
+        if (isWater(i) && !isSplit(i) && v !== 'Sea Ice' && (v === 'Lake') === (body === 'lake')) hexes.push(i);
       });
       // The open water of split hexes.
       const pieces: PathCmd[] = [];
@@ -775,6 +792,15 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
         ? depthBands(shorelines, size, water, shift(palette.seaShallow, palette.sea, water))
         : rippleBands(shorelines, size, water, palette.ripple, palette.rippleAlpha, body === 'lake' ? 1 : knobs.ripples);
       prims.push({ kind: 'group', clip, prims: surface });
+    }
+  }
+
+  // --- sea ice -------------------------------------------------------------------
+  // Pack ice over the water: floes of paler ice, cracked apart, on the frozen sea's colour.
+  if (base) {
+    for (let i = 0; i < base.length; i++) {
+      if (base[i] !== 'Sea Ice' || isSplit(i)) continue;
+      prims.push(...iceFloes(hexCenter(i % cols, Math.floor(i / cols), size), size, seed, i, palette.seaIce, palette.iceShade));
     }
   }
 
@@ -1109,8 +1135,8 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
           const n = neighbourOf(i % cols, Math.floor(i / cols), e);
           if (!inBounds(cols, rows, n.col, n.row)) continue;
           const j = hexIndex(cols, n.col, n.row);
-          // The coast (and an ice edge) already marks where land meets water.
-          if (isWater(j) || inLakeBody.has(j) || base[j] === 'Ice') continue;
+          // The coast already marks where land meets water.
+          if (isWater(j) || inLakeBody.has(j)) continue;
           const there = elevationData?.[j] ?? null;
           if (there === 'Plateau' || there === 'Highland' || there === 'Mountains') continue;
           const [a, b] = hexEdgePoints(i % cols, Math.floor(i / cols), e, size);
@@ -1553,6 +1579,35 @@ function elevationMarks(centre: Point, size: number, elevation: Elevation): Prim
       strokeWidth: Math.max(0.8, size * 0.045),
       round: true,
     });
+  }
+  return prims;
+}
+
+/**
+ * Floes of pack ice: a handful of seeded, many-sided slabs, paler than the
+ * frozen sea beneath them and edged with the ice's shade, so the sea reads as
+ * broken ice rather than as a flat fill.
+ */
+function iceFloes(centre: Point, size: number, seed: string, i: number, sea: string, edge: string): Prim[] {
+  const prims: Prim[] = [];
+  const count = 3 + Math.floor(unit(seed, 'floe', i, 'n') * 3);
+  const slab = mix(sea, '#ffffff', 0.55);
+  for (let k = 0; k < count; k++) {
+    // Spread round the hex, clear of the rim so floes stay inside it.
+    const angle = (k / count) * Math.PI * 2 + signed(seed, 'floe', i, k, 'a') * 0.6;
+    const reach = size * (0.12 + 0.4 * unit(seed, 'floe', i, k, 'r'));
+    const x = centre.x + Math.cos(angle) * reach;
+    const y = centre.y + Math.sin(angle) * reach * 0.9;
+    const radius = size * (0.16 + 0.1 * unit(seed, 'floe', i, k, 's'));
+    const sides = 5 + Math.floor(unit(seed, 'floe', i, k, 'v') * 3);
+    const turn = signed(seed, 'floe', i, k, 't') * Math.PI;
+    const points: Point[] = [];
+    for (let v = 0; v < sides; v++) {
+      const a = turn + (v / sides) * Math.PI * 2;
+      const r = radius * (0.7 + 0.3 * unit(seed, 'floe', i, k, 'p', v));
+      points.push({ x: x + Math.cos(a) * r, y: y + Math.sin(a) * r * 0.8 });
+    }
+    prims.push({ kind: 'polygon', points, fill: slab, stroke: edge, strokeWidth: Math.max(0.5, size * 0.025) });
   }
   return prims;
 }

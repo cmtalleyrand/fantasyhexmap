@@ -28,7 +28,7 @@ export interface StyleKnobs {
   land: 'band' | 'uniform';
   /** Island hexes: a round dot, or an irregular islet with its own shore. */
   islands: 'dot' | 'blob';
-  /** Ice: flat fill, or glacier shading with crevasses. */
+  /** Ice: flat fill, or glaciers shaded by elevation and cracked with crevasses. */
   ice: 'flat' | 'glacier';
   /** Rivers: even strokes through hex centres, or a meandering course that widens downstream. */
   rivers: 'classic' | 'tapered';
@@ -77,7 +77,9 @@ export interface StylePalette {
   coastalLand: string;
   island: string;
   ice: string;
-  /** Crevasses and shading on glacier ice. */
+  /** Pack ice on the sea: the sea's colour frozen over, a little bluer than glacier ice. */
+  seaIce: string;
+  /** Crevasses and shading on glacier ice, and the cracks between floes of sea ice. */
   iceShade: string;
   grid: string;
   /** Grid line width, in hex sizes. */
@@ -137,7 +139,8 @@ const CLASSIC: PresetInfo = {
     land: BASE_COLOURS.Land,
     coastalLand: BASE_COLOURS['Coastal Land'],
     island: ISLAND_DOT,
-    ice: BASE_COLOURS.Ice,
+    ice: BASE_COLOURS.Glacier,
+    seaIce: BASE_COLOURS['Sea Ice'],
     iceShade: '#b9cfdc',
     grid: MAP_COLOURS.hexOutline,
     gridWidth: 0.03,
@@ -193,6 +196,7 @@ const PARCHMENT: PresetInfo = {
     coastalLand: '#d6b77c',
     island: '#d6b77c',
     ice: '#f4f2ea',
+    seaIce: '#dde8e4',
     iceShade: '#c9d4d2',
     grid: 'rgba(84, 62, 34, 0.20)',
     gridWidth: 0.025,
@@ -249,6 +253,7 @@ const ATLAS: PresetInfo = {
     coastalLand: '#ebe0c2',
     island: '#ebe0c2',
     ice: '#f8fbfc',
+    seaIce: '#e3f0f6',
     iceShade: '#cfdde4',
     grid: 'rgba(60, 70, 80, 0.12)',
     gridWidth: 0.025,
@@ -304,6 +309,7 @@ const NIGHT: PresetInfo = {
     coastalLand: '#36483d',
     island: '#36483d',
     ice: '#9fb4c0',
+    seaIce: '#7f9bad',
     iceShade: '#6d8594',
     grid: 'rgba(160, 200, 220, 0.12)',
     gridWidth: 0.025,
@@ -406,7 +412,7 @@ export const KNOB_OPTIONS: {
     label: 'Ice',
     options: [
       { value: 'flat', label: 'Flat' },
-      { value: 'glacier', label: 'Glacier' },
+      { value: 'glacier', label: 'Textured' },
     ],
   },
   rivers: {
