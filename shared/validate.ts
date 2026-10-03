@@ -492,7 +492,7 @@ export function validateCities(
       ),
     );
   }
-  summarise(warnings, offLand, (n) => `Dropped ${n} cities placed ${allowUnderwater ? 'on ice' : 'on water or ice'}`);
+  summarise(warnings, offLand, (n) => `Dropped ${n} cities placed ${allowUnderwater ? 'on sea ice' : 'on water'}`);
   return { data: out, warnings };
 }
 

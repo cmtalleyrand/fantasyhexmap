@@ -347,7 +347,10 @@ function basePrompt(ctx: PromptContext): BuiltPrompt {
       'Coastal Land - predominantly dry land containing a shoreline; use where the coast crosses a hex rather than following its edge.',
       'Sea    - open salt water, connected (directly or through other Sea hexes) to the edge of the map.',
       'Lake   - fresh water fully enclosed by land; a lake never touches a Sea hex.',
-      'Ice    - permanent ice sheet or shelf. Use only where the brief implies polar or glacial conditions.',
+      'Glacier - land buried under permanent ice: an ice sheet, ice cap or mountain glacier. It is land, so it gets',
+      '         elevation, climate and the other land values like any Land hex. Use only where the brief implies polar or',
+      '         glacial conditions.',
+      'Sea Ice - sea frozen over: pack ice or an ice shelf on salt water. It is water, so it gets no land values.',
       'Islands - a sea hex holding islands too small to need their own Land hexes: one or two large islands, or a',
       '         scatter of islets (an archipelago, skerries). A large island spanning several hexes is Land hexes',
       '         surrounded by Sea, not this.',
@@ -362,7 +365,7 @@ function basePrompt(ctx: PromptContext): BuiltPrompt {
       '- Coastlines are continuous and irregular: bays, peninsulas, headlands. Not a rectangle of land in a rectangle of sea.',
       '- Seas connect to the map edge. An enclosed body of water surrounded by land is a Lake, however large.',
       '- Lakes sit inland, usually in lowlands or between highlands, and are small - one to a few hexes - unless the brief makes one larger.',
-      '- Ice belongs at the northern or southern edge of the map, or on high ground if the brief says so.',
+      '- Ice belongs at the northern or southern edge of the map, or on high ground if the brief says so: Glacier on land, Sea Ice on the water beside it.',
       '- Islands cluster: chains, arcs off a coast, scatterings in a strait. A lone island hex in mid-ocean is rare.',
       '- If the brief gives no land/water balance, aim for roughly half the map as land.',
     ]),
@@ -423,7 +426,7 @@ function elevationPrompt(ctx: PromptContext): BuiltPrompt {
       '- Mountains form connected chains and arcs, usually along one flank of a landmass or between two of them. Never scatter lone Mountain hexes.',
       '- A range grades outward: Mountains at the spine, Highland or Hills on the flanks, Rolling then Lowland beyond.',
       '- Hexes adjacent to Sea trend Lowland; a coast that rises straight to Mountains needs a reason in the brief.',
-      '- Ice and Lake hexes get no value. Sea hexes get no value.',
+      '- Sea, Sea Ice and Lake hexes get no value.',
       '- Island hexes (all four island types): use Lowland unless the brief describes those islands as mountainous.',
     ]),
     '',
@@ -494,7 +497,7 @@ function climatePrompt(ctx: PromptContext): BuiltPrompt {
       '- Climate belts are bands and blobs, not stripes of alternating codes. Neighbouring hexes should usually share',
       '  a code or a closely related one; a single BWh hex inside Cfb country is an error unless something causes it.',
       '- Do not use E-group codes away from the polar edges or high mountains.',
-      '- Sea, Lake and Ice hexes get no value.',
+      '- Sea, Sea Ice and Lake hexes get no value.',
     ]),
     '',
     rowFormatRules(ctx.cols, ctx.rows, 'token', ctx.gridFormat),
@@ -528,7 +531,7 @@ function climatePrompt(ctx: PromptContext): BuiltPrompt {
   return { system, user: parts.join('\n') };
 }
 
-const CLIMATE_EMPTY_NOTE = 'Use -- for any hex that is not Land, Coastal Land or island (Sea, Lake and Ice hexes get no climate).';
+const CLIMATE_EMPTY_NOTE = 'Use -- for any hex that is not Land, Coastal Land or island (Sea, Sea Ice and Lake hexes get no climate; Glacier is land, so it gets one - EF, or ET at its fringe).';
 
 /* -------------------------------------------------------------- vegetation */
 
@@ -540,7 +543,7 @@ function vegetationLegend(): string[] {
       .join(', ');
     lines.push(`${group}: ${items}`);
   }
-  lines.push('-- = no value (Sea, Lake or Ice hex)');
+  lines.push('-- = no value (Sea, Sea Ice or Lake hex)');
   return lines;
 }
 
@@ -732,9 +735,9 @@ function citiesPrompt(ctx: PromptContext): BuiltPrompt {
         ? [
             '- On Land, Coastal Land or island hexes, or - since this world has submerged settlements - on Sea or Lake hexes',
             '  where the brief or the setting supports one (a drowned city, a merfolk reef-city, a pile-built lake town).',
-            '  Never on Ice. Keep underwater cities rare and say why each exists in its "reason" field.',
+            '  Never on Sea Ice. Keep underwater cities rare and say why each exists in its "reason" field.',
           ]
-        : ['- On Land, Coastal Land or island hexes only. Never on Sea, Lake or Ice.']),
+        : ['- On Land, Coastal Land or island hexes only. Never on Sea, Sea Ice or Lake.']),
       '- Cities want water and traffic: river mouths, the lowest bridging point of a river, confluences, sheltered',
       '  bays, the neck of a peninsula, the pass through a range, the edge of a fertile plain.',
       '- Cities want food: cultivated or fertile hexes nearby. A great city in the middle of a desert needs a reason',
@@ -815,11 +818,11 @@ function politiesPrompt(ctx: PromptContext): BuiltPrompt {
       'overlapping claims, no condominiums and no disputed hexes in this model - pick an owner or leave it unclaimed.',
       ...(ctx.allowUnderwater
         ? [
-            `Ice hexes are always "${POLITY_UNCLAIMED}". This world has submerged realms, so a polity may also own Sea or Lake`,
+            `Sea Ice hexes are always "${POLITY_UNCLAIMED}". This world has submerged realms, so a polity may also own Sea or Lake`,
             'hexes - territorial waters, a reef kingdom, a drowned empire - but only where the brief or the setting supports it;',
             `open water is otherwise "${POLITY_UNCLAIMED}".`,
           ]
-        : [`Sea, Lake and Ice hexes are always "${POLITY_UNCLAIMED}".`]),
+        : [`Sea, Sea Ice and Lake hexes are always "${POLITY_UNCLAIMED}".`]),
     ]),
     '',
     section('DRAWING BORDERS', [
@@ -827,7 +830,7 @@ function politiesPrompt(ctx: PromptContext): BuiltPrompt {
       '  suggests one. Never a checkerboard, never scattered singletons.',
       '- Borders follow features people can see and defend: rivers, mountain crests, the far side of a desert, a coast.',
       '- Polities are shaped by their cities: a capital sits inside its own territory, usually well within it.',
-      '- Leave genuinely hostile or remote country unclaimed - deep desert, high mountains, ice, far wilderness.',
+      '- Leave genuinely hostile or remote country unclaimed - deep desert, high mountains, glaciers, far wilderness.',
       '  A map where every hex is owned looks like a modern state system, not a pre-modern one.',
       '- Let the brief, geography, settlement pattern and plausible political fragmentation determine how many',
       '  polities exist. Do not default to eight or any other fixed target. Give them clearly different sizes, including',
@@ -902,7 +905,7 @@ function populationPrompt(ctx: PromptContext): BuiltPrompt {
       'This EXCLUDES the population of any city in the hex - those are counted separately. A hex containing a great',
       'city still gets a rural figure for the farms and villages around it (usually a high one, because a city feeds',
       'itself from its own hinterland).',
-      ctx.gridFormat === 'keyed' ? 'Sea, Lake and Ice hexes get 0.' : 'Sea, Lake and Ice hexes get "-".',
+      ctx.gridFormat === 'keyed' ? 'Sea, Sea Ice and Lake hexes get 0.' : 'Sea, Sea Ice and Lake hexes get "-".',
     ]),
     '',
     section('WHAT DRIVES IT', [
@@ -1050,11 +1053,11 @@ function politiesPaintPrompt(ctx: PromptContext, roster: Roster | null): BuiltPr
       'overlapping claims, no condominiums and no disputed hexes in this model - pick an owner or leave it unclaimed.',
       ...(ctx.allowUnderwater
         ? [
-            `Ice hexes are always "${POLITY_UNCLAIMED}". This world has submerged realms, so a polity may also own Sea or Lake`,
+            `Sea Ice hexes are always "${POLITY_UNCLAIMED}". This world has submerged realms, so a polity may also own Sea or Lake`,
             'hexes - territorial waters, a reef kingdom, a drowned empire - but only where the brief or the setting supports it;',
             `open water is otherwise "${POLITY_UNCLAIMED}".`,
           ]
-        : [`Sea, Lake and Ice hexes are always "${POLITY_UNCLAIMED}".`]),
+        : [`Sea, Sea Ice and Lake hexes are always "${POLITY_UNCLAIMED}".`]),
     ]),
     '',
     section('DRAWING BORDERS', [
@@ -1062,7 +1065,7 @@ function politiesPaintPrompt(ctx: PromptContext, roster: Roster | null): BuiltPr
       '  suggests one. Never a checkerboard, never scattered singletons.',
       '- Borders follow features people can see and defend: rivers, mountain crests, the far side of a desert, a coast.',
       '- Polities are shaped by their cities: a capital sits inside its own territory, usually well within it.',
-      '- Leave genuinely hostile or remote country unclaimed - deep desert, high mountains, ice, far wilderness.',
+      '- Leave genuinely hostile or remote country unclaimed - deep desert, high mountains, glaciers, far wilderness.',
       '- Draw each polity to the number of hexes the roster gives it, within about a fifth, unless an edit instruction',
       '  below asks for a change of size. The result is measured against those numbers and every polity that misses is',
       '  reported to the user. Where the roster gives no number,',

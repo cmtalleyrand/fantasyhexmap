@@ -66,7 +66,10 @@ function buildBase(ctx: PromptContext): BaseGeo[] {
   for (let row = 0; row < rows; row++) {
     if (row < capRows || row >= rows - capRows) {
       for (let col = 0; col < cols; col++) {
-        if (rng() < 0.75) data[hexIndex(cols, col, row)] = 'Ice';
+        const i = hexIndex(cols, col, row);
+        if (rng() >= 0.75) continue;
+        // Ice over land is a glacier; over water, pack ice.
+        data[i] = data[i] === 'Land' ? 'Glacier' : 'Sea Ice';
       }
     }
   }
@@ -136,6 +139,7 @@ function buildClimate(ctx: PromptContext): (Climate | null)[] {
   const elev = ctx.elevation;
   return base.map((b, i) => {
     if (!isLandLike(b)) return null;
+    if (b === 'Glacier') return 'EF';
     const row = Math.floor(i / cols);
     const lat = Math.abs(row / Math.max(1, rows - 1) - 0.5) * 2; // 0 equator, 1 pole
     const e = elev?.[i] ?? null;
@@ -450,7 +454,7 @@ function mockDecisions(layer: LayerId, ctx: PromptContext): { title: string; det
   const rules: Record<LayerId, [string, string][]> = {
     base: [
       ['Landmasses from overlapping blobs', 'Three to five random discs were summed and thresholded; no part of the brief was read.'],
-      ['Ice at both edges', `The top and bottom ${Math.max(1, Math.round(ctx.rows * 0.06))} rows were set to Ice regardless of latitude or climate.`],
+      ['Ice at both edges', `The top and bottom ${Math.max(1, Math.round(ctx.rows * 0.06))} rows were frozen regardless of latitude or climate: land became Glacier and water Sea Ice.`],
     ],
     elevation: [
       ['Height from distance to water', 'Each land hex was ranked by how many hexes it sits from the nearest sea, plus one arbitrary north-south ridge line.'],

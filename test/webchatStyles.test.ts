@@ -60,7 +60,7 @@ test('a compact reply imports, and its chat prose becomes the layer notes', () =
   const ctx = withBase(4, 3);
   const rows = ctx.base!.reduce<string[]>((acc, v, i) => {
     const r = Math.floor(i / 4);
-    acc[r] = (acc[r] ?? '') + (v === 'Sea' || v === 'Lake' || v === 'Ice' ? '.' : 'l');
+    acc[r] = (acc[r] ?? '') + (v === 'Sea' || v === 'Lake' || v === 'Sea Ice' ? '.' : 'l');
     return acc;
   }, []);
   const reply = [

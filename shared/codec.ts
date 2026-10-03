@@ -39,7 +39,8 @@ export const BASE_CHARS: Record<BaseGeo, string> = {
   'Coastal Land': 'c',
   Sea: 'm',
   Lake: 'l',
-  Ice: 'g',
+  Glacier: 'g',
+  'Sea Ice': 'f',
   Islands: 'i',
   'Mainland and islands': 'k',
   Isthmus: 'n',
@@ -114,7 +115,7 @@ const ELEVATION_BY_CHAR = new Map<string, Elevation>(
 );
 export const ELEVATION_LEGEND =
   ELEVATION_VALUES.map((v) => `${ELEVATION_CHARS[v]} = ${v}`).join(', ') +
-  ', . = no value (water / ice hex)';
+  ', . = no value (water hex, including Sea Ice)';
 
 export function encodeElevation(
   data: (Elevation | null)[],
@@ -218,7 +219,7 @@ function decodeTokens<T extends string>(
 const CLIMATE_SET = new Set<string>(CLIMATE_VALUES);
 export const CLIMATE_EMPTY = '--';
 export const CLIMATE_LEGEND =
-  CLIMATE_VALUES.join(' ') + `, plus ${CLIMATE_EMPTY} for no value (water / ice hex)`;
+  CLIMATE_VALUES.join(' ') + `, plus ${CLIMATE_EMPTY} for no value (water hex, including Sea Ice)`;
 
 export const encodeClimate = (d: (Climate | null)[], cols: number, rows: number) =>
   encodeTokens(d, cols, rows, CLIMATE_EMPTY);

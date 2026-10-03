@@ -44,13 +44,14 @@ export type BaseGeo =
   | 'Coastal Land'
   | 'Sea'
   | 'Lake'
-  | 'Ice'
+  | 'Glacier'
+  | 'Sea Ice'
   | 'Islands'
   | 'Mainland and islands'
   | 'Isthmus'
   | 'Strait';
 export const BASE_GEO_VALUES: BaseGeo[] = [
-  'Land', 'Coastal Land', 'Sea', 'Lake', 'Ice', 'Islands', 'Mainland and islands', 'Isthmus', 'Strait',
+  'Land', 'Coastal Land', 'Sea', 'Lake', 'Glacier', 'Sea Ice', 'Islands', 'Mainland and islands', 'Isthmus', 'Strait',
 ];
 
 /**
@@ -59,6 +60,13 @@ export const BASE_GEO_VALUES: BaseGeo[] = [
  */
 export type LegacyIslandGeo = 'Island' | 'Coastal Island' | 'Large Island' | 'Small Islands';
 export const LEGACY_ISLAND_VALUES: LegacyIslandGeo[] = ['Island', 'Coastal Island', 'Large Island', 'Small Islands'];
+
+/**
+ * Maps saved when ice was a type of its own hold 'Ice'. It is read and migrated
+ * (see `migrateLegacyIslands`), never written: those hexes carry no land values,
+ * so they become Sea Ice.
+ */
+export const LEGACY_ICE_VALUE = 'Ice';
 
 /**
  * Hexes that hold islands: open sea with islands in it, or part of a mainland
@@ -84,7 +92,8 @@ export const BASE_DESCRIPTIONS: Record<BaseGeo, string> = {
   'Coastal Land': 'Land with a shoreline crossing it.',
   Sea: 'Open salt water.',
   Lake: 'Fresh water enclosed by land.',
-  Ice: 'Permanent ice.',
+  Glacier: 'Land under permanent ice: it has elevation and the rest of the land layers, and shows the ice over the relief.',
+  'Sea Ice': 'Frozen sea: pack ice floating on salt water.',
   Islands: 'Sea holding up to two large islands and five small ones.',
   'Mainland and islands': 'Part mainland coast, part sea with islands off the shore.',
   Isthmus: 'A narrow neck of land joining two land masses, with water either side.',
@@ -92,7 +101,7 @@ export const BASE_DESCRIPTIONS: Record<BaseGeo, string> = {
 };
 
 /** Hex types that carry land-only layer values (elevation, climate, vegetation, population). */
-export const LAND_LIKE: BaseGeo[] = ['Land', 'Coastal Land', 'Islands', 'Mainland and islands', 'Isthmus'];
+export const LAND_LIKE: BaseGeo[] = ['Land', 'Coastal Land', 'Glacier', 'Islands', 'Mainland and islands', 'Isthmus'];
 
 /**
  * How the islands of an Islands or Mainland-and-islands hex are drawn: up to

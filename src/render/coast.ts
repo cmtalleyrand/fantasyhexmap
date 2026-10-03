@@ -31,7 +31,7 @@ export type Side = 'land' | 'water';
  */
 export function sideOf(value: BaseGeo | null | undefined): Side | null {
   if (!value) return null;
-  return value === 'Sea' || value === 'Lake' || value === 'Islands' || value === 'Strait' ? 'water' : 'land';
+  return value === 'Sea' || value === 'Sea Ice' || value === 'Lake' || value === 'Islands' || value === 'Strait' ? 'water' : 'land';
 }
 
 /* ------------------------------------------------------------ split hexes */
