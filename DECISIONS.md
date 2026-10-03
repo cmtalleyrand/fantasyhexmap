@@ -915,8 +915,7 @@ placed against it by size, in every marker set: villages and towns stand on the 
 river grazing its edge, and only a metropolis stands on the river, which runs across it as a band and splits
 the marker. The offset is taken from the river's drawn width at that point, on whichever bank is land. The legend
 says "Beside a river". Label placement allows for the band only on a metropolis.
-**Cities.** A city on a river sits in a disc of river water edged in paper, in every marker set; the legend says
-"Blue ring: on a river". Label placement allows for the wider collar.
+
 **River irregularity is a setting.** Style knob `riverWander` (Very gentle, Gentle, Normal, Irregular, Wild; Normal by
 default) sets the swing of the wander, how many passes pull the hex-edge crossings taut (fewer leaves the hex walk's
 own corners), how far a crossing may slide along its edge, and how often a river that bends within a hex swings
