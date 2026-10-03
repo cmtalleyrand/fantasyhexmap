@@ -250,7 +250,7 @@ function expandMap(map: MapState, edge: ExpandEdge): MapState {
     for (const id of ['elevation', 'climate', 'vegetation', 'population'] as const) {
       const layer = layers[id];
       if (!layer.data) continue;
-      layer.data = layer.data.map((value, index) => isLandLike(expandedBase[index]) ? value : null) as never;
+      layer.data = layer.data.map((value, index) => !isWaterSurface(expandedBase[index]) ? value : null) as never;
     }
   }
   const polities = map.layers.polities;
