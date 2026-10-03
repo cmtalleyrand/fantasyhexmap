@@ -10,6 +10,7 @@ import { clampPolityOpacity, insecureOrigin, looksLikeKey, type Prefs } from '..
 import { cryptoAvailable } from '../api/keyvault.js';
 import type { TransportMode } from '../api/client.js';
 import { DEFAULT_IRREGULARITY, DEFAULT_LAKE_IRREGULARITY, IRREGULARITY_VALUES, SHAPED_TYPES, type HexDimensions, type Irregularity, type MapState } from '../../shared/types.js';
+import { CITY_STATE_MAX_HEXES_RANGE, parseCityStateMaxHexes } from '../../shared/cityState.js';
 import { POLITY_NAME_MIN_OPTIONS, parsePolityNameMin } from '../render/labels.js';
 import HexSizeInput from './HexSizeInput.js';
 import MapStylePicker from './MapStylePicker.js';
@@ -285,6 +286,25 @@ export default function SettingsDialog(props: SettingsDialogProps) {
             <p className="hint">
               Smaller polities are keyed by colour in the legend. Automatic names a small polity
               only when its name fits inside it without covering cities or other names.
+            </p>
+            <label>City-states named by their capital</label>
+            <select
+              value={String(prefs.cityStateMax)}
+              disabled={!prefs.labels}
+              onChange={(e) => setPrefs({ ...prefs, cityStateMax: parseCityStateMaxHexes(Number(e.target.value)) })}
+            >
+              {Array.from(
+                { length: CITY_STATE_MAX_HEXES_RANGE.max - CITY_STATE_MAX_HEXES_RANGE.min + 1 },
+                (_, k) => CITY_STATE_MAX_HEXES_RANGE.min + k,
+              ).map((n) => (
+                <option key={n} value={String(n)}>
+                  {n === 1 ? 'City-states of 1 hex' : `City-states of up to ${n} hexes`}
+                </option>
+              ))}
+            </select>
+            <p className="hint">
+              A polity marked as a city-state that is no larger than this is named by its capital alone;
+              a larger one is named like any other polity.
             </p>
           </div>
         )}

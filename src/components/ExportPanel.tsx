@@ -48,6 +48,7 @@ export default function ExportPanel({
   seaNames: initialSeaNames,
   landNames: initialLandNames,
   polityNames,
+  cityStateMax,
 }: {
   map: MapState;
   visible: VisibleLayers;
@@ -60,6 +61,7 @@ export default function ExportPanel({
   seaNames: boolean;
   landNames: boolean;
   polityNames: PolityNameMin;
+  cityStateMax: number;
 }) {
   const [format, setFormat] = useState<'png' | 'svg'>('png');
   const [labels, setLabels] = useState(initialLabels);
@@ -93,6 +95,7 @@ export default function ExportPanel({
     polityOpacity,
     style: mapStyle,
     polityNames,
+    cityStateMax,
     legend: legend
       ? { exclude: legendExclude, onlyUsed, polityAreas, riverLengths, title: legendTitle }
       : null,

@@ -103,6 +103,7 @@ import { citySite } from './sites.js';
 import { escarpment, hillshade, reliefSymbols, vegetationSymbols, type Placed } from './symbols.js';
 import { ownersAtDepth, polityDepths, polityDisplayColours, toned } from './hierarchy.js';
 import { topLevelOf } from '../../shared/polityTree.js';
+import { cityStateSeats } from '../../shared/cityState.js';
 import { measureEpoch, textEm } from './fonts.js';
 import { glyphAdvances, glyphsStraight } from './glyphs.js';
 import { BUNDLED_FACES, LETTERINGS, type FaceRole } from './lettering.js';
@@ -210,6 +211,8 @@ export interface SceneOptions {
   landNames?: boolean;
   /** Smallest polity, in hexes, that is named; default 4. */
   polityNames?: PolityNameMin;
+  /** The largest city-state, in hexes, that is named by its capital alone. */
+  cityStateMax?: number;
   elevationStyle?: ElevationStyle;
   /** Opacity of polity fills, 0-1 (default 1); lower values let terrain show through. */
   polityOpacity?: number;
@@ -286,8 +289,10 @@ function cachedPolityLabels(
   role: FaceRole,
   letteringId: string,
   lakes: ReadonlySet<number>,
+  /** Polities named by their capital instead: they get no name of their own. */
+  unnamed: ReadonlySet<string>,
 ): PolityLabel[] {
-  const key = `${cols}x${rows}@${size}/${minHexes ?? ''}/${sizing}/${letteringId}/${measureEpoch}`;
+  const key = `${cols}x${rows}@${size}/${minHexes ?? ''}/${sizing}/${letteringId}/${measureEpoch}/${[...unnamed].sort().join(',')}`;
   const hit = labelCache.get(data.owner);
   if (hit && hit.key === key && hit.cities === cities && hit.polities === data.polities) return hit.labels;
   const labels = placePolityLabels({
@@ -295,7 +300,7 @@ function cachedPolityLabels(
     rows,
     size,
     owner: data.owner,
-    polities: data.polities,
+    polities: unnamed.size > 0 ? data.polities.filter((p) => !unnamed.has(p.id)) : data.polities,
     obstacles,
     minHexes,
     sizing,
@@ -2372,8 +2377,13 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
   const namingPolities = polities && traced
     ? { ...polities, owner: labelOwners(polities.owner, traced.lakes, cols, rows) }
     : polities;
+  // A small city-state is known by its capital alone: no realm name, and its
+  // seat is lettered in capitals as a realm's name would be.
+  const seats = polities && cities ? cityStateSeats(polities.polities, polities.owner, cities.cities, cols, opts.cityStateMax) : new Map<string, string>();
+  const seatIds = new Set(seats.values());
+  const unnamed = new Set(seats.keys());
   if (opts.labels && polities) {
-    const labelLakes = new Set<number>((traced?.lakes ?? []).flat());
+    const labelLakes =new Set<number>((traced?.lakes ?? []).flat());
     const obstacles: LabelObstacle[] = [];
     for (const city of cities?.cities ?? []) {
       const c = siteOf(city);
@@ -2387,7 +2397,7 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
     const maxDepth = Math.max(0, ...depths.values());
     const levels: Array<{ labels: PolityLabel[]; depth: number }> = [];
     if (maxDepth === 0) {
-      levels.push({ labels: cachedPolityLabels(namingPolities!, cities, cols, rows, size, obstacles, opts.polityNames, knobs.realmNames, realmRole, lettering.id, labelLakes), depth: 0 });
+      levels.push({ labels: cachedPolityLabels(namingPolities!, cities, cols, rows, size, obstacles, opts.polityNames, knobs.realmNames, realmRole, lettering.id, labelLakes, unnamed), depth: 0 });
     } else {
       const claimed: LabelObstacle[] = [...obstacles];
       for (let depth = 0; depth <= maxDepth; depth++) {
@@ -2396,7 +2406,7 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
           rows,
           size,
           owner: ownersAtDepth(polities.polities, namingPolities!.owner, depth),
-          polities: polities.polities.filter((p) => depths.get(p.id) === depth),
+          polities: polities.polities.filter((p) => depths.get(p.id) === depth && !unnamed.has(p.id)),
           obstacles: claimed,
           minHexes: opts.polityNames,
           scale: depth === 0 ? 1 : 0.62 ** depth,
@@ -2576,8 +2586,9 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
 
   if (opts.labels && cities) {
     const fontSize = Math.max(8, size * 0.36) * (lettering.city.scale ?? 1);
-    // A capital is named in capitals.
-    const shown = (city: { name: string; capital?: boolean }) => (city.capital ? city.name.toLocaleUpperCase() : city.name);
+    // A capital, or the seat of a city-state, is named in capitals.
+    const shown = (city: { id?: string; name: string; capital?: boolean }) =>
+      city.capital || (city.id && seatIds.has(city.id)) ? city.name.toLocaleUpperCase() : city.name;
     const placements = placeCityNames(
       cities.cities.map((city) => ({
         id: city.id,
