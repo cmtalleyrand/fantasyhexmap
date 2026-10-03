@@ -9,7 +9,7 @@ import { resolveStyle } from '../src/render/styles.ts';
 import { coastGeometryOf, coastEdges, landInsetDepth, surfaceMap } from '../src/render/coast.ts';
 import { coveredArea, shapeCoast } from '../src/render/footprint.ts';
 import { pathPolylines } from '../src/render/ice.ts';
-import { hexCorners } from '../shared/hex.ts';
+import { hexCenter, hexCorners } from '../shared/hex.ts';
 import type { PathCmd, Prim } from '../src/render/prims.ts';
 
 const dims = DEFAULT_HEX_DIMENSIONS;
@@ -309,10 +309,10 @@ test('islands are drawn smaller when the coastline has ink, so the outline is in
 
 test('every arrangement keeps its islands in the hex, at the selected share, and differs from the scattered layout', () => {
   const scattered = mapWith(['Islands']);
-  scattered.islandSpecs = { '0': { large: 1, small: 4 } };
+  scattered.islandSpecs = { '0': { large: 0, small: 4 } };
   const plain = JSON.stringify(scene(scattered).prims);
   for (const arrangement of ['chain', 'arc', 'barrier', 'ring'] as const) {
-    const map = { ...scattered, islandSpecs: { '0': { large: 1, small: 4, arrangement } } };
+    const map = { ...scattered, islandSpecs: { '0': { large: 0, small: 4, arrangement } } };
     assert.notEqual(JSON.stringify(scene(map).prims), plain, `${arrangement} lays islands out differently`);
     const want = landFraction('Islands', map.islandSpecs['0'], dims) * 100;
     const shown = visibleIslandPercent(map, 30, smooth);
@@ -598,4 +598,41 @@ test('an isthmus beside lakes has the lake shore moved to its land share', () =>
   const at = (land: number) => shapeCoast([], surface, 10, new Map([[12, { share: land, kind: 'neck' as const }]]), [])?.insets.get(12) ?? 0;
   assert.ok(at(0.2) > at(0.4), 'less land moves the shore further into it');
   assert.ok(at(0.95) < 0, 'more land than the hex has moves the shore out into the lake');
+});
+
+test('coast ink counts as land: a full coastal hex has its coastline inside it, and neighbouring islands keep their ink apart', () => {
+  const size = 30;
+  const map = { ...mapWith(['Sea', 'Coastal Land', 'Sea']), hexShapes: { '1': { type: 'Coastal Land' as const, land: 100 } } };
+  const lines: Array<{ x: number; y: number }> = [];
+  const collect = (prims: Prim[]) => {
+    for (const p of prims) {
+      if (p.kind === 'group') collect(p.prims);
+      else if (p.kind === 'path' && p.stroke === smooth.palette.coast) for (const ring of pathPolylines(p.d, 6)) lines.push(...ring);
+    }
+  };
+  collect(buildScene(map, { size, visible: defaultVisibility(), labels: false, style: smooth }).prims);
+  const centre = hexCenter(1, 0, size);
+  const half = Math.abs(hexCenter(1, 0, size).x - hexCenter(0, 0, size).x) / 2;
+  const ink = Math.max(0.8, size * smooth.palette.coastWidth) / 2;
+  const side = lines.filter((q) => Math.abs(q.y - centre.y) < size * 0.7);
+  assert.ok(side.length > 0, 'the coast is drawn');
+  for (const q of side) assert.ok(Math.abs(q.x - centre.x) <= half - ink * 0.8, `coast at ${q.x.toFixed(1)} leaves room for its ink inside the hex`);
+
+  // Islands of one hex: their outer ink edges do not meet.
+  const isles = mapWith(['Islands']);
+  isles.islandSpecs = { '0': { large: 0, small: 6 } };
+  const rings: Array<Array<{ x: number; y: number }>> = [];
+  const gather = (prims: Prim[]) => {
+    for (const p of prims) {
+      if (p.kind === 'group') gather(p.prims);
+      else if (p.kind === 'path' && p.fill === smooth.palette.island) rings.push(...pathPolylines(p.d, 8));
+    }
+  };
+  gather(buildScene(isles, { size, visible: defaultVisibility(), labels: false, style: smooth }).prims);
+  const nearest = (a: Array<{ x: number; y: number }>, b: Array<{ x: number; y: number }>) => Math.min(...a.map((p) => Math.min(...b.map((q) => Math.hypot(p.x - q.x, p.y - q.y)))));
+  for (let a = 0; a < rings.length; a++) {
+    for (let b = a + 1; b < rings.length; b++) {
+      assert.ok(nearest(rings[a]!, rings[b]!) > 2 * ink, `islands ${a} and ${b} keep their outlines apart`);
+    }
+  }
 });

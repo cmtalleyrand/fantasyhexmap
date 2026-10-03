@@ -578,7 +578,7 @@ const centroid = (poly: Poly): Point => ({
 });
 
 /** The hex a point lies in: the one whose centre is nearest. */
-function nearestHex(p: Point, cols: number, rows: number, size: number): number {
+export function nearestHex(p: Point, cols: number, rows: number, size: number): number {
   // Pointy-top odd-r layout: estimate the row, then look at the hexes round it.
   const row0 = Math.round((p.y - size) / (size * 1.5));
   let best = -1;
@@ -826,4 +826,47 @@ function splitLong(parts: Array<[Point, Point]>, longest: number): Array<[Point,
       k === 0 ? a : k === n ? b : { x: snap(a.x + ((b.x - a.x) * k) / n), y: snap(a.y + ((b.y - a.y) * k) / n) });
     return stops.slice(1).map((q, k) => [stops[k]!, q] as [Point, Point]);
   });
+}
+
+/**
+ * The length of the drawn coast that belongs to each hex of `of`: every stretch of `paths` is given to the
+ * nearest of the hexes in `of` to its middle (the land hex, where a stretch lies on an edge it shares with water).
+ * Used to count the coastline's ink as part of a hex's land.
+ */
+export function coastLengthIn(
+  paths: Point[][],
+  of: ReadonlySet<number>,
+  cols: number,
+  rows: number,
+  size: number,
+): Map<number, number> {
+  const length = new Map<number, number>();
+  for (const ring of paths) {
+    for (let k = 0; k + 1 < ring.length; k++) {
+      const a = ring[k]!;
+      const b = ring[k + 1]!;
+      const m = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+      const here = nearestHex(m, cols, rows, size);
+      let best = -1;
+      let bestDist = Infinity;
+      const col = here % cols;
+      const row = Math.floor(here / cols);
+      const near = [here];
+      for (let e = 0; e < 6; e++) {
+        const n = neighbourOf(col, row, e);
+        if (inBounds(cols, rows, n.col, n.row)) near.push(hexIndex(cols, n.col, n.row));
+      }
+      for (const j of near) {
+        if (!of.has(j)) continue;
+        const c = hexCenter(j % cols, Math.floor(j / cols), size);
+        const d = Math.hypot(c.x - m.x, c.y - m.y);
+        if (d < bestDist) {
+          bestDist = d;
+          best = j;
+        }
+      }
+      if (best >= 0) length.set(best, (length.get(best) ?? 0) + Math.hypot(b.x - a.x, b.y - a.y));
+    }
+  }
+  return length;
 }

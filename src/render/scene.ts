@@ -107,7 +107,7 @@ import { glyphAdvances, glyphsStraight } from './glyphs.js';
 import { BUNDLED_FACES, LETTERINGS, type FaceRole } from './lettering.js';
 import { signed, unit } from './seed.js';
 import { ELEVATION_RANK, floeFringe, glacierEdges, glacierFlow, glacierMarginPrims, glacierShading, glacierShelf, iceSeam, nearHexes, pathPolylines, seaIcePrims } from './ice.js';
-import { coveredArea, driftOf, nearestOn, shapeCoast, type ShapeMemo, type ShapeTarget } from './footprint.js';
+import { coastLengthIn, coveredArea, driftOf, nearestOn, shapeCoast, type ShapeMemo, type ShapeTarget } from './footprint.js';
 import { drawnLandFraction, landFraction, normaliseHexDimensions } from '../../shared/surfaceArea.js';
 import { CLASSIC_STYLE, type ElevationStyle, type MapStyle } from './styles.js';
 import { extendToRim, rimPieces } from './rim.js';
@@ -333,8 +333,10 @@ function cachedCoast(
   defaultIrregularity: Irregularity | undefined,
   dimensions: HexDimensions,
   seed: string,
+  /** Half the coastline's stroke width: what its ink adds outside the land, which counts as land (0 with no coastline). */
+  inkReach: number,
 ): TracedCoast {
-  const key = `${cols}x${rows}@${size}/${smooth}/${seed}/${defaultIrregularity ?? ''}/${shapesSignature(shapes)}/${dimensions.coastalLandPercent},${dimensions.lakeLandPercent},${dimensions.glacierPercent},${dimensions.isthmusPercent},${dimensions.straitPercent},${dimensions.mainlandPercent}`;
+  const key = `${cols}x${rows}@${size}/${smooth}/${inkReach}/${seed}/${defaultIrregularity ?? ''}/${shapesSignature(shapes)}/${dimensions.coastalLandPercent},${dimensions.lakeLandPercent},${dimensions.glacierPercent},${dimensions.isthmusPercent},${dimensions.straitPercent},${dimensions.mainlandPercent}`;
   const hit = coastCache.get(base);
   if (hit && hit.key === key) return hit;
   const lakeIslands = lakeIslandsOf(base, cols, rows);
@@ -355,15 +357,31 @@ function cachedCoast(
   // coast hex is cut back from its sea edges, a split hex has its land boundary
   // moved. The coast is then traced round what results.
   const targets = new Map<number, ShapeTarget>();
+  // Length of sea edge each hex has: a first estimate of the coastline whose ink counts as the hex's land.
+  const seaLength = new Map<number, number>();
+  for (const edge of seaEdges) {
+    if (edge.hex !== undefined) seaLength.set(edge.hex, (seaLength.get(edge.hex) ?? 0) + Math.hypot(edge.to.x - edge.from.x, edge.to.y - edge.from.y));
+  }
+  const hexAreaOf = 1.5 * Math.sqrt(3) * size * size;
   for (let i = 0; i < base.length; i++) {
-    const share = drawnLandFraction(base[i], dimensions, shapes?.[String(i)]);
+    const own = drawnLandFraction(base[i], dimensions, shapes?.[String(i)]);
+    // Plain land with a sea edge is a whole hex of land like any other: its ink counts too.
+    const share = own ?? (base[i] === 'Land' && inkReach > 0 && seaLength.has(i) ? 1 : null);
     if (share === null) continue;
+    // The land inside the line is the share less the outer half of the ink along it.
+    const aimed = inkReach > 0 ? Math.max(0, share - ((seaLength.get(i) ?? 0) * inkReach) / hexAreaOf) : share;
     if (surface.split.has(i)) {
-      targets.set(i, { share, kind: base[i] === 'Strait' ? 'channel' : base[i] === 'Isthmus' ? 'neck' : 'inset' });
-    } else if (surface.whole[i] === 'land' && share < 1) {
+      targets.set(i, { share: aimed, kind: base[i] === 'Strait' ? 'channel' : base[i] === 'Isthmus' ? 'neck' : 'inset' });
+    } else if (surface.whole[i] === 'land' && (aimed < 1)) {
       // Whole hexes of land are cut back from the sea; a strait drawn whole is all water.
-      targets.set(i, { share, kind: 'inset' });
+      targets.set(i, { share: aimed, kind: 'inset' });
     }
+  }
+  /** What each hex is to show, before its ink: the share the loop below aims at once the ink is measured. */
+  const wanted = new Map<number, number>();
+  for (const i of targets.keys()) {
+    const own = drawnLandFraction(base[i], dimensions, shapes?.[String(i)]);
+    wanted.set(i, own ?? 1);
   }
   const rough: Roughness | undefined = smooth
     ? {
@@ -383,15 +401,17 @@ function cachedCoast(
   // off the share the hex was cut to. Cut it again to the share less what the coast moved, to draw the share itself.
   const hexArea = 1.5 * Math.sqrt(3) * size * size;
   let aimed = targets;
-  for (let pass = 0; pass < 2 && shaped && smooth; pass++) {
+  for (let pass = 0; pass < 3 && shaped && (smooth || inkReach > 0); pass++) {
     const drift = driftOf(geometry, geometry.strips.length, new Set(targets.keys()), cols, rows, size, (d) => pathPolylines(d, 6));
+    // The outer half of the coastline's ink is land too: what shows is the share, so the land inside the line is less.
+    const ink = inkReach > 0 ? coastLengthIn(geometry.paths.flatMap((d) => pathPolylines(d, 6)), new Set(targets.keys()), cols, rows, size) : new Map<number, number>();
     let off = 0;
     const next = new Map<number, ShapeTarget>();
     for (const [i, target] of targets) {
       // Only a hex that is a point or more off is cut again; the rest are left as they are.
-      const moved = (drift.get(i) ?? 0) / hexArea;
+      const moved = ((drift.get(i) ?? 0) + 0) / hexArea + ((ink.get(i) ?? 0) * inkReach) / hexArea;
       const was = aimed.get(i)!.share;
-      const share = Math.abs(target.share - moved - was) < 0.01 ? was : Math.min(1, Math.max(0, target.share - moved));
+      const share = Math.abs(wanted.get(i)! - moved - was) < 0.005 ? was : Math.min(1, Math.max(0, wanted.get(i)! - moved));
       off = Math.max(off, Math.abs(share - was));
       next.set(i, { ...target, share });
     }
@@ -554,7 +574,7 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
   const population = opts.visible.population ? layers.population.data : null;
   const maxPop = population ? Math.max(1, ...population.map((v) => v ?? 0)) : 1;
 
-  const traced = base ? cachedCoast(base, cols, rows, size, knobs.coast === 'smooth', map.hexShapes, map.defaultIrregularity, normaliseHexDimensions(map.hexDimensions), seed) : null;
+  const traced = base ? cachedCoast(base, cols, rows, size, knobs.coast === 'smooth', map.hexShapes, map.defaultIrregularity, normaliseHexDimensions(map.hexDimensions), seed, knobs.coast === 'none' ? 0 : Math.max(0.8, size * palette.coastWidth) / 2) : null;
   const rawPolities = opts.visible.polities ? layers.polities.data : null;
   // Realm colour is drawn on land only; see landOwners.
   const polities = rawPolities && base
@@ -1141,6 +1161,8 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
     return biggest?.c ?? c;
   };
   const dimensions = normaliseHexDimensions(map.hexDimensions);
+  /** Half the coastline's stroke width, which is what it adds outside an edge (none without a coast line). */
+  const inkReach = knobs.coast === 'none' ? 0 : Math.max(0.8, size * palette.coastWidth) / 2;
   const hexArea = 1.5 * Math.sqrt(3) * size * size;
   /**
    * The part of an island hex (0 to 1) its islands are to cover: what its
@@ -1188,14 +1210,15 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
       const dx = s.c.x - centre.x;
       const dy = s.c.y - centre.y;
       const away = Math.hypot(dx, dy);
-      const room = Math.max(0, size * 0.836 - Math.max(s.rx, s.ry) * 1.1);
+      const room = Math.max(0, size * 0.836 - Math.max(s.rx, s.ry) * 1.1 - inkReach);
       const f = away > room && away > 0 ? room / away : 1;
       return { x: dx * f, y: dy * f };
     });
     const drawn = isles.map((s) => s.rx > 0 && s.ry > 0);
     // Each island as a circle a little wider than its outline, and how far from the hex's middle it may lie.
     const rho = isles.map((s) => Math.sqrt(s.rx * s.ry) * 1.03);
-    const gap = size * 0.03;
+    // Two outlines' ink must not touch: the gap is measured between the outer edges of their strokes.
+    const gap = size * 0.03 + 2 * inkReach;
     const at = anchors.map((q) => ({ ...q }));
     // Where an island may lie once it has to be moved: whole inside the hex, not just within a circle of it.
     const apothem = size * 0.836;
@@ -1208,7 +1231,7 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
         const along = Math.cos(angle - isle.axis) * isle.rx;
         const across = Math.sin(angle - isle.axis) * isle.ry;
         const reach = knobs.islands === 'blob' ? Math.hypot(along, across) : Math.sqrt(isle.rx * isle.ry);
-        worst = Math.max(worst, at[k]!.x * Math.cos(angle) + at[k]!.y * Math.sin(angle) + reach * 1.1 - apothem);
+        worst = Math.max(worst, at[k]!.x * Math.cos(angle) + at[k]!.y * Math.sin(angle) + reach * 1.1 + inkReach - apothem);
       }
       return worst;
     };
@@ -1224,7 +1247,7 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
           const across = Math.sin(angle - isle.axis) * isle.ry;
           // A dot is a circle of the ellipse's mean radius; a blob reaches as far as the ellipse does.
           const reach = knobs.islands === 'blob' ? Math.hypot(along, across) : Math.sqrt(isle.rx * isle.ry);
-          const lim = Math.max(0, apothem - reach * 1.1);
+          const lim = Math.max(0, apothem - reach * 1.1 - inkReach);
           const over = at[k]!.x * nx + at[k]!.y * ny - lim;
           if (over > 0) at[k] = { x: at[k]!.x - nx * over, y: at[k]!.y - ny * over };
         }
@@ -1359,8 +1382,6 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
   // with a per-hex land override made a larger requested share move islands into
   // less usable positions, so the visible land area could paradoxically shrink.
   const islandFloor = (_i: number): number => 1;
-  /** Half the coastline's stroke width, which is what it adds outside an island's edge (none without a coast line). */
-  const inkReach = knobs.coast === 'none' ? 0 : Math.max(0.8, size * palette.coastWidth) / 2;
   /** The area of the outer half of the ink round each outline, of a closed ring as a rounded offset of it. */
   const outlineBand = (rings: Point[][]): number =>
     inkReach === 0

@@ -1220,7 +1220,9 @@ test('rivers start and stop on a lake’s drawn shore, and a river widens below 
   const lakeBodies = scene.prims.filter((p): p is Extract<Prim, { kind: 'path' }> => p.kind === 'path' && p.fill === style.palette.lake);
   const rings = lakeBodies.map((b) => b.d.filter((c) => c[0] !== 'Z').map((c) => ({ x: c[1] as number, y: c[2] as number })));
   const distToShore = (p: { x: number; y: number }) => Math.min(...rings.flatMap((ring) => ring.map((q) => Math.hypot(q.x - p.x, q.y - p.y))));
-  const rivers = scene.prims.filter((p): p is Extract<Prim, { kind: 'path' }> => p.kind === 'path' && p.fill === style.palette.river);
+  // Rivers are clipped to the land, so they may sit inside a group.
+  const flat = (list: Prim[]): Prim[] => list.flatMap((p) => (p.kind === 'group' ? flat(p.prims) : [p]));
+  const rivers = flat(scene.prims).filter((p): p is Extract<Prim, { kind: 'path' }> => p.kind === 'path' && p.fill === style.palette.river);
   assert.equal(rivers.length, 3);
   const [trunkPrim, , merePrim] = rivers;
   // The trunk leaves the lake at its shore.
