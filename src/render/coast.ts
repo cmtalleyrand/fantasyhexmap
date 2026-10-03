@@ -1117,10 +1117,16 @@ export function lakeBodyPath(
       }
       return (lowest + sum / (2 * span + 1)) / 2;
     });
-    // Irregularity: seeded ripples round the shore, finer than the swells above, scaled by the
-    // amplitude beside each stretch (eased so it changes gradually between hexes) and held back
-    // where the reach is, so a narrow strip of land is not cut through.
-    const ripple = pts.map(() => 0);
+    const out = smooth(
+      pts.map((q, i) => {
+        const r = push[i]! * eased[i]! * size;
+        return { x: q.x + normals[i]!.x * r, y: q.y + normals[i]!.y * r };
+      }),
+      2,
+    );
+    // Irregularity: seeded ripples round the shore, laid on after the smoothing so they survive
+    // it. Scaled by the amplitude beside each stretch (eased so it changes gradually between
+    // hexes) and held back where the reach is, so a narrow strip of land is not cut through.
     if (rough) {
       const amps = pts.map((q, i) => rough.amplitude({ x: q.x + normals[i]!.x * 0.2 * size, y: q.y + normals[i]!.y * 0.2 * size }));
       if (amps.some((a) => a > 0)) {
@@ -1129,24 +1135,21 @@ export function lakeBodyPath(
           for (let k = -span; k <= span; k++) sum += amps[(i + k + amps.length) % amps.length]!;
           return sum / (2 * span + 1);
         });
-        const bands = [2, 1.1, 0.7].map((wavelength, h) => ({
+        const bands = [2.2, 1.2, 0.7].map((wavelength, h) => ({
           cycles: Math.max(1, Math.round(perimeter / (wavelength * size))),
           phase: rand(c * 1000 + 30 + h) * Math.PI * 2,
-          weight: [1, 0.6, 0.35][h]!,
+          weight: [1, 0.7, 0.45][h]!,
         }));
-        const total = bands.reduce((sum, b) => sum + b.weight, 0);
-        pts.forEach((_, i) => {
+        const norm = Math.sqrt(bands.reduce((sum, b) => sum + b.weight * b.weight, 0));
+        out.forEach((q, i) => {
           const f = (i / pts.length) * Math.PI * 2;
-          const shape = bands.reduce((sum, b) => sum + b.weight * Math.cos(b.cycles * f + b.phase), 0) / total;
-          ripple[i] = shape * smoothed[i]! * 1.6 * eased[i]!;
+          const shape = bands.reduce((sum, b) => sum + b.weight * Math.cos(b.cycles * f + b.phase), 0) / norm;
+          const r = shape * smoothed[i]! * 2 * eased[i]! * size;
+          out[i] = { x: q.x + normals[i]!.x * r, y: q.y + normals[i]!.y * r };
         });
       }
     }
-    const out = pts.map((q, i) => {
-      const r = (push[i]! * eased[i]! + ripple[i]!) * size;
-      return { x: q.x + normals[i]!.x * r, y: q.y + normals[i]!.y * r };
-    });
-    smooth(out, 2).forEach((q, i) => d.push([i === 0 ? 'M' : 'L', q.x, q.y]));
+    out.forEach((q, i) => d.push([i === 0 ? 'M' : 'L', q.x, q.y]));
     d.push(['Z']);
   });
   return d;
