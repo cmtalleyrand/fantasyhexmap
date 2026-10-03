@@ -331,7 +331,9 @@ test('the land a coast hex leaves uncovered is its share, whatever its neighbour
           const y = Math.min(...ys) + ((b + 0.5) / 120) * (Math.max(...ys) - Math.min(...ys));
           if (!inside(x, y, hex)) continue;
           total++;
-          if (!polygons.some((poly) => inside(x, y, poly))) dry++;
+          const covering = polygons.filter((poly) => inside(x, y, poly)).length;
+          assert.ok(covering <= 1, `${name}, ${land}: strips overlap, which an even-odd cut-out would turn back into land`);
+          if (covering === 0) dry++;
         }
       }
       assert.ok(Math.abs(dry / total - land) < 0.01, `${name}, ${land}: land left is ${(dry / total).toFixed(3)}`);
