@@ -23,6 +23,7 @@ export interface MapViewProps {
   riverNames: boolean;
   rangeNames: boolean;
   seaNames: boolean;
+  landNames: boolean;
   polityNames: PolityNameMin;
   polityOpacity: number;
   mapStyle: MapStyle;
@@ -54,7 +55,7 @@ export interface MapViewProps {
 }
 
 export default function MapView(props: MapViewProps) {
-  const { map, visible, labels, riverNames, rangeNames, seaNames, polityNames, polityOpacity, mapStyle, selection, onSelectionChange, onStrokeEnd } = props;
+  const { map, visible, labels, riverNames, rangeNames, seaNames, landNames, polityNames, polityOpacity, mapStyle, selection, onSelectionChange, onStrokeEnd } = props;
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const [view, setView] = useState<View>({ scale: 1, x: 0, y: 0 });
@@ -124,12 +125,13 @@ export default function MapView(props: MapViewProps) {
         riverNames,
         rangeNames,
         seaNames,
+        landNames,
         polityNames,
         polityOpacity,
         style: mapStyle,
         highlightRiver: props.riverTool?.selectedId ?? null,
       }),
-    [map, visible, labels, riverNames, rangeNames, seaNames, polityNames, polityOpacity, mapStyle, props.riverTool?.selectedId, fontsVersion],
+    [map, visible, labels, riverNames, rangeNames, seaNames, landNames, polityNames, polityOpacity, mapStyle, props.riverTool?.selectedId, fontsVersion],
   );
   const decoration = useMemo(() => {
     const riverDraftSelection = props.riverDraft ? new Set(props.riverDraft) : null;
@@ -449,7 +451,7 @@ export default function MapView(props: MapViewProps) {
       <div className="mapzoom" role="toolbar" aria-label="Map navigation">
         <div className="map-expand" aria-label="Expand map">
           <span>add</span>
-          <button className="tiny" disabled={map.rows >= MAX_DIM} onClick={() => props.onExpand('top')} title="Add a row at the top">↑ row</button>
+          <button className="tiny" disabled={map.rows + 2 > MAX_DIM} onClick={() => props.onExpand('top')} title="Add two rows at the top (one would shift every row by half a hex)">↑ 2 rows</button>
           <button className="tiny" disabled={map.rows >= MAX_DIM} onClick={() => props.onExpand('bottom')} title="Add a row at the bottom">↓ row</button>
           <button className="tiny" disabled={map.cols >= MAX_DIM} onClick={() => props.onExpand('left')} title="Add a column at the left">← col</button>
           <button className="tiny" disabled={map.cols >= MAX_DIM} onClick={() => props.onExpand('right')} title="Add a column at the right">→ col</button>

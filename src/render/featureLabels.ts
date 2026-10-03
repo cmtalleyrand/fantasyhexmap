@@ -319,6 +319,60 @@ export function placeRangeLabels(
 
 
 /**
+ * Names of land features and islands: set in capitals across the hexes, turned
+ * to follow the long axis of an elongated area, sized to its extent.
+ */
+export function placeAreaLabels(
+  areas: Array<{ name: string; hexes: number[] }>,
+  cols: number,
+  size: number,
+  face: FaceRole = LETTERINGS.classic.range,
+): FeatureLabel[] {
+  const out: FeatureLabel[] = [];
+  for (const area of areas) {
+    const text = area.name.trim().toUpperCase();
+    if (!text || area.hexes.length === 0) continue;
+    const centres = area.hexes.map((i) => hexCenter(i % cols, Math.floor(i / cols), size));
+    const mean = centres.reduce((s, c) => ({ x: s.x + c.x, y: s.y + c.y }), { x: 0, y: 0 });
+    mean.x /= centres.length;
+    mean.y /= centres.length;
+    let xx = 0;
+    let yy = 0;
+    let xy = 0;
+    for (const c of centres) {
+      xx += (c.x - mean.x) ** 2;
+      yy += (c.y - mean.y) ** 2;
+      xy += (c.x - mean.x) * (c.y - mean.y);
+    }
+    const spread = Math.sqrt((xx - yy) ** 2 + 4 * xy * xy);
+    const major = (xx + yy + spread) / 2;
+    const minor = (xx + yy - spread) / 2;
+    const rotation = centres.length > 2 && major > 2 * minor ? upright(Math.atan2(2 * xy, xx - yy) / 2) : 0;
+    const cos = Math.cos(rotation);
+    const sin = Math.sin(rotation);
+    let lo = Infinity;
+    let hi = -Infinity;
+    for (const c of centres) {
+      const u = (c.x - mean.x) * cos + (c.y - mean.y) * sin;
+      lo = Math.min(lo, u);
+      hi = Math.max(hi, u);
+    }
+    const length = hi - lo + size * 1.8;
+    const em = glyphAdvances(text, 1, face.tracking, face.weight, face.family, face.italic).width;
+    const font = Math.max(Math.max(8, size * 0.3), Math.min(size * 0.7, length / em));
+    out.push({
+      text,
+      size: font,
+      rotation,
+      at: mean,
+      width: em * font,
+      ...(face.tracking > 0 ? { glyphs: glyphsStraight(text, font, mean, rotation, face) } : {}),
+    });
+  }
+  return out;
+}
+
+/**
  * Names of seas, bays and lakes. Each is set in spaced capitals across its
  * hexes, along the body's long axis. A long, narrow body (a strait, a gulf)
  * gets its name curved along a spine through the middle of its hexes rather

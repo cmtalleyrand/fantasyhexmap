@@ -3,6 +3,7 @@ import { hexIndex, indexToOffset, neighbourOf } from '../../shared/hex.js';
 import { canHoldSettlement } from '../../shared/derive.js';
 import type { RiverNotice, RiverTool } from '../state/riverTools.js';
 import RiverEditor from './RiverEditor.js';
+import GeoNamesEditor from './GeoNamesEditor.js';
 import { LAYER_META, missingRequirements, stalenessOf } from '../../shared/layers.js';
 import {
   BASE_GEO_VALUES,
@@ -22,7 +23,7 @@ import {
 } from '../../shared/types.js';
 import { planMultiLayerEdit } from '../../shared/multiEdit.js';
 import { canSplit, passLabel, type PassSelection } from '../../core/rosters.js';
-import { isWaterSurface, type Action, type IslandSpecChange } from '../state/store.js';
+import { type Action, type IslandSpecChange } from '../state/store.js';
 import { wouldCycle } from '../../shared/polityTree.js';
 import { contrastingRealmColours } from '../render/hierarchy.js';
 import Legend from './Legend.js';
@@ -207,6 +208,10 @@ export default function Inspector(props: InspectorProps) {
             <RiverEditor {...props} notice={props.riverNotice} setNotice={props.setRiverNotice} />
           )}
         </div>
+      )}
+
+      {hasData && activeLayer === 'base' && (
+        <GeoNamesEditor map={map} dispatch={dispatch} selected={selected} setSelection={props.setSelection} />
       )}
 
       {hasData && (
@@ -474,7 +479,6 @@ function PerHexEditor(props: SubProps) {
       <p className="hint" style={{ margin: 0 }}>
         Click a hex to select it; shift-click or shift-drag adds to the selection. Ctrl+A (⌘A) selects every hex, Esc clears.
       </p>
-      {activeLayer === 'base' && <WaterNamePanel {...props} />}
       {activeLayer === 'elevation' && <MountainRangePanel {...props} />}
     </div>
   );
@@ -620,84 +624,6 @@ function IslandSidePanel(props: SubProps) {
         ))}
       </select>
       <p className="hint" style={{ margin: 0 }}>A hex needs at least one island; setting both counts to 0 restores its default.</p>
-    </div>
-  );
-}
-
-/** Name seas, bays and lakes so they can be labelled. */
-function WaterNamePanel(props: SubProps) {
-  const { map, dispatch, selected } = props;
-  const [name, setName] = useState('');
-  const [target, setTarget] = useState('');
-  const bodies = map.waterNames ?? [];
-  const base = map.layers.base.data;
-  const water = selected.filter((i) => isWaterSurface(base?.[i]));
-  const existing = bodies.find((b) => b.id === target) ?? null;
-
-  const assign = () => {
-    const trimmed = (existing ? existing.name : name).trim();
-    if (!trimmed || water.length === 0) return;
-    dispatch({
-      type: 'nameWaterBody',
-      id: existing?.id ?? `water_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`,
-      name: trimmed,
-      indices: water,
-    });
-    setName('');
-    setTarget('');
-  };
-
-  return (
-    <div className="stack" style={{ marginTop: 8 }}>
-      <h2>Seas and lakes</h2>
-      <p className="hint" style={{ marginTop: 0 }}>
-        Select Sea, Lake or island hexes, then name them as a sea, bay, strait or lake. The name is set
-        along the water's length. Turn on <b>Show sea and lake names</b> in Settings → Display.
-      </p>
-      <select value={target} onChange={(e) => setTarget(e.target.value)}>
-        <option value="">New name…</option>
-        {bodies.map((b) => (
-          <option key={b.id} value={b.id}>
-            Add to {b.name}
-          </option>
-        ))}
-      </select>
-      {!existing && (
-        <input
-          placeholder="Name, e.g. The Sound of Mees"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && assign()}
-        />
-      )}
-      <button
-        className="primary"
-        disabled={water.length === 0 || (!existing && name.trim().length === 0)}
-        onClick={assign}
-      >
-        {existing ? `Add ${water.length} hexes to ${existing.name}` : `Name ${water.length} selected water hexes`}
-      </button>
-      {bodies.length > 0 && (
-        <div className="list">
-          {bodies.map((b) => (
-            <div key={b.id} className="entry" style={{ flexWrap: 'wrap' }}>
-              <CommitInput
-                className="grow"
-                aria-label="Water name"
-                value={b.name}
-                onCommit={(name) => dispatch({ type: 'renameWaterBody', id: b.id, name })}
-              />
-              <span className="hint">{b.hexes.length} hexes</span>
-              <button className="tiny" title="Select these hexes" onClick={() => props.setSelection(new Set(b.hexes))}>
-                select
-              </button>
-              <button className="tiny danger" onClick={() => dispatch({ type: 'removeWaterBody', id: b.id })}>
-                ×
-              </button>
-            </div>
-          ))}
-        </div>
-      )}
     </div>
   );
 }

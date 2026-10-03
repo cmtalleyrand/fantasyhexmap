@@ -87,7 +87,7 @@ export default function App() {
   const [showUnlock, setShowUnlock] = useState(false);
   const [activeLayer, setActiveLayer] = useState<LayerId>('base');
   const [visible, setVisible] = useState<VisibleLayers>(defaultVisibility);
-  const { labels, riverNames, rangeNames, seaNames, polityNames, polityOpacity } = prefs;
+  const { labels, riverNames, rangeNames, seaNames, landNames, polityNames, polityOpacity } = prefs;
   const mapStyle = useMemo(() => resolveStyle(prefs.mapStyle), [prefs.mapStyle]);
   const [selection, setSelection] = useState<Set<number>>(new Set());
   const [panels, setPanels] = useState<PanelVisibility>({ layers: true, inspector: true });
@@ -856,6 +856,7 @@ export default function App() {
             riverNames={riverNames}
             rangeNames={rangeNames}
             seaNames={seaNames}
+            landNames={landNames}
             polityNames={polityNames}
           />
           <div className="row" style={{ marginTop: 14, justifyContent: 'flex-end' }}>
@@ -1041,6 +1042,7 @@ export default function App() {
           riverNames={riverNames}
           rangeNames={rangeNames}
           seaNames={seaNames}
+          landNames={landNames}
           polityNames={polityNames}
           polityOpacity={polityOpacity}
           mapStyle={mapStyle}

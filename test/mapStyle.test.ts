@@ -517,26 +517,32 @@ test('river names are set glyph by glyph along the river, larger than before', (
   assert.ok(name.size >= 32 * 0.3);
 });
 
-test('water bodies are named, renamed and removed, and their names are drawn when asked for', async () => {
+test('seas are named, renamed and removed, and their names are drawn when asked for', async () => {
   const { reducer } = await import('../src/state/store.ts');
   const { prepareLoadedMap } = await import('../src/state/import.ts');
   let map = islandMap();
   const sea = [0, 1, 2, 9, 10, 18, 27, 36];
-  map = reducer(map, { type: 'nameWaterBody', id: 'w1', name: 'The Narrows', indices: [...sea, 20] });
-  assert.deepEqual(map.waterNames?.[0]?.hexes, sea, 'land hexes are left out');
-  map = reducer(map, { type: 'renameWaterBody', id: 'w1', name: 'The Sound' });
-  assert.equal(map.waterNames?.[0]?.name, 'The Sound');
+  map = reducer(map, { type: 'nameGeo', id: 'w1', kind: 'sea', name: 'The Narrows', indices: [...sea, 20] });
+  assert.deepEqual(map.geoNames?.[0]?.hexes, sea, 'land hexes are left out');
+  map = reducer(map, { type: 'renameGeo', id: 'w1', name: 'The Sound' });
+  assert.equal(map.geoNames?.[0]?.name, 'The Sound');
   const style = resolveStyle({ preset: 'parchment', overrides: {} });
   const text = (seaNames: boolean) =>
     buildScene(map, { size: 20, visible: defaultVisibility(), labels: false, seaNames, style }).prims
       .flatMap((p) => (p.kind === 'text' ? [p.text] : []));
   assert.deepEqual(text(false), []);
   assert.deepEqual(text(true), ['THE SOUND']);
-  map = reducer(map, { type: 'removeWaterBody', id: 'w1' });
-  assert.deepEqual(map.waterNames, []);
+  map = reducer(map, { type: 'removeGeo', id: 'w1' });
+  assert.deepEqual(map.geoNames, []);
   const old = structuredClone(map);
-  delete old.waterNames;
-  assert.deepEqual(prepareLoadedMap(old).waterNames, []);
+  delete old.geoNames;
+  assert.deepEqual(prepareLoadedMap(old).geoNames, []);
+  const legacy = structuredClone(map);
+  delete legacy.geoNames;
+  legacy.waterNames = [{ id: 'w', name: 'Old Sea', hexes: sea }, { id: 'l', name: 'Old Lake', hexes: [30] }];
+  const loaded = prepareLoadedMap(legacy);
+  assert.deepEqual(loaded.geoNames?.map((n) => n.kind), ['sea', 'lake']);
+  assert.equal(loaded.waterNames, undefined);
 });
 
 test('polity parents that name nothing, name themselves or close a loop are dropped', async () => {

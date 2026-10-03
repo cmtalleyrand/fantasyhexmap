@@ -64,6 +64,8 @@ export interface Prefs {
   rangeNames: boolean;
   /** Draw the names given to seas, bays and lakes. */
   seaNames: boolean;
+  /** Draw the names given to land features and islands. */
+  landNames: boolean;
   /** Smallest polity, in hexes, that is named on the map; `auto` lets the placer decide. */
   polityNames: PolityNameMin;
   /**
@@ -89,6 +91,7 @@ export const DEFAULT_PREFS: Prefs = {
   riverNames: false,
   rangeNames: false,
   seaNames: true,
+  landNames: true,
   polityNames: DEFAULT_POLITY_NAME_MIN,
   defaultsVersion: DEFAULTS_VERSION,
 };
@@ -207,6 +210,7 @@ export function loadPrefs(): Prefs {
       riverNames: stored.riverNames === true,
       rangeNames: stored.rangeNames === true,
       seaNames: stored.seaNames !== false,
+      landNames: stored.landNames !== false,
       polityNames: parsePolityNameMin(stored.polityNames),
       defaultsVersion: DEFAULTS_VERSION,
     };
