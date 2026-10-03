@@ -777,7 +777,11 @@ Water names are set in type that grows with the body's depth (0.85 hex for a sha
 for one eight or more hexes deep), centred on the body's middle rather than on its deepest hex (which,
 for a body that meets the map's edge, is the edge itself). A winding body (a gulf, a bay with a
 corridor) takes a name along the ridge of its deepest water, with every letter and the room beside it
-over open water, when that carries type at least a quarter larger than the straight fit.
+over open water, when that carries type at least a quarter larger than the straight fit. A name of
+two or more words in an ocean cut by an island group is split: the words stand on one baseline, each
+in its own stretch of open water, as close together as the obstruction allows, when that carries type
+at least a quarter larger and the stretches lie within three word-lengths of each other (further
+apart, the words would read as two names).
 
 **Why.** The first two are what had realm names touching ("AHNVER" and "RANGMULS" read as one word),
 children pushed to the margin of a diagonal parent's bounding box, and a ring-shaped realm named from
@@ -792,5 +796,4 @@ drawn inside the hex fill loop.
 
 **Not changed, and why.** Names on thin steep coastal strips still use the ±30° rotation limit and
 may spill; this was judged not worth steeper type. Child realms keep their flat 0.62 scale and
-lighter weight. An ocean cut by an island group is still named as one run; splitting the words across
-the open water on either side is a possible follow-up for the cases it matters.
+lighter weight.

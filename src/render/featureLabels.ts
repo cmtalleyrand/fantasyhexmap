@@ -256,6 +256,125 @@ function spineLabel(
 }
 
 /**
+ * A name of two or more words split across open water either side of an
+ * obstruction (an island group in the middle of an ocean): the words stand
+ * on one baseline, each in its own stretch of open water, set as close
+ * together as the obstruction allows so they still read as one name. Larger
+ * type is tried first. Null when no baseline has two such stretches, or when
+ * they lie further apart than a few word-lengths, which would read as two names.
+ */
+function splitLabel(
+  text: string,
+  hexes: number[],
+  cols: number,
+  rows: number,
+  size: number,
+  face: FaceRole,
+  base: ReadonlyArray<BaseGeo | null>,
+): FeatureLabel | null {
+  const words = text.split(/\s+/).filter(Boolean);
+  if (words.length < 2 || hexes.length > 6000) return null;
+  const inBody = new Set(hexes);
+  const open = (i: number) => inBody.has(i) && (base[i] === 'Sea' || base[i] === 'Lake');
+  const height = Number.isFinite(rows) ? rows : Math.ceil(Math.max(...hexes) / cols) + 1;
+  const depth = depthWithin(hexes, open, cols, height);
+  if (depth.size === 0) return null;
+  const maxDepth = Math.max(...depth.values());
+  const centreOf = (i: number) => hexCenter(i % cols, Math.floor(i / cols), size);
+  const centre = { x: 0, y: 0 };
+  for (const i of depth.keys()) {
+    centre.x += centreOf(i).x / depth.size;
+    centre.y += centreOf(i).y / depth.size;
+  }
+  const bodyRadius = Math.max(size, Math.sqrt(depth.size) * size);
+  const wet = (x: number, y: number, margin: number) =>
+    [[0, 0], [margin, 0], [-margin, 0], [0, margin], [0, -margin]].every(([dx, dy]) => {
+      const { col, row } = pixelToOffset(x + dx!, y + dy!, size);
+      return inBounds(cols, height, col, row) && open(hexIndex(cols, col, row));
+    });
+  const options = { tracking: face.tracking, weight: face.weight, family: face.family, italic: face.italic };
+  const emOf = (t: string) => glyphAdvances(t, 1, face.tracking, face.weight, face.family, face.italic).width;
+  // Every way to cut the words into a first part and a second.
+  const cuts = words.slice(1).map((_, k) => [words.slice(0, k + 1).join(' '), words.slice(k + 1).join(' ')] as const);
+  // Baselines through the body's middle-most hexes, level and a little tilted.
+  const origins = [...depth.keys()]
+    .map((i) => ({ at: centreOf(i), off: Math.hypot(centreOf(i).x - centre.x, centreOf(i).y - centre.y) }))
+    .sort((a, b) => a.off - b.off)
+    .slice(0, 80);
+  const angles = [0, Math.PI / 12, -Math.PI / 12];
+  const step = size * 0.3;
+  interface Spot {
+    score: number;
+    parts: Array<{ text: string; at: Point }>;
+    angle: number;
+    font: number;
+    mid: Point;
+    span: number;
+  }
+  let best: Spot | null = null;
+  let fitAt = 0;
+  for (let font = waterCeiling(size, maxDepth); font >= size * 0.32; font *= 0.9) {
+    if (fitAt > 0 && font < fitAt * 0.85) break;
+    const margin = font * 0.45;
+    for (const [first, second] of cuts) {
+      const w1 = emOf(first) * font;
+      const w2 = emOf(second) * font;
+      const reach = (w1 + w2) * 2;
+      for (const { at, off } of origins) {
+        for (const angle of angles) {
+          const c = Math.cos(angle);
+          const sn = Math.sin(angle);
+          // Stretches of open water along the baseline, as [start, end] offsets from the origin.
+          const runs: Array<[number, number]> = [];
+          let from: number | null = null;
+          for (let t = -reach; t <= reach; t += step) {
+            const ok = [-font * 0.55, 0, font * 0.55].every((lift) => wet(at.x + c * t - sn * lift, at.y + sn * t + c * lift, size * 0.2));
+            if (ok && from === null) from = t;
+            if (!ok && from !== null) {
+              runs.push([from, t - step]);
+              from = null;
+            }
+          }
+          if (from !== null) runs.push([from, reach]);
+          // The first part in an earlier stretch, the second in a later one, nearest each other.
+          for (let a = 0; a < runs.length; a++) {
+            if (runs[a]![1] - runs[a]![0] < w1 + 2 * margin) continue;
+            for (let b = a + 1; b < runs.length; b++) {
+              if (runs[b]![1] - runs[b]![0] < w2 + 2 * margin) continue;
+              const t1 = runs[a]![1] - margin - w1 / 2;
+              const t2 = runs[b]![0] + margin + w2 / 2;
+              const gap = t2 - w2 / 2 - (t1 + w1 / 2);
+              if (gap > 3 * Math.max(w1, w2)) continue;
+              const mid = { x: at.x + c * ((t1 + t2) / 2), y: at.y + sn * ((t1 + t2) / 2) };
+              const score = font / size - 0.15 * Math.min(1, Math.hypot(mid.x - centre.x, mid.y - centre.y) / bodyRadius) - 0.12 * Math.abs(sn) - 0.05 * (gap / (w1 + w2)) - 0.0001 * off;
+              if (!best || score > best.score) {
+                best = {
+                  score,
+                  parts: [
+                    { text: first, at: { x: at.x + c * t1, y: at.y + sn * t1 } },
+                    { text: second, at: { x: at.x + c * t2, y: at.y + sn * t2 } },
+                  ],
+                  angle,
+                  font,
+                  mid,
+                  span: t2 + w2 / 2 - (t1 - w1 / 2),
+                };
+              }
+              break;
+            }
+          }
+        }
+      }
+    }
+    if (best && fitAt === 0) fitAt = font;
+  }
+  if (!best) return null;
+  const found: Spot = best;
+  const glyphs = found.parts.flatMap((part) => glyphsStraight(part.text, found.font, part.at, found.angle, options));
+  return { text, at: found.mid, size: found.font, rotation: found.angle, glyphs, width: found.span };
+}
+
+/**
  * `pathFor` supplies the course as drawn when it is not the hex-centre polyline
  * (a meandering river), so the name sits on the line the reader sees.
  */
@@ -484,7 +603,11 @@ export function placeWaterLabels(
     const winding = base && (!straight || straight.size < size * WATER_FONT_SHALLOW)
       ? spineLabel(text, body.hexes, cols, rows, size, face, base)
       : null;
-    const open = winding && (!straight || winding.size > straight.size * 1.25) ? winding : straight;
+    const single = winding && (!straight || winding.size > straight.size * 1.25) ? winding : straight;
+    // An ocean cut by islands may carry only a small single run; its words,
+    // set either side of the obstruction, can be meaningfully larger.
+    const divided = base ? splitLabel(text, body.hexes, cols, rows, size, face, base) : null;
+    const open = divided && (!single || divided.size > single.size * 1.25) ? divided : single;
     if (open) {
       out.push(open);
       continue;

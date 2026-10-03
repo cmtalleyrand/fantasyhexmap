@@ -72,3 +72,21 @@ test('a curving gulf is named along its water, in larger type than any straight 
   const turn = Math.abs(label.glyphs[label.glyphs.length - 1]!.rotation - label.glyphs[0]!.rotation);
   assert.ok(turn > 0.3, 'the name bends with the channel');
 });
+
+test('an ocean cut by an island group is named a word either side of it, in larger type', () => {
+  const cols = 24;
+  const rows = 3;
+  // Open water at both ends, a short wall of islands between: neither end holds the whole name at a good size.
+  const wallFrom = 6;
+  const wallTo = 13;
+  const ocean = seaWhere(cols, rows, (c) => c < wallFrom || (c > wallTo && c < 20));
+  const [label] = placeWaterLabels([{ name: 'Yqafran Ocean', hexes: ocean.hexes }], cols, SIZE, undefined, ocean.base, rows);
+  assert.ok(label?.glyphs, 'the ocean is named letter by letter');
+  const wall = { from: hexCenter(wallFrom, 1, SIZE).x, to: hexCenter(wallTo, 1, SIZE).x };
+  assert.equal(label.glyphs.map((g) => g.ch).join(''), 'YQAFRANOCEAN', 'two words, set apart');
+  const yqafran = label.glyphs.slice(0, 7);
+  const oceanWord = label.glyphs.slice(7);
+  assert.ok(yqafran.every((g) => g.x < wall.from), 'the first word stands on the near side of the islands');
+  assert.ok(oceanWord.every((g) => g.x > wall.to), 'the second word stands on the far side');
+  assert.ok(label.size >= SIZE * 0.6, `type ${label.size.toFixed(1)} is larger than a single run could carry`);
+});
