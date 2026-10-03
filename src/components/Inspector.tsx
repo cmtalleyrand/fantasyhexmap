@@ -672,7 +672,7 @@ function HexShapePanel(props: SubProps) {
           <p className="hint" style={{ margin: 0 }}>
             How much of the hex is drawn as land, and counted in surface areas.{usual !== '' ? ` Usually ${usual}%.` : ''}
             {landHexes.some((i) => isIslandType(base![i]))
-              ? ` An island hex adds up its islands (${dims.smallIslandPercent}% for each small one, ${dims.largeIslandPercent}% for each large one, plus ${dims.mainlandPercent}% for a mainland); its islands are drawn at that size, and are set in nearer the middle if they would not otherwise fit.`
+              ? ` An island hex adds up its islands (${dims.smallIslandPercent}% for each small one, ${dims.largeIslandPercent}% for each large one, plus ${dims.mainlandPercent}% for a mainland); its islands are drawn at that size, kept apart and inside the hex; if they cannot all fit at that size they are drawn as large as they can be.`
               : ''}
           </p>
         </>

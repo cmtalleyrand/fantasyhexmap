@@ -9,7 +9,7 @@ import {
 import { clampPolityOpacity, insecureOrigin, looksLikeKey, type Prefs } from '../api/settings.js';
 import { cryptoAvailable } from '../api/keyvault.js';
 import type { TransportMode } from '../api/client.js';
-import { DEFAULT_LAKE_IRREGULARITY, IRREGULARITY_VALUES, type HexDimensions, type Irregularity, type MapState } from '../../shared/types.js';
+import { DEFAULT_IRREGULARITY, DEFAULT_LAKE_IRREGULARITY, IRREGULARITY_VALUES, SHAPED_TYPES, type HexDimensions, type Irregularity, type MapState } from '../../shared/types.js';
 import { POLITY_NAME_MIN_OPTIONS, parsePolityNameMin } from '../render/labels.js';
 import HexSizeInput from './HexSizeInput.js';
 import MapStylePicker from './MapStylePicker.js';
@@ -145,12 +145,16 @@ export default function SettingsDialog(props: SettingsDialogProps) {
               value={irregular ?? ''}
               onChange={(e) => setIrregular(e.target.value === '' ? null : (e.target.value as Irregularity))}
             >
-              <option value="">Each type's own (coasts smooth, islands and ice wavy)</option>
+              <option value="">Each type's own (listed below)</option>
               {IRREGULARITY_VALUES.map((r) => <option key={r} value={r}>{r}</option>)}
             </select>
             <p className="hint">
               How ragged shorelines and ice edges are drawn on every coast, island, isthmus, strait and ice
               hex whose irregularity you have not set by hand. Hexes you have set keep their own.
+            </p>
+            <p className="hint" aria-label="Each type's own irregularity">
+              With no default chosen, each type is drawn: {SHAPED_TYPES.map((t) => `${t} ${DEFAULT_IRREGULARITY[t].toLowerCase()}`).join(', ')}.
+              No map style changes these; choose a default above to make all of them rougher.
             </p>
             <label htmlFor="default-lake-irregularity">Default lake shore irregularity</label>
             <select

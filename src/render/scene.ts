@@ -77,7 +77,6 @@ import {
   circlePath,
   coastalIslandSide,
   coastGeometryOf,
-  landInsetDepth,
   landTest,
   lakeIslandsOf,
   pieceDonor,
@@ -92,6 +91,7 @@ import {
   lakeComponents,
   type CoastGeometry,
   type CoastEdge,
+  type Roughness,
   raggedEdge,
 } from './coast.js';
 import { polygonPath, type CitySymbol, type PathCmd, type Prim } from './prims.js';
@@ -106,7 +106,8 @@ import { glyphAdvances, glyphsStraight } from './glyphs.js';
 import { BUNDLED_FACES, LETTERINGS, type FaceRole } from './lettering.js';
 import { signed, unit } from './seed.js';
 import { ELEVATION_RANK, floeFringe, glacierEdges, glacierFlow, glacierMarginPrims, glacierShading, glacierShelf, iceSeam, nearHexes, pathPolylines, seaIcePrims } from './ice.js';
-import { landFraction, normaliseHexDimensions } from '../../shared/surfaceArea.js';
+import { coveredArea, driftOf, nearestOn, shapeCoast, type ShapeMemo, type ShapeTarget } from './footprint.js';
+import { drawnLandFraction, normaliseHexDimensions } from '../../shared/surfaceArea.js';
 import { CLASSIC_STYLE, type ElevationStyle, type MapStyle } from './styles.js';
 import { extendToRim, rimPieces } from './rim.js';
 import { grainTile } from './texture.js';
@@ -257,6 +258,12 @@ interface TracedCoast {
 
 const coastCache = new WeakMap<object, TracedCoast & { key: string }>();
 
+/** Hexes already cut to their shares, kept between scenes so that editing one hex does not cut the rest again. */
+const shapeMemo: ShapeMemo = new Map();
+
+/** The size islands are drawn at to cover their share, by everything that fixes their shape (see `islandScale`). */
+const islandScaleMemo = new Map<string, number>();
+
 /** How far (in hex sizes) a smoothed coast may stray from its plain line, by irregularity. */
 /** How an island's outline is roughened by irregularity: its wobble against the usual (Irregular), extra control points, and skerries off each large island. */
 const ISLE_IRREGULARITY: Record<Irregularity, { wobble: number; extraPoints: number; skerries: number }> = {
@@ -291,7 +298,7 @@ function cachedCoast(
   dimensions: HexDimensions,
   seed: string,
 ): TracedCoast {
-  const key = `${cols}x${rows}@${size}/${smooth}/${seed}/${defaultIrregularity ?? ''}/${shapesSignature(shapes)}/${dimensions.coastalLandPercent},${dimensions.glacierPercent}`;
+  const key = `${cols}x${rows}@${size}/${smooth}/${seed}/${defaultIrregularity ?? ''}/${shapesSignature(shapes)}/${dimensions.coastalLandPercent},${dimensions.glacierPercent},${dimensions.isthmusPercent},${dimensions.straitPercent},${dimensions.mainlandPercent}`;
   const hit = coastCache.get(base);
   if (hit && hit.key === key) return hit;
   const lakeIslands = lakeIslandsOf(base, cols, rows);
@@ -306,41 +313,57 @@ function cachedCoast(
   };
   // The sea's coast: lakes count as land here, as they have bodies of their own.
   const seaEdges = surfaceEdges(surface, size, (side) => side !== 'sea');
-  // A coastal or glacier hex that is not all land is drawn with its coast set in
-  // from the hex's own edge, far enough that the land left is its share.
-  // The edges it has against a lake count too: the lake is drawn over the hex, so
-  // its shore keeps the same depth (see `lakeBodyPath`'s `inset`).
+  // The edges a coast hex has against a lake count towards its depth, though only the sea's are cut: the lake is drawn over it.
   const lakeEdges = surfaceEdges(surface, size, (side) => side !== 'lake').filter((edge) => edge.across !== undefined && surface.whole[edge.across] === 'lake');
-  const wetEdges = new Map<number, CoastEdge[]>();
-  for (const edge of [...seaEdges, ...lakeEdges]) {
-    const i = edge.hex;
-    if (i === undefined || (base[i] !== 'Coastal Land' && base[i] !== 'Glacier')) continue;
-    wetEdges.set(i, [...(wetEdges.get(i) ?? []), edge]);
+  // Every hex that has a share of land to keep is reshaped until it has it: a
+  // coast hex is cut back from its sea edges, a split hex has its land boundary
+  // moved. The coast is then traced round what results.
+  const targets = new Map<number, ShapeTarget>();
+  for (let i = 0; i < base.length; i++) {
+    const share = drawnLandFraction(base[i], dimensions, shapes?.[String(i)]);
+    if (share === null) continue;
+    if (surface.split.has(i)) {
+      targets.set(i, { share, kind: base[i] === 'Strait' ? 'channel' : base[i] === 'Isthmus' ? 'neck' : 'inset' });
+    } else if (surface.whole[i] === 'land' && share < 1) {
+      // Whole hexes of land are cut back from the sea; a strait drawn whole is all water.
+      targets.set(i, { share, kind: 'inset' });
+    }
   }
-  const insets = new Map<number, number>();
-  for (const [i, wet] of wetEdges) {
-    const share = landFraction(base[i], undefined, dimensions, shapes?.[String(i)]);
-    if (share >= 1) continue;
-    insets.set(i, landInsetDepth(hexCorners(i % cols, Math.floor(i / cols), size), wet, share));
+  const rough: Roughness | undefined = smooth
+    ? {
+        size,
+        amplitude: (edge: CoastEdge) => Math.max(amplitudeOf(edge.hex), amplitudeOf(edge.across)),
+        noise: (x, y, k) => unit(seed, 'coast', Math.round(x * 1000), Math.round(y * 1000), k),
+      }
+    : undefined;
+  if (shapeMemo.size > 30000) shapeMemo.clear();
+  const memo = shapeMemo;
+  const trace = (shares: ReadonlyMap<number, ShapeTarget>) => {
+    const shaped = shares.size > 0 ? shapeCoast(seaEdges, surface, size, shares, lakeEdges, memo) : null;
+    return { shaped, geometry: coastGeometryOf(shaped?.edges ?? seaEdges, smooth, rough, shaped ?? undefined) };
+  };
+  let { shaped, geometry } = trace(targets);
+  // A smoothed or roughened coast takes some land from a hex and gives some back, so the land drawn is a little
+  // off the share the hex was cut to. Cut it again to the share less what the coast moved, to draw the share itself.
+  const hexArea = 1.5 * Math.sqrt(3) * size * size;
+  let aimed = targets;
+  for (let pass = 0; pass < 2 && shaped && smooth; pass++) {
+    const drift = driftOf(geometry, geometry.strips.length, new Set(targets.keys()), cols, rows, size, (d) => pathPolylines(d, 6));
+    let off = 0;
+    const next = new Map<number, ShapeTarget>();
+    for (const [i, target] of targets) {
+      // Only a hex that is a point or more off is cut again; the rest are left as they are.
+      const moved = (drift.get(i) ?? 0) / hexArea;
+      const was = aimed.get(i)!.share;
+      const share = Math.abs(target.share - moved - was) < 0.01 ? was : Math.min(1, Math.max(0, target.share - moved));
+      off = Math.max(off, Math.abs(share - was));
+      next.set(i, { ...target, share });
+    }
+    if (off === 0) break;
+    aimed = next;
+    ({ shaped, geometry } = trace(aimed));
   }
-  const geometry = coastGeometryOf(
-    seaEdges,
-    smooth,
-    smooth
-      ? {
-          size,
-          amplitude: (edge: CoastEdge) => Math.max(amplitudeOf(edge.hex), amplitudeOf(edge.across)),
-          noise: (x, y, k) => unit(seed, 'coast', Math.round(x * 1000), Math.round(y * 1000), k),
-        }
-      : undefined,
-    insets.size > 0
-      ? {
-          depth: (edge) => insets.get(edge.hex ?? -1) ?? 0,
-          hex: (edge) => hexCorners((edge.hex ?? 0) % cols, Math.floor((edge.hex ?? 0) / cols), size),
-        }
-      : undefined,
-  );
-  const entry = { key, geometry, lakes, lakeIslands, surface, insets, onLand: landTest(surface, wetEdges, insets, size) };
+  const entry = { key, geometry, lakes, lakeIslands, surface, insets: shaped?.insets ?? new Map<number, number>(), onLand: landTest(surface, shaped?.land ?? new Map(), size) };
   coastCache.set(base, entry);
   return entry;
 }
@@ -859,6 +882,12 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
         for (const overlay of overlays(donor)) prims.push({ kind: 'path', d: polygonPath(piece.points), fill: overlay });
       }
     }
+    // Water that a reshaped hex takes as land, in the colours of the land it grows from.
+    for (const s of coast?.grown ?? []) {
+      const fill = hexFill(s.donor);
+      prims.push({ kind: 'path', d: s.d, fill, stroke: fill, strokeWidth: seal });
+      for (const overlay of overlays(s.donor)) prims.push({ kind: 'path', d: s.d, fill: overlay });
+    }
     // Corners of land that the smoothed coast cuts off become water.
     for (const s of coast?.toWater ?? []) {
       const fill = waterColour(s.donor);
@@ -972,51 +1001,180 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
     return biggest?.c ?? c;
   };
   const dimensions = normaliseHexDimensions(map.hexDimensions);
-  /**
-   * How many times its per-island share each island of a hex is drawn at: 1
-   * unless the hex sets its own land share, in which case its islands share
-   * what it sets (less the mainland's share in a mainland hex) in the same
-   * proportions their own shares have.
-   */
-  const islandShareScale = (i: number): number => {
-    const set = hexShapeFor(base![i], map.hexShapes?.[String(i)]).land;
-    if (set === undefined) return 1;
-    const spec = islandSpecFor(base![i], map.islandSpecs?.[String(i)]);
-    const usual = spec.large * dimensions.largeIslandPercent + spec.small * dimensions.smallIslandPercent;
-    const islands = terrain?.split.has(i) ? Math.max(0, set - dimensions.mainlandPercent) : set;
-    return usual > 0 ? islands / usual : 1;
-  };
   const hexArea = 1.5 * Math.sqrt(3) * size * size;
   /**
-   * The islands of an island hex as drawn. The layout says where each lies and
-   * its shape; its size is its share of the hex, so the land drawn is the
-   * percentage the hex is set to. An island that would then spill over its
-   * hex's edge is drawn nearer the centre.
+   * The part of an island hex (0 to 1) its islands are to cover: what its
+   * islands add up to, or, when the hex sets its own land share, that share
+   * less the mainland's in a mainland hex.
    */
-  const sizedIsles = (i: number): Isle[] => {
+  const islandCover = (i: number): number => {
+    const set = hexShapeFor(base![i], map.hexShapes?.[String(i)]).land;
+    const spec = islandSpecFor(base![i], map.islandSpecs?.[String(i)]);
+    const usual = spec.large * dimensions.largeIslandPercent + spec.small * dimensions.smallIslandPercent;
+    if (set === undefined) return Math.min(100, usual) / 100;
+    const islands = base![i] === 'Mainland and islands' ? Math.max(0, set - dimensions.mainlandPercent) : set;
+    return Math.min(100, islands) / 100;
+  };
+  /** The land of a mainland hex islands must keep clear of. */
+  const mainlandOf = (i: number): Point[][] => {
+    const shaped = coast?.land.get(i);
+    if (shaped) return shaped;
+    const split = terrain?.split.get(i);
+    if (!split) return base![i] === 'Mainland and islands' && !isWater(i) ? [hexCorners(i % cols, Math.floor(i / cols), size)] : [];
+    return split.sides.flatMap((side, p) => (side === 'land' ? [piecePoints(i % cols, Math.floor(i / cols), p, size)] : []));
+  };
+  /**
+   * The islands of an island hex as drawn, `times` the size of their own shares
+   * (see `islandScale`). The layout says where each lies and its shape; its size
+   * is its share of the hex. An island that would then spill over its hex's edge
+   * is drawn nearer the centre, and one that would run into the hex's mainland
+   * is drawn clear of it.
+   */
+  const layoutAt = (i: number, times: number, floor = times): { isles: Isle[]; crowd: number } => {
     const centre = hexCenter(i % cols, Math.floor(i / cols), size);
-    const times = islandShareScale(i);
-    return islandLayout(i).map((isle) => {
-      const share = (isle.large ? dimensions.largeIslandPercent : dimensions.smallIslandPercent) * times;
+    const mainland = base![i] === 'Mainland and islands' ? mainlandOf(i) : [];
+    const layout = islandLayout(i);
+    const sized = (t: number) => layout.map((isle) => {
+      const share = (isle.large ? dimensions.largeIslandPercent : dimensions.smallIslandPercent) * t;
       const area = (Math.min(100, Math.max(0, share)) / 100) * hexArea;
       const aspect = isle.rx / isle.ry;
       const rx = Math.min(size * 0.82, Math.sqrt((area * aspect) / Math.PI));
       const ry = Math.min(size * 0.82, Math.sqrt(area / (aspect * Math.PI)));
-      const dx = isle.c.x - centre.x;
-      const dy = isle.c.y - centre.y;
-      const away = Math.hypot(dx, dy);
-      const room = Math.max(0, size * 0.836 - Math.max(rx, ry) * 1.1);
-      const f = away > room && away > 0 ? room / away : 1;
-      return { ...isle, rx, ry, c: { x: centre.x + dx * f, y: centre.y + dy * f } };
+      return { ...isle, rx, ry };
     });
+    const isles = sized(times);
+    // The place the layout gives each island: where an island of the share's own size is held to inside the hex.
+    const anchors = sized(floor).map((s) => {
+      const dx = s.c.x - centre.x;
+      const dy = s.c.y - centre.y;
+      const away = Math.hypot(dx, dy);
+      const room = Math.max(0, size * 0.836 - Math.max(s.rx, s.ry) * 1.1);
+      const f = away > room && away > 0 ? room / away : 1;
+      return { x: dx * f, y: dy * f };
+    });
+    const drawn = isles.map((s) => s.rx > 0 && s.ry > 0);
+    // Each island as a circle a little wider than its outline, and how far from the hex's middle it may lie.
+    const rho = isles.map((s) => Math.sqrt(s.rx * s.ry) * 1.03);
+    const gap = size * 0.03;
+    const at = anchors.map((q) => ({ ...q }));
+    // Where an island may lie once it has to be moved: whole inside the hex, not just within a circle of it.
+    const apothem = size * 0.836;
+    /** How far past the hex's edge island k's outline reaches where it lies. */
+    const outside = (k: number): number => {
+      const isle = isles[k]!;
+      let worst = 0;
+      for (let e = 0; e < 6; e++) {
+        const angle = (e * Math.PI) / 3;
+        const along = Math.cos(angle - isle.axis) * isle.rx;
+        const across = Math.sin(angle - isle.axis) * isle.ry;
+        const reach = knobs.islands === 'blob' ? Math.hypot(along, across) : Math.sqrt(isle.rx * isle.ry);
+        worst = Math.max(worst, at[k]!.x * Math.cos(angle) + at[k]!.y * Math.sin(angle) + reach * 1.1 - apothem);
+      }
+      return worst;
+    };
+    const contain = (k: number) => {
+      const isle = isles[k]!;
+      for (let pass = 0; pass < 2; pass++) {
+        for (let e = 0; e < 6; e++) {
+          const angle = (e * Math.PI) / 3;
+          const nx = Math.cos(angle);
+          const ny = Math.sin(angle);
+          // How far the island's outline reaches towards this edge.
+          const along = Math.cos(angle - isle.axis) * isle.rx;
+          const across = Math.sin(angle - isle.axis) * isle.ry;
+          // A dot is a circle of the ellipse's mean radius; a blob reaches as far as the ellipse does.
+          const reach = knobs.islands === 'blob' ? Math.hypot(along, across) : Math.sqrt(isle.rx * isle.ry);
+          const lim = Math.max(0, apothem - reach * 1.1);
+          const over = at[k]!.x * nx + at[k]!.y * ny - lim;
+          if (over > 0) at[k] = { x: at[k]!.x - nx * over, y: at[k]!.y - ny * over };
+        }
+      }
+    };
+    const pushFromMainland = (a: number): number => {
+      if (mainland.length === 0) return 0;
+      const here = { x: centre.x + at[a]!.x, y: centre.y + at[a]!.y };
+      const near = nearestOn(here, mainland);
+      const reach = rho[a]! + gap;
+      if (near.dist >= reach) return 0;
+      const out = near.dist > 1e-6
+        ? { x: (here.x - near.at.x) / near.dist, y: (here.y - near.at.y) / near.dist }
+        : (() => {
+            const len = Math.hypot(at[a]!.x, at[a]!.y);
+            return len > 1e-6 ? { x: at[a]!.x / len, y: at[a]!.y / len } : { x: 1, y: 0 };
+          })();
+      const push = reach - near.dist + 0.01;
+      at[a] = { x: at[a]!.x + out.x * push, y: at[a]!.y + out.y * push };
+      return push;
+    };
+    // First clear of the mainland, which is where the layout did not know to look.
+    for (let step = 0; step < 40; step++) {
+      let moved = 0;
+      isles.forEach((_, a) => {
+        if (drawn[a]) moved += pushFromMainland(a);
+      });
+      isles.forEach((_, k) => contain(k));
+      if (moved < 0.005) break;
+    }
+    // Then apart from each other, without leaving the place the layout gave them (a coastal group keeps to its coast).
+    const anchor = at.map((q) => ({ ...q }));
+    const leash = size * 0.14;
+    for (let step = 0; step < 60; step++) {
+      let moved = 0;
+      for (let a = 0; a < isles.length; a++) {
+        if (!drawn[a]) continue;
+        for (let b = a + 1; b < isles.length; b++) {
+          if (!drawn[b]) continue;
+          const need = rho[a]! + rho[b]! + gap;
+          let dx = at[b]!.x - at[a]!.x;
+          let dy = at[b]!.y - at[a]!.y;
+          let d = Math.hypot(dx, dy);
+          if (d >= need) continue;
+          if (d < 1e-6) {
+            const angle = (a * 7 + b * 3) * 0.9;
+            dx = Math.cos(angle);
+            dy = Math.sin(angle);
+            d = 1;
+          }
+          // The smaller island gives more ground: the larger holds the place the layout gave it.
+          const ma = rho[a]! * rho[a]!;
+          const mb = rho[b]! * rho[b]!;
+          const push = need - d + 0.02;
+          const pa = (push * mb) / (ma + mb);
+          const pb = (push * ma) / (ma + mb);
+          at[a] = { x: at[a]!.x - (dx / d) * pa, y: at[a]!.y - (dy / d) * pa };
+          at[b] = { x: at[b]!.x + (dx / d) * pb, y: at[b]!.y + (dy / d) * pb };
+          moved += push;
+        }
+        moved += pushFromMainland(a);
+      }
+      isles.forEach((_, k) => {
+        contain(k);
+        const off = Math.hypot(at[k]!.x - anchor[k]!.x, at[k]!.y - anchor[k]!.y);
+        if (off > leash) at[k] = { x: anchor[k]!.x + ((at[k]!.x - anchor[k]!.x) / off) * leash, y: anchor[k]!.y + ((at[k]!.y - anchor[k]!.y) / off) * leash };
+      });
+      if (moved < 0.005) break;
+    }
+    // How far islands still run into each other, the mainland or the hex's edge, once pushed as far as they go.
+    let crowd = 0;
+    for (let a = 0; a < isles.length; a++) {
+      if (!drawn[a]) continue;
+      crowd = Math.max(crowd, outside(a));
+      for (let b = a + 1; b < isles.length; b++) {
+        if (drawn[b]) crowd = Math.max(crowd, rho[a]! + rho[b]! + gap * 0.5 - Math.hypot(at[b]!.x - at[a]!.x, at[b]!.y - at[a]!.y));
+      }
+      if (mainland.length > 0) crowd = Math.max(crowd, rho[a]! + gap * 0.5 - nearestOn({ x: centre.x + at[a]!.x, y: centre.y + at[a]!.y }, mainland).dist);
+    }
+    return { isles: isles.map((s, k) => ({ ...s, c: { x: centre.x + at[k]!.x, y: centre.y + at[k]!.y } })), crowd };
   };
-  /** The islands of an island hex, as closed paths. */
-  const islandPath = (i: number): PathCmd[] => {
+  const sizedIslesAt = (i: number, times: number): Isle[] => layoutAt(i, times, islandFloor(i)).isles;
+  /** The islands of an island hex, as closed paths, for islands drawn `times` their share. */
+  const islandPathAt = (i: number, times: number): PathCmd[] => islandPathFrom(i, sizedIslesAt(i, times));
+  const islandPathFrom = (i: number, isles: Isle[]): PathCmd[] => {
     const rand = islandRand(i);
     const blob = knobs.islands === 'blob';
     const level = levelOf(i);
     const irregular = ISLE_IRREGULARITY[level];
-    return sizedIsles(i).flatMap((isle, k) => {
+    return isles.flatMap((isle, k) => {
       const sub = (q: number) => rand(1000 + k * 37 + q);
       const big = isle.large;
       const { rx, ry } = isle;
@@ -1036,6 +1194,81 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
       return [...body, ...skerries];
     });
   };
+  /**
+   * How many times its own share each island of a hex is drawn at, found so
+   * that the land the islands really cover (the outline is smoothed and
+   * roughened, which takes some of the ellipse it starts from) is the part of
+   * the hex they are to. Islands cannot grow past what fits in the hex, so a
+   * share beyond that is drawn as large as they go.
+   */
+  /** The size (times its own share) the layout places islands at, as they were before the share was measured. */
+  const islandFloor = (i: number): number => {
+    const set = hexShapeFor(base![i], map.hexShapes?.[String(i)]).land;
+    const spec = islandSpecFor(base![i], map.islandSpecs?.[String(i)]);
+    const usual = spec.large * dimensions.largeIslandPercent + spec.small * dimensions.smallIslandPercent;
+    return set === undefined || usual <= 0 ? 1 : (islandCover(i) * 100) / usual;
+  };
+  const islandScales = new Map<number, number>();
+  const islandScale = (i: number): number => {
+    const known = islandScales.get(i);
+    if (known !== undefined) return known;
+    const spec = islandSpecFor(base![i], map.islandSpecs?.[String(i)]);
+    const usual = (spec.large * dimensions.largeIslandPercent + spec.small * dimensions.smallIslandPercent) / 100;
+    const want = islandCover(i);
+    // What fixes the islands' shapes and places, and so the size that covers `want`.
+    const mainland = base![i] === 'Mainland and islands' ? mainlandOf(i).map((ring) => ring.map((q) => `${Math.round(q.x * 10)},${Math.round(q.y * 10)}`).join(' ')) : [];
+    const memoKey = JSON.stringify([size, seed, i, cols, levelOf(i), knobs.islands, spec, Math.round(coastward(i, spec) * 1000), want, dimensions.largeIslandPercent, dimensions.smallIslandPercent, mainland]);
+    let times = islandScaleMemo.get(memoKey);
+    if (times === undefined) {
+      times = 1;
+      const floor = islandFloor(i);
+      if (usual <= 0 || want <= 0) times = want > 0 ? 1 : 0;
+      else {
+        const corners = hexCorners(i % cols, Math.floor(i / cols), size);
+        // Islands may not run into each other or the mainland, so there is a size past which they cannot grow.
+        const room = size * 0.004;
+        // Area grows about as the square of the size, so each try lands close. A size that is too
+        // crowded is not measured; the search turns back towards the largest size that is not.
+        let t = Math.min(Math.max(2, (want / usual) * 4), (want / usual) * 1.12);
+        let best = { t: floor, off: Infinity };
+        let fits = 0;
+        let over = Infinity;
+        let below = 0;
+        let above = Infinity;
+        for (let k = 0; k < 16; k++) {
+          const laid = layoutAt(i, t, floor);
+          let next: number;
+          if (laid.crowd > room) {
+            over = Math.min(over, t);
+            next = fits > 0 ? (fits + over) / 2 : t * 0.85;
+          } else {
+            fits = Math.max(fits, t);
+            const c = coveredArea(pathPolylines(islandPathFrom(i, laid.isles), 4), corners, 64) / hexArea;
+            const off = Math.abs(c - want);
+            if (off < best.off) best = { t, off };
+            if (off < 0.002 || c <= 1e-6) break;
+            if (c < want) below = Math.max(below, t);
+            else above = Math.min(above, t);
+            next = above < Infinity && below > 0 ? (below + above) / 2 : t * Math.max(0.6, Math.min(1.6, Math.sqrt(want / c)));
+            if (next >= over) next = (fits + over) / 2;
+          }
+          // As large as the hex lets them be, or no further to go.
+          if (over < Infinity && fits > 0 && over - fits <= over * 0.01) break;
+          if (Math.abs(next - t) < t * 0.0005) break;
+          t = next;
+        }
+        // Islands that cannot all fit at their share are drawn smaller, not run together.
+        times = fits > 0 && over < Infinity ? Math.min(best.t, fits) : best.t;
+      }
+      if (islandScaleMemo.size > 20000) islandScaleMemo.clear();
+      islandScaleMemo.set(memoKey, times);
+    }
+    islandScales.set(i, times);
+    return times;
+  };
+  const sizedIsles = (i: number): Isle[] => sizedIslesAt(i, islandScale(i));
+  const islandPath = (i: number): PathCmd[] => islandPathAt(i, islandScale(i));
+
   /** The coast's paths, those that run off the map carried on to the page's edge. */
   const coastPaths = coast?.paths.map((d, c) => extendToRim(d, coast.chains[c]?.closed ?? true, rimBounds, size)) ?? [];
   const shorelines: PathCmd[] = [...coastPaths.flat(), ...islands.filter((i) => !lakeIslands.has(i)).flatMap(islandPath)];
@@ -1054,6 +1287,12 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
     // The open water of split hexes.
     const pieces: PathCmd[] = [];
     for (const [i, split] of terrain?.split ?? []) {
+      // A reshaped hex has only the water it was left with.
+      const left = coast?.water.get(i);
+      if (left && body === 'sea') {
+        pieces.push(...left);
+        continue;
+      }
       split.sides.forEach((side, p) => {
         if (side !== body || body === 'lake') return;
         piecePoints(i % cols, Math.floor(i / cols), p, size).forEach((q, k) => pieces.push([k === 0 ? 'M' : 'L', q.x, q.y]));
@@ -1255,7 +1494,7 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
         kind: 'group',
         clip: [
           ...hexesPath(glacierHexes, cols, size),
-          ...(coast?.toLand ?? []).filter((s) => base?.[s.donor] === 'Glacier').flatMap((s) => s.d),
+          ...[...(coast?.toLand ?? []), ...(coast?.grown ?? [])].filter((s) => base?.[s.donor] === 'Glacier').flatMap((s) => s.d),
         ],
         prims: shelf,
       });
@@ -1346,7 +1585,7 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
         touchLake(owner, i);
       });
     }
-    for (const sliver of traced?.geometry.toLand ?? []) {
+    for (const sliver of [...(traced?.geometry.toLand ?? []), ...(traced?.geometry.grown ?? [])]) {
       const owner = polities.owner[sliver.donor];
       if (owner) addLand(owner, sliver.d);
     }

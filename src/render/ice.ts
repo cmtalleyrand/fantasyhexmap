@@ -73,6 +73,17 @@ export function pathPolylines(d: PathCmd[], steps = 5): Point[][] {
         });
       }
       at = { x: c[3], y: c[4] };
+    } else if (c[0] === 'C') {
+      const run = out[out.length - 1];
+      for (let s = 1; s <= steps; s++) {
+        const t = s / steps;
+        const u = 1 - t;
+        run?.push({
+          x: u * u * u * at.x + 3 * u * u * t * c[1] + 3 * u * t * t * c[3] + t * t * t * c[5],
+          y: u * u * u * at.y + 3 * u * u * t * c[2] + 3 * u * t * t * c[4] + t * t * t * c[6],
+        });
+      }
+      at = { x: c[5], y: c[6] };
     } else if (c[0] === 'Z') {
       out[out.length - 1]?.push(start);
       at = start;

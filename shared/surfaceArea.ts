@@ -69,6 +69,33 @@ export function landFraction(
 }
 
 /**
+ * How much of a hex the coast draws as land, from 0 to 1: its share, except that
+ * a Mainland and islands hex draws only its mainland there (its islands are drawn
+ * separately, from the rest of the share), and a share set below the mainland's
+ * leaves the mainland all of it. Null for a type with no share to draw.
+ */
+export function drawnLandFraction(
+  value: BaseGeo | null | undefined,
+  dimensions: HexDimensions,
+  shape?: HexShape,
+): number | null {
+  switch (value) {
+    case 'Coastal Land':
+    case 'Glacier':
+    case 'Isthmus':
+    case 'Strait':
+      return landFraction(value, undefined, dimensions, shape);
+    case 'Mainland and islands': {
+      const set = hexShapeFor(value, shape).land;
+      const mainland = Math.min(100, Math.max(0, dimensions.mainlandPercent));
+      return (set === undefined ? mainland : Math.min(mainland, set)) / 100;
+    }
+    default:
+      return null;
+  }
+}
+
+/**
  * Returns land area by polity id. A pointy-top hex occupies 3/4 of its
  * flat-to-flat width times its corner-to-corner height.
  */
