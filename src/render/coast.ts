@@ -451,7 +451,7 @@ function roughPiece(a: Point, p: Point, b: Point, amplitude: number, rough: Roug
  * side (land lost). The curve may cross the polyline, so each stretch on one
  * side becomes a polygon of its own.
  */
-function roughLobes(a: Point, p: Point, b: Point, samples: Point[]): Array<{ d: PathCmd[]; towardWater: boolean; at: number }> {
+function roughLobes(a: Point, p: Point, b: Point, samples: Point[]): Array<{ d: PathCmd[]; towardWater: boolean; leg: 0 | 1 }> {
   const m0 = mid(a, p);
   const m1 = mid(p, b);
   const side = (q: Point): number => {
@@ -465,8 +465,10 @@ function roughLobes(a: Point, p: Point, b: Point, samples: Point[]): Array<{ d: 
     return (ex * (q.y - from.y) - ey * (q.x - from.x)) / len;
   };
   const sides = samples.map((q, j) => (j === 0 || j === samples.length - 1 ? 0 : side(q)));
-  const lobes: Array<{ d: PathCmd[]; towardWater: boolean; at: number }> = [];
+  const lobes: Array<{ d: PathCmd[]; towardWater: boolean; leg: 0 | 1 }> = [];
   const half = samples.length >> 1;
+  const leg = (q: Point): 0 | 1 => (distanceToSegment(q, m0, p).dist <= distanceToSegment(q, p, m1).dist ? 0 : 1);
+  const polygon = (ring: Point[]): PathCmd[] => [...ring.map((q, i) => [i === 0 ? 'M' : 'L', q.x, q.y] as PathCmd), ['Z'] as PathCmd];
   let j = 1;
   while (j < samples.length - 1) {
     if (Math.abs(sides[j]!) < 1e-6) { j++; continue; }
@@ -482,13 +484,18 @@ function roughLobes(a: Point, p: Point, b: Point, samples: Point[]): Array<{ d: 
     };
     const before = cross(j - 1, j);
     const after = cross(k, k + 1);
-    const ring: Point[] = [before, ...samples.slice(j, k + 1), after];
-    if (j <= half && k >= half) ring.push(p);
-    lobes.push({
-      d: [...ring.map((q, i) => [i === 0 ? 'M' : 'L', q.x, q.y] as PathCmd), ['Z'] as PathCmd],
-      towardWater: sign < 0,
-      at: (j + k) / 2,
-    });
+    const towardWater = sign < 0;
+    if (j <= half && k >= half) {
+      // A lobe over the corner belongs to the two sides of it, cut where the
+      // coast passes the corner, which is where a border between them ends.
+      lobes.push({ d: polygon([before, ...samples.slice(j, half + 1), p]), towardWater, leg: 0 });
+      lobes.push({ d: polygon([p, ...samples.slice(half, k + 1), after]), towardWater, leg: 1 });
+    } else {
+      // Closed along the corner, not across it, when its ends are on different legs.
+      const ring: Point[] = [before, ...samples.slice(j, k + 1), after];
+      if (leg(before) !== leg(after)) ring.push(p);
+      lobes.push({ d: polygon(ring), towardWater, leg: (j + k) / 2 <= half ? 0 : 1 });
+    }
     j = k + 1;
   }
   return lobes;
@@ -720,7 +727,7 @@ export function coastGeometryOf(
         piece[k] = samples;
         anchors.set(key(p), samples[ROUGH_STEPS >> 1]!);
         for (const lobe of roughLobes(a, p, b, samples)) {
-          const edge = lobe.at <= samples.length / 2 ? incoming : outgoing;
+          const edge = lobe.leg === 0 ? incoming : outgoing;
           if (lobe.towardWater) toLand.push({ d: lobe.d, donor: edge.land });
           else toWater.push({ d: lobe.d, donor: edge.water });
         }
@@ -766,6 +773,96 @@ function roughPath(points: Point[], closed: boolean, piece: Array<Point[] | null
     d.push(['L', last.x, last.y]);
   }
   return d;
+}
+
+/**
+ * The land as the coast is drawn, as one shape to fill even-odd: each coast chain
+ * closed up. A chain that runs off the map is closed round the edge of the
+ * (`margin`-enlarged) page the way its land lies, to the right of travel, so
+ * the page's edge is clockwise from where it leaves to where it returns.
+ */
+export function drawnLand(geometry: CoastGeometry, width: number, height: number, margin: number): PathCmd[] {
+  const x0 = -margin;
+  const y0 = -margin;
+  const x1 = width + margin;
+  const y1 = height + margin;
+  const w = x1 - x0;
+  const h = y1 - y0;
+  const perimeter = 2 * (w + h);
+  const nearest = (p: Point): { at: Point; t: number } => {
+    const gaps = [p.y - y0, x1 - p.x, y1 - p.y, p.x - x0];
+    const side = gaps.indexOf(Math.min(...gaps));
+    const x = Math.max(x0, Math.min(x1, p.x));
+    const y = Math.max(y0, Math.min(y1, p.y));
+    if (side === 0) return { at: { x, y: y0 }, t: x - x0 };
+    if (side === 1) return { at: { x: x1, y }, t: w + (y - y0) };
+    if (side === 2) return { at: { x, y: y1 }, t: w + h + (x1 - x) };
+    return { at: { x: x0, y }, t: 2 * w + h + (y1 - y) };
+  };
+  const corners = [{ x: x1, y: y0, t: w }, { x: x1, y: y1, t: w + h }, { x: x0, y: y1, t: 2 * w + h }, { x: x0, y: y0, t: perimeter }];
+  const out: PathCmd[] = [];
+  geometry.chains.forEach((chain, c) => {
+    const path = geometry.paths[c];
+    if (!path || path.length === 0) return;
+    out.push(...path);
+    if (chain.closed) return;
+    const first = path[0]!;
+    const last = path[path.length - 1]!;
+    const from = nearest({ x: last.at(-2) as number, y: last.at(-1) as number });
+    const to = nearest({ x: first[1] as number, y: first[2] as number });
+    out.push(['L', from.at.x, from.at.y]);
+    const reach = (to.t - from.t + perimeter) % perimeter;
+    for (const corner of corners) {
+      if ((corner.t - from.t + perimeter) % perimeter < reach && corner.t !== from.t) out.push(['L', corner.x, corner.y]);
+    }
+    out.push(['L', to.at.x, to.at.y], ['Z']);
+  });
+  return out;
+}
+
+/**
+ * `d` with every closed outline wound the same way round. A clip made of several
+ * outlines keeps their union only if they wind alike: where two wind opposite
+ * ways, whatever they share cancels out and drops from the clip.
+ */
+export function alike(d: PathCmd[]): PathCmd[] {
+  const outlines: PathCmd[][] = [];
+  for (const c of d) {
+    if (c[0] === 'M') outlines.push([c]);
+    else outlines[outlines.length - 1]?.push(c);
+  }
+  return outlines.flatMap((outline) => {
+    const points: Point[] = [];
+    let at: Point = { x: 0, y: 0 };
+    for (const c of outline) {
+      if (c[0] === 'Z') continue;
+      if (c[0] === 'Q') {
+        for (let t = 1; t <= 4; t++) {
+          const u = t / 4;
+          points.push({ x: (1 - u) * (1 - u) * at.x + 2 * (1 - u) * u * c[1] + u * u * c[3], y: (1 - u) * (1 - u) * at.y + 2 * (1 - u) * u * c[2] + u * u * c[4] });
+        }
+      } else points.push({ x: c.at(-2) as number, y: c.at(-1) as number });
+      at = points[points.length - 1]!;
+    }
+    let area = 0;
+    points.forEach((a, k) => {
+      const b = points[(k + 1) % points.length]!;
+      area += a.x * b.y - b.x * a.y;
+    });
+    if (area >= 0) return outline;
+    // Walk the outline backwards: each segment ends where the one before it ended.
+    const stops: Point[] = [];
+    const segments = outline.filter((c) => c[0] !== 'Z');
+    for (const c of segments) stops.push({ x: c.at(-2) as number, y: c.at(-1) as number });
+    const reversed: PathCmd[] = [['M', stops[stops.length - 1]!.x, stops[stops.length - 1]!.y]];
+    for (let k = segments.length - 1; k >= 1; k--) {
+      const c = segments[k]!;
+      const to = stops[k - 1]!;
+      reversed.push(c[0] === 'Q' ? ['Q', c[1], c[2], to.x, to.y] : ['L', to.x, to.y]);
+    }
+    if (outline.some((c) => c[0] === 'Z')) reversed.push(['Z']);
+    return reversed;
+  });
 }
 
 /** Path commands for the outline of every hex in `indices`, as one compound path. */

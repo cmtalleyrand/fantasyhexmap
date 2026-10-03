@@ -3,7 +3,7 @@ import test from 'node:test';
 import { hexEdgePoints, hexIndex, inBounds, neighbourOf } from '../shared/hex.ts';
 import { createMapState } from '../shared/layers.ts';
 import type { BaseGeo, MapState } from '../shared/types.ts';
-import { chainEdges, coastEdges, coastGeometry, coastKey, raggedEdge, sideOf } from '../src/render/coast.ts';
+import { alike, chainEdges, coastEdges, coastGeometry, coastKey, drawnLand, raggedEdge, sideOf } from '../src/render/coast.ts';
 import type { PathCmd, Prim } from '../src/render/prims.ts';
 import { riverCourse } from '../src/render/rivers.ts';
 import { buildScene, defaultVisibility } from '../src/render/scene.ts';
@@ -800,7 +800,7 @@ test('a lake is treated as sea by realms: its shore carries the band and no real
       // The band strokes the drawn shore, inside a mask that cuts the lake out.
       const masks = prims.flatMap((p) => (p.kind === 'group' ? p.prims : [])).filter((p): p is Extract<Prim, { kind: 'group' }> => p.kind === 'group' && p.clipRule === 'evenodd');
       assert.equal(masks.length, 1);
-      const stroke = masks[0]!.prims[0] as Extract<Prim, { kind: 'path' }>;
+      const stroke = masks[0]!.prims.find((p) => p.kind === 'path') as Extract<Prim, { kind: 'path' }>;
       assert.ok(JSON.stringify(stroke.d).includes(JSON.stringify(body[0])), 'the band follows the lake shore');
       assert.ok(JSON.stringify(masks[0]!.clip).includes(JSON.stringify(body[0])), 'the lake is cut out of the band');
     }
@@ -1169,4 +1169,45 @@ test('a smoothed coast says where it passes each corner, so a border can run out
       assert.ok(Math.hypot(at.x - corner.x, at.y - corner.y) < size, 'the coast passes within a hex of the corner it rounds');
     }
   }
+});
+
+test('outlines used together as a clip are wound alike, so the land they share is kept rather than cancelled', () => {
+  const square = (x: number, y: number, clockwise: boolean): PathCmd[] => {
+    const pts = [[x, y], [x + 10, y], [x + 10, y + 10], [x, y + 10]] as const;
+    const ring = clockwise ? pts : [...pts].reverse();
+    return [...ring.map(([px, py], k) => [k === 0 ? 'M' : 'L', px, py] as PathCmd), ['Z']];
+  };
+  const area = (d: PathCmd[]) => {
+    const pts = d.filter((c) => c[0] !== 'Z').map((c) => ({ x: c.at(-2) as number, y: c.at(-1) as number }));
+    return pts.reduce((sum, a, k) => sum + a.x * pts[(k + 1) % pts.length]!.y - pts[(k + 1) % pts.length]!.x * a.y, 0);
+  };
+  const wound = alike([...square(0, 0, true), ...square(5, 5, false), ['M', 30, 0], ['Q', 40, 0, 40, 10], ['Q', 40, 20, 30, 10], ['Z']]);
+  const outlines: PathCmd[][] = [];
+  for (const c of wound) c[0] === 'M' ? outlines.push([c]) : outlines.at(-1)!.push(c);
+  assert.equal(outlines.length, 3);
+  const signs = new Set(outlines.map((o) => Math.sign(area(o))));
+  assert.equal(signs.size, 1, 'every outline winds the same way');
+});
+
+test('a coast that runs off the map is closed round the page on its land side, so it encloses its land', () => {
+  const cols = 3;
+  const rows = 3;
+  const size = 10;
+  // Land on the left column only: its coast runs off the top and bottom of the map.
+  const base: BaseGeo[] = Array(cols * rows).fill('Sea');
+  for (let row = 0; row < rows; row++) base[hexIndex(cols, 0, row)] = 'Land';
+  const geometry = coastGeometry(base, cols, rows, size, false);
+  const chains = geometry.chains.filter((c) => !c.closed);
+  assert.ok(chains.length > 0, 'the coast is open');
+  const land = drawnLand(geometry, 100, 100, size);
+  const inside = (x: number, y: number) => {
+    const pts = land.filter((c) => c[0] !== 'Z').map((c) => ({ x: c.at(-2) as number, y: c.at(-1) as number }));
+    let hit = false;
+    for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+      if ((pts[i]!.y > y) !== (pts[j]!.y > y) && x < ((pts[j]!.x - pts[i]!.x) * (y - pts[i]!.y)) / (pts[j]!.y - pts[i]!.y) + pts[i]!.x) hit = !hit;
+    }
+    return hit;
+  };
+  assert.ok(inside(5, 20), 'a point in the land is inside');
+  assert.ok(!inside(60, 20), 'a point in the sea is not');
 });

@@ -70,7 +70,9 @@ import {
 import {
   blobPath,
   chainEdges,
+  alike,
   coastKey,
+  drawnLand,
   circlePath,
   coastalIslandSide,
   coastGeometryOf,
@@ -1219,17 +1221,14 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
       }
     });
     /**
-     * A border wandering on land ends on a hex corner, but a drawn coast does not
-     * pass through its corners: the stretch from the corner to the coast joins them.
+     * The line a border takes along a hex edge on land, as pieces. It wanders from
+     * corner to corner, but a drawn coast does not pass through the corners it
+     * rounds: where an end is on the coast, the line ends where the coast passes.
      */
-    const toCoast = (a: Point, b: Point, pieces: Point[]): Array<{ from: Point; to: Point }> => {
-      const joins: Array<{ from: Point; to: Point }> = [];
-      const head = traced?.geometry.anchors.get(coastKey(a));
-      const tail = traced?.geometry.anchors.get(coastKey(b));
-      if (head) joins.push({ from: head, to: a });
-      pieces.forEach((q, k) => joins.push({ from: k === 0 ? a : pieces[k - 1]!, to: q }));
-      if (tail) joins.push({ from: b, to: tail });
-      return joins;
+    const wander = (a: Point, b: Point): Array<{ from: Point; to: Point }> => {
+      const start = traced?.geometry.anchors.get(coastKey(a)) ?? a;
+      const end = traced?.geometry.anchors.get(coastKey(b)) ?? b;
+      return raggedEdge(start, end, knobs.borders, seed, size).map((q, k, all) => ({ from: k === 0 ? start : all[k - 1]!, to: q }));
     };
     for (let row = 0; row < rows; row++) {
       for (let col = 0; col < cols; col++) {
@@ -1259,7 +1258,7 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
             // Between two parts of one realm: a single fine dashed line on the
             // edge itself, drawn once, so the realm still reads as one.
             if (j > i) {
-              const joins = toCoast(a, b, raggedEdge(a, b, knobs.borders, seed, size));
+              const joins = wander(a, b);
               internal.push(['M', joins[0]!.from.x, joins[0]!.from.y]);
               for (const { to } of joins) internal.push(['L', to.x, to.y]);
             }
@@ -1270,7 +1269,7 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
           const landAcross = inside && across === 'land' && !isIsland(j);
           if (landAcross) wanders.add(i * 6 + e);
           const pieces = landAcross
-            ? toCoast(a, b, raggedEdge(a, b, knobs.borders, seed, size)).map((piece) => ({ ...piece, land: i, water: j }))
+            ? wander(a, b).map((piece) => ({ ...piece, land: i, water: j }))
             : [{ from: a, to: b, land: i, water: j }];
           bands.set(owner, [...(bands.get(owner) ?? []), ...pieces]);
           // A frontier between realms on land, drawn from one side only.
@@ -1287,11 +1286,20 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
         const d: PathCmd[] = [['M', corners[0]!.x, corners[0]!.y]];
         for (let e = 0; e < 6; e++) {
           const [a, b] = hexEdgePoints(col, row, e, size);
-          if (wanders.has(i * 6 + e)) for (const q of raggedEdge(a, b, knobs.borders, seed, size)) d.push(['L', q.x, q.y]);
-          else d.push(['L', b.x, b.y]);
+          if (wanders.has(i * 6 + e)) {
+            const line = wander(a, b);
+            d.push(['L', line[0]!.from.x, line[0]!.from.y]);
+            for (const { to } of line) d.push(['L', to.x, to.y]);
+          }
+          // On to the corner itself: where the border ends on the coast, its end is off the corner.
+          d.push(['L', b.x, b.y]);
         }
         d.push(['Z']);
-        return d;
+        // Grown a little, so that where this ground meets the coast patches
+        // beside it (or a neighbour's) no hairline of land is left unclaimed.
+        // What spills over lies under the border's line or past the coast.
+        const c = hexCenter(col, row, size);
+        return d.map((cmd) => (cmd[0] === 'Z' ? cmd : [cmd[0], c.x + (cmd[1] - c.x) * 1.03, c.y + (cmd[2] - c.y) * 1.03] as PathCmd));
       });
     const band =
       knobs.polityStyle === 'wash'
@@ -1301,21 +1309,15 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
         : knobs.polityStyle === 'outline'
           ? { width: size * 0.09, alpha: 1 }
           : { width: Math.max(1.5, size * 0.16), alpha: 1 };
-    // Bands stop at the water as drawn: the smoothed coast's water notches
-    // and every lake body are cut out of where a band may be painted.
-    const landMask: PathCmd[] = [
-      ['M', -size, -size], ['L', width + size, -size], ['L', width + size, height + size], ['L', -size, height + size], ['Z'],
-      ...(traced?.geometry.toWater ?? []).flatMap((sliver) => sliver.d),
-      ...lakeOutlines,
-      // The sea in split hexes (their lake water lies under the lake bodies).
-      ...[...(terrain?.split ?? [])].flatMap(([i, split]) =>
-        split.sides.flatMap((side, p) =>
-          side === 'sea'
-            ? [...piecePoints(i % cols, Math.floor(i / cols), p, size).map((q, k) => [k === 0 ? 'M' : 'L', q.x, q.y] as PathCmd), ['Z'] as PathCmd]
-            : [],
-        ),
-      ),
-    ];
+    // Bands stop at the water as drawn: they are cut to the land inside the
+    // coast as it is drawn, less every lake body. (Cutting out the water
+    // pieces instead goes wrong where one lies under land the coast has since
+    // bulged over.)
+    const landMask: PathCmd[] = traced
+      ? [...drawnLand(traced.geometry, width, height, size), ...lakeOutlines]
+      : [['M', -size, -size], ['L', width + size, -size], ['L', width + size, height + size], ['L', -size, height + size], ['Z']];
+    /** Where a realm's band may be painted: its hexes and the coast land it has gained. */
+    const ground = (owner: string, hexes: number[]): PathCmd[] => alike([...realmGround(hexes), ...(extraLand.get(owner) ?? [])]);
     for (const owner of new Set([...bands.keys(), ...coastBands.keys(), ...shoreLakes.keys()])) {
       const loops = [
         ...coastBands.get(owner) ?? [],
@@ -1327,18 +1329,30 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
       const colour = polityColour.get(owner) ?? '#888888';
       prims.push({
         kind: 'group',
-        clip: [...realmGround(regions.get(owner) ?? []), ...(extraLand.get(owner) ?? [])],
+        clip: ground(owner, regions.get(owner) ?? []),
         prims: [{
           kind: 'group',
           clip: landMask,
           clipRule: 'evenodd',
-          prims: [{
-            kind: 'path',
-            d: [...loops, ...shores],
-            stroke: band.alpha < 1 ? withAlpha(colour, band.alpha) : colour,
-            strokeWidth: band.width * 2,
-            round: true,
-          }],
+          prims: [
+            // A see-through band shows the ground, which differs from hex to hex
+            // (coastal land is darker), so it would change shade at every hex
+            // edge it crosses: it lies on one even ground instead. Ice keeps its own.
+            ...(band.alpha < 1
+              ? [{
+                  kind: 'group' as const,
+                  clip: ground(owner, (regions.get(owner) ?? []).filter((i) => base?.[i] !== 'Glacier')),
+                  prims: [{ kind: 'path' as const, d: [...loops, ...shores], stroke: baseColour('Land'), strokeWidth: band.width * 2, round: true }],
+                }]
+              : []),
+            {
+              kind: 'path',
+              d: [...loops, ...shores],
+              stroke: band.alpha < 1 ? withAlpha(colour, band.alpha) : colour,
+              strokeWidth: band.width * 2,
+              round: true,
+            },
+          ],
         }],
       });
     }
