@@ -85,6 +85,7 @@ import {
   lakeComponents,
   type CoastGeometry,
   type CoastEdge,
+  raggedEdge,
 } from './coast.js';
 import type { CitySymbol, PathCmd, Prim } from './prims.js';
 import { cityMarker, markerExtent } from './cityMarkers.js';
@@ -1185,14 +1186,21 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
           if (other && topLevel.get(other) === topLevel.get(owner)) {
             // Between two parts of one realm: a single fine dashed line on the
             // edge itself, drawn once, so the realm still reads as one.
-            if (j > i) internal.push(['M', a.x, a.y], ['L', b.x, b.y]);
+            if (j > i) {
+              internal.push(['M', a.x, a.y]);
+              for (const q of raggedEdge(a, b, knobs.borders, seed, size)) internal.push(['L', q.x, q.y]);
+            }
             continue;
           }
-          const edge = { from: a, to: b, land: i, water: j };
-          bands.set(owner, [...(bands.get(owner) ?? []), edge]);
-          // A frontier between realms on land, drawn from one side only.
+          // Between realms on land the border wanders; where it meets the sea
+          // it stays on the coast, which the traced coast edges above cover.
           const landAcross = inside && across === 'land' && !isIsland(j);
-          if (landAcross && (other === null || owner < other)) frontier.push(edge);
+          const pieces = landAcross
+            ? raggedEdge(a, b, knobs.borders, seed, size).map((q, k, all) => ({ from: k === 0 ? a : all[k - 1]!, to: q, land: i, water: j }))
+            : [{ from: a, to: b, land: i, water: j }];
+          bands.set(owner, [...(bands.get(owner) ?? []), ...pieces]);
+          // A frontier between realms on land, drawn from one side only.
+          if (landAcross && (other === null || owner < other)) frontier.push(...pieces);
         }
       }
     }

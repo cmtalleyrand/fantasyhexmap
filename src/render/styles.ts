@@ -42,6 +42,8 @@ export interface StyleKnobs {
   polityStyle: 'fill' | 'tint' | 'wash' | 'outline';
   /** The ink line between realms: none, solid, dashed or dash-dot. Parts of one realm are always divided by a fine dashed line. */
   frontier: 'none' | 'solid' | 'dashed' | 'dashdot';
+  /** How far the borders between realms stray from the hex edges: not at all, a little, noticeably, or a lot. */
+  borders: 'straight' | 'wobbly' | 'ragged' | 'wild';
   /** Realm colours as chosen, lightened, or greyed. */
   polityTone: 'vivid' | 'pastel' | 'muted';
   /** Realm names in moderate type, or grown to fill their territory. */
@@ -172,6 +174,7 @@ const CLASSIC: PresetInfo = {
     polityStyle: 'fill',
     frontier: 'none',
     polityTone: 'vivid',
+    borders: 'ragged',
     cityCoastMarks: true,
     realmNames: 'moderate',
     cityNames: 'beside',
@@ -229,6 +232,7 @@ const PARCHMENT: PresetInfo = {
     polityStyle: 'wash',
     frontier: 'solid',
     polityTone: 'vivid',
+    borders: 'ragged',
     cityCoastMarks: false,
     realmNames: 'moderate',
     cityNames: 'beside',
@@ -285,6 +289,7 @@ const ATLAS: PresetInfo = {
     polityStyle: 'tint',
     frontier: 'solid',
     polityTone: 'vivid',
+    borders: 'ragged',
     cityCoastMarks: false,
     realmNames: 'moderate',
     cityNames: 'beside',
@@ -341,6 +346,7 @@ const NIGHT: PresetInfo = {
     polityStyle: 'outline',
     frontier: 'solid',
     polityTone: 'muted',
+    borders: 'ragged',
     cityCoastMarks: false,
     realmNames: 'moderate',
     cityNames: 'beside',
@@ -449,6 +455,15 @@ export const KNOB_OPTIONS: {
       { value: 'dashdot', label: 'Dash-dot' },
     ],
   },
+  borders: {
+    label: 'Border irregularity',
+    options: [
+      { value: 'straight', label: 'Straight (hex edges)' },
+      { value: 'wobbly', label: 'Slightly wobbly' },
+      { value: 'ragged', label: 'Ragged' },
+      { value: 'wild', label: 'Very ragged' },
+    ],
+  },
   polityTone: {
     label: 'Realm colours',
     options: [
@@ -512,7 +527,7 @@ export const KNOB_OPTIONS: {
   },
 };
 
-export const KNOB_ORDER: KnobId[] = ['relief', 'water', 'ripples', 'coast', 'grid', 'land', 'islands', 'ice', 'rivers', 'polityStyle', 'frontier', 'polityTone', 'subPolities', 'lettering', 'realmNames', 'cityNames', 'cityMarkers', 'cityCoastMarks', 'grain'];
+export const KNOB_ORDER: KnobId[] = ['relief', 'water', 'ripples', 'coast', 'grid', 'land', 'islands', 'ice', 'rivers', 'polityStyle', 'frontier', 'borders', 'polityTone', 'subPolities', 'lettering', 'realmNames', 'cityNames', 'cityMarkers', 'cityCoastMarks', 'grain'];
 
 export const DEFAULT_STYLE_CHOICE: MapStyleChoice = { preset: 'classic', overrides: {} };
 

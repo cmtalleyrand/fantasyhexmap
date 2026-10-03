@@ -3,7 +3,7 @@ import test from 'node:test';
 import { hexEdgePoints, hexIndex, inBounds, neighbourOf } from '../shared/hex.ts';
 import { createMapState } from '../shared/layers.ts';
 import type { BaseGeo, MapState } from '../shared/types.ts';
-import { chainEdges, coastEdges, coastGeometry, sideOf } from '../src/render/coast.ts';
+import { chainEdges, coastEdges, coastGeometry, raggedEdge, sideOf } from '../src/render/coast.ts';
 import type { PathCmd, Prim } from '../src/render/prims.ts';
 import { riverCourse } from '../src/render/rivers.ts';
 import { buildScene, defaultVisibility } from '../src/render/scene.ts';
@@ -1120,4 +1120,22 @@ test('a city can stand on either bank of a strait', async () => {
   const east = citySite(city, ctx);
   const west = citySite({ ...city, site: { bank: 3 } }, ctx);
   assert.ok(east.x > centre.x + 5 && west.x < centre.x - 5, 'each bank is on its own side of the channel');
+});
+
+test('border irregularity: straight keeps hex edges, and both sides of an edge draw the same wandering line', () => {
+  const a = { x: 10, y: 10 };
+  const b = { x: 30, y: 10 };
+  assert.deepEqual(raggedEdge(a, b, 'straight', 's', 20), [b]);
+  const there = raggedEdge(a, b, 'ragged', 's', 20);
+  const back = raggedEdge(b, a, 'ragged', 's', 20);
+  assert.deepEqual(there.slice(0, -1).reverse(), back.slice(0, -1), 'same interior points walked either way');
+  assert.deepEqual(there.at(-1), b);
+  assert.deepEqual(back.at(-1), a);
+  const reach = (level: 'wobbly' | 'ragged' | 'wild') =>
+    Math.max(...raggedEdge(a, b, level, 's', 20).map((p) => Math.abs(p.y - 10)));
+  assert.ok(reach('wobbly') > 0 && reach('wild') <= 0.19 * 20 + 1e-9);
+  assert.ok(reach('wild') >= reach('wobbly'));
+  assert.equal(resolveStyle({ preset: 'classic', overrides: {} }).knobs.borders, 'ragged', 'ragged by default');
+  assert.equal(parseStyleChoice({ preset: 'classic', overrides: { borders: 'wild' } }).overrides.borders, 'wild');
+  assert.equal(parseStyleChoice({ preset: 'classic', overrides: { borders: 'bogus' } }).overrides.borders, undefined);
 });
