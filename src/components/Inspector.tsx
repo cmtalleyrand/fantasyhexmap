@@ -585,18 +585,20 @@ function IslandSidePanel(props: SubProps) {
           </select>
         </label>
       </div>
-      <label>
+      <label style={{ display: 'flex', alignItems: 'center', gap: 6, textTransform: 'none', fontSize: 12, margin: 0 }}>
         <input
           type="checkbox"
+          style={{ width: 'auto' }}
           checked={coastalLarge === 'true'}
           ref={(el) => { if (el) el.indeterminate = coastalLarge === ''; }}
           onChange={(e) => set({ coastal: { large: e.target.checked } })}
         />{' '}
         Large islands lie against the {mainland ? 'mainland' : 'coast'}
       </label>
-      <label>
+      <label style={{ display: 'flex', alignItems: 'center', gap: 6, textTransform: 'none', fontSize: 12, margin: 0 }}>
         <input
           type="checkbox"
+          style={{ width: 'auto' }}
           checked={coastalSmall === 'true'}
           ref={(el) => { if (el) el.indeterminate = coastalSmall === ''; }}
           onChange={(e) => set({ coastal: { small: e.target.checked } })}

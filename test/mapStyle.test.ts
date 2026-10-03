@@ -1082,3 +1082,24 @@ test('the first map loaded, before any map is open, is migrated too', async () =
   assert.deepEqual(loaded.islandSpecs, { '0': { large: 0, small: 3 } });
   assert.equal(appReducer(loaded, { type: 'reset' }), null);
 });
+
+test('dragging a river’s source onto a lake makes it flow out of the lake; its mouth may be dragged into water', async () => {
+  const { buildRiverFromPath } = await import('../shared/validate.ts');
+  const { moveRiverSegment } = await import('../shared/riverEdit.ts');
+  const map = riverNetworkMap();
+  const base = map.layers.base.data!;
+  // A river from (3,1) east to the sea.
+  const river = buildRiverFromPath({ name: 'R', path: stepPath({ col: 3, row: 2 }, [0, 0, 0, 0, 0]) }, 'r', base, null, 9, 5, [])!;
+  const fromLake = moveRiverSegment(river, 0, { col: 1, row: 2 }, base, null, 9, 5, []);
+  assert.ok(!('error' in fromLake), 'error' in fromLake ? fromLake.error : '');
+  assert.equal(fromLake.river.fromLake, true);
+  assert.deepEqual([fromLake.river.segments[0]!.col, fromLake.river.segments[0]!.row], [2, 2]);
+  // A middle hex cannot go into water.
+  const middle = moveRiverSegment(river, 2, { col: 1, row: 2 }, base, null, 9, 5, []);
+  assert.ok('error' in middle);
+  // The mouth can: the river then empties into the lake.
+  const short = buildRiverFromPath({ name: 'S', path: [{ col: 4, row: 1 }, { col: 3, row: 1 }] }, 's', base, null, 9, 5, [])!;
+  const intoLake = moveRiverSegment(short, 1, { col: 1, row: 2 }, base, null, 9, 5, []);
+  assert.ok(!('error' in intoLake), 'error' in intoLake ? intoLake.error : '');
+  assert.equal(intoLake.river.terminus, 'Lake');
+});
