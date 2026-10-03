@@ -49,6 +49,12 @@ const SAMPLES_PER_SPAN = 8;
 /** How far along its edge a relaxed crossing may settle, as a fraction of the edge. */
 const RELAX_RANGE: [number, number] = [0.5 - SLIDE, 0.5 + SLIDE];
 const RELAX_PASSES = 16;
+/** How far ahead, in hex sizes, a tributary's last tangent looks along its host's flow. */
+const JOIN_LEAN = 1.2;
+/** How far upstream of the join, in hex sizes, a tributary is steered onto its host's line. */
+const JOIN_RUN = 0.55;
+/** How much of a tributary's last approach follows its host's flow rather than its own heading. */
+const JOIN_FLOW = 0.6;
 /** The largest swing of a meander, in hex sizes (from the centre line). */
 const MEANDER = 0.14;
 const CAP_STEPS = 6;
@@ -90,6 +96,8 @@ export interface CourseEnds {
   start?: Point | null;
   /** Where the river ends, if it ends inside a hex (a tributary's confluence). */
   end?: Point | null;
+  /** The direction the river it joins is flowing at the confluence (unit vector): a tributary comes in along it, not across it. */
+  joinTangent?: Point | null;
   /** A point in the lake the river flows out of, before its first crossing. */
   before?: Point | null;
   /** A point in the lake the river empties into, past its last crossing. */
@@ -137,6 +145,18 @@ function controls(river: River, size: number, seed: string, ends: CourseEnds): C
     }
     if (s.exitEdge !== null) cross(s.col, s.row, s.exitEdge, s.navigable);
     else if (k === river.segments.length - 1) {
+      // A tributary meets its host at an acute angle, leaning downstream: a point
+      // a little upstream of the join, between the way the tributary was heading
+      // and the way its host flows, turns the last stretch.
+      const before = out[out.length - 1]?.p;
+      if (ends.end && ends.joinTangent && before) {
+        const u = { x: ends.end.x - before.x, y: ends.end.y - before.y };
+        const ul = Math.hypot(u.x, u.y) || 1;
+        const t = ends.joinTangent;
+        const dir = { x: JOIN_FLOW * t.x + (1 - JOIN_FLOW) * (u.x / ul), y: JOIN_FLOW * t.y + (1 - JOIN_FLOW) * (u.y / ul) };
+        const dl = Math.hypot(dir.x, dir.y) || 1;
+        push({ x: ends.end.x - (dir.x / dl) * size * JOIN_RUN, y: ends.end.y - (dir.y / dl) * size * JOIN_RUN }, s.navigable);
+      }
       push(ends.end ?? hexCenter(s.col, s.row, size), s.navigable);
     }
   });
@@ -204,7 +224,12 @@ export function riverCourse(river: River, size: number, seed: string, ends: Cour
   // Reflect the ends so the first and last spans have a tangent to follow.
   const n = pts.length;
   const before = { x: 2 * pts[0]!.x - pts[1]!.x, y: 2 * pts[0]!.y - pts[1]!.y };
-  const after = { x: 2 * pts[n - 1]!.x - pts[n - 2]!.x, y: 2 * pts[n - 1]!.y - pts[n - 2]!.y };
+  // A tributary arrives heading the way its host flows, so the join is a fork
+  // of the water rather than a collision: the last tangent leans that way.
+  const lean = ends.end && ends.joinTangent ? ends.joinTangent : null;
+  const after = lean
+    ? { x: pts[n - 1]!.x + lean.x * size * JOIN_LEAN, y: pts[n - 1]!.y + lean.y * size * JOIN_LEAN }
+    : { x: 2 * pts[n - 1]!.x - pts[n - 2]!.x, y: 2 * pts[n - 1]!.y - pts[n - 2]!.y };
   const ext = [before, ...pts, after];
 
   let centreline: Point[] = [pts[0]!];
@@ -561,7 +586,14 @@ export function riverCourses(
     const host = hostOf(r);
     if (last && host) {
       const course = out.get(host);
-      if (course) ends.end = nearest(course.centreline, hexCenter(last.col, last.row, size));
+      if (course) {
+        ends.end = nearest(course.centreline, hexCenter(last.col, last.row, size));
+        const at = course.centreline.indexOf(ends.end);
+        const a = course.centreline[Math.max(0, at - 2)]!;
+        const b = course.centreline[Math.min(course.centreline.length - 1, at + 2)]!;
+        const len = Math.hypot(b.x - a.x, b.y - a.y);
+        if (len > 0) ends.joinTangent = { x: (b.x - a.x) / len, y: (b.y - a.y) / len };
+      }
     }
     const course = riverCourse(r, size, seed, ends);
     if (course) out.set(r.id, course);

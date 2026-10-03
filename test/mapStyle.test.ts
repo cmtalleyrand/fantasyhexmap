@@ -366,6 +366,33 @@ test('river names keep off lakes, city markers, other rivers and each other', as
   assert.ok(dodged[0]!.glyphs!.every((g) => Math.hypot(g.x - middle.x, g.y - middle.y) > size * 0.4), 'the name keeps off the marker');
 });
 
+test('a tributary joins its host at an acute angle, leaning downstream, rather than square on', async () => {
+  const { riverCourses } = await import('../src/render/rivers.ts');
+  const size = 40;
+  const main = { id: 'main', name: 'Main', terminus: 'OffMap' as const, segments: [0, 1, 2, 3, 4, 5, 6].map((col) => ({ col, row: 4, entryEdge: col === 0 ? null : 3, exitEdge: 0, navigable: true })) };
+  const trib = {
+    id: 'n', name: 'N', terminus: 'River' as const, joins: 'main',
+    segments: [
+      { col: 3, row: 0, entryEdge: null, exitEdge: 1, navigable: false },
+      { col: 3, row: 1, entryEdge: 4, exitEdge: 2, navigable: false },
+      { col: 3, row: 2, entryEdge: 5, exitEdge: 1, navigable: false },
+      { col: 3, row: 3, entryEdge: 4, exitEdge: 2, navigable: false },
+      { col: 3, row: 4, entryEdge: 5, exitEdge: null, navigable: false },
+    ],
+  };
+  const courses = riverCourses([main, trib], size, 'seed');
+  const t = courses.get('n')!.centreline;
+  const h = courses.get('main')!.centreline;
+  const end = t.at(-1)!;
+  const i = h.findIndex((q) => Math.hypot(q.x - end.x, q.y - end.y) < 1e-9);
+  assert.ok(i >= 2 && i < h.length - 2);
+  const host = Math.atan2(h[i + 2]!.y - h[i - 2]!.y, h[i + 2]!.x - h[i - 2]!.x);
+  const own = Math.atan2(end.y - t.at(-4)!.y, end.x - t.at(-4)!.x);
+  let angle = Math.abs(host - own);
+  if (angle > Math.PI) angle = 2 * Math.PI - angle;
+  assert.ok(angle < Math.PI / 3, `joins at ${(angle * 180 / Math.PI).toFixed(0)} degrees`);
+});
+
 test('the PNG encoder writes a valid signature and chunk layout', () => {
   const png = encodePng(2, 2, new Uint8ClampedArray(16).fill(200));
   assert.deepEqual([...png.slice(0, 8)], [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
