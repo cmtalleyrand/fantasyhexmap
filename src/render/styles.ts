@@ -66,7 +66,7 @@ export interface StyleKnobs {
   subPolities: 'own' | 'tints';
 }
 
-export type RiverWander = 'gentle' | 'natural' | 'irregular' | 'wild';
+export type RiverWander = 'verygentle' | 'gentle' | 'normal' | 'irregular' | 'wild';
 
 export type KnobId = keyof StyleKnobs;
 
@@ -180,7 +180,7 @@ const CLASSIC: PresetInfo = {
     islands: 'dot',
     ice: 'flat',
     rivers: 'classic',
-    riverWander: 'irregular',
+    riverWander: 'normal',
     lineWeight: 1,
     grain: false,
     subPolities: 'own',
@@ -241,7 +241,7 @@ const PARCHMENT: PresetInfo = {
     islands: 'blob',
     ice: 'glacier',
     rivers: 'tapered',
-    riverWander: 'irregular',
+    riverWander: 'normal',
     lineWeight: 1,
     grain: true,
     subPolities: 'tints',
@@ -315,7 +315,7 @@ const ATLAS: PresetInfo = {
     islands: 'blob',
     ice: 'glacier',
     rivers: 'tapered',
-    riverWander: 'irregular',
+    riverWander: 'normal',
     lineWeight: 1,
     grain: false,
     subPolities: 'own',
@@ -375,7 +375,7 @@ const NIGHT: PresetInfo = {
     islands: 'blob',
     ice: 'flat',
     rivers: 'tapered',
-    riverWander: 'irregular',
+    riverWander: 'normal',
     lineWeight: 1,
     grain: false,
     subPolities: 'tints',
@@ -470,10 +470,11 @@ export const KNOB_OPTIONS: {
   riverWander: {
     label: 'River irregularity',
     options: [
-      { value: 'gentle', label: 'Gentle (smooth bends)' },
-      { value: 'natural', label: 'Natural' },
-      { value: 'irregular', label: 'Irregular' },
-      { value: 'wild', label: 'Very irregular (sharp bends)' },
+      { value: 'verygentle', label: 'Very gentle' },
+      { value: 'gentle', label: 'Gentle' },
+      { value: 'normal', label: 'Normal' },
+      { value: 'irregular', label: 'Irregular (deep, sharp bends)' },
+      { value: 'wild', label: 'Wild (very deep, sharp bends)' },
     ],
   },
   relief: {

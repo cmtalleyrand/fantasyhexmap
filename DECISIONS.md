@@ -917,11 +917,14 @@ the marker. The offset is taken from the river's drawn width at that point, on w
 says "Beside a river". Label placement allows for the band only on a metropolis.
 **Cities.** A city on a river sits in a disc of river water edged in paper, in every marker set; the legend says
 "Blue ring: on a river". Label placement allows for the wider collar.
-**River irregularity is a setting.** Style knob `riverWander` (Gentle, Natural, Irregular, Very irregular; Irregular by
+**River irregularity is a setting.** Style knob `riverWander` (Very gentle, Gentle, Normal, Irregular, Wild; Normal by
 default) sets the swing of the wander, how many passes pull the hex-edge crossings taut (fewer leaves the hex walk's
 own corners), how far a crossing may slide along its edge, and how often a river that bends within a hex swings
-into it towards its centre instead of just clipping the corner between its two edges. That last is what allows
-sharper bends: at higher levels a bend is as likely to pass through the middle of the bend hex as to graze it.
+into it towards its centre instead of just clipping the corner between its two edges, and how far (past the centre
+at the top two levels). That last is what allows sharper, deeper bends. The first scale (gentle to wild) proved
+too timid about entering the hexes a river bends into, so it was shifted two places down: the old Wild is Normal,
+the old Irregular is Gentle and the old Natural is Very gentle, and two new levels go further than the old Wild.
+Saved maps keep any value that still exists, so a stored `irregular` or `wild` is now the stronger one.
 
 ## 47. Lakes carry their own irregularity; shores vary in strength; coast ink follows line weight
 

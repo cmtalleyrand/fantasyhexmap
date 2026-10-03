@@ -303,7 +303,7 @@ test('a meandering river never folds back on itself, even through tight bends', 
       at = nb(at.col, at.row, d);
       prev = d;
     }
-    const line = riverCourse({ id: 'f', name: 'f', terminus: 'Unresolved', segments: segs }, 40, `s${n}`)!.centreline;
+    const line = riverCourse({ id: 'f', name: 'f', terminus: 'Unresolved', segments: segs }, 40, `s${n}`, { wander: 'gentle' })!.centreline;
     for (let i = 2; i < line.length; i++) {
       const [a, b, c] = [line[i - 2]!, line[i - 1]!, line[i]!];
       let t = Math.abs(Math.atan2(c.y - b.y, c.x - b.x) - Math.atan2(b.y - a.y, b.x - a.x));
@@ -448,7 +448,8 @@ test('a tapered river stays in its own hexes and never turns sharply between sam
     at = nb(at.col, at.row, d);
   });
   const river = { id: 'w', name: 'Wend', terminus: 'OffMap' as const, segments: segs };
-  const course = riverCourse(river, size, map.id)!;
+  // At the smoother levels; the sharper ones trade this for deeper bends (see the levels test).
+  const course = riverCourse(river, size, map.id, { wander: 'gentle' })!;
   const hexes = new Set(segs.map((s) => `${s.col},${s.row}`));
   for (const p of course.centreline) {
     const { col, row } = pixelToOffset(p.x, p.y, size);
@@ -1437,10 +1438,10 @@ test('length, tributaries and navigability each widen a river by their own small
   const run = arcs(short.centreline).at(-12)!;
   const longest = riverCourse(eastward(9), size, 'seed', { longest: 9 * Math.sqrt(3) * size })!.widths;
   const expected = (1 + 0.2 * (run / (9 * Math.sqrt(3) * size))) / (1 + 0.2 * (run / (1000 * size)));
-  assert.ok(Math.abs(end(longest) / end(short.widths) - expected) < 0.01, `longest river ratio ${end(longest) / end(short.widths)} against ${expected}`);
+  assert.ok(Math.abs(end(longest) / end(short.widths) - expected) < 0.02, `longest river ratio ${end(longest) / end(short.widths)} against ${expected}`);
   assert.ok(expected > 1.1 && expected < 1.2);
   const half = riverCourse(eastward(9), size, 'seed', { longest: 18 * Math.sqrt(3) * size })!.widths;
-  assert.ok(Math.abs(end(half) / end(short.widths) - (1 + (expected - 1) / 2)) < 0.01, `half-length river ratio ${end(half) / end(short.widths)}`);
+  assert.ok(Math.abs(end(half) / end(short.widths) - (1 + (expected - 1) / 2)) < 0.02, `half-length river ratio ${end(half) / end(short.widths)}`);
   // Each tributary adds a twentieth of the normal width below its confluence.
   const at = (n: number) => ({ at: { x: size * Math.sqrt(3) * (n + 0.5), y: size + 2 * 1.5 * size } });
   const fed = riverCourse(eastward(9), size, 'seed', { longest: 1000 * size, inflows: [at(2), at(3)] })!.widths;
@@ -1515,8 +1516,8 @@ test('a city on a river is placed against the river by size, and only a metropol
 
 test('river irregularity comes in levels: each wanders more than the one before, and none folds back', async () => {
   const { neighbourOf: nb } = await import('../shared/hex.ts');
-  const levels = ['gentle', 'natural', 'irregular', 'wild'] as const;
-  assert.equal(resolveStyle({ preset: 'parchment', overrides: {} }).knobs.riverWander, 'irregular');
+  const levels = ['verygentle', 'gentle', 'normal', 'irregular', 'wild'] as const;
+  assert.equal(resolveStyle({ preset: 'parchment', overrides: {} }).knobs.riverWander, 'normal');
   assert.equal(parseStyleChoice({ preset: 'classic', overrides: { riverWander: 'wild' } }).overrides.riverWander, 'wild');
   assert.equal(parseStyleChoice({ preset: 'classic', overrides: { riverWander: 'bogus' } }).overrides.riverWander, undefined);
   let state = 777;

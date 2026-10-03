@@ -58,10 +58,11 @@ const SLIDE = 0.25;
  * a river that bends within a hex swings into it rather than just clipping its corner.
  */
 const WANDER: Record<RiverWander, { swing: number; relax: number; slide: number; chance: number; bulge: number }> = {
-  gentle: { swing: 0.45, relax: 12, slide: 0.25, chance: 0, bulge: 0 },
-  natural: { swing: 0.85, relax: 6, slide: 0.3, chance: 0.4, bulge: 0.5 },
-  irregular: { swing: 1.3, relax: 2, slide: 0.36, chance: 0.7, bulge: 0.85 },
-  wild: { swing: 1.9, relax: 0, slide: 0.42, chance: 0.9, bulge: 1.1 },
+  verygentle: { swing: 0.85, relax: 6, slide: 0.3, chance: 0.4, bulge: 0.5 },
+  gentle: { swing: 1.3, relax: 2, slide: 0.36, chance: 0.7, bulge: 0.85 },
+  normal: { swing: 1.9, relax: 0, slide: 0.42, chance: 0.9, bulge: 1.1 },
+  irregular: { swing: 2.5, relax: 0, slide: 0.46, chance: 1, bulge: 1.35 },
+  wild: { swing: 3.2, relax: 0, slide: 0.5, chance: 1, bulge: 1.6 },
 };
 const SAMPLES_PER_SPAN = 8;
 /** How far along its edge a relaxed crossing may settle, as a fraction of the edge. */
@@ -151,12 +152,12 @@ export interface CourseEnds {
    * rather than running on past it as a stub, and the meander calms near it.
    */
   cities?: Array<{ at: Point; radius: number }>;
-  /** How irregular the course is (see `WANDER`); 'irregular' when omitted. */
+  /** How irregular the course is (see `WANDER`); 'normal' when omitted. */
   wander?: RiverWander;
 }
 
 function controls(river: River, size: number, seed: string, ends: CourseEnds): Control[] {
-  const level = WANDER[ends.wander ?? 'irregular'];
+  const level = WANDER[ends.wander ?? 'normal'];
   const out: Control[] = [];
   const push = (p: Point, navigable: boolean, slide?: Slide) => {
     const last = out[out.length - 1];
@@ -270,7 +271,7 @@ function catmullRom(p0: Point, p1: Point, p2: Point, p3: Point, samples: number)
 export function riverCourse(river: River, size: number, seed: string, ends: CourseEnds = {}): RiverCourse | null {
   const ctrl = controls(river, size, seed, ends);
   if (ctrl.length < 2) return null;
-  relax(ctrl, WANDER[ends.wander ?? 'irregular'].relax, WANDER[ends.wander ?? 'irregular'].slide);
+  relax(ctrl, WANDER[ends.wander ?? 'normal'].relax, WANDER[ends.wander ?? 'normal'].slide);
   const pts = ctrl.map((c) => c.p);
   // Reflect the ends so the first and last spans have a tangent to follow.
   const n = pts.length;
@@ -484,7 +485,7 @@ export function riverCourse(river: River, size: number, seed: string, ends: Cour
   const offset = centreline.map((_, i) => {
     // Scaled to the widths the meander was tuned for.
     const fraction = (base[i]! / size) * 2.2;
-    const amplitude = size * MEANDER * WANDER[ends.wander ?? 'irregular'].swing * (1 - 0.5 * smoothstep((fraction - 0.04) / 0.13));
+    const amplitude = size * MEANDER * WANDER[ends.wander ?? 'normal'].swing * (1 - 0.5 * smoothstep((fraction - 0.04) / 0.13));
     const at = cum[i]! / size;
     const envelope = 0.55 + 0.45 * (0.5 + 0.5 * noise(7, at / 3.4));
     let fade = smoothstep(cum[i]! / (0.8 * size)) * smoothstep((total - cum[i]!) / (0.8 * size));
@@ -679,7 +680,7 @@ export function riverCourses(
   seed: string,
   lakeEnds: (river: River) => Pick<CourseEnds, 'before' | 'beyond' | 'inWater' | 'onLand'> = () => ({}),
   cities: Array<{ riverId: string; at: Point; radius: number }> = [],
-  wander: RiverWander = 'irregular',
+  wander: RiverWander = 'normal',
 ): Map<string, RiverCourse> {
   const out = new Map<string, RiverCourse>();
   const key = (col: number, row: number) => `${col},${row}`;
