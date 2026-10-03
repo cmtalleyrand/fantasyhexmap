@@ -386,9 +386,15 @@ export function placeRiverLabels(
   avoid: OrientedBox[] = [],
   /** The river's mean drawn width, where it has one: wider rivers carry slightly larger names. */
   widthFor?: (riverId: string) => number | undefined,
+  /** Whether a point lies in standing water a name must not be set over (a lake's body). */
+  inWater?: (p: Point) => boolean,
 ): FeatureLabel[] {
   const out: FeatureLabel[] = [];
-  const minFont = Math.max(7, size * 0.3);
+  // Every river's line, so a name keeps off the other rivers it might cross.
+  const lines = new Map<string, Point[]>();
+  for (const river of rivers) lines.set(river.id, pathFor?.(river.id) ?? riverPath(river, size));
+  // Names already placed in this call, which later names keep clear of too.
+  const placed: OrientedBox[] = [];
   for (const river of rivers) {
     const text = river.name.trim();
     if (!text) continue;
@@ -397,8 +403,10 @@ export function placeRiverLabels(
     // larger on a wide river; a river too short to carry its name at the floor
     // size goes unnamed.
     const idealFont = Math.max(9, size * 0.44) * (1 + 0.1 * Math.min(1, drawn / (size * 0.17)));
-    const pts = pathFor?.(river.id) ?? riverPath(river, size);
+    const minFont = Math.max(7, size * 0.3);
+    const pts = lines.get(river.id)!;
     if (pts.length < 2) continue;
+    const others = rivers.filter((r) => r.id !== river.id).flatMap((r) => lines.get(r.id) ?? []);
     const cum = [0];
     for (let i = 1; i < pts.length; i++) {
       cum.push(cum[i - 1]! + Math.hypot(pts[i]!.x - pts[i - 1]!.x, pts[i]!.y - pts[i - 1]!.y));
@@ -409,11 +417,15 @@ export function placeRiverLabels(
     const font = Math.min(idealFont, (total * 0.95) / em);
     if (font < minFont) continue;
     const width = em * font;
+    // Sit just off the line (in the text's own frame), clear of its bank.
+    const lift = Math.max(font * 0.8, drawn / 2 + font * 0.45);
 
-    // Slide a window of the text's width along the course and take the one
-    // whose points stray least from its own chord, preferring the middle.
+    // Slide a window of the text's width along the course, on either side of
+    // it, and take the place whose points stray least from their own chord,
+    // preferring the middle, and which keeps off other names, city markers,
+    // lakes and other rivers.
     const steps = 24;
-    let best: { start: number; score: number } | null = null;
+    let best: { start: number; side: 1 | -1; score: number } | null = null;
     for (let k = 0; k <= steps; k++) {
       const start = ((total - width) * k) / steps;
       const a = pointAt(pts, cum, start);
@@ -428,40 +440,44 @@ export function placeRiverLabels(
         );
       }
       const centreBias = Math.abs(start + width / 2 - total / 2) / total;
-      // Names already placed (realms) are avoided: the share of the text's
-      // length, sampled along its baseline and its top, that would fall on one.
-      let covered = 0;
-      if (avoid.length > 0) {
+      for (const side of [1, -1] as const) {
+        let hits = 0;
+        let samples = 0;
         for (let j = 0; j <= 8; j++) {
           const d = start + (width * j) / 8;
           const p = pointAt(pts, cum, d);
           const q = pointAt(pts, cum, d + font * 0.3);
-          const angle = Math.atan2(q.y - p.y, q.x - p.x);
-          const up = Math.cos(angle) >= 0 ? 1 : -1;
-          for (const lift of [font * 0.4, font * 1.2]) {
-            const x = p.x + Math.sin(angle) * lift * up;
-            const y = p.y - Math.cos(angle) * lift * up;
-            if (avoid.some((box) => insideBox(box, x, y))) covered++;
+          // The text frame's direction, left to right, and the way its top points.
+          let angle = Math.atan2(q.y - p.y, q.x - p.x);
+          if (Math.cos(angle) < 0) angle += Math.PI;
+          for (const off of [lift * side - font * 0.4, lift * side, lift * side + font * 0.4]) {
+            const x = p.x + Math.sin(angle) * off;
+            const y = p.y - Math.cos(angle) * off;
+            samples++;
+            if (avoid.some((box) => insideBox(box, x, y)) || placed.some((box) => insideBox(box, x, y))) hits += 2;
+            else if (inWater?.({ x, y })) hits += 2;
+            else if (others.some((o) => Math.hypot(o.x - x, o.y - y) < font * 0.45)) hits += 2;
           }
         }
-        covered /= 18;
+        const covered = hits / (2 * samples);
+        // The name bends with the river, so a bend matters less than for straight type.
+        const score = (deviation / size) * 0.5 + centreBias * 0.3 + covered * 4 + (side === 1 ? 0 : 0.02);
+        if (!best || score < best.score) best = { start, side, score };
       }
-      // The name bends with the river, so a bend matters less than for straight type.
-      const score = (deviation / size) * 0.5 + centreBias * 0.3 + covered * 2;
-      if (!best || score < best.score) best = { start, score };
     }
     const a = pointAt(pts, cum, best!.start);
     const b = pointAt(pts, cum, best!.start + width);
     const rotation = upright(Math.atan2(b.y - a.y, b.x - a.x));
     const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
-    // Sit just above the line (in the text's own frame) so the stroke stays visible.
-    const lift = Math.max(font * 0.8, drawn / 2 + font * 0.45);
+    const signed = lift * best!.side;
+    const glyphs = glyphsAlong(text, font, pts, best!.start, { tracking: face.tracking, lift: signed, weight: face.weight, family: face.family, italic: face.italic });
+    for (const g of glyphs) placed.push({ cx: g.x, cy: g.y, halfW: font * 0.4, halfH: font * 0.6, rotation: g.rotation });
     out.push({
       text,
       size: font,
       rotation,
-      at: { x: mid.x + Math.sin(rotation) * lift, y: mid.y - Math.cos(rotation) * lift },
-      glyphs: glyphsAlong(text, font, pts, best!.start, { tracking: face.tracking, lift, weight: face.weight, family: face.family, italic: face.italic }),
+      at: { x: mid.x + Math.sin(rotation) * signed, y: mid.y - Math.cos(rotation) * signed },
+      glyphs,
       width,
     });
   }

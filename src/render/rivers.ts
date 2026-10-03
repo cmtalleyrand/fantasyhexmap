@@ -102,6 +102,12 @@ export interface CourseEnds {
   inWater?: ((p: Point) => boolean) | null;
   /** Rivers flowing in along the way: the length upstream of each, added to the width below where it joins. */
   inflows?: Array<{ at: Point; run: number }>;
+  /**
+   * Cities on this river: each hex's centre and its marker's radius. The marker
+   * sits on the course, so a river that ends at a city stops under its icon
+   * rather than running on past it as a stub, and the meander calms near it.
+   */
+  cities?: Array<{ at: Point; radius: number }>;
 }
 
 function controls(river: River, size: number, seed: string, ends: CourseEnds): Control[] {
@@ -250,6 +256,51 @@ export function riverCourse(river: River, size: number, seed: string, ends: Cour
     if (centreline.length < 2) return null;
   }
 
+  // Where each city's marker sits on the course: its nearest sample within the hex.
+  const sites: Array<{ p: Point; radius: number }> = [];
+  for (const city of ends.cities ?? []) {
+    let best: Point | null = null;
+    let d = size * 0.8;
+    for (const q of centreline) {
+      const dq = Math.hypot(q.x - city.at.x, q.y - city.at.y);
+      if (dq <= d) {
+        d = dq;
+        best = q;
+      }
+    }
+    if (best) sites.push({ p: best, radius: city.radius });
+  }
+  // A river that rises at, or runs out at, a city stops under its icon rather
+  // than running on past it as a stub.
+  const indexOf = (p: Point) => centreline.indexOf(p);
+  const arc = (from: number, to: number) => {
+    let sum = 0;
+    for (let i = from + 1; i <= to; i++) sum += Math.hypot(centreline[i]!.x - centreline[i - 1]!.x, centreline[i]!.y - centreline[i - 1]!.y);
+    return sum;
+  };
+  const rises = !river.branchOf && !ends.before;
+  const runsOut = !ends.end && !ends.beyond && river.terminus !== 'Sea' && river.terminus !== 'Lake' && river.terminus !== 'River';
+  for (const { p, radius } of sites) {
+    const k = indexOf(p);
+    if (k < 0) continue;
+    const reach = Math.max(radius * 1.5, size * 0.3);
+    if (rises && k > 0 && arc(0, k) < reach && centreline.length - k >= 4) {
+      centreline = centreline.slice(k);
+      navigable = navigable.slice(k);
+      break;
+    }
+  }
+  for (const { p, radius } of sites) {
+    const k = indexOf(p);
+    if (k < 0) continue;
+    const reach = Math.max(radius * 1.5, size * 0.3);
+    if (runsOut && k < centreline.length - 1 && k >= 3 && arc(k, centreline.length - 1) < reach) {
+      centreline = centreline.slice(0, k + 1);
+      navigable = navigable.slice(0, k + 1);
+      break;
+    }
+  }
+
   const cum = [0];
   for (let i = 1; i < centreline.length; i++) {
     cum.push(cum[i - 1]! + Math.hypot(centreline[i]!.x - centreline[i - 1]!.x, centreline[i]!.y - centreline[i - 1]!.y));
@@ -308,7 +359,9 @@ export function riverCourse(river: River, size: number, seed: string, ends: Cour
     const fraction = base[i]! / size;
     const wavelength = size * (1.6 + 12 * fraction);
     const amplitude = size * MEANDER * (1 - 0.5 * smoothstep((fraction - 0.04) / 0.13));
-    const fade = smoothstep(cum[i]! / (0.8 * size)) * smoothstep((total - cum[i]!) / (0.8 * size));
+    let fade = smoothstep(cum[i]! / (0.8 * size)) * smoothstep((total - cum[i]!) / (0.8 * size));
+    // Calm near a city, so the river runs straight through its icon.
+    for (const { p, radius } of sites) fade *= smoothstep((Math.hypot(centreline[i]!.x - p.x, centreline[i]!.y - p.y) - radius) / (0.5 * size));
     return { wavelength, amplitude: amplitude * fade };
   });
   let phase = 0;
@@ -323,9 +376,26 @@ export function riverCourse(river: River, size: number, seed: string, ends: Cour
     const len = Math.hypot(b.x - a.x, b.y - a.y) || 1;
     return { x: -(b.y - a.y) / len, y: (b.x - a.x) / len, tx: (b.x - a.x) / len, ty: (b.y - a.y) / len };
   });
+  // A swing larger than the radius of a bend would fold the line back on itself
+  // (a hairpin), so the swing is limited by how tightly the line turns nearby.
+  const room = centreline.map((_, i) => {
+    let tightest = Infinity;
+    for (let k = Math.max(1, i - 3); k <= Math.min(centreline.length - 2, i + 3); k++) {
+      const a = centreline[k - 1]!;
+      const b = centreline[k]!;
+      const c = centreline[k + 1]!;
+      let turn = Math.abs(Math.atan2(c.y - b.y, c.x - b.x) - Math.atan2(b.y - a.y, b.x - a.x));
+      if (turn > Math.PI) turn = 2 * Math.PI - turn;
+      const run = (Math.hypot(b.x - a.x, b.y - a.y) + Math.hypot(c.x - b.x, c.y - b.y)) / 2 || 1;
+      if (turn > 1e-3) tightest = Math.min(tightest, (0.35 * run) / turn);
+    }
+    return tightest;
+  });
   // Pull back any swing that would carry the river out of its own hexes.
   const keep = centreline.map((p, i) => {
-    for (let f = 1; f > 0.2; f /= 2) {
+    const reach = Math.abs(offset[i]!);
+    const limit = reach > room[i]! ? room[i]! / reach : 1;
+    for (let f = limit; f > 0.2 * limit; f /= 2) {
       if (inHexes({ x: p.x + normals[i]!.x * offset[i]! * f, y: p.y + normals[i]!.y * offset[i]! * f })) return f;
     }
     return 0;
@@ -333,7 +403,7 @@ export function riverCourse(river: River, size: number, seed: string, ends: Cour
   const eased = keep.map((f, i) => {
     let sum = 0;
     let count = 0;
-    for (let k = Math.max(0, i - 2); k <= Math.min(keep.length - 1, i + 2); k++) {
+    for (let k = Math.max(0, i - 3); k <= Math.min(keep.length - 1, i + 3); k++) {
       sum += keep[k]!;
       count++;
     }
@@ -341,10 +411,12 @@ export function riverCourse(river: River, size: number, seed: string, ends: Cour
   });
   const line = centreline.map((p, i) => ({ x: p.x + normals[i]!.x * offset[i]! * eased[i]!, y: p.y + normals[i]!.y * offset[i]! * eased[i]! }));
 
+  // A river that rises at a city comes out from under its icon at full width.
+  const atCity = sites.some(({ p, radius }) => Math.hypot(centreline[0]!.x - p.x, centreline[0]!.y - p.y) < radius * 1.2);
   const widths = base.map((w0, i) => {
     let w = w0;
     // A spring starts as a thread; a distributary, a lake outflow and a tributary's end do not.
-    if (!river.branchOf && !ends.before) w *= 0.2 + 0.8 * smoothstep(cum[i]! / (0.6 * size));
+    if (!river.branchOf && !ends.before && !atCity) w *= 0.2 + 0.8 * smoothstep(cum[i]! / (0.6 * size));
     // Flare over the last half hex where the river meets standing water.
     if (river.terminus === 'Sea' || river.terminus === 'Lake') {
       const fromMouth = (total - cum[i]!) / size;
@@ -422,12 +494,14 @@ function nearest(line: Point[], p: Point): Point {
  * the tributary's water. A river that cannot find its host ends at the hex
  * centre, as a river that runs nowhere does. `lakeEnds` supplies points in the
  * lakes a river flows out of or into, and the test for being in their water.
+ * `cities` lists the cities standing on rivers.
  */
 export function riverCourses(
   rivers: River[],
   size: number,
   seed: string,
   lakeEnds: (river: River) => Pick<CourseEnds, 'before' | 'beyond' | 'inWater'> = () => ({}),
+  cities: Array<{ riverId: string; at: Point; radius: number }> = [],
 ): Map<string, RiverCourse> {
   const out = new Map<string, RiverCourse>();
   const key = (col: number, row: number) => `${col},${row}`;
@@ -474,6 +548,7 @@ export function riverCourses(
     const last = r.segments.at(-1);
     const ends: CourseEnds = {
       ...lakeEnds(r),
+      cities: cities.filter((c) => c.riverId === r.id),
       inflows: (tributaries.get(r.id) ?? []).map((t) => {
         const end = t.segments.at(-1)!;
         return { at: hexCenter(end.col, end.row, size), run: upstream(t) };

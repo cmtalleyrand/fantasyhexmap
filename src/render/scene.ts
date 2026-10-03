@@ -1582,6 +1582,9 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
     }
   }
 
+  /** A city marker's radius: grows with population, at a little under the old markers' weight. */
+  const markerRadius = (population: number) =>
+    0.85 * Math.max(size * 0.16, Math.min(size * 0.46, size * 0.1 * Math.log10(Math.max(10, population))));
   // --- rivers --------------------------------------------------------------
   const rivers = opts.visible.rivers ? layers.rivers.data : null;
   const tapered = knobs.rivers === 'tapered';
@@ -1604,7 +1607,9 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
           beyond: lakeAcross(last, last?.exitEdge ?? null),
           inWater: inLakeWater,
         };
-      })
+      }, (opts.visible.cities ? layers.cities.data?.cities ?? [] : [])
+        .filter((city) => city.onRiver && city.riverId)
+        .map((city) => ({ riverId: city.riverId!, at: hexCenter(city.col, city.row, size), radius: markerRadius(city.population) })))
     : new Map();
   const riversFrom = prims.length;
   if (rivers) {
@@ -1756,9 +1761,6 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
     ]),
   );
   const siteOf = (city: { id: string; col: number; row: number }) => sites.get(city.id) ?? hexCenter(city.col, city.row, size);
-  /** A city marker's radius: grows with population, at a little under the old markers' weight. */
-  const markerRadius = (population: number) =>
-    0.85 * Math.max(size * 0.16, Math.min(size * 0.46, size * 0.1 * Math.log10(Math.max(10, population))));
   if (cities) {
     for (const city of cities.cities) {
       const c = siteOf(city);
@@ -1898,10 +1900,17 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
     }
   }
 
+  // City markers, which river names keep clear of.
+  const cityBoxes: OrientedBox[] = (cities?.cities ?? []).map((city) => {
+    const c = siteOf(city);
+    const reach = markerReach(city.population, city.capital) * 1.15;
+    return { cx: c.x, cy: c.y, halfW: reach, halfH: reach, rotation: 0 };
+  });
+
   // --- river and mountain range names -------------------------------------
   if (rivers && opts.riverNames) {
     const pathFor = tapered ? (id: string) => courses.get(id) ?? null : undefined;
-    for (const l of placeRiverLabels(rivers.rivers, size, pathFor, lettering.river, taken, (id) => meanWidths.get(id))) {
+    for (const l of placeRiverLabels(rivers.rivers, size, pathFor, lettering.river, [...taken, ...cityBoxes], (id) => meanWidths.get(id), inLakeWater)) {
       prims.push({
         kind: 'text',
         at: l.at,

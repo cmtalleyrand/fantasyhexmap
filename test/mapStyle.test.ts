@@ -283,6 +283,74 @@ test('a wider river carries a slightly larger name', async () => {
   assert.ok(ratio > 1.05 && ratio < 1.12, `ratio ${ratio.toFixed(3)}`);
 });
 
+test('a meandering river never folds back on itself, even through tight bends', async () => {
+  const { neighbourOf: nb } = await import('../shared/hex.ts');
+  let state = 12345;
+  const rnd = () => (state = (state * 1664525 + 1013904223) % 4294967296) / 4294967296;
+  let sharp = 0;
+  const runs = 400;
+  for (let n = 0; n < runs; n++) {
+    const len = 3 + Math.floor(rnd() * 5);
+    const segs: Array<{ col: number; row: number; entryEdge: number | null; exitEdge: number | null; navigable: boolean }> = [];
+    let at = { col: 5, row: 5 };
+    let prev: number | null = null;
+    for (let k = 0; k < len; k++) {
+      let d = Math.floor(rnd() * 6);
+      if (prev !== null && d === (prev + 3) % 6) d = (d + 1) % 6;
+      segs.push({ col: at.col, row: at.row, entryEdge: prev === null ? null : (prev + 3) % 6, exitEdge: k === len - 1 ? null : d, navigable: false });
+      at = nb(at.col, at.row, d);
+      prev = d;
+    }
+    const line = riverCourse({ id: 'f', name: 'f', terminus: 'Unresolved', segments: segs }, 40, `s${n}`)!.centreline;
+    for (let i = 2; i < line.length; i++) {
+      const [a, b, c] = [line[i - 2]!, line[i - 1]!, line[i]!];
+      let t = Math.abs(Math.atan2(c.y - b.y, c.x - b.x) - Math.atan2(b.y - a.y, b.x - a.x));
+      if (t > Math.PI) t = 2 * Math.PI - t;
+      assert.ok(t < (2 * Math.PI) / 3, `run ${n} turns ${(t * 180 / Math.PI).toFixed(0)} degrees at sample ${i}`);
+      if (t > Math.PI / 4) sharp++;
+    }
+  }
+  assert.ok(sharp < runs * 0.2, `${sharp} sharp turns in ${runs} rivers`);
+});
+
+test('a river that rises at a city comes out from under its icon, and one that runs out at a city stops under it', () => {
+  const size = 40;
+  const segs = [0, 1, 2, 3, 4, 5].map((col) => ({ col, row: 2, entryEdge: col === 0 ? null : 3, exitEdge: col === 5 ? null : 0, navigable: false }));
+  const river = { id: 'c', name: 'City', terminus: 'Unresolved' as const, segments: segs };
+  const centre = (col: number) => ({ x: size * Math.sqrt(3) * col + (size * Math.sqrt(3)) / 2, y: 2 * 1.5 * size + size });
+  const bare = riverCourse(river, size, 'seed')!;
+  const cities = [{ at: centre(0), radius: 8 }, { at: centre(5), radius: 8 }];
+  const withCities = riverCourse(river, size, 'seed', { cities })!;
+  const near = (a: { x: number; y: number }, b: { x: number; y: number }) => Math.hypot(a.x - b.x, a.y - b.y);
+  assert.ok(near(withCities.centreline[0]!, centre(0)) < 8 * 1.2, 'starts under the icon');
+  assert.ok(near(withCities.centreline.at(-1)!, centre(5)) < 8 * 1.2, 'ends under the icon');
+  assert.ok(withCities.widths[0]! > bare.widths[0]! * 2, 'full width where it leaves the icon');
+});
+
+test('river names keep off lakes, city markers, other rivers and each other', async () => {
+  const { placeRiverLabels } = await import('../src/render/featureLabels.ts');
+  const size = 40;
+  const mk = (id: string, row: number) => ({
+    id, name: `River${id}`, terminus: 'OffMap' as const,
+    segments: [0, 1, 2, 3, 4, 5, 6].map((col) => ({ col, row, entryEdge: col === 0 ? null : 3, exitEdge: 0, navigable: false })),
+  });
+  const rivers = [mk('a', 2), mk('b', 3)];
+  // Two rivers a hex apart: their names must not sit on one another.
+  const plain = placeRiverLabels(rivers, size);
+  const boxes = (l: (typeof plain)[number]) => (l.glyphs ?? []).map((g) => ({ x: g.x, y: g.y }));
+  const clash = boxes(plain[0]!).some((p) => boxes(plain[1]!).some((q) => Math.hypot(p.x - q.x, p.y - q.y) < size * 0.3));
+  assert.ok(!clash, 'two names do not overlap');
+  // A lake over the middle of the first river: its name moves clear.
+  const middle = plain[0]!.glyphs![Math.floor(plain[0]!.glyphs!.length / 2)]!;
+  const lake = (p: { x: number; y: number }) => Math.hypot(p.x - middle.x, p.y - middle.y) < size * 0.6;
+  const moved = placeRiverLabels(rivers, size, undefined, undefined, [], undefined, lake);
+  assert.ok(moved[0]!.glyphs!.every((g) => !lake(g)), 'no letter of the name is set over the lake');
+  // A city marker over the middle of the first river's name: likewise.
+  const marker = { cx: middle.x, cy: middle.y, halfW: size * 0.5, halfH: size * 0.5, rotation: 0 };
+  const dodged = placeRiverLabels(rivers, size, undefined, undefined, [marker]);
+  assert.ok(dodged[0]!.glyphs!.every((g) => Math.hypot(g.x - middle.x, g.y - middle.y) > size * 0.4), 'the name keeps off the marker');
+});
+
 test('the PNG encoder writes a valid signature and chunk layout', () => {
   const png = encodePng(2, 2, new Uint8ClampedArray(16).fill(200));
   assert.deepEqual([...png.slice(0, 8)], [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
