@@ -23,9 +23,6 @@
  * swing shrinks, so streams wander and big rivers run calm, and it is held
  * inside the river's own hexes.
  *
- * A bend that turns tightly (a hook, or a 120 degree turn in one hex) is then
- * smoothed over by arc length, as a river's own bends are wider than the hex
- * walk's, with the line kept inside the river's hexes and its ends held fixed.
  *
  * The river is drawn as a filled outline. It rises as a thread that is half the
  * normal width by the time it leaves its source hex, then grows to the normal
@@ -63,7 +60,7 @@ const JOIN_RUN = 0.55;
 /** How much of a tributary's last approach follows its host's flow rather than its own heading. */
 const JOIN_FLOW = 0.6;
 /** The largest swing of a meander, in hex sizes (from the centre line). */
-const MEANDER = 0.14;
+const MEANDER = 0.3;
 const CAP_STEPS = 6;
 /** How far a river runs on into the lake it empties into, in hex sizes. */
 const MOUTH_REACH = 0.12;
@@ -79,11 +76,6 @@ const NAVIGABLE_WIDENS = 0.1;
 const SOURCE_EXIT_WIDTH = 0.5;
 /** Distance from a hex centre to the middle of an edge, in hex sizes. */
 const CENTRE_TO_EDGE = Math.sqrt(3) / 2;
-/** The reach, in hex sizes, of the Gaussian that smooths a bend (its standard deviation). */
-const BEND_SIGMA = 0.42;
-const BEND_PASSES = 2;
-/** The turn, in radians, across the reach of the smoothing, between which a bend is smoothed less and then not at all. */
-const HAIRPIN: [number, number] = [(80 * Math.PI) / 180, (160 * Math.PI) / 180];
 
 interface Slide {
   a: Point;
@@ -247,132 +239,6 @@ function catmullRom(p0: Point, p1: Point, p2: Point, p3: Point, samples: number)
   return out;
 }
 
-/** The point `at` along a line whose cumulative arc lengths are `s` (clamped to its ends). */
-function pointAt(line: Point[], s: number[], at: number): Point {
-  const n = line.length;
-  if (at <= 0) return line[0]!;
-  if (at >= s[n - 1]!) return line[n - 1]!;
-  let lo = 0;
-  let hi = n - 1;
-  while (hi - lo > 1) {
-    const mid = (lo + hi) >> 1;
-    if (s[mid]! <= at) lo = mid;
-    else hi = mid;
-  }
-  const u = (at - s[lo]!) / (s[hi]! - s[lo]! || 1);
-  return { x: line[lo]!.x + (line[hi]!.x - line[lo]!.x) * u, y: line[lo]!.y + (line[hi]!.y - line[lo]!.y) * u };
-}
-
-/**
- * Smooth the tight bends of a sampled line: each point moves towards the
- * Gaussian-weighted mean of the points near it by arc length, so a hook the hex
- * walk leaves becomes a wide bend. A point never leaves `allowed`, and the
- * smoothing fades out towards both ends, which stay where they are.
- */
-function easeBy(line: Point[], size: number, allowed: (p: Point) => boolean, strength: number): Point[] {
-  const n = line.length;
-  if (n < 5) return line;
-  const sigma = BEND_SIGMA * size;
-  const arcs = (pts: Point[]): number[] => {
-    const s = [0];
-    for (let i = 1; i < pts.length; i++) s.push(s[i - 1]! + Math.hypot(pts[i]!.x - pts[i - 1]!.x, pts[i]!.y - pts[i - 1]!.y));
-    return s;
-  };
-  // A hairpin is a turn too tight to widen without a cusp: the more the line turns across the reach of
-  // the smoothing, the less it is smoothed. The allowance is judged on the line as it comes, and spread
-  // so that it falls away over the reach of the smoothing rather than switching off at the apex.
-  const s0 = arcs(line);
-  const turned = line.map((p, i) => {
-    const behind = pointAt(line, s0, s0[i]! - sigma);
-    const ahead = pointAt(line, s0, s0[i]! + sigma);
-    let turn = Math.abs(Math.atan2(ahead.y - p.y, ahead.x - p.x) - Math.atan2(p.y - behind.y, p.x - behind.x));
-    if (turn > Math.PI) turn = 2 * Math.PI - turn;
-    return 1 - smoothstep((turn - HAIRPIN[0]) / (HAIRPIN[1] - HAIRPIN[0]));
-  });
-  const allow = line.map((_, i) => {
-    let least = 1;
-    for (let k = i; k >= 0 && s0[i]! - s0[k]! <= sigma; k--) least = Math.min(least, turned[k]!);
-    for (let k = i + 1; k < n && s0[k]! - s0[i]! <= sigma; k++) least = Math.min(least, turned[k]!);
-    return least;
-  });
-  const eased = allow.map((_, i) => {
-    let sum = 0;
-    let count = 0;
-    for (let k = i; k >= 0 && s0[i]! - s0[k]! <= sigma / 2; k--, count++) sum += allow[k]!;
-    for (let k = i + 1; k < n && s0[k]! - s0[i]! <= sigma / 2; k++, count++) sum += allow[k]!;
-    return sum / count;
-  });
-  let cur = line;
-  for (let pass = 0; pass < BEND_PASSES; pass++) {
-    const s = arcs(cur);
-    const total = s[n - 1]!;
-    const step = (k: number) => ((s[Math.min(n - 1, k + 1)]! - s[Math.max(0, k - 1)]!) / 2) || 1e-6;
-    cur = cur.map((p, i) => {
-      let sx = 0;
-      let sy = 0;
-      let sw = 0;
-      for (let k = i; k >= 0 && s[i]! - s[k]! <= 2.5 * sigma; k--) {
-        const w = Math.exp(-0.5 * ((s[i]! - s[k]!) / sigma) ** 2) * step(k);
-        sx += cur[k]!.x * w;
-        sy += cur[k]!.y * w;
-        sw += w;
-      }
-      for (let k = i + 1; k < n && s[k]! - s[i]! <= 2.5 * sigma; k++) {
-        const w = Math.exp(-0.5 * ((s[k]! - s[i]!) / sigma) ** 2) * step(k);
-        sx += cur[k]!.x * w;
-        sy += cur[k]!.y * w;
-        sw += w;
-      }
-      const fade = smoothstep(Math.min(s[i]!, total - s[i]!) / (0.9 * size)) * eased[i]! * strength;
-      const goal = { x: p.x + (sx / sw - p.x) * fade, y: p.y + (sy / sw - p.y) * fade };
-      for (let f = 1; f > 0.1; f /= 2) {
-        const q = { x: p.x + (goal.x - p.x) * f, y: p.y + (goal.y - p.y) * f };
-        if (allowed(q)) return q;
-      }
-      return p;
-    });
-  }
-  // Smoothing draws the points together where a hook was; lay them out evenly again.
-  const arc = arcs(cur);
-  const was = s0[n - 1]!;
-  const keep = Math.max(2, Math.round((arc[n - 1]! / was) * (n - 1)) + 1);
-  const out: Point[] = [];
-  let k = 0;
-  for (let j = 0; j < keep; j++) {
-    const at = (arc[n - 1]! * j) / (keep - 1);
-    while (k < n - 2 && arc[k + 1]! < at) k++;
-    const span = arc[k + 1]! - arc[k]! || 1;
-    const u = Math.min(1, Math.max(0, (at - arc[k]!) / span));
-    out.push({ x: cur[k]!.x + (cur[k + 1]!.x - cur[k]!.x) * u, y: cur[k]!.y + (cur[k + 1]!.y - cur[k]!.y) * u });
-  }
-  return out;
-}
-
-/** The sharpest turn between consecutive segments of a line, in radians. */
-function sharpest(line: Point[]): number {
-  let worst = 0;
-  for (let i = 2; i < line.length; i++) {
-    const [a, b, c] = [line[i - 2]!, line[i - 1]!, line[i]!];
-    let t = Math.abs(Math.atan2(c.y - b.y, c.x - b.x) - Math.atan2(b.y - a.y, b.x - a.x));
-    if (t > Math.PI) t = 2 * Math.PI - t;
-    worst = Math.max(worst, t);
-  }
-  return worst;
-}
-
-/**
- * `easeBy` at full strength, or the most of it that leaves no turn sharper than the line
- * began with (or a quarter turn): smoothing a tight loop can pinch it, and that is not a bend.
- */
-export function easeBends(line: Point[], size: number, allowed: (p: Point) => boolean): Point[] {
-  const limit = Math.max(sharpest(line), Math.PI / 4) * 1.05;
-  for (const strength of [1, 0.6, 0.3]) {
-    const eased = easeBy(line, size, allowed, strength);
-    if (sharpest(eased) <= limit) return eased;
-  }
-  return line;
-}
-
 export function riverCourse(river: River, size: number, seed: string, ends: CourseEnds = {}): RiverCourse | null {
   const ctrl = controls(river, size, seed, ends);
   if (ctrl.length < 2) return null;
@@ -408,13 +274,6 @@ export function riverCourse(river: River, size: number, seed: string, ends: Cour
       return hexes.has(`${q.col},${q.row}`);
     });
   };
-  // A little give at the edge of the corridor, so a bend that must cut a corner is eased rather than kinked.
-  const nearHexes = (p: Point): boolean =>
-    inHexes(p) || [0, 1, 2, 3, 4, 5].some((k) => inHexes({ x: p.x + Math.cos((k * Math.PI) / 3) * size * 0.14, y: p.y + Math.sin((k * Math.PI) / 3) * size * 0.14 }));
-  const smoothed = easeBends(centreline, size, nearHexes);
-  navigable = smoothed.map((_, i) => navigable[Math.round((i / Math.max(1, smoothed.length - 1)) * (navigable.length - 1))]!);
-  centreline = smoothed;
-
   // Cut the course at the shore where it leaves its source lake and where it
   // reaches the lake it empties into.
   const wet = ends.inWater;
@@ -581,26 +440,30 @@ export function riverCourse(river: River, size: number, seed: string, ends: Cour
     return (sum / weight) * size * NORMAL_WIDTH;
   });
 
-  // Meander: a gentle seeded wander across the line. Its wavelength grows with
-  // the river's width and its swing shrinks, and it dies away at the ends so a
-  // fork or confluence still lands on its host's line.
-  const phase1 = signed(seed, 'meander', river.id, 1) * Math.PI;
-  const phase2 = signed(seed, 'meander', river.id, 2) * Math.PI;
-  const swing = centreline.map((_, i) => {
+  // Meander: an irregular seeded wander across the line, as a real river has: no
+  // one wavelength, reaches that run nearly straight between reaches that wander,
+  // and small wobbles on the large ones. It is value noise along the river, in
+  // three scales, under a slowly changing envelope. Its swing shrinks as the river
+  // widens, and it dies away at the ends so a fork or confluence still lands on
+  // its host's line.
+  const noise = (octave: number, x: number): number => {
+    const k = Math.floor(x);
+    const u = smoothstep(x - k);
+    const a = signed(seed, 'meander', river.id, octave, k);
+    const b = signed(seed, 'meander', river.id, octave, k + 1);
+    return a + (b - a) * u;
+  };
+  const offset = centreline.map((_, i) => {
     // Scaled to the widths the meander was tuned for.
     const fraction = (base[i]! / size) * 2.2;
-    const wavelength = size * (1.6 + 12 * fraction);
     const amplitude = size * MEANDER * (1 - 0.5 * smoothstep((fraction - 0.04) / 0.13));
+    const at = cum[i]! / size;
+    const envelope = 0.4 + 0.6 * (0.5 + 0.5 * noise(7, at / 3.4));
     let fade = smoothstep(cum[i]! / (0.8 * size)) * smoothstep((total - cum[i]!) / (0.8 * size));
     // Calm near a city, so the river runs straight through its icon.
     for (const { p, radius } of sites) fade *= smoothstep((Math.hypot(centreline[i]!.x - p.x, centreline[i]!.y - p.y) - radius) / (0.5 * size));
-    return { wavelength, amplitude: amplitude * fade };
-  });
-  let phase = 0;
-  const offset = centreline.map((_, i) => {
-    if (i > 0) phase += (2 * Math.PI * (cum[i]! - cum[i - 1]!)) / swing[i]!.wavelength;
-    const wave = Math.sin(phase + phase1) + 0.2 * Math.sin(phase / 0.6 + phase2);
-    return (swing[i]!.amplitude * wave) / 1.2;
+    const wander = noise(1, at / 2.0) + 0.7 * noise(2, at / 0.85 + 5) + 0.28 * noise(3, at / 0.4 + 9);
+    return (amplitude * envelope * fade * wander) / 1.7;
   });
   const normals = centreline.map((_, i) => {
     const a = centreline[Math.max(0, i - 1)]!;

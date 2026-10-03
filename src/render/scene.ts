@@ -2257,11 +2257,10 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
         .filter((city) => city.onRiver && city.riverId)
         .map((city) => ({ riverId: city.riverId!, at: hexCenter(city.col, city.row, size), radius: markerRadius(city.population) })))
     : new Map();
-  // A river that flows through a lake is hidden where it crosses the water; the rest stop at the water's edge as they do
-  // at the sea's, and both are kept to the land as drawn.
-  const riverRuns = { plain: [] as Prim[], through: [] as Prim[] };
-  const riverPrims = (river: River): Prim[] =>
-    river.segments.slice(1, -1).some((s) => base?.[hexIndex(cols, s.col, s.row)] === 'Lake') ? riverRuns.through : riverRuns.plain;
+  // Everything a river draws, cut to the land below: over a lake or the sea it does not show, so a river through a lake
+  // shows on either side of the water only.
+  const riverList: Prim[] = [];
+  const riverPrims = (_river: River): Prim[] => riverList;
   if (rivers) {
     const picked = opts.highlightRiver ? rivers.rivers.find((r) => r.id === opts.highlightRiver) : null;
     if (picked) {
@@ -2362,15 +2361,13 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
     }
   }
 
-  prims.push(...riverRuns.plain);
-  if (riverRuns.through.length > 0) {
-    // Over a lake the river is the lake: a river through one shows on either side of the water only.
-    prims.push({
-      kind: 'group',
-      clip: [['M', -size, -size], ['L', width + size, -size], ['L', width + size, height + size], ['L', -size, height + size], ['Z'], ...lakeOutlines],
-      clipRule: 'evenodd',
-      prims: riverRuns.through,
-    });
+  // A river never shows over open water, whatever its course does: it is cut to the page less the sea and the lakes
+  // (a river through a lake shows on either side of the water only). Islands in a lake are land, and show.
+  const seaWater = waterClip('sea') ?? [];
+  if (seaWater.length + lakeOutlines.length === 0) prims.push(...riverList);
+  else if (riverList.length > 0) {
+    const page: PathCmd[] = [['M', -size, -size], ['L', width + size, -size], ['L', width + size, height + size], ['L', -size, height + size], ['Z']];
+    prims.push({ kind: 'group', clip: [...page, ...seaWater, ...lakeOutlines], clipRule: 'evenodd', prims: riverList });
   }
 
   if (rivers && opts.highlightRiver) {

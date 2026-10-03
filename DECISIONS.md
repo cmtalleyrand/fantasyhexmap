@@ -892,17 +892,18 @@ reaches it; a shorter river adds in proportion to its distance, so every river i
 yardstick), and navigable water is a tenth wider, eased in over about a hex. Together these make rivers about
 half as heavy as before; the bank stroke is thinner to match.
 
-**Bends.** After the course is fitted through the edge crossings it is smoothed by arc length (a Gaussian about
-0.4 of a hex across), kept inside the river's own hexes (with a little give at the corners) and held fixed at
-both ends so confluences and forks still land on their host. A turn that is already close to a hairpin is
-smoothed less, and if smoothing would leave any turn sharper than the line began with, it is applied at a
-smaller strength or not at all: a bend is widened, never pinched.
+**Bends.** A bendy river looked like a drawn curve because its wander was one regular wave on top of a smooth
+spline. The wander is now irregular, as a real river's is: value noise along the river at three scales (about
+two, one and under half a hex) under a slowly changing envelope, so some reaches run nearly straight and others
+wander, with no one wavelength. Its swing still shrinks as the river widens and dies away at both ends, so
+confluences and forks land on their host, and it stays inside the river's hexes and clear of folding.
 
 **Coast.** A river into the sea is cut where the coast is drawn, found from the coast lines themselves (land is
 on the right of each line, so the side a point falls on says whether it is land, however the coast has been
 reshaped, smoothed or roughened), and flares there; where the coast bulges past the hex's edge the river is
-carried on to it. Points of the course that would swing off the land are pulled back. This replaces the clip
-over the water strips, which cut the mouth off flat at the hex's old edge.
+carried on to it. Points of the course that would swing off the land are pulled back. As a guarantee, everything a river
+draws is clipped to the page less the sea and the lake bodies, so no river shows over open water whatever its
+course does (this replaces the clip over the water strips, which cut the mouth off flat at the hex's old edge).
 
 **Lakes.** A river may run through a lake: validation no longer warns about a lake hex in the middle of a path,
 merging two rivers bridges a lake, and the prompts say rivers may link lakes. Where it crosses the water it is
