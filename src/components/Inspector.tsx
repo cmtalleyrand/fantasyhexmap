@@ -820,7 +820,7 @@ function IslandSidePanel(props: SubProps) {
         Small islands lie against the {mainland ? 'mainland' : 'coast'}
       </label>
       </>)}
-      <label htmlFor="island-side">{scattered ? 'Side they lie against' : 'Side of the coast the pattern is measured from'}</label>
+      <label htmlFor="island-side">{scattered ? 'Side they lie against' : 'Side the pattern is measured from (the coast, or a heading in open sea)'}</label>
       <select
         id="island-side"
         value={side}

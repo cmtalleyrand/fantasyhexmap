@@ -284,7 +284,7 @@ function visibleIslandPercent(map: MapState, size: number, style: ReturnType<typ
 }
 
 test('an island hex visibly occupies the selected percentage of its hex, outline included', () => {
-  for (const [land, small] of [[5, 1], [30, 6], [40, 6]]) {
+  for (const [land, small] of [[5, 1], [15, 4], [30, 6], [40, 6]]) {
     const map = mapWith(['Islands']);
     map.islandSpecs = { '0': { large: small === 0 ? 1 : 0, small } };
     map.hexShapes = { '0': { type: 'Islands', land } };
@@ -635,4 +635,31 @@ test('coast ink counts as land: a full coastal hex has its coastline inside it, 
       assert.ok(nearest(rings[a]!, rings[b]!) > 2 * ink, `islands ${a} and ${b} keep their outlines apart`);
     }
   }
+});
+
+test('a new random layout moves and reshapes the islands, not just turns the same ring', () => {
+  const signatures = new Set<string>();
+  const spreads: number[] = [];
+  for (const layoutSeed of [1, 22, 333, 4444, 55555, 666666]) {
+    const map = mapWith(['Islands']);
+    map.islandSpecs = { '0': { large: 1, small: 4, layoutSeed } };
+    const centre = hexCenter(0, 0, 30);
+    const rings: Array<Array<{ x: number; y: number }>> = [];
+    const gather = (prims: Prim[]) => {
+      for (const p of prims) {
+        if (p.kind === 'group') gather(p.prims);
+        else if (p.kind === 'path' && p.fill === smooth.palette.island) rings.push(...pathPolylines(p.d, 8));
+      }
+    };
+    gather(scene(map).prims);
+    const radii = rings
+      .map((ring) => Math.hypot(ring.reduce((a, q) => a + q.x, 0) / ring.length - centre.x, ring.reduce((a, q) => a + q.y, 0) / ring.length - centre.y))
+      .sort((a, b) => a - b);
+    signatures.add(radii.map((r) => Math.round(r / 3)).join(','));
+    spreads.push(radii[radii.length - 1]! - radii[0]!);
+    // Islands differ in size within one layout.
+    const areas = rings.map((ring) => Math.abs(ring.reduce((a, q, k) => a + q.x * ring[(k + 1) % ring.length]!.y - ring[(k + 1) % ring.length]!.x * q.y, 0)) / 2).sort((a, b) => a - b);
+    assert.ok(areas[areas.length - 2]! > areas[1]! * 1.15, 'the small islands are not all one size');
+  }
+  assert.ok(signatures.size >= 5, `six presses give ${signatures.size} different spreads of islands`);
 });

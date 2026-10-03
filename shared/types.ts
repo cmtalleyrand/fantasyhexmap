@@ -124,8 +124,8 @@ export const ISLAND_ARRANGEMENTS: Array<{ value: IslandArrangement; label: strin
 export type IslandOrientation = 'free' | 'along' | 'across';
 export const ISLAND_ORIENTATIONS: Array<{ value: IslandOrientation; label: string }> = [
   { value: 'free', label: 'Any direction' },
-  { value: 'along', label: 'Parallel to the coast' },
-  { value: 'across', label: 'Pointing away from the coast' },
+  { value: 'along', label: 'Parallel to the coast (or the chosen side)' },
+  { value: 'across', label: 'Pointing away from the coast (or the chosen side)' },
 ];
 
 /**
