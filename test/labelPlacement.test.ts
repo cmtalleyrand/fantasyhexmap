@@ -76,3 +76,40 @@ test('two names keep clear space between them instead of touching', () => {
   const gap = touching.cx - touching.halfW - right;
   assert.ok(gap >= apart.size * 0.2, `gap ${gap.toFixed(1)} is under a fifth of the type size ${apart.size.toFixed(1)}`);
 });
+
+test('a ring-shaped realm is named on its band, grazing its lake at most', () => {
+  const cols = 18;
+  const rows = 16;
+  const c0 = { x: 320, y: 200 };
+  const lake = new Set<number>();
+  const owner: (string | null)[] = Array(cols * rows).fill(null);
+  for (let i = 0; i < owner.length; i++) {
+    const c = hexCenter(i % cols, Math.floor(i / cols), SIZE);
+    const r = Math.hypot(c.x - c0.x, c.y - c0.y);
+    if (r > 190) continue;
+    owner[i] = 'a';
+    if (r < 80) lake.add(i); // the realm's own lake, in its middle
+  }
+  const [label] = placePolityLabels({
+    cols,
+    rows,
+    size: SIZE,
+    owner,
+    polities: [{ id: 'a', name: 'Kingdom' }],
+    obstacles: [],
+    minHexes: 0,
+    lakes: lake,
+    measure,
+  });
+  assert.ok(label, 'the ring is named');
+  const w = measure('KINGDOM') * label.size;
+  let over = 0;
+  const steps = 20;
+  for (let k = 0; k <= steps; k++) {
+    const t = k / steps - 0.5;
+    const x = label.at.x + t * w * Math.cos(label.rotation);
+    const y = label.at.y + t * w * Math.sin(label.rotation);
+    if (Math.hypot(x - c0.x, y - c0.y) < 80) over++;
+  }
+  assert.ok(over / (steps + 1) <= 0.15, `${over} of ${steps + 1} baseline points lie over the lake`);
+});

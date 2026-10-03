@@ -216,6 +216,7 @@ function cachedPolityLabels(
   sizing: 'moderate' | 'fill',
   role: FaceRole,
   letteringId: string,
+  lakes: ReadonlySet<number>,
 ): PolityLabel[] {
   const key = `${cols}x${rows}@${size}/${minHexes ?? ''}/${sizing}/${letteringId}/${measureEpoch}`;
   const hit = labelCache.get(data.owner);
@@ -229,6 +230,7 @@ function cachedPolityLabels(
     obstacles,
     minHexes,
     sizing,
+    lakes,
     measure: (text) => roleEm(role, text),
   });
   labelCache.set(data.owner, { cities, polities: data.polities, key, labels });
@@ -1775,6 +1777,7 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
     ? { ...polities, owner: labelOwners(polities.owner, traced.lakes, cols, rows) }
     : polities;
   if (opts.labels && polities) {
+    const labelLakes = new Set<number>((traced?.lakes ?? []).flat());
     const obstacles: LabelObstacle[] = [];
     for (const city of cities?.cities ?? []) {
       const c = siteOf(city);
@@ -1788,7 +1791,7 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
     const maxDepth = Math.max(0, ...depths.values());
     const levels: Array<{ labels: PolityLabel[]; depth: number }> = [];
     if (maxDepth === 0) {
-      levels.push({ labels: cachedPolityLabels(namingPolities!, cities, cols, rows, size, obstacles, opts.polityNames, knobs.realmNames, realmRole, lettering.id), depth: 0 });
+      levels.push({ labels: cachedPolityLabels(namingPolities!, cities, cols, rows, size, obstacles, opts.polityNames, knobs.realmNames, realmRole, lettering.id, labelLakes), depth: 0 });
     } else {
       const claimed: LabelObstacle[] = [...obstacles];
       for (let depth = 0; depth <= maxDepth; depth++) {
@@ -1802,6 +1805,7 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
           minHexes: opts.polityNames,
           scale: depth === 0 ? 1 : 0.62 ** depth,
           sizing: knobs.realmNames,
+          lakes: labelLakes,
           measure: (text) => roleEm(realmRole, text, depth === 0 ? realmRole.weight : subWeight),
         });
         for (const label of labels) {
