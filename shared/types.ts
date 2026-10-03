@@ -104,6 +104,31 @@ export const BASE_DESCRIPTIONS: Record<BaseGeo, string> = {
 export const LAND_LIKE: BaseGeo[] = ['Land', 'Coastal Land', 'Glacier', 'Islands', 'Mainland and islands', 'Isthmus'];
 
 /**
+ * The patterns islands lie in, as they do in nature. Scattered is a shelf
+ * archipelago, with islets sharing a grain. A chain is a hotspot trail (Hawaii)
+ * with the largest at one end. An arc is a volcanic island arc (the Aleutians,
+ * the Lesser Antilles), bowed away from the land behind it. A barrier is a row
+ * of long narrow islands standing off a coast (the Outer Banks, the Frisians).
+ * A ring is an atoll or a drowned caldera round a lagoon.
+ */
+export type IslandArrangement = 'scattered' | 'chain' | 'arc' | 'barrier' | 'ring';
+export const ISLAND_ARRANGEMENTS: Array<{ value: IslandArrangement; label: string; hint: string }> = [
+  { value: 'scattered', label: 'Scattered archipelago', hint: 'Islets of one grain, as on a drowned shelf' },
+  { value: 'chain', label: 'Chain (hotspot trail)', hint: 'A line of islands, the largest at one end' },
+  { value: 'arc', label: 'Arc (volcanic island arc)', hint: 'A curve bowed away from the nearest land' },
+  { value: 'barrier', label: 'Barrier islands', hint: 'Long narrow islands in a row off the coast' },
+  { value: 'ring', label: 'Ring (atoll)', hint: 'Islands round a lagoon' },
+];
+
+/** Which way a chain, arc or barrier runs: with the nearest coast (as island arcs and barrier islands do), across it (a peninsula's drowned tail), or by chance. */
+export type IslandOrientation = 'free' | 'along' | 'across';
+export const ISLAND_ORIENTATIONS: Array<{ value: IslandOrientation; label: string }> = [
+  { value: 'free', label: 'Any direction' },
+  { value: 'along', label: 'Parallel to the coast (or the chosen side)' },
+  { value: 'across', label: 'Pointing away from the coast (or the chosen side)' },
+];
+
+/**
  * How the islands of an Islands or Mainland-and-islands hex are drawn: up to
  * two large islands and six small ones (at least one island in all). A
  * coastal group lies against the hex's side facing land (`side`, or the
@@ -112,6 +137,10 @@ export const LAND_LIKE: BaseGeo[] = ['Land', 'Coastal Land', 'Glacier', 'Islands
 export interface IslandSpec {
   large: number;
   small: number;
+  /** The pattern the islands lie in (see `ISLAND_ARRANGEMENTS`); absent means scattered. */
+  arrangement?: IslandArrangement;
+  /** How a chain, arc or barrier runs relative to the nearest coast; absent means free. */
+  orientation?: IslandOrientation;
   /** User-selected salt which changes the islands' positions and outlines. */
   layoutSeed?: number;
   coastal?: { large?: boolean; small?: boolean };
@@ -132,9 +161,13 @@ export function islandSpecFor(value: BaseGeo | null | undefined, stored: IslandS
   const small = Math.max(0, Math.min(6, Math.round(Number(stored.small) || 0)));
   if (large + small === 0) return fallback;
   const side = typeof stored.side === 'number' && stored.side >= 0 && stored.side < 6 ? Math.floor(stored.side) : undefined;
+  const arrangement = ISLAND_ARRANGEMENTS.find((a) => a.value === stored.arrangement)?.value;
+  const orientation = ISLAND_ORIENTATIONS.find((o) => o.value === stored.orientation)?.value;
   return {
     large,
     small,
+    ...(arrangement && arrangement !== 'scattered' ? { arrangement } : {}),
+    ...(orientation && orientation !== 'free' ? { orientation } : {}),
     coastal: { large: Boolean(stored.coastal?.large), small: Boolean(stored.coastal?.small) },
     ...(Number.isFinite(stored.layoutSeed) ? { layoutSeed: Math.floor(stored.layoutSeed!) } : {}),
     ...(side !== undefined ? { side } : {}),

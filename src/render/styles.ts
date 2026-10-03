@@ -13,13 +13,13 @@ import type { CityMarkerSet } from './cityMarkers.js';
 import type { LetteringId } from './lettering.js';
 import { BASE_COLOURS, ISLAND_DOT, MAP_COLOURS } from './palette.js';
 
-export type StylePresetId = 'classic' | 'parchment' | 'atlas' | 'night';
+export type StylePresetId = 'classic' | 'parchment' | 'atlas' | 'night' | 'frills';
 
 export interface StyleKnobs {
   /** Sea surface: one flat colour, shading that deepens away from land, or ripple lines along the coast. */
   water: 'flat' | 'depth' | 'ripples';
-  /** How many ripple lines follow the sea coast (lakes always take one). */
-  ripples: 1 | 2 | 3;
+  /** How many ripple lines follow the sea coast: none, or up to three (a lake takes at most one). */
+  ripples: 0 | 1 | 2 | 3;
   /** Coastline: none, traced along hex edges, or smoothed (never more than an eighth of a hex off the data). */
   coast: 'none' | 'hex' | 'smooth';
   /** Hex grid: on every hex, on land only, or off. */
@@ -169,7 +169,7 @@ const CLASSIC: PresetInfo = {
   },
   knobs: {
     water: 'flat',
-    ripples: 2,
+    ripples: 0,
     coast: 'hex',
     grid: 'all',
     land: 'band',
@@ -228,7 +228,7 @@ const PARCHMENT: PresetInfo = {
   },
   knobs: {
     water: 'ripples',
-    ripples: 2,
+    ripples: 0,
     coast: 'smooth',
     grid: 'land',
     // Coastal Land is data the rest of the map relies on, so it stays visible.
@@ -249,6 +249,20 @@ const PARCHMENT: PresetInfo = {
     cityNames: 'beside',
     lettering: 'storybook',
     cityMarkers: 'illustrated',
+  },
+};
+
+const FRILLS: PresetInfo = {
+  id: 'frills',
+  label: 'All frills',
+  description: 'Parchment with every embellishment on: triple ripple lines round every shore, drawn mountains, buildings and names that fill their realms',
+  palette: PARCHMENT.palette,
+  knobs: {
+    ...PARCHMENT.knobs,
+    water: 'ripples',
+    ripples: 3,
+    cityCoastMarks: true,
+    realmNames: 'fill',
   },
 };
 
@@ -288,7 +302,7 @@ const ATLAS: PresetInfo = {
   },
   knobs: {
     water: 'depth',
-    ripples: 2,
+    ripples: 0,
     coast: 'smooth',
     grid: 'none',
     land: 'band',
@@ -347,7 +361,7 @@ const NIGHT: PresetInfo = {
   },
   knobs: {
     water: 'ripples',
-    ripples: 2,
+    ripples: 0,
     coast: 'smooth',
     grid: 'all',
     land: 'band',
@@ -375,9 +389,10 @@ export const PRESETS: Record<StylePresetId, PresetInfo> = {
   parchment: PARCHMENT,
   atlas: ATLAS,
   night: NIGHT,
+  frills: FRILLS,
 };
 
-export const PRESET_ORDER: StylePresetId[] = ['classic', 'parchment', 'atlas', 'night'];
+export const PRESET_ORDER: StylePresetId[] = ['classic', 'parchment', 'atlas', 'night', 'frills'];
 
 /** Every knob's allowed values with a label for each, in display order. */
 export const KNOB_OPTIONS: {
@@ -394,6 +409,7 @@ export const KNOB_OPTIONS: {
   ripples: {
     label: 'Ripple count',
     options: [
+      { value: 0, label: 'None' },
       { value: 1, label: 'One' },
       { value: 2, label: 'Two' },
       { value: 3, label: 'Three' },
