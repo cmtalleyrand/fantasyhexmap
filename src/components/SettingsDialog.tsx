@@ -42,6 +42,8 @@ export interface SettingsDialogProps {
   map?: MapState | null;
   onSaveAllowUnderwater: (allow: boolean) => void;
   initialTab?: SettingsTab;
+  /** Manual mode has no use for the generation and key tabs. Default: 'ai'. */
+  editorMode?: 'ai' | 'manual';
 }
 
 export default function SettingsDialog(props: SettingsDialogProps) {
@@ -61,7 +63,7 @@ export default function SettingsDialog(props: SettingsDialogProps) {
   const tabs: { id: SettingsTab; label: string }[] = [
     ...(hex ? [{ id: 'map' as const, label: 'Map' }] : []),
     { id: 'display', label: 'Display' },
-    ...(browserMode
+    ...(browserMode && props.editorMode !== 'manual'
       ? [
           { id: 'generation' as const, label: 'Generation' },
           { id: 'key' as const, label: 'API key' },

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { startsPan, toggleMapFocus } from '../src/state/workspace.ts';
+import { modeFeatures, startsPan, toggleMapFocus } from '../src/state/workspace.ts';
 
 test('the explicit pan tool makes an ordinary primary drag pan', () => {
   assert.equal(startsPan('pan', { button: 0, altKey: false, spaceHeld: false }), true);
@@ -37,4 +37,9 @@ test('map focus has a safe restore state when no previous panel was open', () =>
     ).panels,
     { layers: true, inspector: true },
   );
+});
+
+test('each mode shows exactly one family of tools', () => {
+  assert.deepEqual(modeFeatures('ai'), { ai: true, manual: false });
+  assert.deepEqual(modeFeatures('manual'), { ai: false, manual: true });
 });

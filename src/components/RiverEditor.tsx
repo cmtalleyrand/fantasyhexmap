@@ -539,7 +539,7 @@ function RiverList(
     });
   };
 
-  if (rivers.length === 0) return <p className="hint">No rivers yet. Draw one, or generate the layer.</p>;
+  if (rivers.length === 0) return <p className="hint">No rivers yet. Draw one.</p>;
 
   return (
     <div className="stack">
