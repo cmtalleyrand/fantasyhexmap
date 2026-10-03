@@ -59,7 +59,7 @@ import { geoEligibility, geoNamesOf, liveHexes } from '../../shared/geoNames.js'
 import type { GeoNameKind } from '../../shared/types.js';
 import {
   LABEL_LINE_EM,
-  labelBox,
+  claimBox,
   placeCityNames,
   placePolityLabels,
   type OrientedBox,
@@ -1806,7 +1806,7 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
         });
         for (const label of labels) {
           const em = Math.max(...label.lines.map((line) => roleEm(realmRole, line, depth === 0 ? realmRole.weight : subWeight)));
-          claimed.push(labelBox(label.at, em * label.size, label.size * LABEL_LINE_EM * label.lines.length, label.rotation));
+          claimed.push(claimBox(label.at, em * label.size, label.size * LABEL_LINE_EM * label.lines.length, label.rotation, label.size));
         }
         levels.push({ labels, depth });
       }

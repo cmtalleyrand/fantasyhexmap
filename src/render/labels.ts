@@ -56,7 +56,18 @@ export function parsePolityNameMin(value: unknown): PolityNameMin {
 /** Territories under this size are only named in `auto` mode when a clean fit exists. */
 const AUTO_CLEAN_FIT_BELOW = 4;
 
-export interface LabelObstacle extends LabelBox {}
+/**
+ * Something a polity name should not cover. City markers are plain boxes; names
+ * already placed are rotated rectangles (see {@link claimBox}), which keep their
+ * true footprint instead of the larger box that encloses a tilted name.
+ */
+export type LabelObstacle = LabelBox | ClaimedBox;
+
+/** A rotated rectangle with the clearance a name keeps from others. */
+export interface ClaimedBox extends OrientedBox {
+  padX: number;
+  padY: number;
+}
 
 export interface LabelInput {
   cols: number;
@@ -104,8 +115,69 @@ const SIZE_STEP = 0.9;
 const ROTATION_STEP = Math.PI / 12;
 const MAX_ROTATION = Math.PI / 6;
 
-function overlaps(a: LabelBox, b: LabelBox): boolean {
-  return a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
+/**
+ * Clearance kept between two names, as a share of the font size of each: about
+ * half an em in all between a pair, so neighbouring tracked names are not read
+ * as one word. Horizontal clearance matters most, so vertical is smaller.
+ */
+const PAD_X = 0.25;
+const PAD_Y = 0.1;
+/** The share of the clearance kept in the last attempt, before a name would go unplaced. */
+const RELAXED_PAD = 0.25;
+
+function asClaimed(o: LabelObstacle): ClaimedBox {
+  if ('cx' in o) return o;
+  return {
+    cx: (o.left + o.right) / 2,
+    cy: (o.top + o.bottom) / 2,
+    halfW: (o.right - o.left) / 2,
+    halfH: (o.bottom - o.top) / 2,
+    rotation: 0,
+    padX: 0,
+    padY: 0,
+  };
+}
+
+/**
+ * The rectangle a placed name occupies, with the clearance later names keep
+ * from it. Its width and height are those of the text itself.
+ */
+export function claimBox(at: Point, width: number, height: number, rotation: number, font: number): ClaimedBox {
+  return { cx: at.x, cy: at.y, halfW: width / 2, halfH: height / 2, rotation, padX: font * PAD_X, padY: font * PAD_Y };
+}
+
+/**
+ * Whether two rotated rectangles overlap, each grown by its own clearance
+ * scaled by `padScale`: the separating-axis test, exact for rectangles.
+ */
+function overlapsClaimed(a: ClaimedBox, b: ClaimedBox, padScale: number): boolean {
+  const aw = a.halfW + a.padX * padScale;
+  const ah = a.halfH + a.padY * padScale;
+  const bw = b.halfW + b.padX * padScale;
+  const bh = b.halfH + b.padY * padScale;
+  const dx = b.cx - a.cx;
+  const dy = b.cy - a.cy;
+  // Too far apart for any rotation to bring them together.
+  const reach = Math.hypot(aw, ah) + Math.hypot(bw, bh);
+  if (dx * dx + dy * dy > reach * reach) return false;
+  const ac = Math.cos(a.rotation);
+  const as = Math.sin(a.rotation);
+  const bc = Math.cos(b.rotation);
+  const bs = Math.sin(b.rotation);
+  // Each box's own two axes; on every one the projected centres must lie
+  // closer than the two half-extents together, or the boxes are apart.
+  const axes: Array<[number, number]> = [
+    [ac, as],
+    [-as, ac],
+    [bc, bs],
+    [-bs, bc],
+  ];
+  for (const [ux, uy] of axes) {
+    const ra = aw * Math.abs(ux * ac + uy * as) + ah * Math.abs(ux * -as + uy * ac);
+    const rb = bw * Math.abs(ux * bc + uy * bs) + bh * Math.abs(ux * -bs + uy * bc);
+    if (Math.abs(dx * ux + dy * uy) >= ra + rb) return false;
+  }
+  return true;
 }
 
 export function labelBox(at: Point, width: number, height: number, rotation: number): LabelBox {
@@ -170,7 +242,7 @@ export function placePolityLabels(input: LabelInput): PolityLabel[] {
   );
 
   const placed: PolityLabel[] = [];
-  const claimed: LabelBox[] = [];
+  const claimed: ClaimedBox[] = [];
 
   for (const polity of ordered) {
     const owned = hexesByPolity.get(polity.id) ?? [];
@@ -246,9 +318,10 @@ export function placePolityLabels(input: LabelInput): PolityLabel[] {
     const floor = moderate && owned.length >= FLOOR_FROM_HEXES ? Math.max(MIN_FONT, size * scale * MODERATE_FLOOR) : MIN_FONT;
 
     const attempt = (
-      obstacles: LabelBox[],
+      obstacles: ClaimedBox[],
       minCoverage: number,
       fontFloor: number,
+      padScale = 1,
     ): PolityLabel | null => {
       // The territory's rough radius, against which "off centre" is judged.
       const radius = size * Math.sqrt(owned.length) * 0.9;
@@ -279,7 +352,8 @@ export function placePolityLabels(input: LabelInput): PolityLabel[] {
             for (const cand of candidates) {
               const box = labelBox(cand.at, w, h, rotation);
               if (box.left < 0 || box.top < 0) continue;
-              if (obstacles.some((o) => overlaps(box, o))) continue;
+              const probe = claimBox(cand.at, w, h, rotation, font);
+              if (obstacles.some((o) => overlapsClaimed(probe, o, padScale))) continue;
               let misses = 0;
               for (const s of samples) {
                 if (!isOwnedBy(polity.id, cand.at.x + s.x, cand.at.y + s.y) && ++misses > allowedMisses) break;
@@ -308,30 +382,34 @@ export function placePolityLabels(input: LabelInput): PolityLabel[] {
         : null;
     };
 
-    const blockers = [...input.obstacles, ...claimed];
+    // Markers and every name already placed, on this level or a higher one.
+    const blockers = [...input.obstacles.map(asClaimed), ...claimed];
+    // Names only: the later attempts let a name run over a city marker, but
+    // never over another name.
+    const names = [...input.obstacles.filter((o) => 'cx' in o).map(asClaimed), ...claimed];
     // Prefer clean placements; relax in stages so a realm is named somewhere
     // sensible rather than not at all.
     // A small polity in auto mode gets only the strictest attempt: clear of
     // cities and other names, fully inside its territory.
     // A name shrinks (to SHRINK_BEFORE_SPILL of its floor) before any of it
     // is allowed over a neighbour: a name straddling a border reads as
-    // belonging to neither realm.
+    // belonging to neither realm. Only the last attempt gives up part of the
+    // clearance kept between names, rather than leave a realm unnamed.
     const snug = Math.max(MIN_FONT, floor * SHRINK_BEFORE_SPILL);
     const label =
       attempt(blockers, GOOD_COVERAGE, snug) ??
       (minHexes === 'auto' && small
         ? null
-        : (attempt(claimed, GOOD_COVERAGE, snug) ??
-          attempt(claimed, SECOND_COVERAGE, snug) ??
-          attempt(claimed, FALLBACK_COVERAGE, snug) ??
-          (floor > MIN_FONT
-            ? attempt(claimed, LOOSE_COVERAGE, snug) ?? attempt(claimed, FALLBACK_COVERAGE, MIN_FONT)
-            : null)));
+        : (attempt(names, GOOD_COVERAGE, snug) ??
+          attempt(names, SECOND_COVERAGE, snug) ??
+          attempt(names, FALLBACK_COVERAGE, snug) ??
+          (floor > MIN_FONT ? attempt(names, LOOSE_COVERAGE, snug) : null) ??
+          attempt(names, FALLBACK_COVERAGE, MIN_FONT, RELAXED_PAD)));
     if (!label) continue;
     placed.push(label);
     const em = Math.max(...label.lines.map((line) => (input.measure ?? ((t: string) => fantasyTextEm(t)))(line)));
     claimed.push(
-      labelBox(label.at, em * label.size, label.size * LABEL_HEIGHT_EM * label.lines.length, label.rotation),
+      claimBox(label.at, em * label.size, label.size * LABEL_HEIGHT_EM * label.lines.length, label.rotation, label.size),
     );
   }
   return placed;
