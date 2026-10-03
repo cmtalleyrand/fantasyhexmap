@@ -6,8 +6,6 @@ layer at a time — base geography, elevation, climate, vegetation, rivers, citi
 population. Every layer can be edited hex by hex, rewritten wholesale by a free-text instruction (one instruction can span several ticked layers) to
 Claude, undone and redone independently, and exported as PNG or SVG.
 
-Beyond the eight built-in layers you can add **custom layers** of your own (Layers panel → *+ add layer*): define categories with names and colours, then paint hexes into them or assign a selection. They are drawn over the map, appear in composite exports and their legend, and are never generated or marked stale.
-
 Nothing regenerates behind your back. Changing an upstream layer marks the layers below it **stale**
 and leaves them exactly as they were; whether to re-run them is your call.
 

@@ -26,14 +26,12 @@ import {
   riversWithoutHexes,
 } from '../../shared/landChange.js';
 import { isLayerEnabled } from '../../shared/layers.js';
-import { assignHexes, customLayersOf, isHexColour, makeCustomCategory, makeCustomLayer, withoutCategory } from '../../shared/customLayers.js';
 import { detachOrphanBranches, setRiverNavigability } from '../../shared/riverEdit.js';
 import { cosmeticallyEqual, currentDepVersions, identicalData, trimHistory } from '../../shared/layers.js';
 import { LAYER_META, normaliseSelection } from '../../shared/layers.js';
 import { MAX_DIM } from '../../shared/types.js';
 import type {
   City,
-  CustomLayer,
   Decision,
   JournalEntry,
   JournalKind,
@@ -141,16 +139,6 @@ export type Action =
    */
   | { type: 'setHexShape'; indices: number[]; change: HexShapeChange | null }
   | { type: 'clearLayer'; layer: LayerId }
-  /** Add a user-defined layer (see `CustomLayer`); `id` lets the caller select it afterwards. */
-  | { type: 'addCustomLayer'; id: string; name: string }
-  | { type: 'renameCustomLayer'; id: string; name: string }
-  | { type: 'setCustomLayerShown'; id: string; shown: boolean }
-  | { type: 'removeCustomLayer'; id: string }
-  | { type: 'addCustomCategory'; layerId: string; id: string; name?: string }
-  | { type: 'updateCustomCategory'; layerId: string; id: string; name?: string; colour?: string }
-  | { type: 'removeCustomCategory'; layerId: string; id: string }
-  /** Give hexes a category of a custom layer, or take them out of it (null). */
-  | { type: 'setCustomHexes'; layerId: string; indices: number[]; categoryId: string | null }
   | { type: 'undo'; layer: LayerId }
   | { type: 'redo'; layer: LayerId };
 
@@ -429,10 +417,6 @@ function relayout(map: MapState, to: Relayout): MapState {
     hexShapes: map.hexShapes
       ? Object.fromEntries(Object.entries(map.hexShapes).map(([index, shape]) => [String(remapIndex(Number(index))), shape]))
       : map.hexShapes,
-    customLayers: map.customLayers?.map((layer) => ({
-      ...layer,
-      values: Object.fromEntries(Object.entries(layer.values).map(([index, id]) => [String(remapIndex(Number(index))), id])),
-    })),
     updatedAt: Date.now(),
   };
 }
@@ -647,16 +631,6 @@ function propagateBaseEdit(
  * load, the first included, goes through the reducer so older saves are
  * migrated (see `migrateLegacyIslands`).
  */
-/** Apply `change` to one custom layer; the map is returned as it was if the layer is unknown or unchanged. */
-function updateCustom(map: MapState, id: string, change: (layer: CustomLayer) => CustomLayer): MapState {
-  const layers = customLayersOf(map);
-  const at = layers.findIndex((l) => l.id === id);
-  if (at < 0) return map;
-  const next = change(layers[at]!);
-  if (next === layers[at]) return map;
-  return { ...map, customLayers: layers.map((l, i) => (i === at ? next : l)), updatedAt: Date.now() };
-}
-
 export function appReducer(state: MapState | null, action: Action | { type: 'reset' }): MapState | null {
   if (action.type === 'reset') return null;
   if (action.type === 'load') return reducer(action.map, action);
@@ -1222,43 +1196,6 @@ export function reducer(map: MapState, action: Action): MapState {
         manualEntry('base', `Changed the land share or irregularity of ${changed} hex${changed === 1 ? '' : 'es'} by hand.`),
       );
     }
-
-    case 'addCustomLayer': {
-      const existing = customLayersOf(map);
-      if (existing.some((l) => l.id === action.id)) return map;
-      const layer = { ...makeCustomLayer(action.name, existing), id: action.id };
-      return { ...map, customLayers: [...existing, layer], updatedAt: Date.now() };
-    }
-    case 'renameCustomLayer':
-      return updateCustom(map, action.id, (l) => (action.name.trim() ? { ...l, name: action.name } : l));
-    case 'setCustomLayerShown':
-      return updateCustom(map, action.id, (l) => ({ ...l, shown: action.shown }));
-    case 'removeCustomLayer':
-      return customLayersOf(map).some((l) => l.id === action.id)
-        ? { ...map, customLayers: customLayersOf(map).filter((l) => l.id !== action.id), updatedAt: Date.now() }
-        : map;
-    case 'addCustomCategory':
-      return updateCustom(map, action.layerId, (l) =>
-        l.categories.some((c) => c.id === action.id)
-          ? l
-          : { ...l, categories: [...l.categories, { ...makeCustomCategory(l.categories, action.name), id: action.id }] });
-    case 'updateCustomCategory':
-      return updateCustom(map, action.layerId, (l) => ({
-        ...l,
-        categories: l.categories.map((c) =>
-          c.id !== action.id
-            ? c
-            : {
-                ...c,
-                name: action.name !== undefined && action.name.trim() ? action.name : c.name,
-                colour: action.colour !== undefined && isHexColour(action.colour) ? action.colour : c.colour,
-              }),
-      }));
-    case 'removeCustomCategory':
-      return updateCustom(map, action.layerId, (l) => withoutCategory(l, action.id));
-    case 'setCustomHexes':
-      return updateCustom(map, action.layerId, (l) =>
-        assignHexes(l, action.indices.filter((i) => i >= 0 && i < map.cols * map.rows), action.categoryId));
 
     case 'clearLayer': {
       const layer = map.layers[action.layer];

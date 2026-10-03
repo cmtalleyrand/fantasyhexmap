@@ -17,7 +17,7 @@ import {
 import type { PolityNameMin } from './labels.js';
 import { straitSharers } from '../../shared/straits.js';
 import { renderToCanvas } from './canvas.js';
-import { appendLegend, customLegendSections, legendSections, type LegendOptions } from './legend.js';
+import { appendLegend, legendSections, type LegendOptions } from './legend.js';
 import { buildScene, singleLayerVisibility, type Scene, type VisibleLayers } from './scene.js';
 import { sceneToSvg } from './svg.js';
 import { CLASSIC_STYLE, elevationStyleOf, type ElevationStyle, type MapStyle } from './styles.js';
@@ -41,8 +41,6 @@ export interface ExportOptions {
   transparentBackground?: boolean;
   /** Append a legend panel to the right of the map. Omit or null for a bare map. */
   legend?: LegendOptions | null;
-  /** Draw the map's shown custom layers (and list them in the legend); default true. */
-  customLayers?: boolean;
 }
 
 function download(blob: Blob, filename: string): void {
@@ -85,19 +83,15 @@ export function buildExportScene(map: MapState, visible: VisibleLayers, opts: Ex
     selection: null,
     hover: null,
     transparentBackground: opts.transparentBackground ?? false,
-    customLayers: opts.customLayers,
   });
   if (!opts.legend) return scene;
-  const sections = [
-    ...legendSections(
-      map,
-      visible,
-      opts.elevationStyle ?? elevationStyleOf(opts.style ?? CLASSIC_STYLE),
-      opts.legend,
-      opts.style,
-    ),
-    ...(opts.customLayers === false ? [] : customLegendSections(map, opts.legend)),
-  ];
+  const sections = legendSections(
+    map,
+    visible,
+    opts.elevationStyle ?? elevationStyleOf(opts.style ?? CLASSIC_STYLE),
+    opts.legend,
+    opts.style,
+  );
   return appendLegend(scene, sections, opts.legend.title ? map.name : null, size);
 }
 
@@ -126,8 +120,7 @@ async function emit(
 }
 
 export function exportLayer(map: MapState, layer: LayerId, opts: ExportOptions): Promise<void> {
-  // A single-layer export is that layer on the base geography; custom layers are not part of it.
-  return emit(map, singleLayerVisibility(layer), { ...opts, customLayers: false }, slug(LAYER_META[layer].label));
+  return emit(map, singleLayerVisibility(layer), opts, slug(LAYER_META[layer].label));
 }
 
 export function exportComposite(
@@ -305,9 +298,6 @@ export function serializeParseFriendlyExport(map: MapState): string {
       : {}),
     ...(map.geoNames?.length
       ? { geoNamesNote: 'map.geoNames[] names seas, lakes, land features and islands (kind: sea | lake | land | island); hexes are flat indices (row * cols + col).' }
-      : {}),
-    ...(map.customLayers?.length
-      ? { customLayersNote: 'map.customLayers[] are user-defined layers: categories[] ({id, name, colour}) and values, which maps a flat hex index (row * cols + col) to the id of its category. Hexes absent from values are not in the layer.' }
       : {}),
     ...(map.islandSpecs && Object.keys(map.islandSpecs).length
       ? { islandSpecsNote: 'map.islandSpecs maps an Islands or Mainland and islands hex\'s flat index to {large: 0-2, small: 0-5, coastal?: {large?, small?}, side?: edge 0..5}: how many islands it holds, which groups lie against the coast (or the mainland), and the side they lie against (absent: the side facing land). Hexes without an entry take their type\'s default.' }

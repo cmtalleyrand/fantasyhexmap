@@ -153,8 +153,6 @@ export interface SceneOptions {
   /** Screen-only: the river being edited, drawn with a halo and a handle on each hex. */
   highlightRiver?: string | null;
   transparentBackground?: boolean;
-  /** Draw the map's shown custom layers; default true. */
-  customLayers?: boolean;
 }
 
 export function defaultVisibility(): VisibleLayers {
@@ -1840,8 +1838,6 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
     }
   }
 
-  if (opts.customLayers !== false) prims.push(...customLayerPrims(map, size));
-
   return {
     width,
     height,
@@ -1850,40 +1846,6 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
     background: opts.transparentBackground ? 'transparent' : palette.sea,
     prims,
   };
-}
-
-/**
- * The shown custom layers: each assigned hex gets a translucent, slightly inset
- * hex in its category's colour. Inset rather than full-size because a coast
- * hex's land does not fill its cell, and a full cell would spill onto the sea.
- */
-function customLayerPrims(map: MapState, size: number): Prim[] {
-  const { cols, rows } = map;
-  const prims: Prim[] = [];
-  for (const layer of map.customLayers ?? []) {
-    if (!layer.shown) continue;
-    const colours = new Map(layer.categories.map((c) => [c.id, c.colour]));
-    for (const [key, categoryId] of Object.entries(layer.values)) {
-      const i = Number(key);
-      const colour = colours.get(categoryId);
-      if (!colour || !Number.isInteger(i) || i < 0 || i >= cols * rows) continue;
-      const col = i % cols;
-      const row = Math.floor(i / cols);
-      const centre = hexCenter(col, row, size);
-      const points = hexCorners(col, row, size).map((p) => ({
-        x: centre.x + (p.x - centre.x) * 0.78,
-        y: centre.y + (p.y - centre.y) * 0.78,
-      }));
-      prims.push({
-        kind: 'polygon',
-        points,
-        fill: withAlpha(colour, 0.58),
-        stroke: withAlpha(colour, 0.95),
-        strokeWidth: Math.max(1, size * 0.06),
-      });
-    }
-  }
-  return prims;
 }
 
 /** Elevation drawn as stacked marks, one more per step of height. */

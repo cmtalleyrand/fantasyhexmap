@@ -3,7 +3,6 @@ import { GEO_KIND_LABEL, geoEligibility, geoNamesOf } from '../shared/geoNames.j
 import { hexIndex, hexLine, indexToOffset } from '../shared/hex.js';
 import { canHoldSettlement, riversThroughHex } from '../shared/derive.js';
 import { extendRiver, moveRiverSegment } from '../shared/riverEdit.js';
-import { customLayersOf, newCustomId } from '../shared/customLayers.js';
 import { LAYER_META, createMapState } from '../shared/layers.js';
 import { generationOrder, nextGenerationWave } from '../shared/generationQueue.js';
 import { instructionForLayer, planMultiLayerEdit } from '../shared/multiEdit.js';
@@ -42,7 +41,6 @@ import DecisionLog from './components/DecisionLog.js';
 import PlanDialog from './components/PlanDialog.js';
 import ExportPanel from './components/ExportPanel.js';
 import Inspector from './components/Inspector.js';
-import CustomLayerEditor from './components/CustomLayerEditor.js';
 import LayerPipeline from './components/LayerPipeline.js';
 import MapView from './components/MapView.js';
 import SetupScreen from './components/SetupScreen.js';
@@ -98,10 +96,6 @@ export default function App() {
   const [lockedKey, setLockedKey] = useState<ReturnType<typeof loadLockedKey>>(null);
   const [showUnlock, setShowUnlock] = useState(false);
   const [activeLayer, setActiveLayer] = useState<LayerId>('base');
-  /** The custom layer being edited, which stands in for the built-in active layer; null otherwise. */
-  const [activeCustom, setActiveCustom] = useState<string | null>(null);
-  /** Armed category of the active custom layer: '' is the eraser, null is not painting. */
-  const [customBrush, setCustomBrush] = useState<string | null>(null);
   const [visible, setVisible] = useState<VisibleLayers>(defaultVisibility);
   const { labels, riverNames, rangeNames, seaNames, landNames, polityNames, polityOpacity } = prefs;
   const mapStyle = useMemo(() => resolveStyle(prefs.mapStyle), [prefs.mapStyle]);
@@ -428,16 +422,6 @@ export default function App() {
   const onStrokeEnd = useCallback(
     (indices: number[]) => {
       if (!map || indices.length === 0) return;
-      if (activeCustom !== null) {
-        const layer = customLayersOf(map).find((l) => l.id === activeCustom);
-        if (!layer || customBrush === null) return;
-        if (customBrush !== '' && !layer.categories.some((c) => c.id === customBrush)) {
-          setCustomBrush(null);
-          return;
-        }
-        dispatch({ type: 'setCustomHexes', layerId: layer.id, indices, categoryId: customBrush || null });
-        return;
-      }
       if (geoPaintId && activeLayer === 'base') {
         // One stroke adds its eligible hexes to the armed name: one undo entry.
         const name = geoNamesOf(map).find((n) => n.id === geoPaintId);
@@ -487,7 +471,7 @@ export default function App() {
         });
       }
     },
-    [map, brushMode, activeLayer, brush, geoPaintId, activeCustom, customBrush],
+    [map, brushMode, activeLayer, brush, geoPaintId],
   );
 
   const onRiverDraftClick = useCallback(
@@ -814,7 +798,6 @@ export default function App() {
   }
 
   const canEdit = map.layers[activeLayer].data !== null;
-  const activeCustomLayer = activeCustom ? customLayersOf(map).find((l) => l.id === activeCustom) ?? null : null;
 
   const cancelGeneration = () => {
     batchCancelled.current = true;
@@ -1085,27 +1068,7 @@ export default function App() {
             visible={visible}
             selectedLayers={selectedLayers}
             busyLayers={busyLayers}
-            activeCustom={activeCustom}
-            onSelectCustom={(id) => {
-              setActiveCustom(id);
-              setCustomBrush(null);
-              setSelection(new Set());
-            }}
-            onAddCustom={() => {
-              const id = newCustomId('custom');
-              const count = customLayersOf(map).length;
-              dispatch({ type: 'addCustomLayer', id, name: `Custom layer ${count + 1}` });
-              setActiveCustom(id);
-              setCustomBrush(null);
-              setSelection(new Set());
-            }}
-            onToggleCustomShown={(id) => {
-              const layer = customLayersOf(map).find((l) => l.id === id);
-              if (layer) dispatch({ type: 'setCustomLayerShown', id, shown: !layer.shown });
-            }}
             onSelect={(id) => {
-              setActiveCustom(null);
-              setCustomBrush(null);
               setActiveLayer(id);
               setRiverNotice(null);
               setRiverDraft(null);
@@ -1178,12 +1141,12 @@ export default function App() {
           mapStyle={mapStyle}
           selection={selection}
           onSelectionChange={setSelection}
-          onStrokeEnd={activeCustomLayer ? (customBrush !== null ? onStrokeEnd : null) : manualMode && canEdit && (brushMode || (geoPaintId !== null && activeLayer === 'base')) ? onStrokeEnd : null}
+          onStrokeEnd={manualMode && canEdit && (brushMode || (geoPaintId !== null && activeLayer === 'base')) ? onStrokeEnd : null}
           activeLayer={activeLayer}
           riverDraft={manualMode ? riverDraft : null}
           onRiverDraftClick={manualMode && riverDraft !== null ? onRiverDraftClick : null}
-          onCityMove={manualMode && !activeCustomLayer && activeLayer === 'cities' ? onCityMove : null}
-          riverTool={manualMode && !activeCustomLayer && activeLayer === 'rivers' && riverDraft === null && map.layers.rivers.data ? riverTool : null}
+          onCityMove={manualMode && activeLayer === 'cities' ? onCityMove : null}
+          riverTool={manualMode && activeLayer === 'rivers' && riverDraft === null && map.layers.rivers.data ? riverTool : null}
           onRiverSelect={onRiverSelect}
           onRiverMove={onRiverMove}
           onRiverExtend={onRiverExtend}
@@ -1211,22 +1174,6 @@ export default function App() {
         </div>
 
         <div className={`inspector-shell ${panels.inspector ? '' : 'panel-closed'} ${mobilePane === 'inspector' ? 'mobile-active' : ''}`}>
-          {activeCustomLayer ? (
-            <CustomLayerEditor
-              map={map}
-              layer={activeCustomLayer}
-              dispatch={dispatch}
-              selection={selection}
-              setSelection={setSelection}
-              brush={customBrush}
-              setBrush={setCustomBrush}
-              newId={newCustomId}
-              onRemoved={() => {
-                setActiveCustom(null);
-                setCustomBrush(null);
-              }}
-            />
-          ) : (
           <Inspector
             mode={mode}
             map={map}
@@ -1270,7 +1217,6 @@ export default function App() {
             setRiverNotice={setRiverNotice}
             onOpenDecisionLog={() => setShowDecisions(true)}
           />
-          )}
         </div>
       </div>
     </div>

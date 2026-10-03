@@ -528,30 +528,6 @@ export interface JournalEntry {
   elapsedMs?: number;
 }
 
-/** One category a custom layer sorts hexes into; hexes with none take no part in the layer. */
-export interface CustomCategory {
-  id: string;
-  name: string;
-  /** CSS hex colour, `#rrggbb`. */
-  colour: string;
-}
-
-/**
- * A layer the user defines: a name, a set of categories and which hexes belong
- * to which. It sits beside the built-in layers rather than in the generation
- * pipeline - nothing is generated for it, it has no dependencies and nothing goes
- * stale because of it - and is painted by hand over the finished picture.
- */
-export interface CustomLayer {
-  id: string;
-  name: string;
-  categories: CustomCategory[];
-  /** Category id of each assigned hex, keyed by flat hex index. Unassigned hexes are absent. */
-  values: Record<string, string>;
-  /** Drawn on the map and in exports. */
-  shown: boolean;
-}
-
 export interface MapState {
   id: string;
   name: string;
@@ -605,8 +581,6 @@ export interface MapState {
    */
   defaultLakeIrregularity?: Irregularity;
   layers: LayersState;
-  /** Layers the user has added; absent on maps saved before they existed. */
-  customLayers?: CustomLayer[];
   /** Append-only record of every change, oldest first. */
   journal: JournalEntry[];
 }
