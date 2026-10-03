@@ -101,7 +101,12 @@ export function riversWithoutHexes(
         }
       }
       let piece = buildRiverFromPath(
-        { name: n === 0 ? river.name : `${river.name} (lower course${n > 1 ? ` ${n}` : ''})`, path, navigable },
+        {
+          name: n === 0 || !river.name ? river.name : `${river.name} (lower course${n > 1 ? ` ${n}` : ''})`,
+          path,
+          navigable,
+          allowBlankName: !river.name,
+        },
         n === 0 ? river.id : `${river.id}_${n + 1}`,
         base,
         null,

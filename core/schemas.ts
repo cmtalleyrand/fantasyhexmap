@@ -229,7 +229,7 @@ const riverLinks = {
   branchOf: z
     .string()
     .optional()
-    .describe('A distributary (a delta arm): the name of the river it splits from. Its path starts on a hex of that river.'),
+    .describe('A distributary (a delta arm): the name of the river it splits from. Its path starts on a hex of that river. A distributary needs no name of its own: leave its `name` empty unless the brief names it.'),
 };
 
 const riverNavigable = z

@@ -1106,7 +1106,7 @@ function CityEditor(props: SubProps) {
               <div className="hint" style={{ flexBasis: '100%' }}>
                 {c.coastal ? `coastal on edges ${c.coastalEdges.join(', ')}` : 'inland'}
                 {c.onRiver
-                  ? ` · on ${map.layers.rivers.data?.rivers.find((r) => r.id === c.riverId)?.name ?? 'a river'}`
+                  ? ` · on ${map.layers.rivers.data?.rivers.find((r) => r.id === c.riverId)?.name || 'a river'}`
                   : ''}
               </div>
             </div>

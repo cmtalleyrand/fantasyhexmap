@@ -639,7 +639,7 @@ function vegetationPrompt(ctx: PromptContext): BuiltPrompt {
 function riverSummary(rivers: RiversData): string[] {
   return rivers.rivers.map(
     (r) =>
-      `${r.name}: ${r.segments.map((s) => `(${s.col},${s.row})`).join(' -> ')} [${r.terminus}]` +
+      `${r.name || '(unnamed)'}: ${r.segments.map((s) => `(${s.col},${s.row})`).join(' -> ')} [${r.terminus}]` +
       (r.fromLake ? ' (flows out of a lake)' : '') +
       (r.joins ? ` (joins ${rivers.rivers.find((o) => o.id === r.joins)?.name ?? 'another river'})` : '') +
       (r.branchOf ? ` (branch of ${rivers.rivers.find((o) => o.id === r.branchOf)?.name ?? 'another river'})` : '') +
@@ -669,7 +669,7 @@ function riversPrompt(ctx: PromptContext): BuiltPrompt {
       '  - with the hex where it meets the river it flows into (a tributary: name that river in "joins"), or',
       '  - with the land hex on the map border through which the river leaves the map.',
       'Apart from a first lake hex and a final mouth hex, every hex in the path must be Land, Coastal Land or island.',
-      'A distributary (an arm of a delta) starts on a hex of the river it splits from: name that river in "branchOf".',
+      'A distributary (an arm of a delta) starts on a hex of the river it splits from: name that river in "branchOf". Give a distributary an empty name ("") unless the brief names it.',
       '',
       'The "navigable" array has one entry per hex in the path, in the same order.',
     ]),
@@ -1160,7 +1160,7 @@ function riversPathsPrompt(ctx: PromptContext, roster: Roster | null): BuiltProm
       '  - with the hex where it meets the river it flows into (a tributary: name that river in "joins"), or',
       '  - with the land hex on the map border through which the river leaves the map.',
       'Apart from a first lake hex and a final mouth hex, every hex in the path must be Land, Coastal Land or island.',
-      'A distributary (an arm of a delta) starts on a hex of the river it splits from: name that river in "branchOf".',
+      'A distributary (an arm of a delta) starts on a hex of the river it splits from: name that river in "branchOf". Give a distributary an empty name ("") unless the brief names it.',
       '',
       'The "navigable" array has one entry per hex in the path, in the same order.',
     ]),
