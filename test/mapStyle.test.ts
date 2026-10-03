@@ -1072,3 +1072,13 @@ test('city markers come in three sets, each drawing every size of place', async 
   assert.equal(resolveStyle({ preset: 'parchment', overrides: {} }).knobs.cityMarkers, 'illustrated');
   assert.equal(resolveStyle({ preset: 'classic', overrides: {} }).knobs.cityMarkers, 'symbols');
 });
+
+test('the first map loaded, before any map is open, is migrated too', async () => {
+  const { appReducer } = await import('../src/state/store.ts');
+  const map = createMapState('Old', 2, 1);
+  map.layers.base.data = ['Small Islands', 'Land'] as unknown as BaseGeo[];
+  const loaded = appReducer(null, { type: 'load', map })!;
+  assert.deepEqual(loaded.layers.base.data, ['Islands', 'Land']);
+  assert.deepEqual(loaded.islandSpecs, { '0': { large: 0, small: 3 } });
+  assert.equal(appReducer(loaded, { type: 'reset' }), null);
+});

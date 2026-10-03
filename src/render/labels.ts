@@ -92,6 +92,8 @@ const MODERATE_FLOOR = 0.42;
 const FLOOR_FROM_HEXES = 8;
 /** The coverage a sizeable realm accepts to keep its floor size: some of the name may lie over neighbours. */
 const LOOSE_COVERAGE = 0.66;
+/** How far below its floor a name may shrink to stay inside its realm, before it may spill over. */
+const SHRINK_BEFORE_SPILL = 0.7;
 const GOOD_COVERAGE = 0.92;
 /** Tried before the fallback, so a name shrinks before it is allowed over water. */
 const SECOND_COVERAGE = 0.86;
@@ -248,7 +250,14 @@ export function placePolityLabels(input: LabelInput): PolityLabel[] {
       minCoverage: number,
       fontFloor: number,
     ): PolityLabel | null => {
+      // The territory's rough radius, against which "off centre" is judged.
+      const radius = size * Math.sqrt(owned.length) * 0.9;
+      let chosen: { at: Point; rotation: number; lines: string[]; score: number; font: number } | null = null;
+      let firstFit = 0;
       for (let font = idealSize; font >= fontFloor; font *= SIZE_STEP) {
+        // Once a size fits, a somewhat smaller one may still win if it sits
+        // more centrally, more level or wholly inside; below that, stop.
+        if (firstFit > 0 && font < firstFit * 0.75) break;
         let best: { at: Point; rotation: number; lines: string[]; score: number } | null = null;
         for (const layout of layouts) {
           const w = layout.em * font;
@@ -277,18 +286,26 @@ export function placePolityLabels(input: LabelInput): PolityLabel[] {
               }
               if (misses > allowedMisses) continue;
               const coverage = 1 - misses / samples.length;
+              // Wholly inside matters most, then sitting in the middle of the
+              // realm, then lying level; size counts for less than all three.
               const score =
                 coverage -
-                (cand.offCentre / size) * 0.01 -
-                (Math.abs(rotation) / MAX_ROTATION) * 0.03 -
-                (layout.lines.length > 1 ? WRAP_PENALTY : 0);
+                Math.min(1, cand.offCentre / radius) * 0.25 -
+                (Math.abs(rotation) / MAX_ROTATION) * 0.05 -
+                (layout.lines.length > 1 ? WRAP_PENALTY : 0) +
+                (font / idealSize) * 0.12;
               if (!best || score > best.score) best = { at: cand.at, rotation, lines: layout.lines, score };
             }
           }
         }
-        if (best) return { polityId: polity.id, at: best.at, lines: best.lines, size: font, rotation: best.rotation };
+        if (best) {
+          if (firstFit === 0) firstFit = font;
+          if (!chosen || best.score > chosen.score) chosen = { ...best, font };
+        }
       }
-      return null;
+      return chosen
+        ? { polityId: polity.id, at: chosen.at, lines: chosen.lines, size: chosen.font, rotation: chosen.rotation }
+        : null;
     };
 
     const blockers = [...input.obstacles, ...claimed];
@@ -296,15 +313,19 @@ export function placePolityLabels(input: LabelInput): PolityLabel[] {
     // sensible rather than not at all.
     // A small polity in auto mode gets only the strictest attempt: clear of
     // cities and other names, fully inside its territory.
+    // A name shrinks (to SHRINK_BEFORE_SPILL of its floor) before any of it
+    // is allowed over a neighbour: a name straddling a border reads as
+    // belonging to neither realm.
+    const snug = Math.max(MIN_FONT, floor * SHRINK_BEFORE_SPILL);
     const label =
-      attempt(blockers, GOOD_COVERAGE, floor) ??
+      attempt(blockers, GOOD_COVERAGE, snug) ??
       (minHexes === 'auto' && small
         ? null
-        : (attempt(claimed, GOOD_COVERAGE, floor) ??
-          attempt(claimed, SECOND_COVERAGE, floor) ??
-          attempt(claimed, FALLBACK_COVERAGE, floor) ??
+        : (attempt(claimed, GOOD_COVERAGE, snug) ??
+          attempt(claimed, SECOND_COVERAGE, snug) ??
+          attempt(claimed, FALLBACK_COVERAGE, snug) ??
           (floor > MIN_FONT
-            ? attempt(claimed, LOOSE_COVERAGE, floor) ?? attempt(claimed, FALLBACK_COVERAGE, MIN_FONT)
+            ? attempt(claimed, LOOSE_COVERAGE, snug) ?? attempt(claimed, FALLBACK_COVERAGE, MIN_FONT)
             : null)));
     if (!label) continue;
     placed.push(label);

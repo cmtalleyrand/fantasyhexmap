@@ -6,8 +6,8 @@
  * a range's name sits on the range's own hexes, turned to follow its long axis.
  */
 
-import { hexCenter, hexEdgeMidpoint, type Point } from '../../shared/hex.js';
-import type { Elevation, MountainRange, River } from '../../shared/types.js';
+import { hexCenter, hexEdgeMidpoint, hexIndex, inBounds, neighbourOf, pixelToOffset, type Point } from '../../shared/hex.js';
+import type { BaseGeo, Elevation, MountainRange, River } from '../../shared/types.js';
 import type { FaceRole } from './lettering.js';
 import { LETTERINGS } from './lettering.js';
 import { insideBox, type OrientedBox } from './labels.js';
@@ -59,6 +59,112 @@ function pointAt(pts: Point[], cum: number[], d: number): Point {
     x: pts[i - 1]!.x + (pts[i]!.x - pts[i - 1]!.x) * t,
     y: pts[i - 1]!.y + (pts[i]!.y - pts[i - 1]!.y) * t,
   };
+}
+
+/**
+ * A sea or lake name set straight across the most open water of its body:
+ * the hexes furthest from any land, at the angle (level preferred) where the
+ * whole name, with a margin, lies over open water. Null when no such place
+ * fits the name at its smallest size; the caller then sets it along the
+ * body's spine, as for a strait.
+ */
+function openWaterLabel(
+  text: string,
+  hexes: number[],
+  cols: number,
+  rows: number,
+  size: number,
+  face: FaceRole,
+  base: ReadonlyArray<BaseGeo | null>,
+): FeatureLabel | null {
+  const inBody = new Set(hexes);
+  // Open water: the body's sea and lake hexes, not those holding land.
+  const open = (i: number) => inBody.has(i) && (base[i] === 'Sea' || base[i] === 'Lake');
+  const height = Number.isFinite(rows) ? rows : Math.ceil(Math.max(...hexes) / cols) + 1;
+  // Hex distance from land: 1 beside land, rising into the open water.
+  const depth = new Map<number, number>();
+  let frontier: number[] = [];
+  for (const i of hexes) {
+    if (!open(i)) continue;
+    const col = i % cols;
+    const row = Math.floor(i / cols);
+    const shore = [0, 1, 2, 3, 4, 5].some((e) => {
+      const n = neighbourOf(col, row, e);
+      return inBounds(cols, height, n.col, n.row) && !open(hexIndex(cols, n.col, n.row));
+    });
+    if (shore) {
+      depth.set(i, 1);
+      frontier.push(i);
+    }
+  }
+  while (frontier.length > 0) {
+    const next: number[] = [];
+    for (const i of frontier) {
+      for (let e = 0; e < 6; e++) {
+        const n = neighbourOf(i % cols, Math.floor(i / cols), e);
+        if (!inBounds(cols, height, n.col, n.row)) continue;
+        const j = hexIndex(cols, n.col, n.row);
+        if (!open(j) || depth.has(j)) continue;
+        depth.set(j, depth.get(i)! + 1);
+        next.push(j);
+      }
+    }
+    frontier = next;
+  }
+  // A body with no shore at all (open water to the map's edge) is deep everywhere.
+  for (const i of hexes) if (open(i) && !depth.has(i)) depth.set(i, 99);
+  const candidates = [...depth.entries()].sort((a, b) => b[1] - a[1]).slice(0, 16).map(([i]) => i);
+  if (candidates.length === 0) return null;
+
+  /** Whether a point lies over open water with a margin of `margin` all round. */
+  const wet = (x: number, y: number, margin: number) =>
+    [[0, 0], [margin, 0], [-margin, 0], [0, margin], [0, -margin]].every(([dx, dy]) => {
+      const { col, row } = pixelToOffset(x + dx!, y + dy!, size);
+      return inBounds(cols, height, col, row) && open(hexIndex(cols, col, row));
+    });
+  const em = glyphAdvances(text, 1, face.tracking, face.weight, face.family, face.italic).width;
+  const angles = [0, Math.PI / 6, -Math.PI / 6, Math.PI / 3, -Math.PI / 3, Math.PI / 2];
+  interface Spot {
+    score: number;
+    at: Point;
+    angle: number;
+    font: number;
+  }
+  const found: Spot[] = [];
+  for (let font = size * 0.85; font >= size * 0.32; font *= 0.9) {
+    const width = em * font;
+    for (const i of candidates) {
+      const at = hexCenter(i % cols, Math.floor(i / cols), size);
+      for (const angle of angles) {
+        const c = Math.cos(angle);
+        const sn = Math.sin(angle);
+        let fits = true;
+        for (let t = -width / 2 - font * 0.4; t <= width / 2 + font * 0.4 && fits; t += size * 0.3) {
+          for (const lift of [-font * 0.55, 0, font * 0.55]) {
+            if (!wet(at.x + c * t - sn * lift, at.y + sn * t + c * lift, size * 0.2)) {
+              fits = false;
+              break;
+            }
+          }
+        }
+        if (!fits) continue;
+        // Larger type first; then level, then the deepest water.
+        const score = font / size - 0.12 * Math.abs(sn) + 0.01 * (depth.get(i) ?? 0);
+        found.push({ score, at, angle, font });
+      }
+    }
+    if (found.length > 0) break;
+  }
+  const best = found.sort((a, b) => b.score - a.score)[0];
+  if (!best) return null;
+  const rotation = upright(best.angle);
+  const glyphs = glyphsStraight(text, best.font, best.at, rotation, {
+    tracking: face.tracking,
+    weight: face.weight,
+    family: face.family,
+    italic: face.italic,
+  });
+  return { text, at: best.at, size: best.font, rotation, glyphs, width: em * best.font };
 }
 
 /**
@@ -223,11 +329,18 @@ export function placeWaterLabels(
   cols: number,
   size: number,
   face: FaceRole = LETTERINGS.classic.water,
+  base: ReadonlyArray<BaseGeo | null> | null = null,
+  rows = Infinity,
 ): FeatureLabel[] {
   const out: FeatureLabel[] = [];
   for (const body of bodies) {
     const text = body.name.trim().toUpperCase();
     if (!text || body.hexes.length === 0) continue;
+    const open = base ? openWaterLabel(text, body.hexes, cols, rows, size, face, base) : null;
+    if (open) {
+      out.push(open);
+      continue;
+    }
     const centres = body.hexes.map((i) => hexCenter(i % cols, Math.floor(i / cols), size));
     const mean = centres.reduce((s, c) => ({ x: s.x + c.x, y: s.y + c.y }), { x: 0, y: 0 });
     mean.x /= centres.length;

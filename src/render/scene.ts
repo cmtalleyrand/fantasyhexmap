@@ -267,6 +267,37 @@ function landOwners(owner: (string | null)[], base: ReadonlyArray<BaseGeo | null
   return out;
 }
 
+/**
+ * The owners realm names are placed with: land owners, plus every lake whose
+ * whole shore is one realm's, so a name may run across a lake inside its
+ * realm (a lake shared between realms stays water). Drawing still colours
+ * land only.
+ */
+const labelOwnerCache = new WeakMap<object, { lakes: object; owner: (string | null)[] }>();
+
+function labelOwners(owner: (string | null)[], lakes: number[][], cols: number, rows: number): (string | null)[] {
+  const hit = labelOwnerCache.get(owner);
+  if (hit && hit.lakes === lakes) return hit.owner;
+  const out = owner.slice();
+  const inLake = new Set(lakes.flat());
+  for (const lake of lakes) {
+    const shore = new Set<string | null>();
+    for (const i of lake) {
+      for (let e = 0; e < 6; e++) {
+        const n = neighbourOf(i % cols, Math.floor(i / cols), e);
+        if (!inBounds(cols, rows, n.col, n.row)) continue;
+        const j = hexIndex(cols, n.col, n.row);
+        if (!inLake.has(j)) shore.add(owner[j] ?? null);
+      }
+    }
+    const [realm] = [...shore];
+    if (shore.size !== 1 || !realm) continue;
+    for (const i of lake) if (!out[i]) out[i] = realm;
+  }
+  labelOwnerCache.set(owner, { lakes, owner: out });
+  return out;
+}
+
 /** Opacity of the realm fill under the border band in the tint style. */
 const TINT_ALPHA = 0.32;
 
@@ -1280,6 +1311,9 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
   const lettering = LETTERINGS[knobs.lettering] ?? LETTERINGS.classic;
   const realmRole = lettering.realm;
   const subWeight = lighterWeight(realmRole);
+  const namingPolities = polities && traced
+    ? { ...polities, owner: labelOwners(polities.owner, traced.lakes, cols, rows) }
+    : polities;
   if (opts.labels && polities) {
     const obstacles: LabelObstacle[] = [];
     for (const city of cities?.cities ?? []) {
@@ -1294,7 +1328,7 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
     const maxDepth = Math.max(0, ...depths.values());
     const levels: Array<{ labels: PolityLabel[]; depth: number }> = [];
     if (maxDepth === 0) {
-      levels.push({ labels: cachedPolityLabels(polities, cities, cols, rows, size, obstacles, opts.polityNames, knobs.realmNames, realmRole, lettering.id), depth: 0 });
+      levels.push({ labels: cachedPolityLabels(namingPolities!, cities, cols, rows, size, obstacles, opts.polityNames, knobs.realmNames, realmRole, lettering.id), depth: 0 });
     } else {
       const claimed: LabelObstacle[] = [...obstacles];
       for (let depth = 0; depth <= maxDepth; depth++) {
@@ -1302,7 +1336,7 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
           cols,
           rows,
           size,
-          owner: ownersAtDepth(polities.polities, polities.owner, depth),
+          owner: ownersAtDepth(polities.polities, namingPolities!.owner, depth),
           polities: polities.polities.filter((p) => depths.get(p.id) === depth),
           obstacles: claimed,
           minHexes: opts.polityNames,
@@ -1404,7 +1438,7 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
   }
 
   if (opts.seaNames && base && (map.waterNames?.length ?? 0) > 0) {
-    for (const l of placeWaterLabels(map.waterNames!, cols, size, lettering.water)) {
+    for (const l of placeWaterLabels(map.waterNames!, cols, size, lettering.water, base, rows)) {
       prims.push({
         kind: 'text',
         at: l.at,

@@ -53,7 +53,7 @@ import FileMenu from './components/FileMenu.js';
 import Modal from './components/Modal.js';
 import NewMapDialog from './components/NewMapDialog.js';
 import CommitInput from './components/CommitInput.js';
-import { reducer, type Action } from './state/store.js';
+import { appReducer, reducer, type Action } from './state/store.js';
 import { DEFAULT_RIVER_TOOL, type RiverNotice, type RiverTool } from './state/riverTools.js';
 import { normaliseHexDimensions } from '../shared/surfaceArea.js';
 import { describeUsage, formatDuration } from './api/usageText.js';
@@ -67,14 +67,7 @@ interface Toast {
 }
 
 export default function App() {
-  const [map, dispatch] = useReducer(
-    (state: MapState | null, action: Action | { type: 'reset' }) => {
-      if (action.type === 'reset') return null;
-      if (state === null) return action.type === 'load' ? action.map : null;
-      return reducer(state, action as Action);
-    },
-    null,
-  );
+  const [map, dispatch] = useReducer(appReducer, null);
 
   const [loaded, setLoaded] = useState(false);
   const [transport, setTransport] = useState<Transport>({ mode: 'server', health: null, reason: null });
