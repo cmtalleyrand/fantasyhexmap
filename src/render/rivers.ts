@@ -52,7 +52,7 @@ const SLIDE = 0.25;
 const SAMPLES_PER_SPAN = 8;
 /** How far along its edge a relaxed crossing may settle, as a fraction of the edge. */
 const RELAX_RANGE: [number, number] = [0.5 - SLIDE, 0.5 + SLIDE];
-const RELAX_PASSES = 16;
+const RELAX_PASSES = 5;
 /** How far ahead, in hex sizes, a tributary's last tangent looks along its host's flow. */
 const JOIN_LEAN = 1.2;
 /** How far upstream of the join, in hex sizes, a tributary is steered onto its host's line. */
@@ -60,7 +60,7 @@ const JOIN_RUN = 0.55;
 /** How much of a tributary's last approach follows its host's flow rather than its own heading. */
 const JOIN_FLOW = 0.6;
 /** The largest swing of a meander, in hex sizes (from the centre line). */
-const MEANDER = 0.3;
+const MEANDER = 0.5;
 const CAP_STEPS = 6;
 /** How far a river runs on into the lake it empties into, in hex sizes. */
 const MOUTH_REACH = 0.12;
@@ -458,12 +458,12 @@ export function riverCourse(river: River, size: number, seed: string, ends: Cour
     const fraction = (base[i]! / size) * 2.2;
     const amplitude = size * MEANDER * (1 - 0.5 * smoothstep((fraction - 0.04) / 0.13));
     const at = cum[i]! / size;
-    const envelope = 0.4 + 0.6 * (0.5 + 0.5 * noise(7, at / 3.4));
+    const envelope = 0.55 + 0.45 * (0.5 + 0.5 * noise(7, at / 3.4));
     let fade = smoothstep(cum[i]! / (0.8 * size)) * smoothstep((total - cum[i]!) / (0.8 * size));
     // Calm near a city, so the river runs straight through its icon.
     for (const { p, radius } of sites) fade *= smoothstep((Math.hypot(centreline[i]!.x - p.x, centreline[i]!.y - p.y) - radius) / (0.5 * size));
-    const wander = noise(1, at / 2.0) + 0.7 * noise(2, at / 0.85 + 5) + 0.28 * noise(3, at / 0.4 + 9);
-    return (amplitude * envelope * fade * wander) / 1.7;
+    const wander = noise(1, at / 2.0) + 0.85 * noise(2, at / 0.85 + 5) + 0.5 * noise(3, at / 0.4 + 9) + 0.14 * noise(4, at / 0.26 + 13);
+    return (amplitude * envelope * fade * wander) / 2.2;
   });
   const normals = centreline.map((_, i) => {
     const a = centreline[Math.max(0, i - 1)]!;
