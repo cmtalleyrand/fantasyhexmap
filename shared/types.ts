@@ -418,6 +418,11 @@ export interface Polity {
    * own no hexes itself: its territory is the union of its descendants'.
    */
   parentId?: string;
+  /**
+   * The colour is derived from the parent's (a shade of it) and follows it when
+   * the parent's colour changes. Cleared when the colour is chosen by hand.
+   */
+  autoShade?: boolean;
 }
 
 /** Per-hex flat arrays are indexed `row * cols + col`. */

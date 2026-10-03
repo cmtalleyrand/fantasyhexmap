@@ -185,6 +185,24 @@ label { display: block; font-size: 11px; text-transform: uppercase; letter-spaci
 }
 .list .entry:last-child { border-bottom: none; }
 .list .entry.selected { background: var(--panel-2); }
+.polity-list { display: flex; flex-direction: column; gap: 6px; }
+.polity-entry {
+  display: flex; flex-direction: column; gap: 5px; padding: 6px 8px; font-size: 12px;
+  border: 1px solid var(--line); border-left: 4px solid var(--line); border-radius: 7px;
+}
+.polity-entry.realm { background: var(--panel-2); }
+.polity-entry .row > select { min-width: 0; }
+.polity-swatch { width: 30px; height: 24px; padding: 0; flex: 0 0 30px; }
+.polity-entry .hex-field { width: 74px; flex: 0 0 74px; font-family: ui-monospace, monospace; }
+.polity-entry .fold { width: 18px; padding: 0; flex: 0 0 18px; }
+.fold-spacer { width: 18px; flex: 0 0 18px; }
+button.tiny.on { border-color: var(--accent); color: var(--accent); }
+.polity-tools { border: 1px solid var(--line); border-radius: 7px; padding: 8px; }
+.polity-tools h3 { margin: 0 0 6px; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--ink-faint); }
+.polity-tools .check { display: flex; align-items: center; gap: 6px; text-transform: none; font-size: 12px; margin: 6px 0; }
+.polity-tools .check input { width: auto; }
+.notice.dismissible > summary { display: flex; align-items: center; justify-content: space-between; cursor: pointer; }
+.notice.dismissible .dismiss { padding: 0 6px; line-height: 1.2; }
 .swatch-dot { width: 10px; height: 10px; border-radius: 50%; flex: 0 0 10px; }
 
 .setup { max-width: 720px; margin: 0 auto; padding: 40px 20px; }

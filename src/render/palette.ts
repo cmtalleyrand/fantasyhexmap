@@ -109,22 +109,47 @@ export const POLITY_PALETTE = [
   '#ed7048', '#064f9b', '#b63f5b', '#008c7a', '#d88c16', '#7529a3',
 ];
 
-function extendedPolityPalette(count: number): string[] {
-  const colours = POLITY_PALETTE.slice(0, count);
-  for (let i = colours.length; i < count; i++) {
-    const hue = (i * 137.508) % 360;
-    const saturation = [72, 82, 66][i % 3]!;
-    const lightness = [46, 56, 38][Math.floor(i / 3) % 3]!;
-    const s = saturation / 100;
-    const l = lightness / 100;
-    const chroma = (1 - Math.abs(2 * l - 1)) * s;
-    const x = chroma * (1 - Math.abs((hue / 60) % 2 - 1));
-    const m = l - chroma / 2;
-    const [r, g, b] =
-      hue < 60 ? [chroma, x, 0] : hue < 120 ? [x, chroma, 0] :
-      hue < 180 ? [0, chroma, x] : hue < 240 ? [0, x, chroma] :
-      hue < 300 ? [x, 0, chroma] : [chroma, 0, x];
-    colours.push(`#${[r, g, b].map((channel) => Math.round((channel + m) * 255).toString(16).padStart(2, '0')).join('')}`);
+export type PolityTone = 'vivid' | 'muted' | 'pastel';
+
+/** Saturation and lightness cycles (percent) the generated colours step through, per tone. */
+const TONE_CYCLES: Record<PolityTone, { saturation: number[]; lightness: number[] }> = {
+  vivid: { saturation: [72, 82, 66], lightness: [46, 56, 38] },
+  muted: { saturation: [38, 46, 32], lightness: [48, 58, 40] },
+  pastel: { saturation: [55, 65, 45], lightness: [76, 82, 70] },
+};
+
+function hslToHex(hue: number, saturation: number, lightness: number): string {
+  const s = saturation / 100;
+  const l = lightness / 100;
+  const chroma = (1 - Math.abs(2 * l - 1)) * s;
+  const x = chroma * (1 - Math.abs((hue / 60) % 2 - 1));
+  const m = l - chroma / 2;
+  const [r, g, b] =
+    hue < 60 ? [chroma, x, 0] : hue < 120 ? [x, chroma, 0] :
+    hue < 180 ? [0, chroma, x] : hue < 240 ? [0, x, chroma] :
+    hue < 300 ? [x, 0, chroma] : [chroma, 0, x];
+  return `#${[r, g, b].map((channel) => Math.round((channel + m) * 255).toString(16).padStart(2, '0')).join('')}`;
+}
+
+/**
+ * At least `count` distinct candidate colours: the curated set first (for the
+ * vivid tone), then golden-angle hues stepping through the tone's saturation
+ * and lightness cycles so successive colours differ in more than hue.
+ */
+function candidatePolityColours(count: number, tone: PolityTone): string[] {
+  const colours = tone === 'vivid' ? [...POLITY_PALETTE] : [];
+  const seen = new Set(colours);
+  const { saturation, lightness } = TONE_CYCLES[tone];
+  for (let i = 0; colours.length < count; i++) {
+    const colour = hslToHex(
+      (i * 137.508) % 360,
+      saturation[i % saturation.length]!,
+      lightness[Math.floor(i / saturation.length) % lightness.length]!,
+    );
+    if (!seen.has(colour)) {
+      seen.add(colour);
+      colours.push(colour);
+    }
   }
   return colours;
 }
@@ -143,15 +168,39 @@ export function toLab(hex: string): [number, number, number] {
   return [116 * f(y) - 16, 500 * (f(x) - f(y)), 200 * (f(y) - f(z))];
 }
 
-/** Greedily maximises perceptual (CIELAB) distance between adjacent polity colours. */
+/** Pairs nearer than this (perceptual units) are penalised when they share a border. */
+const BORDER_TARGET = 48;
+/** Pairs nearer than this are mildly penalised even when apart, so the whole legend stays readable. */
+const GLOBAL_TARGET = 26;
+const GLOBAL_WEIGHT = 0.02;
+
+/**
+ * Assigns each polity a fill colour so that bordering polities are as easy to
+ * tell apart as possible. Greedy placement (busiest borders first) is followed
+ * by local search that reassigns colours, and swaps them between polities,
+ * whenever that lowers a cost made of:
+ *  - a heavy penalty for each border whose two colours are closer than
+ *    `BORDER_TARGET`, weighted by the border's length;
+ *  - a light penalty for any two colours closer than `GLOBAL_TARGET`.
+ * Distance is perceptual (CIELAB) with lightness down-weighted, because fills
+ * that differ only in lightness are the ones hardest to tell apart on a map.
+ * Deterministic: the same input always gives the same colours.
+ */
 export function contrastingPolityColours(
   polityIds: string[], owner: Array<string | null>, cols: number, rows: number,
+  options: { tone?: PolityTone } = {},
 ): Map<string, string> {
-  const neighbours = new Map(polityIds.map((id) => [id, new Set<string>()]));
+  const n = polityIds.length;
+  const index = new Map(polityIds.map((id, i) => [id, i]));
+  // Shared-edge counts between polities: a longer frontier needs more contrast.
+  const border = Array.from({ length: n }, () => new Map<number, number>());
   const connect = (a: string | null, b: string | null) => {
-    if (!a || !b || a === b || !neighbours.has(a) || !neighbours.has(b)) return;
-    neighbours.get(a)!.add(b);
-    neighbours.get(b)!.add(a);
+    if (!a || !b || a === b) return;
+    const i = index.get(a);
+    const j = index.get(b);
+    if (i === undefined || j === undefined) return;
+    border[i]!.set(j, (border[i]!.get(j) ?? 0) + 1);
+    border[j]!.set(i, (border[j]!.get(i) ?? 0) + 1);
   };
   for (let row = 0; row < rows; row++) for (let col = 0; col < cols; col++) {
     const here = owner[row * cols + col] ?? null;
@@ -162,35 +211,102 @@ export function contrastingPolityColours(
       if (diagonal >= 0 && diagonal < cols) connect(here, owner[(row + 1) * cols + diagonal] ?? null);
     }
   }
-  // Perceptual distance (CIELAB): two colours far apart in RGB can still look
-  // alike, which is how neighbouring realms ended up in near-identical tans.
-  const lab = new Map<string, [number, number, number]>();
-  const labOf = (hex: string) => {
-    let hit = lab.get(hex);
-    if (!hit) {
-      hit = toLab(hex);
-      lab.set(hex, hit);
-    }
-    return hit;
+
+  // Twice as many candidates as polities gives the search room to choose.
+  const pool = candidatePolityColours(Math.max(2 * n, 24), options.tone ?? 'vivid');
+  const labs = pool.map(toLab);
+  const dist = (a: number, b: number) => {
+    const [l1, a1, b1] = labs[a]!;
+    const [l2, a2, b2] = labs[b]!;
+    return Math.sqrt((0.7 * (l1 - l2)) ** 2 + (a1 - a2) ** 2 + (b1 - b2) ** 2);
   };
-  const distance = (a: string, b: string) => {
-    const [l1, a1, b1] = labOf(a);
-    const [l2, a2, b2] = labOf(b);
-    return (l1 - l2) ** 2 + (a1 - a2) ** 2 + (b1 - b2) ** 2;
-  };
-  const result = new Map<string, string>();
-  const available = extendedPolityPalette(neighbours.size);
-  const ordered = [...neighbours.keys()].sort((a, b) => neighbours.get(b)!.size - neighbours.get(a)!.size || a.localeCompare(b));
-  for (const id of ordered) {
-    const adjacent = [...neighbours.get(id)!].map((n) => result.get(n)).filter((c): c is string => Boolean(c));
-    const score = (colour: string) => Math.min(...adjacent.map((c) => distance(colour, c)), Infinity);
-    let best = 0;
-    for (let i = 1; i < available.length; i++) {
-      if (score(available[i]!) > score(available[best]!)) best = i;
+  const shortfall = (d: number, target: number) => (d < target ? (target - d) ** 2 : 0);
+
+  const order = polityIds
+    .map((_, i) => i)
+    .sort((a, b) => {
+      const weight = (i: number) => [...border[i]!.values()].reduce((x, y) => x + y, 0);
+      return weight(b) - weight(a) || polityIds[a]!.localeCompare(polityIds[b]!);
+    });
+
+  // Greedy: the colour whose nearest bordering colour is farthest, then the one
+  // that stands furthest from everything placed so far.
+  const assigned: number[] = new Array(n).fill(-1);
+  const used = new Set<number>();
+  for (const i of order) {
+    let best = -1;
+    let bestScore = -Infinity;
+    for (let c = 0; c < pool.length; c++) {
+      if (used.has(c)) continue;
+      let nearestBorder = Infinity;
+      for (const j of border[i]!.keys()) if (assigned[j]! >= 0) nearestBorder = Math.min(nearestBorder, dist(c, assigned[j]!));
+      let nearestAny = Infinity;
+      for (const j of used) nearestAny = Math.min(nearestAny, dist(c, j));
+      const score = Math.min(nearestBorder, 90) + 0.1 * Math.min(nearestAny, 90);
+      if (score > bestScore) {
+        bestScore = score;
+        best = c;
+      }
     }
-    result.set(id, available.splice(best, 1)[0]!);
+    assigned[i] = best;
+    used.add(best);
   }
-  return result;
+
+  // Cost of polity i wearing colour c, given everyone else's current colour.
+  const costOf = (i: number, c: number, skip = -1) => {
+    let cost = 0;
+    for (const [j, length] of border[i]!) {
+      if (j !== skip && assigned[j]! >= 0) cost += length * shortfall(dist(c, assigned[j]!), BORDER_TARGET);
+    }
+    for (let j = 0; j < n; j++) {
+      if (j !== i && j !== skip) cost += GLOBAL_WEIGHT * shortfall(dist(c, assigned[j]!), GLOBAL_TARGET);
+    }
+    return cost;
+  };
+  for (let pass = 0; pass < 5; pass++) {
+    let improved = false;
+    for (const i of order) {
+      const current = assigned[i]!;
+      let bestColour = current;
+      let bestCost = costOf(i, current);
+      for (let c = 0; c < pool.length; c++) {
+        if (used.has(c)) {
+          // Swapping with its holder: both ends are costed with the other already moved.
+          const holder = assigned.indexOf(c);
+          if (holder < 0 || holder === i) continue;
+          const before = costOf(i, current) + costOf(holder, c);
+          assigned[i] = c;
+          assigned[holder] = current;
+          const after = costOf(i, c) + costOf(holder, current);
+          assigned[i] = current;
+          assigned[holder] = c;
+          if (after < before - 1e-9) {
+            assigned[i] = c;
+            assigned[holder] = current;
+            bestColour = c;
+            bestCost = costOf(i, c);
+            improved = true;
+            break;
+          }
+          continue;
+        }
+        const cost = costOf(i, c);
+        if (cost < bestCost - 1e-9) {
+          bestCost = cost;
+          bestColour = c;
+        }
+      }
+      if (bestColour !== assigned[i]) {
+        used.delete(assigned[i]!);
+        used.add(bestColour);
+        assigned[i] = bestColour;
+        improved = true;
+      }
+    }
+    if (!improved) break;
+  }
+
+  return new Map(polityIds.map((id, i) => [id, pool[assigned[i]!]!]));
 }
 
 export function withAlpha(hex: string, alpha: number): string {

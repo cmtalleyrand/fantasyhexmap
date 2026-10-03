@@ -70,3 +70,38 @@ export function descendantsOf(polities: Polity[], id: string): Set<string> {
 export function wouldCycle(polities: Polity[], id: string, parentId: string): boolean {
   return parentId === id || ancestry(polities, parentId).includes(id);
 }
+
+/**
+ * The polities in display order: each top-level polity followed by its parts,
+ * depth first, siblings in list order. `depth` is 0 for a top-level polity and
+ * `parts` counts all its descendants, so a UI can group and indent a realm
+ * with its provinces without reordering the stored list.
+ */
+export function polityOutline(polities: Polity[]): { polity: Polity; depth: number; parts: number }[] {
+  const ids = new Set(polities.map((p) => p.id));
+  const children = new Map<string, Polity[]>();
+  const roots: Polity[] = [];
+  for (const p of polities) {
+    if (p.parentId && ids.has(p.parentId) && p.parentId !== p.id) {
+      children.set(p.parentId, [...(children.get(p.parentId) ?? []), p]);
+    } else roots.push(p);
+  }
+  const out: { polity: Polity; depth: number; parts: number }[] = [];
+  const seen = new Set<string>();
+  const visit = (p: Polity, depth: number): number => {
+    if (seen.has(p.id)) return 0;
+    seen.add(p.id);
+    const slot = out.length;
+    out.push({ polity: p, depth, parts: 0 });
+    let parts = 0;
+    for (const c of children.get(p.id) ?? []) {
+      if (!seen.has(c.id)) parts += 1 + visit(c, depth + 1);
+    }
+    out[slot]!.parts = parts;
+    return parts;
+  };
+  for (const p of roots) visit(p, 0);
+  // Anything left sits on a loop; show it rather than lose it.
+  for (const p of polities) visit(p, 0);
+  return out;
+}
