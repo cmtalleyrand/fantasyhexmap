@@ -212,6 +212,25 @@ export function hexShapeFor(
   };
 }
 
+/** The irregularity a lake's shore is drawn with when neither the land beside it nor the map sets one. */
+export const DEFAULT_LAKE_IRREGULARITY: Irregularity = 'Ragged';
+
+/**
+ * The irregularity of the shore of a lake beside a hex of this type: the hex's own setting when it
+ * has one for its current type, else the map's lake default (`MapState.defaultLakeIrregularity`),
+ * else `DEFAULT_LAKE_IRREGULARITY`. Unlike a sea coast, any land hex beside a lake may carry it.
+ */
+export function lakeShoreIrregularity(
+  value: BaseGeo | null | undefined,
+  stored: HexShape | undefined,
+  mapDefault?: Irregularity | null,
+): Irregularity {
+  if (value && stored && stored.type === value && isShapedType(value) && IRREGULARITY_VALUES.includes(stored.irregular as Irregularity)) {
+    return stored.irregular as Irregularity;
+  }
+  return mapDefault && IRREGULARITY_VALUES.includes(mapDefault) ? mapDefault : DEFAULT_LAKE_IRREGULARITY;
+}
+
 export type Elevation =
   | 'Lowland'
   | 'Rolling'
@@ -551,6 +570,11 @@ export interface MapState {
    * Absent: each type uses its own default (`DEFAULT_IRREGULARITY`).
    */
   defaultIrregularity?: Irregularity;
+  /**
+   * The irregularity of every lake shore whose land hex has none of its own.
+   * Absent: `DEFAULT_LAKE_IRREGULARITY`. Separate from `defaultIrregularity`, which is for sea coasts.
+   */
+  defaultLakeIrregularity?: Irregularity;
   layers: LayersState;
   /** Append-only record of every change, oldest first. */
   journal: JournalEntry[];

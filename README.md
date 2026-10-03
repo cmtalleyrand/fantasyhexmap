@@ -195,7 +195,9 @@ sidebar offers both. The land share (defaults: Coastal Land 90%, Isthmus 30%, St
 island 10%, each large island 20%, any mainland 30%) counts towards polity surface areas, and the
 map-wide defaults are in Settings. Irregularity (Smooth, Wavy, Ragged, Fractured) controls how broken
 the outline is: shore detail on a smoothed coast, skerries round an island, floes and icebergs round
-ice. Sea ice is drawn as one body of pack ice rather than as pale hexes.
+ice. Lake shores are irregular too (Ragged by default); Settings → Map has a separate default for
+them, and a Coastal Land hex you set by hand overrides it along its own shore. Sea ice is drawn as one
+body of pack ice rather than as pale hexes.
 
 **Elevation is not a single ordered scale.** Lowland → Rolling → Hills → Highland → Mountains rises
 in height and ruggedness together, but `Plateau` is high ground with *low* ruggedness and does not

@@ -9,7 +9,7 @@ import {
 import { clampPolityOpacity, insecureOrigin, looksLikeKey, type Prefs } from '../api/settings.js';
 import { cryptoAvailable } from '../api/keyvault.js';
 import type { TransportMode } from '../api/client.js';
-import { IRREGULARITY_VALUES, type HexDimensions, type Irregularity, type MapState } from '../../shared/types.js';
+import { DEFAULT_LAKE_IRREGULARITY, IRREGULARITY_VALUES, type HexDimensions, type Irregularity, type MapState } from '../../shared/types.js';
 import { POLITY_NAME_MIN_OPTIONS, parsePolityNameMin } from '../render/labels.js';
 import HexSizeInput from './HexSizeInput.js';
 import MapStylePicker from './MapStylePicker.js';
@@ -44,6 +44,9 @@ export interface SettingsDialogProps {
   /** The open map's default irregularity; null means each type uses its own. */
   defaultIrregularity?: Irregularity | null;
   onSaveDefaultIrregularity?: (next: Irregularity | null) => void;
+  /** The open map's default lake shore irregularity; null means the usual (Ragged). */
+  defaultLakeIrregularity?: Irregularity | null;
+  onSaveDefaultLakeIrregularity?: (next: Irregularity | null) => void;
   initialTab?: SettingsTab;
   /** Manual mode has no use for the generation and key tabs. Default: 'ai'. */
   editorMode?: 'ai' | 'manual';
@@ -55,6 +58,7 @@ export default function SettingsDialog(props: SettingsDialogProps) {
   const [hex, setHex] = useState<HexDimensions | null>(props.hexDimensions);
   const [underwater, setUnderwater] = useState<boolean | null>(props.allowUnderwater);
   const [irregular, setIrregular] = useState<Irregularity | null>(props.defaultIrregularity ?? null);
+  const [lakeIrregular, setLakeIrregular] = useState<Irregularity | null>(props.defaultLakeIrregularity ?? null);
   const [reveal, setReveal] = useState(false);
   const [protect, setProtect] = useState(props.locked);
   const [passphrase, setPassphrase] = useState('');
@@ -91,6 +95,7 @@ export default function SettingsDialog(props: SettingsDialogProps) {
   const save = () => {
     if (hex && hex !== props.hexDimensions) props.onSaveHexDimensions(hex);
     if (hex && irregular !== (props.defaultIrregularity ?? null)) props.onSaveDefaultIrregularity?.(irregular);
+    if (hex && lakeIrregular !== (props.defaultLakeIrregularity ?? null)) props.onSaveDefaultLakeIrregularity?.(lakeIrregular);
     if (underwater !== null && underwater !== props.allowUnderwater) {
       props.onSaveAllowUnderwater(underwater);
     }
@@ -146,6 +151,20 @@ export default function SettingsDialog(props: SettingsDialogProps) {
             <p className="hint">
               How ragged shorelines and ice edges are drawn on every coast, island, isthmus, strait and ice
               hex whose irregularity you have not set by hand. Hexes you have set keep their own.
+            </p>
+            <label htmlFor="default-lake-irregularity">Default lake shore irregularity</label>
+            <select
+              id="default-lake-irregularity"
+              aria-label="Default lake shore irregularity"
+              value={lakeIrregular ?? ''}
+              onChange={(e) => setLakeIrregular(e.target.value === '' ? null : (e.target.value as Irregularity))}
+            >
+              <option value="">Usual ({DEFAULT_LAKE_IRREGULARITY.toLowerCase()})</option>
+              {IRREGULARITY_VALUES.map((r) => <option key={r} value={r}>{r}</option>)}
+            </select>
+            <p className="hint">
+              How ragged the shore of every lake is drawn, apart from lakes beside land whose irregularity
+              you have set by hand. Separate from the default above, which is for sea coasts.
             </p>
             {underwater !== null && (
               <>
