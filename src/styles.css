@@ -338,8 +338,15 @@ label.check input { width: auto; margin-top: 2px; }
 .river-card { padding: 10px; background: var(--panel-2); }
 .river-facts { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
 .river-length { font-size: 16px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.river-hex-editor { padding: 9px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); }
+.river-hex-heading { justify-content: space-between; flex-wrap: wrap; }
+.river-reach-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.river-reach-fields label { display: grid; gap: 3px; color: var(--ink-faint); font-size: 11px; }
+.river-reach-fields select { width: 100%; color: var(--ink); }
 .segment-list { max-height: 220px; overflow-y: auto; border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; }
 .segment-list label.check { margin-bottom: 2px; }
+.segment-list .segment-row { margin: 0 -4px 2px; padding: 3px 4px; border-radius: 4px; cursor: pointer; }
+.segment-list .segment-row:hover, .segment-list .segment-row.selected { background: var(--panel-2); }
 .river-list .river-row { cursor: pointer; }
 .river-list .river-row:hover { background: var(--panel-2); }
 .river-list .river-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }

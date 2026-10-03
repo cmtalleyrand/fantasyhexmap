@@ -929,9 +929,9 @@ too timid about entering the hexes a river bends into, so it was shifted two pla
 the old Irregular is Gentle and the old Natural is Very gentle, and two new levels go further than the old Wild.
 Saved maps keep any value that still exists, so a stored `irregular` or `wild` is now the stronger one.
 
-**River reach is a setting.** Style knobs `riverMin` and `riverMax` (Any, or 0 to 90% in tens; Any by default)
-bound how near the centre of a hex a meandering river comes, as a percentage of the way from the centre (0) to an
-edge (100). They bound the closest approach, not "any point of the river": every river that crosses a hex reaches
+**River reach is a per-hex manual adjustment.** A river segment can bound how near the centre of its own hex the
+meandering course comes, as a percentage of the way from the centre (0) to an edge (100). The bounds constrain the
+closest approach, not "any point of the river": every river that crosses a hex reaches
 out to its edges, so a lower bound on the farthest point would never bite. Only hexes the river runs right through
 (an entry and an exit edge) are held: a spring, a mouth or a confluence hex sits where its own end puts it. After
 the course is drawn, `holdToReach` bends it in each such hex with a bump about its closest point that dies away at
