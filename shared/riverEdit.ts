@@ -79,7 +79,7 @@ function rebuild(
   }
   const warnings: string[] = [];
   const rebuilt = buildRiverFromPath(
-    { name: river.name, path, navigable: path.map((p) => p.navigable), joins: river.joins },
+    { name: river.name, path, navigable: path.map((p) => p.navigable), joins: river.joins, allowBlankName: !!river.branchOf },
     river.id,
     base,
     elevation,
@@ -248,7 +248,7 @@ export function buildBranch(
   }
   const warnings: string[] = [];
   const river = buildRiverFromPath(
-    { name: `${parent.name} (branch)`, path, navigable: path.map(() => forkSeg.navigable) },
+    { name: '', path, navigable: path.map(() => forkSeg.navigable), allowBlankName: true },
     id,
     base,
     elevation,
@@ -463,4 +463,14 @@ export function mergeRivers(
   const warnings = [...rebuilt.warnings];
   if (looped.length < path.length) warnings.push('The joined course crossed itself; the loop was cut out.');
   return { river, absorbed: [...absorbedIds], bridged, warnings };
+}
+
+/**
+ * What to call a river in a list or message. A distributary may be left
+ * unnamed; it is then described by the river it splits from.
+ */
+export function riverLabel(river: River, rivers: River[]): string {
+  if (river.name.trim()) return river.name;
+  const parent = river.branchOf ? rivers.find((r) => r.id === river.branchOf) : undefined;
+  return parent ? `unnamed branch of ${riverLabel(parent, rivers)}` : 'unnamed river';
 }

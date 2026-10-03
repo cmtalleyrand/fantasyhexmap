@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { hexIndex, indexToOffset } from '../../shared/hex.js';
 import { buildRiverFromPath } from '../../shared/validate.js';
-import { buildBranch, mergeRivers, removeRiverSegment, reverseRiver } from '../../shared/riverEdit.js';
+import { buildBranch, mergeRivers, removeRiverSegment, reverseRiver, riverLabel } from '../../shared/riverEdit.js';
 import {
   branchesOf,
   formatLength,
@@ -65,7 +65,7 @@ function terminusText(river: River, rivers: River[] = []): string {
         return 'flows into a lake';
       case 'River': {
         const host = rivers.find((r) => r.id === river.joins);
-        return host ? `flows into the ${host.name}` : 'flows into another river';
+        return host ? `flows into the ${riverLabel(host, rivers)}` : 'flows into another river';
       }
       case 'OffMap':
         return 'runs off the map';
@@ -235,8 +235,7 @@ function DraftCard(
         setNotice({ kind: 'error', text: result.error });
         return;
       }
-      const siblings = rivers.filter((r) => r.branchOf === parent.id).length;
-      dispatch({ type: 'addRiver', river: { ...result.river, name: `${parent.name} (branch ${siblings + 1})` } });
+      dispatch({ type: 'addRiver', river: result.river });
     } else {
       const warnings: string[] = [];
       const river = buildRiverFromPath(
@@ -285,7 +284,7 @@ function DraftCard(
 
   return (
     <div className="notice info">
-      <b>{parent ? `Branching from ${parent.name}` : 'Drawing a new river'}</b>
+      <b>{parent ? `Branching from ${riverLabel(parent, rivers)}` : 'Drawing a new river'}</b>
       <div className="hint" style={{ marginTop: 4 }}>
         {draft.length === 0
           ? 'Click the hex where it rises.'
@@ -346,7 +345,7 @@ function SelectedRiver(
     dispatch({ type: 'updateRiver', river: result.river });
     setNotice({
       kind: 'info',
-      text: `${river.name} now flows the other way and ${terminusText(result.river, rivers)}.${
+      text: `${riverLabel(river, rivers)} now flows the other way and ${terminusText(result.river, rivers)}.${
         river.branchOf ? ' It no longer leaves its parent river, so it is no longer a branch.' : ''
       }`,
     });
@@ -396,7 +395,7 @@ function SelectedRiver(
         <div className="hint">
           A branch of{' '}
           <button className="linkish" onClick={() => props.onSelect(parent.id)}>
-            {parent.name}
+            {riverLabel(parent, rivers)}
           </button>
           .
         </div>
@@ -528,11 +527,11 @@ function RiverList(
     props.onSelect(result.river.id);
     setTicked([]);
     setJoining(false);
-    const others = tickedRivers.filter((r) => r.id !== keep.id).map((r) => r.name);
+    const others = tickedRivers.filter((r) => r.id !== keep.id).map((r) => riverLabel(r, rivers));
     setNotice({
       kind: 'info',
       text:
-        `Joined ${others.join(', ')} into ${keep.name}` +
+        `Joined ${others.join(', ')} into ${riverLabel(keep, rivers)}` +
         (result.bridged > 0 ? `, adding ${result.bridged} hex${result.bridged === 1 ? '' : 'es'} to close the gap` : '') +
         '. Undo on this layer separates them again.' +
         (result.warnings.length > 0 ? ` ${result.warnings.join(' ')}` : ''),
@@ -578,13 +577,13 @@ function RiverList(
                 <select value={keep.id} onChange={(e) => setKeepId(e.target.value)}>
                   {tickedRivers.map((r) => (
                     <option key={r.id} value={r.id}>
-                      {r.name}
+                      {riverLabel(r, rivers)}
                     </option>
                   ))}
                 </select>
               </label>
               <button className="primary" onClick={join}>
-                Join {tickedRivers.length} rivers into {keep.name}
+                Join {tickedRivers.length} rivers into {riverLabel(keep, rivers)}
               </button>
             </>
           )}
@@ -618,12 +617,12 @@ function RiverList(
                   checked={ticked.includes(river.id)}
                   onChange={() => toggle(river.id)}
                   onClick={(e) => e.stopPropagation()}
-                  aria-label={`Join ${river.name}`}
+                  aria-label={`Join ${riverLabel(river, rivers)}`}
                 />
               )}
               <span className="grow">
                 {depth > 0 && <span className="hint">↳ </span>}
-                {river.name}
+                {river.name.trim() ? river.name : <i>{riverLabel(river, rivers)}</i>}
               </span>
               <span className="hint">{formatLength(props.lengths.get(river.id) ?? 0, props.unit, props.rounding)}</span>
               <span className="hint" style={{ minWidth: 44, textAlign: 'right' }}>

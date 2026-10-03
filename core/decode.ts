@@ -281,8 +281,14 @@ export function decodeLayer(
     case 'rivers': {
       const r = parsed as RiversResponse;
       notes = r.notes;
-      const ids = r.rivers.map((input, i) => reuseIdByName(existing?.rivers, input.name) ?? stableId('riv', input.name, i));
-      const idByName = new Map(r.rivers.map((input, i) => [input.name.trim().toLowerCase(), ids[i]!]));
+      // A distributary may be unnamed: it has no name to reuse an id by or to be referred to by.
+      const ids = r.rivers.map(
+        (input, i) =>
+          (input.name.trim() ? reuseIdByName(existing?.rivers, input.name) : null) ?? stableId('riv', input.name, i),
+      );
+      const idByName = new Map(
+        r.rivers.flatMap((input, i): [string, string][] => (input.name.trim() ? [[input.name.trim().toLowerCase(), ids[i]!]] : [])),
+      );
       const named = (name: string | undefined, of: string, link: string): string | undefined => {
         if (!name?.trim()) return undefined;
         const id = idByName.get(name.trim().toLowerCase());
@@ -298,6 +304,7 @@ export function decodeLayer(
               path: input.path,
               navigable: input.navigable,
               joins: quiet ? undefined : named(input.joins, input.name, 'joins'),
+              allowBlankName: !!input.branchOf?.trim(),
             },
             ids[i]!,
             ctx.base!,

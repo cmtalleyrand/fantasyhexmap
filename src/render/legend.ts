@@ -26,6 +26,7 @@ import { descendantsOf } from '../../shared/polityTree.js';
 import { thematicLayer, type CitySymbol, type Prim, type Scene, type VisibleLayers } from './scene.js';
 import { LAYER_META } from '../../shared/layers.js';
 import { formatLength, riverLength } from '../../shared/riverLength.js';
+import { riverLabel } from '../../shared/riverEdit.js';
 import { formatArea, normaliseHexDimensions, politySurfaceAreas } from '../../shared/surfaceArea.js';
 import {
   BASE_GEO_VALUES,
@@ -212,7 +213,7 @@ export function legendSections(
           for (const river of map.layers.rivers.data?.rivers ?? []) {
             entries.push({
               swatch: { kind: 'line', colour: palette.river, width: 1.6 },
-              label: `${river.name} - ${formatLength(riverLength(river, dims), dims.unit, dims.lengthRounding)}`,
+              label: `${riverLabel(river, map.layers.rivers.data?.rivers ?? [])} - ${formatLength(riverLength(river, dims), dims.unit, dims.lengthRounding)}`,
             });
           }
         }

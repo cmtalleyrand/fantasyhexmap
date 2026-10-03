@@ -8,6 +8,7 @@ import type { MapStyle } from '../render/styles.js';
 import { MAP_COLOURS } from '../render/palette.js';
 import { riversThroughHex } from '../../shared/derive.js';
 import { formatLength, riverLength } from '../../shared/riverLength.js';
+import { riverLabel } from '../../shared/riverEdit.js';
 import { normaliseHexDimensions } from '../../shared/surfaceArea.js';
 import type { RiverTool } from '../state/riverTools.js';
 import { pinchView, zoomAt, type ScreenPoint, type View } from '../render/view.js';
@@ -419,7 +420,7 @@ export default function MapView(props: MapViewProps) {
       const seg = river.segments.find((x) => x.col === col && x.row === row);
       const dims = normaliseHexDimensions(map.hexDimensions);
       bits.push(
-        `${river.name} (${seg?.navigable ? 'navigable' : 'not navigable'}, ${formatLength(riverLength(river, dims), dims.unit, dims.lengthRounding)})`,
+        `${riverLabel(river, map.layers.rivers.data?.rivers ?? [])} (${seg?.navigable ? 'navigable' : 'not navigable'}, ${formatLength(riverLength(river, dims), dims.unit, dims.lengthRounding)})`,
       );
     }
     const cities = map.layers.cities.data?.cities.filter((c) => hexIndex(map.cols, c.col, c.row) === hover) ?? [];

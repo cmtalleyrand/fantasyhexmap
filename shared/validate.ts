@@ -258,6 +258,8 @@ export interface RiverPathInput {
   navigable?: boolean[];
   /** The id of the river this one should flow into, when its path ends on that river. */
   joins?: string;
+  /** A distributary may go without a name; any other river is called "Unnamed river" if it has none. */
+  allowBlankName?: boolean;
 }
 
 /**
@@ -381,7 +383,7 @@ export function buildRiverFromPath(
   if (elevation) flagUphill(input.name, segments, elevation, cols, warnings);
   return {
     id,
-    name: input.name.trim() || 'Unnamed river',
+    name: input.name.trim() || (input.allowBlankName ? '' : 'Unnamed river'),
     segments,
     terminus,
     ...(host ? { joins: host.id } : {}),

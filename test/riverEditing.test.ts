@@ -7,6 +7,7 @@ import {
   detachOrphanBranches,
   extendRiver,
   moveRiverSegment,
+  riverLabel,
   removeRiverSegment,
   setRiverNavigability,
 } from '../shared/riverEdit.ts';
@@ -151,6 +152,7 @@ test('a branch leaves from a river hex and a river can have several', () => {
   const south = buildBranch(main, fork, hexLine(fork, { col: 7, row: 4 }), 'b2', base, null, COLS, ROWS);
   assert.ok(!('error' in north) && !('error' in south));
   assert.equal(north.river.branchOf, 'r1');
+  assert.equal(north.river.name, '', 'a branch is unnamed unless the user names it');
   assert.equal(south.river.branchOf, 'r1');
   assert.equal(north.river.terminus, 'Sea');
   assert.equal(north.river.segments[0]!.entryEdge, null);
@@ -179,4 +181,19 @@ test('branches detach when their fork leaves the parent, and survive otherwise',
   assert.ok(!('error' in moved));
   const after = reducer(map, { type: 'updateRiver', river: moved.river });
   assert.equal(after.layers.rivers.data?.rivers.find((r) => r.id === 'b1')?.branchOf, undefined);
+});
+
+test('an unnamed branch keeps its blank name through edits and is described by its parent', () => {
+  const main = river([[1, 2], [2, 2], [3, 2], [4, 2], [7, 2]], [true, true, true, true, false]);
+  const fork = { col: 4, row: 2 };
+  const built = buildBranch(main, fork, hexLine(fork, { col: 7, row: 0 }), 'b1', base, null, COLS, ROWS);
+  assert.ok(!('error' in built));
+  assert.equal(riverLabel(built.river, [main, built.river]), 'unnamed branch of Test');
+
+  const reshaped = extendRiver(built.river, { col: 7, row: 1 }, base, null, COLS, ROWS, [main]);
+  assert.ok(!('error' in reshaped), JSON.stringify(reshaped));
+  assert.equal(reshaped.river.name, '', 'editing does not invent a name');
+
+  const plain = buildRiverFromPath({ name: ' ', path: [{ col: 1, row: 2 }, { col: 2, row: 2 }] }, 'x', base, null, COLS, ROWS, []);
+  assert.equal(plain?.name, 'Unnamed river', 'only distributaries may go unnamed');
 });
