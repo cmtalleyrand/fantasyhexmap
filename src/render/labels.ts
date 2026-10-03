@@ -116,6 +116,8 @@ const GOOD_COVERAGE = 0.92;
 const DEPTH_SHARE = 0.75;
 /** The share of a name that may lie over a lake in its own realm: a graze, not a crossing. */
 const LAKE_ALLOWANCE = 0.1;
+/** The gap between a small realm and the name set beside it, as a share of the type size. */
+const BESIDE_GAP = 0.3;
 /** Tried before the fallback, so a name shrinks before it is allowed over water. */
 const SECOND_COVERAGE = 0.86;
 const FALLBACK_COVERAGE = 0.78;
@@ -428,8 +430,64 @@ export function placePolityLabels(input: LabelInput): PolityLabel[] {
     // belonging to neither realm. Only the last attempt gives up part of the
     // clearance kept between names, rather than leave a realm unnamed.
     const snug = Math.max(MIN_FONT, floor * SHRINK_BEFORE_SPILL);
+    // A small realm whose name does not fit cleanly on it is named beside it
+    // rather than over it, where the name would cover the island's own relief.
+    let minX = Infinity;
+    let maxX = -Infinity;
+    let minY = Infinity;
+    let maxY = -Infinity;
+    for (const c of centres) {
+      minX = Math.min(minX, c.x);
+      maxX = Math.max(maxX, c.x);
+      minY = Math.min(minY, c.y);
+      maxY = Math.max(maxY, c.y);
+    }
+    // A name too wide for its realm at its natural size would otherwise be
+    // shrunk until it sits on the island, covering the island's own relief.
+    const tooLong = small && layouts[0]!.em * idealSize > maxX - minX + size * Math.sqrt(3);
+    const beside = (): PolityLabel | null => {
+      const layout = layouts[0]!;
+      const midX = (minX + maxX) / 2;
+      const midY = (minY + maxY) / 2;
+      // A hex reaches about one size from its centre.
+      const reach = size;
+      const mapW = size * Math.sqrt(3) * (cols + 0.5);
+      const mapH = size * (1.5 * rows + 0.5);
+      for (let font = idealSize; font >= Math.max(MIN_FONT, snug); font *= SIZE_STEP) {
+        const w = layout.em * font;
+        const h = font * LABEL_HEIGHT_EM;
+        const gap = font * BESIDE_GAP;
+        // Right, left, below, above: the order city names take.
+        const slots: Point[] = [
+          { x: maxX + reach + gap + w / 2, y: midY },
+          { x: minX - reach - gap - w / 2, y: midY },
+          { x: midX, y: maxY + reach + gap + h / 2 },
+          { x: midX, y: minY - reach - gap - h / 2 },
+        ];
+        for (const at of slots) {
+          const box = labelBox(at, w, h, 0);
+          if (box.left < 0 || box.top < 0 || box.right > mapW || box.bottom > mapH) continue;
+          const probe = claimBox(at, w, h, 0, font);
+          if (blockers.some((o) => overlapsClaimed(probe, o, 1))) continue;
+          // Clear of every other realm: only open water or its own ground lies under the name.
+          let foreign = false;
+          for (let a = 0; a < 7 && !foreign; a++) {
+            for (let b = 0; b < 3 && !foreign; b++) {
+              const { col, row } = pixelToOffset(at.x + (a / 6 - 0.5) * w, at.y + (b / 2 - 0.5) * h * 0.8, size);
+              const i = hexIndex(cols, col, row);
+              foreign = inBounds(cols, rows, col, row) && owner[i] != null && owner[i] !== polity.id;
+            }
+          }
+          if (foreign) continue;
+          return { polityId: polity.id, at, lines: layout.lines, size: font, rotation: 0 };
+        }
+      }
+      return null;
+    };
     const label =
+      (tooLong ? beside() : null) ??
       attempt(blockers, GOOD_COVERAGE, snug) ??
+      (small ? beside() : null) ??
       (minHexes === 'auto' && small
         ? null
         : (attempt(names, GOOD_COVERAGE, snug) ??

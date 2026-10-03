@@ -113,3 +113,34 @@ test('a ring-shaped realm is named on its band, grazing its lake at most', () =>
   }
   assert.ok(over / (steps + 1) <= 0.15, `${over} of ${steps + 1} baseline points lie over the lake`);
 });
+
+test('a name longer than a one-hex island is set beside it, not over it, and clear of other realms', () => {
+  const cols = 14;
+  const rows = 6;
+  const island = 2 * cols + 3;
+  const owner: (string | null)[] = Array(cols * rows).fill(null);
+  owner[island] = 'a';
+  // Another realm lies a few hexes to the right, where the first slot would go.
+  for (let row = 0; row < rows; row++) for (let col = 7; col < cols; col++) owner[row * cols + col] = 'b';
+  const [label] = placePolityLabels({
+    cols,
+    rows,
+    size: SIZE,
+    owner,
+    polities: [{ id: 'a', name: 'Lonnavar' }, { id: 'b', name: 'Mainland' }],
+    obstacles: [],
+    minHexes: 0,
+    measure,
+  }).filter((l) => l.polityId === 'a');
+  assert.ok(label, 'the island is named');
+  const centre = hexCenter(island % cols, Math.floor(island / cols), SIZE);
+  const w = measure('LONNAVAR') * label.size;
+  const left = label.at.x - w / 2;
+  const right = label.at.x + w / 2;
+  const top = label.at.y - (label.size * 1.1) / 2;
+  const bottom = label.at.y + (label.size * 1.1) / 2;
+  assert.ok(!(centre.x > left && centre.x < right && centre.y > top && centre.y < bottom), 'the name does not cover the island');
+  assert.ok(Math.hypot(label.at.x - centre.x, label.at.y - centre.y) < SIZE * 6, 'the name stays close to its island');
+  const foreign = hexCenter(7, 2, SIZE).x - SIZE; // left edge of the other realm
+  assert.ok(right < foreign, 'the name stays off the neighbouring realm');
+});
