@@ -18,6 +18,7 @@ import { hasLandShare, isIslandType, isShapedType, islandSpecFor, type HexShape,
 import { migrateLegacyIslands } from '../../shared/islandMigration.js';
 import { GEO_KIND_LABEL, geoEligibility, geoNamesOf, withMigratedGeoNames } from '../../shared/geoNames.js';
 import { withValidParents } from '../../shared/polityTree.js';
+import { applyAutoShade } from '../../shared/polityShade.js';
 import {
   baseTransitions,
   clearedAt,
@@ -97,7 +98,9 @@ export type Action =
   | { type: 'setHexValues'; layer: 'base' | 'elevation' | 'climate' | 'vegetation' | 'population'; indices: number[]; value: unknown }
   | { type: 'setPolityOwner'; indices: number[]; polityId: string | null }
   | { type: 'upsertPolity'; polity: Polity }
-  | { type: 'setPolityColours'; colours: Record<string, string> }
+  /** `autoShade` also marks every part so it follows its realm from now on. */
+  | { type: 'setPolityColours'; colours: Record<string, string>; autoShade?: boolean }
+  | { type: 'setPolityAutoShade'; ids: string[]; on: boolean }
   | { type: 'removePolity'; id: string }
   | { type: 'upsertCity'; city: City }
   | { type: 'removeCity'; id: string }
@@ -816,9 +819,11 @@ export function reducer(map: MapState, action: Action): MapState {
           ? current.polities.map((p) => (p.id === action.polity.id ? action.polity : p))
           : [...current.polities, action.polity],
       ).polities;
-      if (exists && identicalData(current.polities, polities)) return map;
+      // A realm's colour change carries down to every part that follows it.
+      const shaded = applyAutoShade(polities);
+      if (exists && identicalData(current.polities, shaded)) return map;
       return journal(
-        withLayer(map, 'polities', commit(layer, { data: { ...current, polities } })),
+        withLayer(map, 'polities', commit(layer, { data: { ...current, polities: shaded } })),
         manualEntry('polities', `${exists ? 'Edited' : 'Added'} the polity "${action.polity.name}" by hand.`),
       );
     }
@@ -834,7 +839,9 @@ export function reducer(map: MapState, action: Action): MapState {
           commit(layer, {
             data: {
               // Its parts become independent rather than pointing at nothing.
-              polities: withValidParents(layer.data.polities.filter((p) => p.id !== action.id)).polities,
+              polities: applyAutoShade(
+                withValidParents(layer.data.polities.filter((p) => p.id !== action.id)).polities,
+              ),
               owner: layer.data.owner.map((id) => (id === action.id ? null : id)),
             },
           }),
@@ -846,11 +853,41 @@ export function reducer(map: MapState, action: Action): MapState {
     case 'setPolityColours': {
       const layer = map.layers.polities;
       if (!layer.data) return map;
-      const polities = layer.data.polities.map((p) => ({ ...p, colour: action.colours[p.id] ?? p.colour }));
+      const polities = applyAutoShade(
+        layer.data.polities.map((p) => ({
+          ...p,
+          colour: action.colours[p.id] ?? p.colour,
+          ...(action.autoShade && p.parentId ? { autoShade: true } : {}),
+        })),
+      );
       if (identicalData(layer.data.polities, polities)) return map;
       return journal(
         withLayer(map, 'polities', commit(layer, { data: { ...layer.data, polities } })),
         manualEntry('polities', 'Assigned a contrasting colour set to polities.'),
+      );
+    }
+
+    case 'setPolityAutoShade': {
+      const layer = map.layers.polities;
+      if (!layer.data) return map;
+      const ids = new Set(action.ids);
+      const polities = applyAutoShade(
+        layer.data.polities.map((p) => {
+          if (!ids.has(p.id)) return p;
+          if (!action.on) {
+            const { autoShade: _off, ...rest } = p;
+            return rest;
+          }
+          return p.parentId ? { ...p, autoShade: true } : p;
+        }),
+      );
+      if (identicalData(layer.data.polities, polities)) return map;
+      return journal(
+        withLayer(map, 'polities', commit(layer, { data: { ...layer.data, polities } })),
+        manualEntry(
+          'polities',
+          action.on ? 'Set polities to take shades of their realm\'s colour.' : 'Stopped shading polities from their realm.',
+        ),
       );
     }
 

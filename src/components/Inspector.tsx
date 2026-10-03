@@ -32,10 +32,11 @@ import { planMultiLayerEdit } from '../../shared/multiEdit.js';
 import { canSplit, passLabel, type PassSelection } from '../../core/rosters.js';
 import { type Action, type HexShapeChange, type IslandSpecChange } from '../state/store.js';
 import { landFraction, normaliseHexDimensions } from '../../shared/surfaceArea.js';
-import { wouldCycle } from '../../shared/polityTree.js';
+import { descendantsOf, polityOutline, wouldCycle } from '../../shared/polityTree.js';
 import { contrastingRealmColours } from '../render/hierarchy.js';
 import Legend from './Legend.js';
-import CommitInput, { CommitColour } from './CommitInput.js';
+import CommitInput, { CommitColour, CommitHex, copyText } from './CommitInput.js';
+import type { PolityTone } from '../render/palette.js';
 import type { EditorMode } from '../state/workspace.js';
 
 const PER_HEX: LayerId[] = ['base', 'elevation', 'climate', 'vegetation', 'population'];
@@ -143,11 +144,14 @@ export default function Inspector(props: InspectorProps) {
   const hasData = layer.data !== null;
   const generating = props.busyLayers.has(activeLayer);
   const missing = missingRequirements(map, activeLayer);
+  // Notes closed by the user stay closed until the layer's notes change.
+  const [dismissed, setDismissed] = useState<string | null>(null);
+  const warningsKey = `${activeLayer}\n${layer.warnings.join('\n')}`;
+  const shownWarnings = dismissed === warningsKey ? [] : layer.warnings;
   const aboutCount =
-    (layer.notes ? 1 : 0) + (latestDecisions(map, activeLayer).length > 0 ? 1 : 0) + layer.warnings.length;
+    (layer.notes ? 1 : 0) + (latestDecisions(map, activeLayer).length > 0 ? 1 : 0) + shownWarnings.length;
 
   const ai = props.mode === 'ai';
-
   return (
     <div className="inspector">
       <div className="section">
@@ -324,12 +328,10 @@ export default function Inspector(props: InspectorProps) {
           <h2>About this layer</h2>
           {layer.notes && <div className="notice info">{layer.notes}</div>}
           <LayerDecisions map={map} layer={activeLayer} onOpenLog={props.onOpenDecisionLog} />
-          <Warnings warnings={layer.warnings} />
-        </div>
-      )}
-      {!ai && layer.warnings.length > 0 && (
-        <div className="section">
-          <Warnings warnings={layer.warnings} />
+          <Warnings
+            warnings={shownWarnings}
+            onDismiss={() => setDismissed(warningsKey)}
+          />
         </div>
       )}
 
@@ -341,14 +343,26 @@ export default function Inspector(props: InspectorProps) {
   );
 }
 
-function Warnings({ warnings }: { warnings: string[] }) {
+function Warnings({ warnings, onDismiss }: { warnings: string[]; onDismiss: () => void }) {
   if (warnings.length === 0) return null;
   return (
-    <details className="notice warn" style={{ marginTop: 8 }} open={warnings.length <= 3}>
+    <details className="notice warn dismissible" style={{ marginTop: 8 }} open={warnings.length <= 3}>
       <summary>
         <b>
           {warnings.length} validation note{warnings.length === 1 ? '' : 's'}
         </b>
+        <button
+          type="button"
+          className="tiny dismiss"
+          title="Close these notes"
+          aria-label="Close validation notes"
+          onClick={(e) => {
+            e.preventDefault();
+            onDismiss();
+          }}
+        >
+          ×
+        </button>
       </summary>
       <ul className="warnlist">
         {warnings.map((w, i) => (
@@ -869,14 +883,43 @@ function PolityEditor(props: SubProps) {
   const data = map.layers.polities.data!;
   const [name, setName] = useState('');
   const [colour, setColour] = useState('#b5533c');
+  const [tone, setTone] = useState<PolityTone>('vivid');
+  const [shadeWithContrast, setShadeWithContrast] = useState(true);
+  const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
+  const [copied, setCopied] = useState<string | null>(null);
   // Kept with the other brush values in App, so a brush stroke on the map assigns to it.
   const target = props.brush.polities ?? '';
   const setTarget = (id: string) => props.setBrush('polities', id);
 
+  // Realms followed by their parts, so a realm and its provinces sit together.
+  const outline = useMemo(() => polityOutline(data.polities), [data.polities]);
+  const ownCount = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const id of data.owner) if (id) counts.set(id, (counts.get(id) ?? 0) + 1);
+    return counts;
+  }, [data.owner]);
+  const byId = useMemo(() => new Map(data.polities.map((p) => [p.id, p])), [data.polities]);
+  const partsOf = (id: string) => {
+    const set = descendantsOf(data.polities, id);
+    set.delete(id);
+    return set;
+  };
+  const hexesOf = (ids: Set<string>) => data.owner.flatMap((id, i) => (id && ids.has(id) ? [i] : []));
+
+  // A part whose realm is folded away is hidden with it.
+  const hidden = new Set<string>();
+  for (const id of collapsed) for (const part of partsOf(id)) hidden.add(part);
+
+  const shadable = data.polities.filter((p) => p.parentId);
+  const following = shadable.filter((p) => p.autoShade).length;
+
   const assignContrastingColours = () => {
-    // Realms contrast with their neighbours; their parts take shades of the realm's colour.
-    const colours = contrastingRealmColours(data.polities, data.owner, map.cols, map.rows);
-    dispatch({ type: 'setPolityColours', colours: Object.fromEntries(colours) });
+    // Realms contrast with their neighbours; with shading on, their parts take shades of the realm's colour.
+    const colours = contrastingRealmColours(data.polities, data.owner, map.cols, map.rows, {
+      tone,
+      shadeParts: shadeWithContrast,
+    });
+    dispatch({ type: 'setPolityColours', colours: Object.fromEntries(colours), autoShade: shadeWithContrast });
   };
 
   const add = () => {
@@ -892,14 +935,29 @@ function PolityEditor(props: SubProps) {
     setTarget(polity.id);
   };
 
+  /** Choosing a colour by hand takes a polity off auto-shading. */
+  const recolour = (p: Polity, next: string) => {
+    const { autoShade: _off, ...rest } = p;
+    dispatch({ type: 'upsertPolity', polity: { ...rest, colour: next } });
+  };
+
+  const copy = async (p: Polity) => {
+    if (await copyText(p.colour)) {
+      setCopied(p.id);
+      window.setTimeout(() => setCopied((c) => (c === p.id ? null : c)), 1200);
+    }
+  };
+
   return (
     <div className="stack">
       <div>
         <label>Assign selected hexes to</label>
         <select value={target} onChange={(e) => setTarget(e.target.value)}>
           <option value="">(unclaimed wilderness)</option>
-          {data.polities.map((p) => (
+          {outline.map(({ polity: p, depth }) => (
             <option key={p.id} value={p.id}>
+              {'\u00a0\u00a0'.repeat(depth)}
+              {depth > 0 ? '↳ ' : ''}
               {p.name}
             </option>
           ))}
@@ -931,74 +989,222 @@ function PolityEditor(props: SubProps) {
         Brush mode assigns as you drag.
       </p>
 
-      <div className="list">
-        {data.polities.map((p) => {
-          const count = data.owner.filter((id) => id === p.id).length;
-          return (
-            <div key={p.id} className="entry">
-              <span className="swatch-dot" style={{ background: p.colour }} />
-              <CommitInput
-                className="grow"
-                aria-label="Polity name"
-                value={p.name}
-                onCommit={(name) => dispatch({ type: 'upsertPolity', polity: { ...p, name } })}
-              />
-              <CommitInput
-                aria-label={`Short map name for ${p.name}`}
-                title="Short map name"
-                style={{ width: 90 }}
-                placeholder="map name"
-                allowEmpty
-                value={p.shortName ?? ''}
-                onCommit={(shortName) =>
-                  dispatch({ type: 'upsertPolity', polity: { ...p, shortName: shortName || undefined } })
-                }
-              />
-              <CommitColour
-                aria-label={`Colour of ${p.name}`}
-                style={{ width: 32, padding: 0, height: 24 }}
-                value={p.colour}
-                onCommit={(colour) => dispatch({ type: 'upsertPolity', polity: { ...p, colour } })}
-              />
-              <button
-                className="tiny"
-                title={`Select the ${count} hexes ${p.name} holds`}
-                onClick={() => {
-                  props.setSelection(new Set(data.owner.flatMap((id, i) => (id === p.id ? [i] : []))));
-                  setTarget(p.id);
-                }}
+      <div className="polity-list">
+        {outline
+          .filter(({ polity }) => !hidden.has(polity.id))
+          .map(({ polity: p, depth, parts }) => {
+            const own = ownCount.get(p.id) ?? 0;
+            const partIds = partsOf(p.id);
+            const total = own + [...partIds].reduce((sum, id) => sum + (ownCount.get(id) ?? 0), 0);
+            const parent = p.parentId ? byId.get(p.parentId) : undefined;
+            const partsFollowing = [...partIds].filter((id) => byId.get(id)?.autoShade).length;
+            const isCollapsed = collapsed.has(p.id);
+            const bar = parent?.colour ?? p.colour;
+            return (
+              <div
+                key={p.id}
+                className={`polity-entry${depth > 0 ? ' child' : ' realm'}`}
+                style={{ marginLeft: Math.min(depth, 4) * 14, borderLeftColor: bar }}
               >
-                {count}
-              </button>
-              <button className="tiny danger" onClick={() => dispatch({ type: 'removePolity', id: p.id })}>
-                ×
-              </button>
-              <select
-                aria-label={`What ${p.name} is part of`}
-                title="Part of a larger polity"
-                style={{ flexBasis: '100%' }}
-                value={p.parentId ?? ''}
-                onChange={(e) =>
-                  dispatch({ type: 'upsertPolity', polity: { ...p, parentId: e.target.value || undefined } })
-                }
-              >
-                <option value="">Independent</option>
-                {data.polities
-                  .filter((q) => !wouldCycle(data.polities, p.id, q.id))
-                  .map((q) => (
-                    <option key={q.id} value={q.id}>
-                      Part of {q.name}
-                    </option>
-                  ))}
-              </select>
-            </div>
-          );
-        })}
+                <div className="row">
+                  {parts > 0 ? (
+                    <button
+                      className="tiny fold"
+                      title={isCollapsed ? `Show the ${parts} parts of ${p.name}` : `Fold away the ${parts} parts of ${p.name}`}
+                      aria-expanded={!isCollapsed}
+                      onClick={() => {
+                        const next = new Set(collapsed);
+                        if (isCollapsed) next.delete(p.id);
+                        else next.add(p.id);
+                        setCollapsed(next);
+                      }}
+                    >
+                      {isCollapsed ? '▸' : '▾'}
+                    </button>
+                  ) : (
+                    <span className="fold-spacer" />
+                  )}
+                  <CommitColour
+                    aria-label={`Colour of ${p.name}`}
+                    title="Pick a colour"
+                    className="polity-swatch"
+                    value={p.colour}
+                    onCommit={(next) => recolour(p, next)}
+                  />
+                  <CommitInput
+                    className="grow"
+                    aria-label="Polity name"
+                    title={p.name}
+                    value={p.name}
+                    onCommit={(next) => dispatch({ type: 'upsertPolity', polity: { ...p, name: next } })}
+                  />
+                  <button
+                    className="tiny danger"
+                    title={`Remove ${p.name}`}
+                    onClick={() => dispatch({ type: 'removePolity', id: p.id })}
+                  >
+                    ×
+                  </button>
+                </div>
+
+                <div className="row">
+                  <CommitHex
+                    className="hex-field"
+                    aria-label={`Hex code of ${p.name}'s colour`}
+                    title="Colour code: select, copy, or paste a new one"
+                    value={p.colour}
+                    onCommit={(next) => recolour(p, next)}
+                  />
+                  <button className="tiny" title={`Copy ${p.colour}`} onClick={() => copy(p)}>
+                    {copied === p.id ? 'copied' : 'copy'}
+                  </button>
+                  {parent && (
+                    <button
+                      className={`tiny${p.autoShade ? ' on' : ''}`}
+                      aria-pressed={Boolean(p.autoShade)}
+                      title={
+                        p.autoShade
+                          ? `Colour follows ${parent.name} as a shade of it. Click to set it yourself.`
+                          : `Make this a shade of ${parent.name}'s colour, kept in step when that changes.`
+                      }
+                      onClick={() =>
+                        dispatch({ type: 'setPolityAutoShade', ids: [p.id], on: !p.autoShade })
+                      }
+                    >
+                      ◐ shade
+                    </button>
+                  )}
+                  {parts > 0 && (
+                    <button
+                      className={`tiny${partsFollowing === parts ? ' on' : ''}`}
+                      title={
+                        partsFollowing === parts
+                          ? `Stop shading the parts of ${p.name}`
+                          : `Shade all ${parts} parts of ${p.name} from its colour, and keep them in step`
+                      }
+                      onClick={() =>
+                        dispatch({
+                          type: 'setPolityAutoShade',
+                          ids: [...partIds],
+                          on: partsFollowing !== parts,
+                        })
+                      }
+                    >
+                      ◐ parts
+                    </button>
+                  )}
+                  <span className="grow" />
+                  <button
+                    className="tiny"
+                    title={`Select the ${own} hexes ${p.name} holds directly`}
+                    onClick={() => {
+                      props.setSelection(new Set(hexesOf(new Set([p.id]))));
+                      setTarget(p.id);
+                    }}
+                  >
+                    {own}
+                  </button>
+                  {parts > 0 && (
+                    <button
+                      className="tiny"
+                      title={`Select all ${total} hexes of ${p.name} and its parts`}
+                      onClick={() => {
+                        props.setSelection(new Set(hexesOf(new Set([p.id, ...partIds]))));
+                        setTarget(p.id);
+                      }}
+                    >
+                      Σ {total}
+                    </button>
+                  )}
+                </div>
+
+                <div className="row">
+                  <CommitInput
+                    className="grow"
+                    aria-label={`Short map name for ${p.name}`}
+                    title="Short map name"
+                    placeholder="short map name"
+                    allowEmpty
+                    value={p.shortName ?? ''}
+                    onCommit={(shortName) =>
+                      dispatch({ type: 'upsertPolity', polity: { ...p, shortName: shortName || undefined } })
+                    }
+                  />
+                  <select
+                    className="grow"
+                    aria-label={`What ${p.name} is part of`}
+                    title="Part of a larger polity"
+                    value={p.parentId ?? ''}
+                    onChange={(e) =>
+                      dispatch({ type: 'upsertPolity', polity: { ...p, parentId: e.target.value || undefined } })
+                    }
+                  >
+                    <option value="">Independent</option>
+                    {data.polities
+                      .filter((q) => !wouldCycle(data.polities, p.id, q.id))
+                      .map((q) => (
+                        <option key={q.id} value={q.id}>
+                          Part of {q.name}
+                        </option>
+                      ))}
+                  </select>
+                </div>
+              </div>
+            );
+          })}
       </div>
 
-      <button onClick={assignContrastingColours} disabled={data.polities.length === 0}>
-        Assign contrasting colours
-      </button>
+      <div className="polity-tools">
+        <h3>Colours</h3>
+        <div className="row">
+          <button className="grow" onClick={assignContrastingColours} disabled={data.polities.length === 0}>
+            Assign contrasting colours
+          </button>
+          <select
+            aria-label="Palette for contrasting colours"
+            title="How saturated the assigned colours are"
+            style={{ width: 'auto' }}
+            value={tone}
+            onChange={(e) => setTone(e.target.value as PolityTone)}
+          >
+            <option value="vivid">vivid</option>
+            <option value="muted">muted</option>
+            <option value="pastel">pastel</option>
+          </select>
+        </div>
+        <label className="check">
+          <input
+            type="checkbox"
+            checked={shadeWithContrast}
+            onChange={(e) => setShadeWithContrast(e.target.checked)}
+          />
+          shade parts from their realm too
+        </label>
+        <p className="hint" style={{ margin: 0 }}>
+          Independent polities are made to stand apart from the ones they border, longest borders
+          first; a realm's territory counts as its parts' together.
+        </p>
+        <div className="row" style={{ marginTop: 8 }}>
+          <button
+            className="grow"
+            disabled={shadable.length === 0 || following === shadable.length}
+            onClick={() => dispatch({ type: 'setPolityAutoShade', ids: shadable.map((p) => p.id), on: true })}
+          >
+            Shade all parts from realms
+          </button>
+          <button
+            disabled={following === 0}
+            onClick={() => dispatch({ type: 'setPolityAutoShade', ids: shadable.map((p) => p.id), on: false })}
+          >
+            Stop
+          </button>
+        </div>
+        <p className="hint" style={{ margin: 0 }}>
+          {following} of {shadable.length} part{shadable.length === 1 ? '' : 's'} follow their realm's
+          colour: change the realm's colour and its shaded parts update. Picking a part's colour by
+          hand takes it off shading.
+        </p>
+      </div>
 
       <div className="row">
         <input placeholder="New polity name" value={name} onChange={(e) => setName(e.target.value)} />

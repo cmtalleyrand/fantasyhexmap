@@ -5,17 +5,8 @@
 
 import { ancestry } from '../../shared/polityTree.js';
 import type { Polity } from '../../shared/types.js';
-import { contrastingPolityColours } from './palette.js';
-
-function mix(a: string, b: string, t: number): string {
-  const pa = /^#([0-9a-f]{6})$/i.exec(a);
-  const pb = /^#([0-9a-f]{6})$/i.exec(b);
-  if (!pa || !pb) return a;
-  const na = parseInt(pa[1]!, 16);
-  const nb = parseInt(pb[1]!, 16);
-  const ch = (s: number) => Math.round(((na >> s) & 255) * (1 - t) + ((nb >> s) & 255) * t);
-  return `#${[16, 8, 0].map((s) => ch(s).toString(16).padStart(2, '0')).join('')}`;
-}
+import { applyAutoShade, mixHex as mix, shadeOf } from '../../shared/polityShade.js';
+import { contrastingPolityColours, type PolityTone } from './palette.js';
 
 /**
  * The colour each polity is drawn in. With `tints`, a polity that is part of
@@ -32,10 +23,8 @@ export function polityDisplayColours(polities: Polity[], mode: 'own' | 'tints'):
     const parent = p.parentId ? byId.get(p.parentId) : undefined;
     let colour = p.colour;
     if (mode === 'tints' && parent && depth < polities.length) {
-      const siblings = polities.filter((q) => q.parentId === parent.id);
-      const k = siblings.indexOf(p);
-      const step = 0.14 + 0.1 * Math.floor(k / 2);
-      colour = mix(resolve(parent, depth + 1), k % 2 === 0 ? '#ffffff' : '#000000', Math.min(0.5, step));
+      const k = polities.filter((q) => q.parentId === parent.id).indexOf(p);
+      colour = shadeOf(resolve(parent, depth + 1), k);
     }
     out.set(p.id, colour);
     return colour;
@@ -71,20 +60,25 @@ export function toned(colour: string, tone: 'vivid' | 'pastel' | 'muted'): strin
 /**
  * Colours for "Assign contrasting colours" that respect the hierarchy:
  * top-level realms are made to contrast with their neighbours (judged over
- * each realm's whole territory, parts included), and every part takes a
- * shade of its realm's colour, so a realm and its provinces read as one
- * family while neighbouring realms stay distinct.
+ * each realm's whole territory, parts included). With `shadeParts` (the
+ * default) every part then takes a shade of its realm's colour, so a realm and
+ * its provinces read as one family while neighbouring realms stay distinct;
+ * without it only the realms are returned and parts keep their colours.
  */
 export function contrastingRealmColours(
   polities: Polity[],
   owner: (string | null)[],
   cols: number,
   rows: number,
+  options: { tone?: PolityTone; shadeParts?: boolean } = {},
 ): Map<string, string> {
   const top = new Map(polities.map((p) => [p.id, ancestry(polities, p.id).at(-1)!]));
   const tops = polities.filter((p) => top.get(p.id) === p.id).map((p) => p.id);
   const topOwner = owner.map((id) => (id ? top.get(id) ?? null : null));
-  const topColours = contrastingPolityColours(tops, topOwner, cols, rows);
-  const seeded = polities.map((p) => (topColours.has(p.id) ? { ...p, colour: topColours.get(p.id)! } : p));
-  return polityDisplayColours(seeded, 'tints');
+  const topColours = contrastingPolityColours(tops, topOwner, cols, rows, { tone: options.tone });
+  if (options.shadeParts === false) return topColours;
+  const seeded = polities.map((p) =>
+    topColours.has(p.id) ? { ...p, colour: topColours.get(p.id)! } : { ...p, autoShade: true },
+  );
+  return new Map(applyAutoShade(seeded).map((p) => [p.id, p.colour]));
 }
