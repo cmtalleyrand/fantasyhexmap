@@ -105,7 +105,7 @@ import { BUNDLED_FACES, LETTERINGS, type FaceRole } from './lettering.js';
 import { signed, unit } from './seed.js';
 import { floeFringe, glacierShelf, nearHexes, pathPolylines, seaIcePrims } from './ice.js';
 import { landFraction, normaliseHexDimensions } from '../../shared/surfaceArea.js';
-import { CLASSIC_STYLE, type MapStyle } from './styles.js';
+import { CLASSIC_STYLE, type ElevationStyle, type MapStyle } from './styles.js';
 import { grainTile } from './texture.js';
 
 export type { CitySymbol, PathCmd, Prim } from './prims.js';
@@ -140,7 +140,7 @@ export interface SceneOptions {
   landNames?: boolean;
   /** Smallest polity, in hexes, that is named; default 4. */
   polityNames?: PolityNameMin;
-  elevationStyle?: 'colour' | 'contours';
+  elevationStyle?: ElevationStyle;
   /** Opacity of polity fills, 0-1 (default 1); lower values let terrain show through. */
   polityOpacity?: number;
   /** Draw Coastal Land in the plain Land colour; overrides the style's own choice when set. */
@@ -172,7 +172,7 @@ const FILL_PRECEDENCE: LayerId[] = ['vegetation', 'climate', 'elevation'];
 export function thematicLayer(
   map: MapState,
   visible: VisibleLayers,
-  elevationStyle: 'colour' | 'contours' = 'colour',
+  elevationStyle: ElevationStyle = 'colour',
 ): LayerId | null {
   return FILL_PRECEDENCE.find(
     (id) => visible[id] && map.layers[id].data && (id !== 'elevation' || elevationStyle === 'colour'),
@@ -455,11 +455,13 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
   const base = opts.visible.base ? layers.base.data : null;
   // An explicit elevationStyle (the older two-way setting) overrides the style's relief.
   const relief = opts.elevationStyle
-    ? opts.elevationStyle === 'colour' ? 'colour' : 'marks'
+    ? opts.elevationStyle === 'colour' ? 'colour' : opts.elevationStyle === 'none' ? 'none' : 'marks'
     : knobs.relief;
-  const elevationStyle = relief === 'colour' ? 'colour' : 'contours';
+  const elevationStyle: ElevationStyle = relief === 'colour' ? 'colour' : relief === 'none' ? 'none' : 'contours';
+  // With relief 'none' the elevation layer plays no part in the picture.
+  const showElevation = opts.visible.elevation && relief !== 'none';
   const thematic = thematicLayer(map, opts.visible, elevationStyle);
-  const elevationData = opts.visible.elevation ? layers.elevation.data : null;
+  const elevationData = showElevation ? layers.elevation.data : null;
 
   const population = opts.visible.population ? layers.population.data : null;
   const maxPop = population ? Math.max(1, ...population.map((v) => v ?? 0)) : 1;
@@ -657,7 +659,7 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
         prims.push(...crevasses(hexCenter(col, row, size), size, seed, i, palette.iceShade));
       }
 
-      if (relief === 'marks' && opts.visible.elevation) {
+      if (relief === 'marks' && showElevation) {
         const elevation = layers.elevation.data?.[i];
         if (elevation) prims.push(...elevationMarks(hexCenter(col, row, size), size, elevation));
       }
@@ -1731,7 +1733,7 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
       }
     }
   }
-  if (opts.rangeNames && opts.visible.elevation && layers.elevation.data) {
+  if (opts.rangeNames && showElevation && layers.elevation.data) {
     const rangeRole = lettering.range;
     for (const l of placeRangeLabels(map.mountainRanges ?? [], layers.elevation.data, cols, size, rangeRole)) {
       prims.push({

@@ -35,9 +35,9 @@ export interface StyleKnobs {
   /**
    * How height is shown when the Elevation layer is visible: hexes tinted by
    * height, stacked marks per hex, drawn hills and peaks, or shading as if lit
-   * from the north-west.
+   * from the north-west. 'none' leaves height out of the picture entirely.
    */
-  relief: 'colour' | 'marks' | 'illustrated' | 'hillshade';
+  relief: 'none' | 'colour' | 'marks' | 'illustrated' | 'hillshade';
   /** Realms as solid fills, as a wash of colour along their borders, or as outlines only. */
   polityStyle: 'fill' | 'tint' | 'wash' | 'outline';
   /** The ink line between realms: none, solid, dashed or dash-dot. Parts of one realm are always divided by a fine dashed line. */
@@ -63,6 +63,9 @@ export interface StyleKnobs {
 }
 
 export type KnobId = keyof StyleKnobs;
+
+/** How a map's legend and fills treat elevation: tinted by it, marked with it, or leaving it out. */
+export type ElevationStyle = 'colour' | 'contours' | 'none';
 
 export interface StylePalette {
   sea: string;
@@ -244,7 +247,7 @@ const PARCHMENT: PresetInfo = {
 const ATLAS: PresetInfo = {
   id: 'atlas',
   label: 'Political atlas',
-  description: 'Pale seas shading to the coast, every realm tinted in its colour with a strong border band and a crisp frontier, hill-shaded relief',
+  description: 'Pale seas shading to the coast, every realm and sub-polity in its own strong colour with a crisp frontier; no relief, so the politics stand alone',
   palette: {
     sea: '#a9cfe0',
     seaShallow: '#d6ecf2',
@@ -284,9 +287,9 @@ const ATLAS: PresetInfo = {
     ice: 'glacier',
     rivers: 'tapered',
     grain: false,
-    subPolities: 'tints',
-    relief: 'hillshade',
-    polityStyle: 'tint',
+    subPolities: 'own',
+    relief: 'none',
+    polityStyle: 'fill',
     frontier: 'solid',
     polityTone: 'vivid',
     borders: 'ragged',
@@ -431,6 +434,7 @@ export const KNOB_OPTIONS: {
   relief: {
     label: 'Elevation shown as',
     options: [
+      { value: 'none', label: 'Not shown' },
       { value: 'colour', label: 'Colours by height' },
       { value: 'marks', label: 'Height marks' },
       { value: 'illustrated', label: 'Drawn mountains and hills' },
@@ -584,9 +588,10 @@ export function styleKey(style: MapStyle): string {
 
 /**
  * The older two-way elevation setting a style amounts to: whether elevation
- * tints the hex fills ('colour') or is drawn over them (everything else).
+ * tints the hex fills ('colour'), is drawn over them, or is left out ('none').
  * Legends and fill precedence still reason in these terms.
  */
-export function elevationStyleOf(style: MapStyle): 'colour' | 'contours' {
-  return style.knobs.relief === 'colour' ? 'colour' : 'contours';
+export function elevationStyleOf(style: MapStyle): ElevationStyle {
+  const { relief } = style.knobs;
+  return relief === 'colour' ? 'colour' : relief === 'none' ? 'none' : 'contours';
 }

@@ -20,7 +20,7 @@ import { renderToCanvas } from './canvas.js';
 import { appendLegend, legendSections, type LegendOptions } from './legend.js';
 import { buildScene, singleLayerVisibility, type Scene, type VisibleLayers } from './scene.js';
 import { sceneToSvg } from './svg.js';
-import { CLASSIC_STYLE, elevationStyleOf, type MapStyle } from './styles.js';
+import { CLASSIC_STYLE, elevationStyleOf, type ElevationStyle, type MapStyle } from './styles.js';
 
 export interface ExportOptions {
   format: 'png' | 'svg';
@@ -30,7 +30,7 @@ export interface ExportOptions {
   seaNames?: boolean;
   landNames?: boolean;
   polityNames?: PolityNameMin;
-  elevationStyle?: 'colour' | 'contours';
+  elevationStyle?: ElevationStyle;
   polityOpacity?: number;
   uniformLand?: boolean;
   style?: MapStyle;

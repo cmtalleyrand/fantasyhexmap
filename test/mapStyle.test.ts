@@ -9,6 +9,7 @@ import { riverCourse } from '../src/render/rivers.ts';
 import { buildScene, defaultVisibility } from '../src/render/scene.ts';
 import {
   PRESET_ORDER,
+  elevationStyleOf,
   parseStyleChoice,
   resolveStyle,
   withKnob,
@@ -936,6 +937,14 @@ test('every bundled pairing has a real face for each kind of name', async () => 
   assert.equal(resolveStyle({ preset: 'atlas', overrides: {} }).knobs.lettering, 'chancery');
   // The retired Alegreya pairing falls back to the preset's own.
   assert.equal(parseStyleChoice({ preset: 'atlas', overrides: { lettering: 'atlas' } }).overrides.lettering, undefined);
+});
+
+test('the political atlas shows no elevation and gives sub-polities their own colours', () => {
+  const { knobs } = resolveStyle({ preset: 'atlas', overrides: {} });
+  assert.equal(knobs.relief, 'none');
+  assert.equal(knobs.subPolities, 'own');
+  assert.equal(knobs.polityStyle, 'fill');
+  assert.equal(elevationStyleOf(resolveStyle({ preset: 'atlas', overrides: {} })), 'none');
 });
 
 test('an SVG carries the font rules it is given, and measurements can be thrown away', async () => {

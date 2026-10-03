@@ -20,7 +20,7 @@ import {
   POPULATION_LEGEND_RAMP,
   VEGETATION_COLOURS,
 } from './palette.js';
-import { CLASSIC_STYLE, type MapStyle } from './styles.js';
+import { CLASSIC_STYLE, type ElevationStyle, type MapStyle } from './styles.js';
 import { polityDisplayColours } from './hierarchy.js';
 import { descendantsOf } from '../../shared/polityTree.js';
 import { thematicLayer, type CitySymbol, type Prim, type Scene, type VisibleLayers } from './scene.js';
@@ -111,7 +111,7 @@ function symbolForPopulation(population: number): CitySymbol {
 export function legendLayers(
   map: MapState,
   visible: VisibleLayers,
-  elevationStyle: 'colour' | 'contours' = 'colour',
+  elevationStyle: ElevationStyle = 'colour',
 ): LayerId[] {
   const thematic = thematicLayer(map, visible, elevationStyle);
   return LAYER_ORDER.filter((id) => {
@@ -131,7 +131,7 @@ function usedValues<T>(data: ReadonlyArray<T | null> | null | undefined): Set<T>
 export function legendSections(
   map: MapState,
   visible: VisibleLayers,
-  elevationStyle: 'colour' | 'contours',
+  elevationStyle: ElevationStyle,
   options: LegendOptions,
   style: MapStyle = CLASSIC_STYLE,
 ): LegendSection[] {
