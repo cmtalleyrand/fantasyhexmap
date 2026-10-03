@@ -929,7 +929,7 @@ and bold stretches rather than one repeating wobble.
 **Ink.** The coastline's stroke width is `size * coastWidth * lineWeight`; the half of it outside the land is
 counted in land shares (decision 45) with that width.
 
-**Lake shores count too (addendum to 46).** A hex whose land share a lake shore sets (a Coastal Land hex with
+**Lake shores count too (addendum to 47).** A hex whose land share a lake shore sets (a Coastal Land hex with
 less than 100% on a lake, or a lake hex given land) is now measured the way a sea-coast hex is. The lake body
 is drawn, its area in the hex and the length of shore in it are measured, the water is taken as that area less
 the outer half of the outline's ink, and the shore depth is moved until the hex shows its share (up to six
