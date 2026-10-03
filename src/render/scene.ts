@@ -2266,7 +2266,10 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
               ? { reach: iconReach(knobs.cityMarkers, symbol, markerRadius(city.population)), straddle: riverBisects(symbol) }
               : undefined,
           };
-        }), knobs.riverWander)
+        }), knobs.riverWander, {
+          min: knobs.riverMin === 'any' ? null : knobs.riverMin / 100,
+          max: knobs.riverMax === 'any' ? null : knobs.riverMax / 100,
+        })
     : new Map();
   // Everything a river draws, cut to the land below: over a lake or the sea it does not show, so a river through a lake
   // shows on either side of the water only.
