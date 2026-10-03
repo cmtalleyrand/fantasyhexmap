@@ -20,6 +20,7 @@
 import { hexCenter, hexCorners, hexEdgePoints, hexIndex, inBounds, neighbourOf, type Point } from '../../shared/hex.js';
 import { isIslandType, type BaseGeo } from '../../shared/types.js';
 import type { PathCmd } from './prims.js';
+import { signed } from './seed.js';
 
 export type Side = 'land' | 'water';
 
@@ -251,6 +252,39 @@ const key = (p: Point) => `${Math.round(p.x * 100)},${Math.round(p.y * 100)}`;
 /** Every land/water boundary of the map, as `surfaceEdges` gives it, with lakes counted as water. */
 export function coastEdges(base: ReadonlyArray<BaseGeo | null>, cols: number, rows: number, size: number): CoastEdge[] {
   return surfaceEdges(surfaceMap(base, cols, rows), size, (s) => s === 'land');
+}
+
+/** Interior points per hex edge and the sideways reach (in hex sizes) for each border irregularity. */
+const BORDER_IRREGULARITY = {
+  straight: { points: 0, reach: 0 },
+  wobbly: { points: 2, reach: 0.06 },
+  ragged: { points: 3, reach: 0.12 },
+  wild: { points: 5, reach: 0.19 },
+} as const;
+
+/**
+ * The points a border takes from `a` to `b`, ending at `b`. The wandering is
+ * fixed by the edge's own ends, not by the direction it is walked or the realm
+ * walking it, so both neighbours draw the same line along a shared edge.
+ */
+export function raggedEdge(a: Point, b: Point, level: keyof typeof BORDER_IRREGULARITY, seed: string, size: number): Point[] {
+  const { points, reach } = BORDER_IRREGULARITY[level];
+  if (points === 0) return [b];
+  const forward = key(a) <= key(b);
+  const [p, q] = forward ? [a, b] : [b, a];
+  const id = `${key(p)}|${key(q)}`;
+  const dx = q.x - p.x;
+  const dy = q.y - p.y;
+  const len = Math.hypot(dx, dy) || 1;
+  const out: Point[] = [];
+  for (let k = 1; k <= points; k++) {
+    const t = (k + signed(seed, 'border-t', id, k) * 0.25) / (points + 1);
+    const off = signed(seed, 'border', id, k) * reach * size;
+    out.push({ x: p.x + dx * t - (dy / len) * off, y: p.y + dy * t + (dx / len) * off });
+  }
+  if (!forward) out.reverse();
+  out.push(b);
+  return out;
 }
 
 export function chainEdges(edges: CoastEdge[]): CoastChain[] {
