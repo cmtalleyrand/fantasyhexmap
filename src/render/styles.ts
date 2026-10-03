@@ -34,6 +34,10 @@ export interface StyleKnobs {
   rivers: 'classic' | 'tapered';
   /** How irregular a meandering river's course is, and how far it swings into the hexes it bends through. */
   riverWander: RiverWander;
+  /** The least a meandering river may come to the centre of a hex it runs through, as a percentage of the way to the edge; 'any' puts no limit. */
+  riverMin: RiverReachPercent;
+  /** The most a meandering river's nearest approach to the centre of a hex it runs through may be, as a percentage of the way to the edge; 'any' puts no limit. */
+  riverMax: RiverReachPercent;
   /**
    * How height is shown when the Elevation layer is visible: hexes tinted by
    * height, stacked marks per hex, drawn hills and peaks, or shading as if lit
@@ -65,6 +69,8 @@ export interface StyleKnobs {
   /** Polities that are part of another: in their own colours, or as shades of their parent's. */
   subPolities: 'own' | 'tints';
 }
+
+export type RiverReachPercent = 'any' | 0 | 10 | 20 | 30 | 40 | 50 | 60 | 70 | 80 | 90;
 
 export type RiverWander = 'verygentle' | 'gentle' | 'normal' | 'irregular' | 'wild';
 
@@ -181,6 +187,8 @@ const CLASSIC: PresetInfo = {
     ice: 'flat',
     rivers: 'classic',
     riverWander: 'normal',
+    riverMin: 'any',
+    riverMax: 'any',
     lineWeight: 1,
     grain: false,
     subPolities: 'own',
@@ -242,6 +250,8 @@ const PARCHMENT: PresetInfo = {
     ice: 'glacier',
     rivers: 'tapered',
     riverWander: 'normal',
+    riverMin: 'any',
+    riverMax: 'any',
     lineWeight: 1,
     grain: true,
     subPolities: 'tints',
@@ -316,6 +326,8 @@ const ATLAS: PresetInfo = {
     ice: 'glacier',
     rivers: 'tapered',
     riverWander: 'normal',
+    riverMin: 'any',
+    riverMax: 'any',
     lineWeight: 1,
     grain: false,
     subPolities: 'own',
@@ -376,6 +388,8 @@ const NIGHT: PresetInfo = {
     ice: 'flat',
     rivers: 'tapered',
     riverWander: 'normal',
+    riverMin: 'any',
+    riverMax: 'any',
     lineWeight: 1,
     grain: false,
     subPolities: 'tints',
@@ -475,6 +489,38 @@ export const KNOB_OPTIONS: {
       { value: 'normal', label: 'Normal' },
       { value: 'irregular', label: 'Irregular (deep, sharp bends)' },
       { value: 'wild', label: 'Wild (very deep, sharp bends)' },
+    ],
+  },
+  riverMin: {
+    label: 'River passes at least this far from hex centre',
+    options: [
+      { value: 'any', label: 'Any' },
+      { value: 0, label: '0%' },
+      { value: 10, label: '10%' },
+      { value: 20, label: '20%' },
+      { value: 30, label: '30%' },
+      { value: 40, label: '40%' },
+      { value: 50, label: '50%' },
+      { value: 60, label: '60%' },
+      { value: 70, label: '70%' },
+      { value: 80, label: '80%' },
+      { value: 90, label: '90%' },
+    ],
+  },
+  riverMax: {
+    label: 'River passes no further than this from hex centre',
+    options: [
+      { value: 'any', label: 'Any' },
+      { value: 0, label: '0%' },
+      { value: 10, label: '10%' },
+      { value: 20, label: '20%' },
+      { value: 30, label: '30%' },
+      { value: 40, label: '40%' },
+      { value: 50, label: '50%' },
+      { value: 60, label: '60%' },
+      { value: 70, label: '70%' },
+      { value: 80, label: '80%' },
+      { value: 90, label: '90%' },
     ],
   },
   relief: {
@@ -587,7 +633,7 @@ export const KNOB_OPTIONS: {
   },
 };
 
-export const KNOB_ORDER: KnobId[] = ['relief', 'water', 'ripples', 'coast', 'grid', 'land', 'islands', 'ice', 'rivers', 'riverWander', 'polityStyle', 'frontier', 'borders', 'polityTone', 'subPolities', 'lettering', 'realmNames', 'cityNames', 'cityMarkers', 'cityCoastMarks', 'lineWeight', 'grain'];
+export const KNOB_ORDER: KnobId[] = ['relief', 'water', 'ripples', 'coast', 'grid', 'land', 'islands', 'ice', 'rivers', 'riverWander', 'riverMin', 'riverMax', 'polityStyle', 'frontier', 'borders', 'polityTone', 'subPolities', 'lettering', 'realmNames', 'cityNames', 'cityMarkers', 'cityCoastMarks', 'lineWeight', 'grain'];
 
 export const DEFAULT_STYLE_CHOICE: MapStyleChoice = { preset: 'classic', overrides: {} };
 

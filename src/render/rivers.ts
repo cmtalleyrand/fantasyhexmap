@@ -30,6 +30,9 @@
  * source adds up to a fifth (for the longest river on the map; shorter rivers
  * add in proportion), and navigable water is a tenth wider. A mouth into the
  * sea or a lake flares, and a mouth into the sea is cut at the shore as drawn.
+ *
+ * A style may also bound how near the hex centre a river comes in each hex it runs through (`CourseEnds.reach`):
+ * the course is bent, with its ends in the hex held where they are, until its closest approach is within bounds.
  */
 
 import { canonicalEdgeId, hexCenter, hexEdgePoints, pixelToOffset, type Point } from '../../shared/hex.js';
@@ -163,6 +166,18 @@ export interface CourseEnds {
   }>;
   /** How irregular the course is (see `WANDER`); 'normal' when omitted. */
   wander?: RiverWander;
+  /** Bounds on how near the hex centre the course comes in each hex it runs through; unbounded when omitted. */
+  reach?: RiverReach;
+}
+
+/**
+ * How near the centre of a hex the river may come where it runs right through (enters by one edge and leaves by
+ * another), as a fraction of the distance from the centre to an edge (0 is through the centre, 1 is along the
+ * edge). Its closest approach is held to between `min` and `max`; null leaves that side unbounded.
+ */
+export interface RiverReach {
+  min: number | null;
+  max: number | null;
 }
 
 function controls(river: River, size: number, seed: string, ends: CourseEnds): Control[] {
@@ -275,6 +290,75 @@ function catmullRom(p0: Point, p1: Point, p2: Point, p3: Point, samples: number)
     out.push(lerp(b1, b2, t1, t2, t));
   }
   return out;
+}
+
+/**
+ * Bend `line` so that, in each hex the river runs through, its closest approach to the hex centre lies within
+ * `reach`. The bend is a bump about the closest point that dies away at the hex's edges, so the crossings, shared
+ * with neighbouring hexes, stay put. Spans are measured on the sampled line; a few passes settle the shoulders
+ * of a bump that a single push leaves just short. `ok` says whether a point may be drawn there (land or water).
+ */
+function holdToReach(
+  line: Point[],
+  river: River,
+  size: number,
+  reach: RiverReach,
+  ok: (p: Point) => boolean,
+): void {
+  const apothem = size * CENTRE_TO_EDGE;
+  const hi = reach.max === null ? Infinity : reach.max * apothem;
+  // Should the bounds cross, the greatest approach wins.
+  const low = Math.min((reach.min ?? 0) * apothem, hi);
+  if (low <= 0 && !Number.isFinite(hi)) return;
+  const arc = [0];
+  for (let i = 1; i < line.length; i++) arc.push(arc[i - 1]! + Math.hypot(line[i]!.x - line[i - 1]!.x, line[i]!.y - line[i - 1]!.y));
+  const hexOf = (p: Point) => {
+    const h = pixelToOffset(p.x, p.y, size);
+    return `${h.col},${h.row}`;
+  };
+  for (const s of river.segments) {
+    if (s.entryEdge === null || s.exitEdge === null) continue;
+    const key = `${s.col},${s.row}`;
+    const c = hexCenter(s.col, s.row, size);
+    const dist = (p: Point) => Math.hypot(p.x - c.x, p.y - c.y);
+    for (let pass = 0; pass < 6; pass++) {
+      // The run of the line inside this hex that comes nearest the centre.
+      let best = -1;
+      for (let i = 1; i < line.length - 1; i++) {
+        if (hexOf(line[i]!) === key && (best < 0 || dist(line[i]!) < dist(line[best]!))) best = i;
+      }
+      if (best < 0) break;
+      const d = dist(line[best]!);
+      const want = Math.min(hi, Math.max(low, d));
+      if (Math.abs(want - d) < apothem * 0.004) break;
+      let from = best;
+      let to = best;
+      while (from > 1 && hexOf(line[from - 1]!) === key) from--;
+      while (to < line.length - 2 && hexOf(line[to + 1]!) === key) to++;
+      const p = line[best]!;
+      let ux = d < 1e-6 ? 0 : (p.x - c.x) / d;
+      let uy = d < 1e-6 ? 0 : (p.y - c.y) / d;
+      if (d < 1e-6) {
+        const a = line[Math.max(0, best - 1)]!;
+        const b = line[Math.min(line.length - 1, best + 1)]!;
+        const len = Math.hypot(b.x - a.x, b.y - a.y) || 1;
+        ux = -(b.y - a.y) / len;
+        uy = (b.x - a.x) / len;
+      }
+      const shift = { x: c.x + ux * want - p.x, y: c.y + uy * want - p.y };
+      // Take the whole shift if the apex may go there, else as much of it as may.
+      let f = 1;
+      while (f > 0.1 && !ok({ x: p.x + shift.x * f, y: p.y + shift.y * f })) f /= 2;
+      if (f <= 0.1) break;
+      const before = arc[best]! - arc[from]!;
+      const after = arc[to]! - arc[best]!;
+      for (let i = from; i <= to; i++) {
+        const span = i < best ? before : after;
+        const w = span > 0 ? smoothstep(1 - Math.abs(arc[i]! - arc[best]!) / (span + size * 0.05)) : 1;
+        line[i] = { x: line[i]!.x + shift.x * f * w, y: line[i]!.y + shift.y * f * w };
+      }
+    }
+  }
 }
 
 export function riverCourse(river: River, size: number, seed: string, ends: CourseEnds = {}): RiverCourse | null {
@@ -543,6 +627,10 @@ export function riverCourse(river: River, size: number, seed: string, ends: Cour
   });
   const line = centreline.map((p, i) => ({ x: p.x + normals[i]!.x * offset[i]! * eased[i]!, y: p.y + normals[i]!.y * offset[i]! * eased[i]! }));
 
+  if (ends.reach && (ends.reach.min !== null || ends.reach.max !== null)) {
+    holdToReach(line, river, size, ends.reach, (q) => !land || land(q) || Boolean(wet?.(q)));
+  }
+
   // A river that rises at a city comes out from under its icon at full width.
   const atCity = sites.some(({ p, radius }) => Math.hypot(centreline[0]!.x - p.x, centreline[0]!.y - p.y) < radius * 1.2);
   const widths = base.map((w0, i) => {
@@ -743,6 +831,7 @@ export function riverCourses(
   lakeEnds: (river: River) => Pick<CourseEnds, 'before' | 'beyond' | 'inWater' | 'onLand'> = () => ({}),
   cities: Array<{ riverId: string; at: Point; radius: number; id?: string; icon?: { reach: number; straddle: boolean } }> = [],
   wander: RiverWander = 'normal',
+  reach?: RiverReach,
 ): Map<string, RiverCourse> {
   const out = new Map<string, RiverCourse>();
   const key = (col: number, row: number) => `${col},${row}`;
@@ -786,6 +875,7 @@ export function riverCourses(
       ...lakeEnds(r),
       cities: cities.filter((c) => c.riverId === r.id),
       wander,
+      reach,
       longest,
       inflows: (tributaries.get(r.id) ?? []).map((t) => {
         const end = t.segments.at(-1)!;
