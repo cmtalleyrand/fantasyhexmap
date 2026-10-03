@@ -26,12 +26,54 @@ export interface MarkerColours {
 }
 
 /**
- * What marks a city on a river, whichever marker set it is drawn in: a disc of
- * river water round the marker, edged in paper, so the marker stands in the
- * river whatever its size or silhouette. Drawn before the marker.
+ * How a city meets its river, whichever marker set it is drawn in. The marker
+ * is not ringed in water: the river keeps its own course and the marker is
+ * placed against it, by size.
+ *
+ * - village, town: on the bank, the marker's rim just over the bank line;
+ * - city: on the bank, with the river grazing the marker's edge;
+ * - metropolis: on the river itself, which runs across the marker and splits it
+ *   (`riverThrough`), the one size large enough to straddle the water.
+ *
+ * Each figure is how far the marker's centre stands from the river's centre
+ * line, past the river's own half width, in marker radii (null: on the line).
  */
-export function riverCollar(c: Point, r: number, colours: { river: string; paper: string }): Prim[] {
-  return [{ kind: 'circle', c, r: r * 1.3, fill: colours.river, stroke: colours.paper, strokeWidth: Math.max(0.8, r * 0.1) }];
+const BANK_STANDOFF: Record<CitySymbol, number | null> = { village: 0.8, town: 0.8, city: 0.7, metropolis: null };
+
+/** Whether the river runs across a city marker of this size, splitting it. */
+export function riverBisects(symbol: CitySymbol): boolean {
+  return BANK_STANDOFF[symbol] === null;
+}
+
+/** How far a river city's marker stands from its river's centre line, for a river `width` wide; 0 where the river runs across it. */
+export function bankOffset(symbol: CitySymbol, r: number, width: number): number {
+  const standoff = BANK_STANDOFF[symbol];
+  return standoff === null ? 0 : width / 2 + r * standoff;
+}
+
+/**
+ * The river running across a metropolis: a band of water along `flow` (a unit
+ * vector) over the marker, as wide as the river there, with banks. It reaches
+ * past the marker on both sides, where it meets the river's own line. Drawn
+ * after the marker.
+ */
+export function riverThrough(
+  c: Point,
+  r: number,
+  flow: Point,
+  width: number,
+  colours: { river: string; bank?: string; paper: string },
+): Prim[] {
+  const half = Math.max(width, r * 0.3) / 2;
+  const reach = r * 1.4;
+  const nx = -flow.y;
+  const ny = flow.x;
+  const at = (along: number, across: number): Point => ({ x: c.x + flow.x * along + nx * across, y: c.y + flow.y * along + ny * across });
+  return [
+    { kind: 'polygon', points: [at(-reach, -half), at(reach, -half), at(reach, half), at(-reach, half)], fill: colours.river },
+    { kind: 'polyline', points: [at(-reach, -half), at(reach, -half)], stroke: colours.bank ?? colours.paper, strokeWidth: Math.max(0.8, r * 0.08), round: true },
+    { kind: 'polyline', points: [at(-reach, half), at(reach, half)], stroke: colours.bank ?? colours.paper, strokeWidth: Math.max(0.8, r * 0.08), round: true },
+  ];
 }
 
 /** Points of a closed polygon as path commands. */

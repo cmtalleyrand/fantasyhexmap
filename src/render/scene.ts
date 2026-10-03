@@ -97,9 +97,9 @@ import {
   raggedEdge,
 } from './coast.js';
 import { polygonPath, type CitySymbol, type PathCmd, type Prim } from './prims.js';
-import { capitalCrown, cityMarker, markerExtent, riverCollar } from './cityMarkers.js';
+import { bankOffset, capitalCrown, cityMarker, markerExtent, riverBisects, riverThrough } from './cityMarkers.js';
 import { landBySide, riverCourses, type RiverCourse } from './rivers.js';
-import { citySite } from './sites.js';
+import { citySite, resolvedSite } from './sites.js';
 import { escarpment, hillshade, reliefSymbols, vegetationSymbols, type Placed } from './symbols.js';
 import { ownersAtDepth, polityDepths, polityDisplayColours, toned } from './hierarchy.js';
 import { topLevelOf } from '../../shared/polityTree.js';
@@ -2324,6 +2324,9 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
         base,
         cols,
         riverLine: (id) => courses.get(id) ?? null,
+        // A river city stands on the bank, by size; only the largest stands on the river itself.
+        riverOffset: (c, i) =>
+          bankOffset(citySymbolForPopulation(c.population), markerRadius(c.population), widthProfiles.get(c.riverId ?? '')?.[i] ?? size * 0.05),
         islandCentre: (i) => islandCentre(i),
         onLand: traced?.onLand,
       }),
@@ -2347,11 +2350,30 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
         });
       }
       const symbol = citySymbolForPopulation(city.population);
-      if (city.onRiver) prims.push(...riverCollar(c, r, { river: palette.river, paper: palette.cityRing }));
       if (knobs.cityMarkers === 'symbols') {
         prims.push({ kind: 'city', c, r, onRiver: city.onRiver, symbol, riverDot: palette.river, fill: palette.cityFill, ring: palette.cityRing });
       } else {
         prims.push(...cityMarker(knobs.cityMarkers, symbol, c, r, { ink: palette.cityFill, paper: palette.cityRing, river: palette.river }, (k) => unit(seed, 'city', city.id, k)));
+      }
+      // The river runs across the largest cities, splitting the marker.
+      const line = city.riverId ? courses.get(city.riverId) : null;
+      if (line && riverBisects(symbol) && resolvedSite(city).kind === 'river') {
+        let k = 0;
+        let d = Infinity;
+        line.forEach((q, i) => {
+          const dq = Math.hypot(q.x - c.x, q.y - c.y);
+          if (dq < d) {
+            d = dq;
+            k = i;
+          }
+        });
+        const a = line[Math.max(0, k - 1)]!;
+        const b = line[Math.min(line.length - 1, k + 1)]!;
+        const len = Math.hypot(b.x - a.x, b.y - a.y);
+        if (len > 0) {
+          const width = widthProfiles.get(city.riverId!)?.[k] ?? size * 0.05;
+          prims.push(...riverThrough(c, r, { x: (b.x - a.x) / len, y: (b.y - a.y) / len }, width, { river: palette.river, bank: palette.riverBank, paper: palette.cityRing }));
+        }
       }
       if (city.capital) {
         prims.push(...capitalCrown(knobs.cityMarkers, symbol, c, r, { ink: palette.cityFill, paper: palette.cityRing }));
@@ -2367,8 +2389,8 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
   /** How far a city's marker reaches round its site, for names to keep clear of. */
   const markerReach = (population: number, capital = false, onRiver = false) => {
     const extent = markerExtent(knobs.cityMarkers, citySymbolForPopulation(population), capital);
-    // A river city's collar is wider than its marker.
-    return markerRadius(population) * Math.max(extent.half, (extent.up + extent.down) / 2, onRiver ? 1.3 : 0);
+    // The river across a metropolis reaches a little past its marker.
+    return markerRadius(population) * Math.max(extent.half, (extent.up + extent.down) / 2, onRiver && riverBisects(citySymbolForPopulation(population)) ? 1.4 : 0);
   };
   const taken: OrientedBox[] = [];
   const lettering = LETTERINGS[knobs.lettering] ?? LETTERINGS.classic;

@@ -10,7 +10,7 @@
  * legends and neither back end needs to know a legend exists.
  */
 
-import { capitalCrown, cityMarker, riverCollar, type CityMarkerSet } from './cityMarkers.js';
+import { bankOffset, capitalCrown, cityMarker, type CityMarkerSet } from './cityMarkers.js';
 import { fantasyTextEm } from './fonts.js';
 import {
   BASE_COLOURS,
@@ -67,7 +67,7 @@ export type LegendSwatch =
   | { kind: 'island'; sea: string; land: string; variant: 'islands' | 'mainland' | 'isthmus' | 'strait' }
   | { kind: 'line'; colour: string; width: number }
   | { kind: 'coast' }
-  | { kind: 'city'; symbol: CitySymbol; onRiver: boolean; set?: CityMarkerSet; ink?: string; paper?: string; river?: string; capital?: boolean }
+  | { kind: 'city'; symbol: CitySymbol; onRiver: boolean; set?: CityMarkerSet; ink?: string; paper?: string; river?: string; bank?: string; capital?: boolean }
   | { kind: 'contour'; marks: number; flat: boolean }
   | { kind: 'ramp' };
 
@@ -236,11 +236,11 @@ export function legendSections(
             label: 'Crown: capital of a realm',
           });
         }
-        // Every marker set rings a river city in river blue.
+        // A river city stands on its river's bank; the largest sit astride it.
         if (!options.onlyUsed || cities.some((c) => c.onRiver)) {
           entries.push({
-            swatch: { kind: 'city', symbol: 'town', onRiver: true, set: style.knobs.cityMarkers, ink: style.palette.cityFill, paper: style.palette.cityRing, river: style.palette.river },
-            label: 'Blue ring: on a river',
+            swatch: { kind: 'city', symbol: 'town', onRiver: true, set: style.knobs.cityMarkers, ink: style.palette.cityFill, paper: style.palette.cityRing, river: style.palette.river, bank: style.palette.riverBank },
+            label: 'Beside a river (the largest sit across it)',
           });
         }
         if (style.knobs.cityCoastMarks && (!options.onlyUsed || cities.some((c) => c.coastalEdges.length > 0))) {
@@ -378,14 +378,22 @@ function swatchPrims(swatch: LegendSwatch, x: number, cy: number, m: ReturnType<
       const ink = swatch.ink ?? MAP_COLOURS.city;
       const paper = swatch.paper ?? MAP_COLOURS.cityRing;
       const set = swatch.set ?? 'symbols';
-      // A capital's swatch sits lower, to leave room for its crown.
-      const at = { x: cx, y: cy + (swatch.capital ? 3 * k : 0) };
-      const crown = swatch.capital ? capitalCrown(set, swatch.symbol, at, 6 * k, { ink, paper }) : [];
-      const collar = swatch.onRiver ? riverCollar(at, swatch.capital ? 6 * k : 8 * k, { river: swatch.river ?? MAP_COLOURS.river, paper }) : [];
+      // A capital's swatch sits lower, to leave room for its crown. A river city stands on the
+      // bank of a river that runs across the swatch, as it does on the map.
+      const R = swatch.capital ? 6 * k : swatch.onRiver ? 6 * k : 8 * k;
+      const bank = swatch.onRiver ? bankOffset(swatch.symbol, R, 2 * k) : 0;
+      const at = { x: cx, y: cy + (swatch.capital ? 3 * k : 0) - bank / 2 };
+      const crown = swatch.capital ? capitalCrown(set, swatch.symbol, at, R, { ink, paper }) : [];
+      const water: Prim[] = swatch.onRiver
+        ? [
+            { kind: 'polyline', points: [{ x: x + 1.5 * k, y: at.y + bank }, { x: x + w - 1.5 * k, y: at.y + bank }], stroke: swatch.bank ?? swatch.river ?? MAP_COLOURS.river, strokeWidth: 3.2 * k, round: true },
+            { kind: 'polyline', points: [{ x: x + 1.5 * k, y: at.y + bank }, { x: x + w - 1.5 * k, y: at.y + bank }], stroke: swatch.river ?? MAP_COLOURS.river, strokeWidth: 2 * k, round: true },
+          ]
+        : [];
       if (set !== 'symbols') {
         return [
-          ...collar,
-          ...cityMarker(set, swatch.symbol, { x: at.x, y: at.y + (set === 'illustrated' ? 2 * k : 0) }, swatch.capital ? 6 * k : 8 * k, {
+          ...water,
+          ...cityMarker(set, swatch.symbol, { x: at.x, y: at.y + (set === 'illustrated' ? 2 * k : 0) }, R, {
             ink,
             paper,
             river: MAP_COLOURS.river,
@@ -394,8 +402,8 @@ function swatchPrims(swatch: LegendSwatch, x: number, cy: number, m: ReturnType<
         ];
       }
       return [
-        ...collar,
-        { kind: 'city', c: at, r: swatch.capital ? 6 * k : 8 * k, onRiver: swatch.onRiver, symbol: swatch.symbol },
+        ...water,
+        { kind: 'city', c: at, r: R, onRiver: swatch.onRiver, symbol: swatch.symbol },
         ...crown,
       ];
     }

@@ -909,5 +909,8 @@ merging two rivers bridges a lake, and the prompts say rivers may link lakes. Wh
 hidden (the river is the lake there), so it shows on either side. Rivers that begin or end at a lake still stop
 at its shore.
 
-**Cities.** A city on a river sits in a disc of river water edged in paper, in every marker set; the legend says
-"Blue ring: on a river". Label placement allows for the wider collar.
+**Cities.** A city on a river is no longer ringed in a disc of water. The river keeps its course and the marker is
+placed against it by size, in every marker set: villages and towns stand on the bank, a city on the bank with the
+river grazing its edge, and only a metropolis stands on the river, which runs across it as a band and splits
+the marker. The offset is taken from the river's drawn width at that point, on whichever bank is land. The legend
+says "Beside a river". Label placement allows for the band only on a metropolis.

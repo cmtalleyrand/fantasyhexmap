@@ -22,6 +22,37 @@ export interface SiteContext {
   islandCentre?: (index: number) => Point | null;
   /** Whether a point is land as the coast is drawn (insets and split hexes included). */
   onLand?: (p: Point) => boolean;
+  /**
+   * How far from its river's centre line a river city's marker stands, given the
+   * index of the centreline point nearest it; 0 (or absent) puts it on the line.
+   */
+  riverOffset?: (city: City, index: number) => number;
+}
+
+/** A small stable number from a city's id, to pick a bank without a seed. */
+function parity(id: string): number {
+  let h = 0;
+  for (let k = 0; k < id.length; k++) h = (h * 31 + id.charCodeAt(k)) | 0;
+  return Math.abs(h) % 2;
+}
+
+/**
+ * The point `distance` from `line[index]`, across the river: on whichever bank
+ * is land, else on the bank the city's id picks.
+ */
+function onBank(line: Point[], index: number, distance: number, id: string, onLand?: (p: Point) => boolean): Point {
+  const p = line[index]!;
+  const a = line[Math.max(0, index - 1)]!;
+  const b = line[Math.min(line.length - 1, index + 1)]!;
+  const len = Math.hypot(b.x - a.x, b.y - a.y) || 1;
+  const nx = -(b.y - a.y) / len;
+  const ny = (b.x - a.x) / len;
+  const sides = parity(id) === 0 ? [1, -1] : [-1, 1];
+  for (const s of sides) {
+    const q = { x: p.x + nx * distance * s, y: p.y + ny * distance * s };
+    if (!onLand || onLand(q)) return q;
+  }
+  return p;
 }
 
 /** How far toward a coastal edge a port is drawn, as a fraction of the hex size. */
@@ -132,7 +163,12 @@ function rawSite(city: City, ctx: SiteContext): Point {
   // Only the part of the river inside the hex counts: one that clips the hex
   // would otherwise pull the city out of it.
   const reach = size * 0.8;
-  if (kind === 'river') return onLine(line, centre, centre, reach) ?? centre;
+  if (kind === 'river') {
+    const at = onLine(line, centre, centre, reach);
+    if (!at || !line) return centre;
+    const offset = ctx.riverOffset?.(city, line.indexOf(at)) ?? 0;
+    return offset > 0 ? onBank(line, line.indexOf(at), offset, city.id, ctx.onLand) : at;
+  }
   if (kind === 'bank') {
     const tip = towardEdges(centre, edges, size);
     return tip ? { x: centre.x + (tip.x - centre.x) * (BANK_REACH / COAST_REACH), y: centre.y + (tip.y - centre.y) * (BANK_REACH / COAST_REACH) } : centre;

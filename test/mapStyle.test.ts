@@ -1478,17 +1478,33 @@ test('the side of the coast line a point falls on says whether it is land', asyn
   assert.equal(land({ x: 500, y: 100 }), true);
 });
 
-test('a city on a river sits in a ring of river water in every marker set', () => {
+test('a city on a river is placed against the river by size, and only a metropolis is split by it', async () => {
+  const { bankOffset, riverBisects, riverThrough } = await import('../src/render/cityMarkers.ts');
+  assert.deepEqual((['village', 'town', 'city', 'metropolis'] as const).map(riverBisects), [false, false, false, true]);
+  // On the bank, clear of the river's own half width; the larger the city, the closer it stands.
+  const [village, town, city, metropolis] = (['village', 'town', 'city', 'metropolis'] as const).map((s) => bankOffset(s, 10, 2));
+  assert.ok(village! > 10 * 0.5 + 1 && town! <= village! && city! < town!, 'smaller cities stand further out');
+  assert.equal(metropolis, 0, 'a metropolis stands on the river');
+  // The band across a metropolis runs along the flow and is as wide as the river.
+  const band = riverThrough({ x: 50, y: 50 }, 10, { x: 1, y: 0 }, 3, { river: '#00f', paper: '#fff' });
+  const water = band.find((p) => p.kind === 'polygon')!;
+  assert.ok(water.kind === 'polygon' && water.points.every((p) => Math.abs(p.y - 50) <= 5 + 1e-9) && water.points.some((p) => p.x < 40));
+
   const map = islandMap();
-  map.layers.cities.data = { cities: [
-    { id: 'a', col: 3, row: 2, name: 'Wet', population: 5_000, onRiver: true, riverId: 'r', coastal: false, coastalEdges: [] },
-    { id: 'b', col: 4, row: 2, name: 'Dry', population: 5_000, onRiver: false, riverId: null, coastal: false, coastalEdges: [] },
-  ] };
+  const dryCity = { id: 'b', col: 4, row: 2, name: 'Dry', population: 5_000, onRiver: false, riverId: null, coastal: false, coastalEdges: [] };
+  const wet = (population: number) => ({ id: 'a', col: 2, row: 2, name: 'Wet', population, onRiver: true, riverId: 'r', coastal: false, coastalEdges: [] });
   const visible = { ...allLayers(), cities: true };
   for (const cityMarkers of ['symbols', 'classic', 'illustrated'] as const) {
     const style = resolveStyle({ preset: 'parchment', overrides: { cityMarkers } });
-    const prims = buildScene(map, { size: 20, visible, labels: false, style }).prims;
-    const collars = prims.filter((p) => p.kind === 'circle' && p.fill === style.palette.river && p.stroke === style.palette.cityRing);
-    assert.equal(collars.length, 1, `${cityMarkers}: one river city, one collar`);
+    const waterBands = (population: number | null) => {
+      map.layers.cities.data = { cities: population === null ? [dryCity] : [wet(population), dryCity] };
+      const prims = buildScene(map, { size: 20, visible, labels: false, style }).prims;
+      const collars = prims.filter((p) => p.kind === 'circle' && p.fill === style.palette.river && p.stroke === style.palette.cityRing);
+      assert.equal(collars.length, 0, `${cityMarkers}: no disc of water round the marker`);
+      return prims.filter((p) => p.kind === 'polygon' && p.fill === style.palette.river).length;
+    };
+    const none = waterBands(null);
+    assert.equal(waterBands(5_000), none, `${cityMarkers}: a village adds no water over its marker`);
+    assert.equal(waterBands(1_000_000), none + 1, `${cityMarkers}: the river runs across a metropolis`);
   }
 });
