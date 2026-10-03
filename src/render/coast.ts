@@ -48,9 +48,9 @@ export type Surface = 'land' | 'sea' | 'lake';
  * (pieces 6-11: inner corners k, k + 1 and hex corners k, k + 1, against edge
  * k). The inner corners lie CORE of the way from the centre to the corners, so
  * a neck of land or a channel of water through the inner triangles is a
- * little under half a hex wide before the coast is smoothed.
+ * about a third of a hex wide before the coast is smoothed.
  */
-export const CORE = 0.42;
+export const CORE = 0.32;
 
 export interface SplitHex {
   /** The surface of each of the twelve pieces. */

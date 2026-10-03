@@ -752,6 +752,9 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
     const { col, row } = pixelToOffset(p.x, p.y, size);
     if (!inBounds(cols, rows, col, row)) return false;
     const i = hexIndex(cols, col, row);
+    // The banks of a strait, the neck of an isthmus and a mainland lobe are
+    // drawn narrow on purpose: a lake must not swallow them either.
+    if (isSplit(i)) return true;
     if (isLakeHex(i) || isWater(i)) return false;
     const wet = [0, 1, 2, 3, 4, 5].filter((e) => {
       const n = neighbourOf(col, row, e);
