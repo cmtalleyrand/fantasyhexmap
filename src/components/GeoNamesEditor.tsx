@@ -21,8 +21,11 @@ export default function GeoNamesEditor(props: {
   dispatch: (action: Action) => void;
   selected: number[];
   setSelection: (next: Set<number>) => void;
+  /** The name the map is painting into: drag or click hexes on the map to add them to it. */
+  paintId: string | null;
+  setPaintId: (id: string | null) => void;
 }) {
-  const { map, dispatch, selected } = props;
+  const { map, dispatch, selected, paintId } = props;
   const [kind, setKind] = useState<GeoNameKind>('sea');
   const [name, setName] = useState('');
   const base = map.layers.base.data;
@@ -81,6 +84,13 @@ export default function GeoNamesEditor(props: {
         )}
       </div>
 
+      {paintId && names.some((n) => n.id === paintId) && (
+        <div className="notice info" style={{ marginTop: 8 }}>
+          Painting into <b>{names.find((n) => n.id === paintId)?.name}</b>: click or drag over hexes on the map to
+          add them. Hexes this kind cannot hold are skipped.{' '}
+          <button className="tiny" onClick={() => props.setPaintId(null)}>done</button>
+        </div>
+      )}
       <div className="list" style={{ marginTop: 8 }}>
         {names.map((n) => {
           const live = liveHexes(n, eligible);
@@ -98,6 +108,14 @@ export default function GeoNamesEditor(props: {
               <span className="hint" title={live.length < n.hexes.length ? 'Some hexes no longer qualify and are not drawn' : undefined}>
                 {live.length === n.hexes.length ? `${n.hexes.length} hexes` : `${live.length} of ${n.hexes.length} hexes`}
               </span>
+              <button
+                className={paintId === n.id ? 'tiny primary' : 'tiny'}
+                aria-pressed={paintId === n.id}
+                title="Paint: click or drag hexes on the map to add them to this name"
+                onClick={() => props.setPaintId(paintId === n.id ? null : n.id)}
+              >
+                paint
+              </button>
               <button className="tiny" title="Select this name's hexes" onClick={() => props.setSelection(new Set(live))}>
                 select
               </button>

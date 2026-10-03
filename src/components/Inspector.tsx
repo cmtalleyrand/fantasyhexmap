@@ -52,6 +52,9 @@ export interface InspectorProps {
   setBrush: (layer: LayerId, value: string) => void;
   brushMode: boolean;
   setBrushMode: (on: boolean) => void;
+  /** The geographical name being painted into on the map, if any. */
+  geoPaintId: string | null;
+  setGeoPaintId: (id: string | null) => void;
   instruction: string;
   setInstruction: (value: string) => void;
   onAiEdit: () => void;
@@ -293,7 +296,17 @@ export default function Inspector(props: InspectorProps) {
             )}
           </div>
           {activeLayer === 'base' && (
-            <GeoNamesEditor map={map} dispatch={dispatch} selected={selected} setSelection={props.setSelection} />
+            <GeoNamesEditor
+              map={map}
+              dispatch={dispatch}
+              selected={selected}
+              setSelection={props.setSelection}
+              paintId={props.geoPaintId}
+              setPaintId={(id) => {
+                if (id) props.setBrushMode(false);
+                props.setGeoPaintId(id);
+              }}
+            />
           )}
         </>
       ) : (

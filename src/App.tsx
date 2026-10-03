@@ -1,4 +1,5 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
+import { GEO_KIND_LABEL, geoEligibility, geoNamesOf } from '../shared/geoNames.js';
 import { hexIndex, hexLine, indexToOffset } from '../shared/hex.js';
 import { canHoldSettlement, riversThroughHex } from '../shared/derive.js';
 import { extendRiver, moveRiverSegment } from '../shared/riverEdit.js';
@@ -106,6 +107,8 @@ export default function App() {
   const { ai: aiMode, manual: manualMode } = modeFeatures(mode);
   const [brush, setBrushState] = useState<Record<string, string>>({});
   const [brushMode, setBrushMode] = useState(false);
+  /** The geographical name whose hexes the map is currently painting into; null when no name is armed. */
+  const [geoPaintId, setGeoPaintId] = useState<string | null>(null);
   const [instruction, setInstruction] = useState('');
   const [busyLayers, setBusyLayers] = useState<Set<LayerId>>(new Set());
   const [selectedLayers, setSelectedLayers] = useState<Set<LayerId>>(new Set());
@@ -141,6 +144,7 @@ export default function App() {
     setModeState(next);
     saveMode(next);
     setBrushMode(false);
+    setGeoPaintId(null);
     setRiverDraft(null);
     setRiverDraftParent(null);
     setRiverNotice(null);
@@ -411,7 +415,26 @@ export default function App() {
 
   const onStrokeEnd = useCallback(
     (indices: number[]) => {
-      if (!map || !brushMode || indices.length === 0) return;
+      if (!map || indices.length === 0) return;
+      if (geoPaintId && activeLayer === 'base') {
+        // One stroke adds its eligible hexes to the armed name: one undo entry.
+        const name = geoNamesOf(map).find((n) => n.id === geoPaintId);
+        const base = map.layers.base.data;
+        if (!name || !base) {
+          setGeoPaintId(null);
+          setError('The name being painted no longer exists.');
+          return;
+        }
+        const eligible = geoEligibility(name.kind, base, map.cols, map.rows);
+        if (!indices.some((i) => eligible(i) && !name.hexes.includes(i))) {
+          setError(`Nothing added to "${name.name}": ${GEO_KIND_LABEL[name.kind].singular}s take ${GEO_KIND_LABEL[name.kind].accepts}`);
+          return;
+        }
+        setError(null);
+        dispatch({ type: 'nameGeo', id: name.id, kind: name.kind, name: name.name, indices });
+        return;
+      }
+      if (!brushMode) return;
       if (activeLayer === 'polities') {
         const data = map.layers.polities.data;
         if (!data) return;
@@ -442,7 +465,7 @@ export default function App() {
         });
       }
     },
-    [map, brushMode, activeLayer, brush],
+    [map, brushMode, activeLayer, brush, geoPaintId],
   );
 
   const onRiverDraftClick = useCallback(
@@ -1110,7 +1133,7 @@ export default function App() {
           mapStyle={mapStyle}
           selection={selection}
           onSelectionChange={setSelection}
-          onStrokeEnd={manualMode && brushMode && canEdit ? onStrokeEnd : null}
+          onStrokeEnd={manualMode && canEdit && (brushMode || (geoPaintId !== null && activeLayer === 'base')) ? onStrokeEnd : null}
           activeLayer={activeLayer}
           riverDraft={manualMode ? riverDraft : null}
           onRiverDraftClick={manualMode && riverDraft !== null ? onRiverDraftClick : null}
@@ -1152,7 +1175,12 @@ export default function App() {
             brush={brush}
             setBrush={setBrush}
             brushMode={brushMode}
-            setBrushMode={setBrushMode}
+            setBrushMode={(on) => {
+              setBrushMode(on);
+              if (on) setGeoPaintId(null);
+            }}
+            geoPaintId={geoPaintId}
+            setGeoPaintId={setGeoPaintId}
             instruction={instruction}
             setInstruction={setInstruction}
             onAiEdit={() => void runGeneration(activeLayer, instruction.trim())}

@@ -93,3 +93,10 @@ test('expanding also moves names kept in the older waterNames list', () => {
   assert.deepEqual(map.geoNames?.[0]?.hexes, [2 * map.cols + 3]);
   assert.equal(map.waterNames, undefined);
 });
+
+test('painting a stroke into an existing name adds only its eligible hexes', () => {
+  let map = world();
+  map = reducer(map, { type: 'nameGeo', id: 's', kind: 'sea', name: 'Deep', indices: [at(2, 2)] });
+  map = reducer(map, { type: 'nameGeo', id: 's', kind: 'sea', name: 'Deep', indices: [at(2, 3), at(3, 1), at(5, 3), at(1, 5)] });
+  assert.deepEqual(map.geoNames?.find((n) => n.id === 's')?.hexes, [at(2, 2), at(2, 3), at(1, 5)].sort((a, b) => a - b));
+});
