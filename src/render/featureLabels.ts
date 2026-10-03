@@ -6,12 +6,22 @@
  * a range's name sits on the range's own hexes, turned to follow its long axis.
  */
 
-import { hexCenter, hexEdgeMidpoint, hexIndex, inBounds, neighbourOf, pixelToOffset, type Point } from '../../shared/hex.js';
+import { hexCenter, hexEdgeMidpoint, hexIndex, inBounds, pixelToOffset, type Point } from '../../shared/hex.js';
 import type { BaseGeo, Elevation, MountainRange, River } from '../../shared/types.js';
 import type { FaceRole } from './lettering.js';
 import { LETTERINGS } from './lettering.js';
 import { insideBox, type OrientedBox } from './labels.js';
 import { glyphAdvances, glyphsAlong, glyphsStraight, type Glyph } from './glyphs.js';
+import { depthWithin } from './depth.js';
+
+/**
+ * Largest type for a water name, in hex sizes: a body only a hex or two deep
+ * keeps the first; one eight or more hexes deep may reach the second, a little
+ * under the largest realm type (1.5 hexes), so oceans outrank lakes without
+ * outshouting realms.
+ */
+const WATER_FONT_SHALLOW = 0.85;
+const WATER_FONT_DEEP = 1.2;
 
 export interface FeatureLabel {
   text: string;
@@ -81,39 +91,29 @@ function openWaterLabel(
   // Open water: the body's sea and lake hexes, not those holding land.
   const open = (i: number) => inBody.has(i) && (base[i] === 'Sea' || base[i] === 'Lake');
   const height = Number.isFinite(rows) ? rows : Math.ceil(Math.max(...hexes) / cols) + 1;
-  // Hex distance from land: 1 beside land, rising into the open water.
-  const depth = new Map<number, number>();
-  let frontier: number[] = [];
-  for (const i of hexes) {
-    if (!open(i)) continue;
-    const col = i % cols;
-    const row = Math.floor(i / cols);
-    const shore = [0, 1, 2, 3, 4, 5].some((e) => {
-      const n = neighbourOf(col, row, e);
-      return inBounds(cols, height, n.col, n.row) && !open(hexIndex(cols, n.col, n.row));
-    });
-    if (shore) {
-      depth.set(i, 1);
-      frontier.push(i);
-    }
+  // Hex distance from land: 1 beside land, rising into the open water. A body
+  // with no shore at all (open water to the map's edge) is deep everywhere.
+  const depth = depthWithin(hexes, open, cols, height);
+  if (depth.size === 0) return null;
+  const maxDepth = Math.max(...depth.values());
+
+  // The body's centre of mass: where its name belongs, not at its edge. Depth
+  // alone cannot say, since for a body that meets the map's edge the deepest
+  // water is the edge itself.
+  const centreOf = (i: number) => hexCenter(i % cols, Math.floor(i / cols), size);
+  const centre = { x: 0, y: 0 };
+  for (const i of depth.keys()) {
+    const c = centreOf(i);
+    centre.x += c.x / depth.size;
+    centre.y += c.y / depth.size;
   }
-  while (frontier.length > 0) {
-    const next: number[] = [];
-    for (const i of frontier) {
-      for (let e = 0; e < 6; e++) {
-        const n = neighbourOf(i % cols, Math.floor(i / cols), e);
-        if (!inBounds(cols, height, n.col, n.row)) continue;
-        const j = hexIndex(cols, n.col, n.row);
-        if (!open(j) || depth.has(j)) continue;
-        depth.set(j, depth.get(i)! + 1);
-        next.push(j);
-      }
-    }
-    frontier = next;
-  }
-  // A body with no shore at all (open water to the map's edge) is deep everywhere.
-  for (const i of hexes) if (open(i) && !depth.has(i)) depth.set(i, 99);
-  const candidates = [...depth.entries()].sort((a, b) => b[1] - a[1]).slice(0, 16).map(([i]) => i);
+  const bodyRadius = Math.max(size, Math.sqrt(depth.size) * size);
+  // The deeper half of the water, nearest the middle first.
+  const candidates = [...depth.entries()]
+    .filter(([, d]) => d >= Math.max(1, maxDepth * 0.5))
+    .map(([i]) => ({ i, off: Math.hypot(centreOf(i).x - centre.x, centreOf(i).y - centre.y) }))
+    .sort((a, b) => a.off - b.off)
+    .slice(0, 60);
   if (candidates.length === 0) return null;
 
   /** Whether a point lies over open water with a margin of `margin` all round. */
@@ -131,10 +131,16 @@ function openWaterLabel(
     font: number;
   }
   const found: Spot[] = [];
-  for (let font = size * 0.85; font >= size * 0.32; font *= 0.9) {
+  // The type a deep body may carry, in hexes: a pond keeps modest type, an
+  // ocean is named in type approaching the largest realm names.
+  const ceiling = size * WATER_FONT_SHALLOW + size * (WATER_FONT_DEEP - WATER_FONT_SHALLOW) * Math.min(1, Math.max(0, (maxDepth - 2) / 6));
+  let fitAt = 0;
+  for (let font = ceiling; font >= size * 0.32; font *= 0.9) {
+    // Once a size fits, one smaller may still win by sitting nearer the middle.
+    if (fitAt > 0 && font < fitAt * 0.85) break;
     const width = em * font;
-    for (const i of candidates) {
-      const at = hexCenter(i % cols, Math.floor(i / cols), size);
+    for (const { i, off } of candidates) {
+      const at = centreOf(i);
       for (const angle of angles) {
         const c = Math.cos(angle);
         const sn = Math.sin(angle);
@@ -148,12 +154,12 @@ function openWaterLabel(
           }
         }
         if (!fits) continue;
-        // Larger type first; then level, then the deepest water.
-        const score = font / size - 0.12 * Math.abs(sn) + 0.01 * (depth.get(i) ?? 0);
+        // Larger type first; then the middle of the body, level, and the deepest water.
+        const score = font / size - 0.15 * Math.min(1, off / bodyRadius) - 0.12 * Math.abs(sn) + 0.01 * Math.min(depth.get(i) ?? 0, 12);
         found.push({ score, at, angle, font });
       }
     }
-    if (found.length > 0) break;
+    if (found.length > 0 && fitAt === 0) fitAt = font;
   }
   const best = found.sort((a, b) => b.score - a.score)[0];
   if (!best) return null;
