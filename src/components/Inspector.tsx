@@ -636,8 +636,10 @@ const LAND_SHARE_STEPS = Array.from({ length: 21 }, (_, n) => n * 5);
 function HexShapePanel(props: SubProps) {
   const { map, dispatch, selected } = props;
   const base = map.layers.base.data;
-  const hexes = selected.filter((i) => isShapedType(base?.[i]));
+  const hexes = selected.filter((i) => isShapedType(base?.[i]) || base?.[i] === 'Lake');
   if (hexes.length === 0) return null;
+  // A lake takes a land share but no irregularity: its shore follows the land beside it.
+  const shaped = hexes.filter((i) => isShapedType(base![i]));
   const dims = normaliseHexDimensions(map.hexDimensions);
   const percentOf = (i: number, withShape: boolean) =>
     Math.round(landFraction(base![i], map.islandSpecs?.[String(i)], dims, withShape ? map.hexShapes?.[String(i)] : undefined) * 100);
@@ -645,8 +647,8 @@ function HexShapePanel(props: SubProps) {
   const sharedOf = (values: string[]) => (new Set(values).size === 1 ? values[0]! : '');
   const land = sharedOf(landHexes.map((i) => String(percentOf(i, true))));
   const usual = sharedOf(landHexes.map((i) => String(percentOf(i, false))));
-  const irregular = sharedOf(hexes.map((i) => hexShapeFor(base![i], map.hexShapes?.[String(i)], map.defaultIrregularity).irregular));
-  const usualIrregular = map.defaultIrregularity ?? sharedOf(hexes.map((i) => DEFAULT_IRREGULARITY[base![i]!]));
+  const irregular = sharedOf(shaped.map((i) => hexShapeFor(base![i], map.hexShapes?.[String(i)], map.defaultIrregularity).irregular));
+  const usualIrregular = map.defaultIrregularity ?? sharedOf(shaped.map((i) => DEFAULT_IRREGULARITY[base![i]!]));
   const customised = hexes.some((i) => {
     const stored = map.hexShapes?.[String(i)];
     return stored !== undefined && stored.type === base![i];
@@ -671,12 +673,16 @@ function HexShapePanel(props: SubProps) {
           </select>
           <p className="hint" style={{ margin: 0 }}>
             How much of the hex is drawn as land, and counted in surface areas.{usual !== '' ? ` Usually ${usual}%.` : ''}
+            {landHexes.some((i) => base![i] === 'Lake')
+              ? ' In a lake hex this is land drawn in from the edges it shares with land (the lake keeps the rest); 0% leaves the lake as it is.'
+              : ''}
             {landHexes.some((i) => isIslandType(base![i]))
               ? ` An island hex adds up its islands (${dims.smallIslandPercent}% for each small one, ${dims.largeIslandPercent}% for each large one, plus ${dims.mainlandPercent}% for a mainland); its islands are drawn at that size, kept apart and inside the hex; if they cannot all fit at that size they are drawn as large as they can be.`
               : ''}
           </p>
         </>
       )}
+      {shaped.length > 0 && (<>
       <label htmlFor="hex-irregularity" style={{ margin: 0 }}>Irregularity</label>
       <select
         id="hex-irregularity"
@@ -691,6 +697,7 @@ function HexShapePanel(props: SubProps) {
         {irregular !== '' ? IRREGULARITY_HINTS[irregular as Irregularity] : 'The selected hexes differ.'}
         {usualIrregular !== '' ? ` Usually ${usualIrregular.toLowerCase()}.` : ''} Coasts take it only in a smoothed coast style.
       </p>
+      </>)}
       {customised && (
         <button className="tiny" onClick={() => set(null)}>Use the usual land share and irregularity</button>
       )}
