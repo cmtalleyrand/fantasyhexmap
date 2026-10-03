@@ -5,7 +5,7 @@ import { exportComposite, exportLayer } from '../render/export.js';
 import type { PolityNameMin } from '../render/labels.js';
 import { DEFAULT_LEGEND_OPTIONS, legendLayers } from '../render/legend.js';
 import type { VisibleLayers } from '../render/scene.js';
-import type { MapStyle } from '../render/styles.js';
+import type { ElevationStyle, MapStyle } from '../render/styles.js';
 
 function Check({
   checked,
@@ -50,7 +50,7 @@ export default function ExportPanel({
   map: MapState;
   visible: VisibleLayers;
   labels: boolean;
-  elevationStyle: 'colour' | 'contours';
+  elevationStyle: ElevationStyle;
   polityOpacity: number;
   mapStyle: MapStyle;
   riverNames: boolean;
