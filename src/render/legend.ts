@@ -10,7 +10,9 @@
  * legends and neither back end needs to know a legend exists.
  */
 
-import { bankOffset, capitalCrown, cityMarker, type CityMarkerSet } from './cityMarkers.js';
+import type { Point } from '../../shared/hex.js';
+import { capitalCrown, cityMarker, iconReach, riverBisects, symbolMarker, type CityMarkerSet } from './cityMarkers.js';
+import { pressIcon, SET_IN } from './riverCity.js';
 import { fantasyTextEm } from './fonts.js';
 import {
   BASE_COLOURS,
@@ -240,7 +242,7 @@ export function legendSections(
         if (!options.onlyUsed || cities.some((c) => c.onRiver)) {
           entries.push({
             swatch: { kind: 'city', symbol: 'town', onRiver: true, set: style.knobs.cityMarkers, ink: style.palette.cityFill, paper: style.palette.cityRing, river: style.palette.river, bank: style.palette.riverBank },
-            label: 'Beside a river (the largest sit across it)',
+            label: 'On a river (the icon is shaped by it)',
           });
         }
         if (style.knobs.cityCoastMarks && (!options.onlyUsed || cities.some((c) => c.coastalEdges.length > 0))) {
@@ -381,31 +383,30 @@ function swatchPrims(swatch: LegendSwatch, x: number, cy: number, m: ReturnType<
       // A capital's swatch sits lower, to leave room for its crown. A river city stands on the
       // bank of a river that runs across the swatch, as it does on the map.
       const R = swatch.capital ? 6 * k : swatch.onRiver ? 6 * k : 8 * k;
-      const bank = swatch.onRiver ? bankOffset(set, swatch.symbol, R, 2 * k) : 0;
-      const at = { x: cx, y: cy + (swatch.capital ? 3 * k : 0) - bank / 2 };
+      const riverWidth = 3 * k;
+      // A river city is set into the bank of a river running across the swatch and pressed against it, as on the map.
+      const reach = iconReach(set, swatch.symbol, R);
+      const setIn = swatch.onRiver && !riverBisects(swatch.symbol) ? riverWidth / 2 + reach * SET_IN : 0;
+      const at = { x: cx, y: cy + (swatch.capital ? 3 * k : 0) - setIn / 2 };
       const crown = swatch.capital ? capitalCrown(set, swatch.symbol, at, R, { ink, paper }) : [];
+      const riverY = at.y + setIn;
+      const course: Point[] = [];
+      for (let px = x + 1.5 * k; px <= x + w - 1.5 * k + 1e-6; px += 2 * k) course.push({ x: px, y: riverY });
       const water: Prim[] = swatch.onRiver
         ? [
-            { kind: 'polyline', points: [{ x: x + 1.5 * k, y: at.y + bank }, { x: x + w - 1.5 * k, y: at.y + bank }], stroke: swatch.bank ?? swatch.river ?? MAP_COLOURS.river, strokeWidth: 3.2 * k, round: true },
-            { kind: 'polyline', points: [{ x: x + 1.5 * k, y: at.y + bank }, { x: x + w - 1.5 * k, y: at.y + bank }], stroke: swatch.river ?? MAP_COLOURS.river, strokeWidth: 2 * k, round: true },
+            { kind: 'polyline', points: course, stroke: swatch.bank ?? swatch.river ?? MAP_COLOURS.river, strokeWidth: riverWidth + 1.2 * k, round: true },
+            { kind: 'polyline', points: course, stroke: swatch.river ?? MAP_COLOURS.river, strokeWidth: riverWidth, round: true },
           ]
         : [];
-      if (set !== 'symbols') {
-        return [
-          ...water,
-          ...cityMarker(set, swatch.symbol, { x: at.x, y: at.y + (set === 'illustrated' ? 2 * k : 0) }, R, {
-            ink,
-            paper,
-            river: MAP_COLOURS.river,
-          }, () => 0.5),
-          ...crown,
-        ];
-      }
-      return [
-        ...water,
-        { kind: 'city', c: at, r: R, onRiver: swatch.onRiver, symbol: swatch.symbol },
-        ...crown,
-      ];
+      const colours = { ink, paper, river: swatch.river ?? MAP_COLOURS.river };
+      const site = { x: at.x, y: at.y + (set === 'illustrated' ? 2 * k : 0) };
+      const plain: Prim[] = set !== 'symbols'
+        ? cityMarker(set, swatch.symbol, site, R, colours, () => 0.5)
+        : swatch.onRiver
+          ? symbolMarker(swatch.symbol, at, R, colours, true)
+          : [{ kind: 'city', c: at, r: R, onRiver: false, symbol: swatch.symbol }];
+      const marker = swatch.onRiver ? pressIcon(plain, { line: course, widths: course.map(() => riverWidth) }, 0.9 * k, 0.5 * k, riverBisects(swatch.symbol) ? undefined : at) : plain;
+      return [...water, ...marker, ...crown];
     }
     case 'contour': {
       const prims: Prim[] = [box(ELEVATION_COLOURS.Rolling)];
