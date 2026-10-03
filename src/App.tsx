@@ -58,7 +58,14 @@ import { appReducer, reducer, type Action } from './state/store.js';
 import { DEFAULT_RIVER_TOOL, type RiverNotice, type RiverTool } from './state/riverTools.js';
 import { normaliseHexDimensions } from '../shared/surfaceArea.js';
 import { describeUsage, formatDuration } from './api/usageText.js';
-import { toggleMapFocus, type PanelVisibility } from './state/workspace.js';
+import {
+  loadMode,
+  modeFeatures,
+  saveMode,
+  toggleMapFocus,
+  type EditorMode,
+  type PanelVisibility,
+} from './state/workspace.js';
 
 const PER_HEX: LayerId[] = ['base', 'elevation', 'climate', 'vegetation', 'population'];
 
@@ -95,6 +102,8 @@ export default function App() {
   const [panels, setPanels] = useState<PanelVisibility>({ layers: true, inspector: true });
   const panelRestore = useRef<PanelVisibility>({ layers: true, inspector: true });
   const [mobilePane, setMobilePane] = useState<'layers' | 'inspector'>('layers');
+  const [mode, setModeState] = useState<EditorMode>(() => loadMode('ai'));
+  const { ai: aiMode, manual: manualMode } = modeFeatures(mode);
   const [brush, setBrushState] = useState<Record<string, string>>({});
   const [brushMode, setBrushMode] = useState(false);
   const [instruction, setInstruction] = useState('');
@@ -127,6 +136,19 @@ export default function App() {
   const [riverDraftParent, setRiverDraftParent] = useState<string | null>(null);
   const [riverTool, setRiverTool] = useState<RiverTool>(DEFAULT_RIVER_TOOL);
   const [riverNotice, setRiverNotice] = useState<RiverNotice | null>(null);
+  /** Each mode starts clean: nothing armed, drawn or ticked in the other one carries over. */
+  const setMode = useCallback((next: EditorMode) => {
+    setModeState(next);
+    saveMode(next);
+    setBrushMode(false);
+    setRiverDraft(null);
+    setRiverDraftParent(null);
+    setRiverNotice(null);
+    setSelection(new Set());
+    setSelectedLayers(new Set());
+    // The toast is about the last generation or multi-layer rewrite, which this mode did not do.
+    setToast(null);
+  }, [setRiverDraft]);
   const abortRef = useRef<Map<LayerId, AbortController>>(new Map());
   const batchCancelled = useRef(false);
   const mapRef = useRef<MapState | null>(map);
@@ -184,7 +206,7 @@ export default function App() {
       } else if (mod && key === 'y') {
         e.preventDefault();
         dispatch({ type: 'redo', layer: activeLayer });
-      } else if (mod && key === 'a') {
+      } else if (mod && key === 'a' && manualMode) {
         e.preventDefault();
         setSelection(new Set(Array.from({ length: current.cols * current.rows }, (_, i) => i)));
       } else if (e.key === 'Escape' && riverDraft === null) {
@@ -194,7 +216,7 @@ export default function App() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [activeLayer, riverDraft]);
+  }, [activeLayer, riverDraft, manualMode]);
 
   // Tick once a second while anything is generating, so elapsed times stay current.
   useEffect(() => {
@@ -617,7 +639,7 @@ export default function App() {
   }, []);
 
   const webchat =
-    webchatLayer && map ? (
+    aiMode && webchatLayer && map ? (
       <Suspense fallback={null}>
         <WebchatDialog
           map={map}
@@ -633,6 +655,7 @@ export default function App() {
 
   const settings = showSettings ? (
     <SettingsDialog
+      editorMode={mode}
       mode={transport.mode}
       apiKey={apiKey}
       prefs={prefs}
@@ -676,7 +699,7 @@ export default function App() {
   ) : null;
 
   const unlock =
-    showUnlock && lockedKey ? (
+    aiMode && showUnlock && lockedKey ? (
       <UnlockDialog
         onDismiss={() => setShowUnlock(false)}
         onForget={() => {
@@ -694,7 +717,7 @@ export default function App() {
     ) : null;
 
   const planDialog =
-    showPlan && map ? (
+    aiMode && showPlan && map ? (
       <PlanDialog
         map={map}
         onClose={() => setShowPlan(false)}
@@ -713,7 +736,7 @@ export default function App() {
     ) : null;
 
   const decisionLog =
-    showDecisions && map ? (
+    aiMode && showDecisions && map ? (
       <DecisionLog
         map={map}
         onClose={() => setShowDecisions(false)}
@@ -784,7 +807,12 @@ export default function App() {
       </div>
     ) : null;
   // An empty map says what to do first, or what is happening while it does it.
-  const emptyMapOverlay = map.layers.base.data ? null : busyLayers.size > 0 ? (
+  const emptyMapOverlay = map.layers.base.data ? null : manualMode ? (
+    <div className="card map-empty">
+      <h3>This map has no land or water yet</h3>
+      <p className="hint">Base Geography is empty, so there is nothing to edit by hand.</p>
+    </div>
+  ) : busyLayers.size > 0 ? (
     <div className="card map-empty" role="status">
       <h3>Generating {[...busyLayers].map((id) => LAYER_META[id].label).join(', ')}</h3>
       <p className="hint">
@@ -846,7 +874,7 @@ export default function App() {
       )}
       {decisionLog}
       {webchat}
-      {showResize && (
+      {manualMode && showResize && (
         <ResizeMapDialog
           map={map}
           onGrow={(amounts) => {
@@ -900,6 +928,15 @@ export default function App() {
         <span className="meta">
           {map.cols}×{map.rows} · {(map.cols * map.rows).toLocaleString()} hexes
         </span>
+        <div className="mode-switch" role="group" aria-label="Editing mode">
+          <button aria-pressed={aiMode} onClick={() => setMode('ai')} title="Describe, generate and rewrite with the model">
+            AI
+          </button>
+          <button aria-pressed={manualMode} onClick={() => setMode('manual')} title="Edit the map by hand">
+            Manual
+          </button>
+        </div>
+        {aiMode && (
         <span
           className={`mode-pill ${transport.mode}`}
           title={
@@ -920,22 +957,27 @@ export default function App() {
                   ? 'your browser · key locked'
                   : 'your browser · no key set'}
         </span>
+        )}
         <span className="spacer" />
-        {lockedKey && !apiKey && (
+        {aiMode && lockedKey && !apiKey && (
           <button className="tiny" onClick={() => setShowUnlock(true)}>
             unlock key
           </button>
         )}
-        <button
-          className="tiny"
-          onClick={() => setShowDecisions(true)}
-          title="What the AI decided while generating this map, and why"
-        >
-          decisions ({(map.journal ?? []).reduce((n, e) => n + e.decisions.length, 0)})
-        </button>
-        <button className="tiny" onClick={() => setShowResize(true)} title="Add rows or columns around the map">
-          ⤢ resize map
-        </button>
+        {aiMode && (
+          <button
+            className="tiny"
+            onClick={() => setShowDecisions(true)}
+            title="What the AI decided while generating this map, and why"
+          >
+            decisions ({(map.journal ?? []).reduce((n, e) => n + e.decisions.length, 0)})
+          </button>
+        )}
+        {manualMode && (
+          <button className="tiny" onClick={() => setShowResize(true)} title="Add rows or columns around the map">
+            ⤢ resize map
+          </button>
+        )}
         <button
           className="tiny settings-btn"
           onClick={() => {
@@ -953,7 +995,7 @@ export default function App() {
           onExportJson={(withHistory) => exportJson(map, withHistory)}
           onExportParseJson={() => exportParseFriendlyJson(map)}
           onExportImage={() => setShowExport(true)}
-          onExportDecisions={() => exportDecisions(map, { aiOnly: false })}
+          onExportDecisions={aiMode ? () => exportDecisions(map, { aiOnly: false }) : undefined}
         />
       </div>
 
@@ -987,6 +1029,7 @@ export default function App() {
       <div className="workspace">
         <div className={`sidebar ${panels.layers ? '' : 'panel-closed'} ${mobilePane === 'layers' ? 'mobile-active' : ''}`}>
           <LayerPipeline
+            mode={mode}
             map={map}
             activeLayer={activeLayer}
             visible={visible}
@@ -1015,7 +1058,7 @@ export default function App() {
             onEditPlan={() => setShowPlan(true)}
           />
 
-          {busyLayers.size > 0 && (
+          {aiMode && busyLayers.size > 0 && (
             <div className="section">
               {[...busyLayers].map((layer) => (
                 <div className="progress" key={layer}>
@@ -1037,17 +1080,19 @@ export default function App() {
           )}
 
 
-          <div className="section">
-            <h2>Description</h2>
-            <textarea
-              rows={6}
-              value={map.description}
-              onChange={(e) => dispatch({ type: 'setMeta', description: e.target.value })}
-            />
-            <p className="hint">
-              Every generation reads this. Editing it does not change existing layers.
-            </p>
-          </div>
+          {aiMode && (
+            <div className="section">
+              <h2>Description</h2>
+              <textarea
+                rows={6}
+                value={map.description}
+                onChange={(e) => dispatch({ type: 'setMeta', description: e.target.value })}
+              />
+              <p className="hint">
+                Every generation reads this. Editing it does not change existing layers.
+              </p>
+            </div>
+          )}
         </div>
 
         <MapView
@@ -1063,12 +1108,12 @@ export default function App() {
           mapStyle={mapStyle}
           selection={selection}
           onSelectionChange={setSelection}
-          onStrokeEnd={brushMode && canEdit ? onStrokeEnd : null}
+          onStrokeEnd={manualMode && brushMode && canEdit ? onStrokeEnd : null}
           activeLayer={activeLayer}
-          riverDraft={riverDraft}
-          onRiverDraftClick={riverDraft !== null ? onRiverDraftClick : null}
-          onCityMove={activeLayer === 'cities' ? onCityMove : null}
-          riverTool={activeLayer === 'rivers' && riverDraft === null && map.layers.rivers.data ? riverTool : null}
+          riverDraft={manualMode ? riverDraft : null}
+          onRiverDraftClick={manualMode && riverDraft !== null ? onRiverDraftClick : null}
+          onCityMove={manualMode && activeLayer === 'cities' ? onCityMove : null}
+          riverTool={manualMode && activeLayer === 'rivers' && riverDraft === null && map.layers.rivers.data ? riverTool : null}
           onRiverSelect={onRiverSelect}
           onRiverMove={onRiverMove}
           onRiverExtend={onRiverExtend}
@@ -1090,12 +1135,13 @@ export default function App() {
             aria-selected={mobilePane === 'inspector'}
             onClick={() => setMobilePane('inspector')}
           >
-            Edit
+            {aiMode ? 'AI' : 'Edit'}
           </button>
         </div>
 
         <div className={`inspector-shell ${panels.inspector ? '' : 'panel-closed'} ${mobilePane === 'inspector' ? 'mobile-active' : ''}`}>
           <Inspector
+            mode={mode}
             map={map}
             dispatch={dispatch}
             activeLayer={activeLayer}

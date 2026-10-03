@@ -28,10 +28,13 @@ import { wouldCycle } from '../../shared/polityTree.js';
 import { contrastingRealmColours } from '../render/hierarchy.js';
 import Legend from './Legend.js';
 import CommitInput, { CommitColour } from './CommitInput.js';
+import type { EditorMode } from '../state/workspace.js';
 
 const PER_HEX: LayerId[] = ['base', 'elevation', 'climate', 'vegetation', 'population'];
 
 export interface InspectorProps {
+  /** AI mode shows prompting and generation; manual mode shows hand editing. Never both. */
+  mode: EditorMode;
   map: MapState;
   dispatch: (action: Action) => void;
   activeLayer: LayerId;
@@ -132,6 +135,8 @@ export default function Inspector(props: InspectorProps) {
   const aboutCount =
     (layer.notes ? 1 : 0) + (latestDecisions(map, activeLayer).length > 0 ? 1 : 0) + layer.warnings.length;
 
+  const ai = props.mode === 'ai';
+
   return (
     <div className="inspector">
       <div className="section">
@@ -155,20 +160,22 @@ export default function Inspector(props: InspectorProps) {
             ↷ redo ({layer.future.length})
           </button>
           <span className="grow" />
-          <button
-            className="tiny danger"
-            disabled={!hasData}
-            onClick={() => {
-              if (window.confirm(`Clear the whole ${meta.label} layer? Undo brings it back.`)) {
-                dispatch({ type: 'clearLayer', layer: activeLayer });
-              }
-            }}
-          >
-            clear
-          </button>
+          {!ai && (
+            <button
+              className="tiny danger"
+              disabled={!hasData}
+              onClick={() => {
+                if (window.confirm(`Clear the whole ${meta.label} layer? Undo brings it back.`)) {
+                  dispatch({ type: 'clearLayer', layer: activeLayer });
+                }
+              }}
+            >
+              clear
+            </button>
+          )}
         </div>
 
-        {staleness.stale && (
+        {ai && staleness.stale && (
           <div className="notice warn">
             <b>Stale.</b> {staleness.reasons.join('; ')}. Nothing has been changed automatically.
             <div style={{ marginTop: 6 }}>
@@ -188,100 +195,120 @@ export default function Inspector(props: InspectorProps) {
         )}
       </div>
 
-      <GenerateSection
-        {...props}
-        hasData={hasData}
-        generating={generating}
-        missing={missing}
-      />
+      {ai ? (
+        <>
+          <GenerateSection {...props} hasData={hasData} generating={generating} missing={missing} />
 
-      {hasData && (
-        <div className="section">
-          <h2>Edit by hand</h2>
-          {PER_HEX.includes(activeLayer) ? (
-            <PerHexEditor {...props} selected={selected} />
-          ) : activeLayer === 'polities' ? (
-            <PolityEditor {...props} selected={selected} />
-          ) : activeLayer === 'cities' ? (
-            <CityEditor {...props} selected={selected} />
-          ) : (
-            <RiverEditor {...props} notice={props.riverNotice} setNotice={props.setRiverNotice} />
-          )}
-        </div>
-      )}
-
-      {hasData && activeLayer === 'base' && (
-        <GeoNamesEditor map={map} dispatch={dispatch} selected={selected} setSelection={props.setSelection} />
-      )}
-
-      {hasData && (
-        <div className="section">
-          <h2>Edit with an instruction</h2>
-          <textarea
-            rows={3}
-            placeholder={
-              activeLayer === 'base'
-                ? 'e.g. add a chain of volcanic islands along the eastern sea'
-                : `e.g. change something about the ${meta.label.toLowerCase()} layer`
-            }
-            value={props.instruction}
-            onChange={(e) => props.setInstruction(e.target.value)}
-          />
-          <button
-            className="primary"
-            style={{ marginTop: 6, width: '100%' }}
-            disabled={props.busy || props.instruction.trim().length === 0}
-            onClick={props.onAiEdit}
-          >
-            Rewrite {meta.label} with AI
-          </button>
-          {props.selectedLayers.size > 0 && (
-            <>
+          {hasData && (
+            <div className="section">
+              <h2>Edit with an instruction</h2>
+              <textarea
+                rows={3}
+                placeholder={
+                  activeLayer === 'base'
+                    ? 'e.g. add a chain of volcanic islands along the eastern sea'
+                    : `e.g. change something about the ${meta.label.toLowerCase()} layer`
+                }
+                value={props.instruction}
+                onChange={(e) => props.setInstruction(e.target.value)}
+              />
               <button
                 className="primary"
                 style={{ marginTop: 6, width: '100%' }}
-                disabled={props.busy || multi.layers.length === 0 || props.instruction.trim().length === 0}
-                onClick={props.onAiEditSelected}
-                title="Rewrite each ticked layer in turn, each after the layers it reads"
+                disabled={props.busy || props.instruction.trim().length === 0}
+                onClick={props.onAiEdit}
               >
-                Rewrite the {multi.layers.length} ticked layer{multi.layers.length === 1 ? '' : 's'} with AI
+                Rewrite {meta.label} with AI
               </button>
+              {props.selectedLayers.size > 0 && (
+                <>
+                  <button
+                    className="primary"
+                    style={{ marginTop: 6, width: '100%' }}
+                    disabled={props.busy || multi.layers.length === 0 || props.instruction.trim().length === 0}
+                    onClick={props.onAiEditSelected}
+                    title="Rewrite each ticked layer in turn, each after the layers it reads"
+                  >
+                    Rewrite the {multi.layers.length} ticked layer{multi.layers.length === 1 ? '' : 's'} with AI
+                  </button>
+                  <p className="hint" style={{ marginTop: 4 }}>
+                    {multi.layers.length > 0
+                      ? `Runs ${multi.layers.map((id) => LAYER_META[id].label).join(' → ')}, one request each.`
+                      : 'None of the ticked layers has data to edit.'}
+                    {multi.skipped.length > 0 &&
+                      ` Skipped, no data: ${multi.skipped.map((id) => LAYER_META[id].label).join(', ')}.`}
+                  </p>
+                </>
+              )}
               <p className="hint" style={{ marginTop: 4 }}>
-                {multi.layers.length > 0
-                  ? `Runs ${multi.layers.map((id) => LAYER_META[id].label).join(' → ')}, one request each.`
-                  : 'None of the ticked layers has data to edit.'}
-                {multi.skipped.length > 0 &&
-                  ` Skipped, no data: ${multi.skipped.map((id) => LAYER_META[id].label).join(', ')}.`}
+                The whole layer is sent as context and comes back rewritten, so one instruction can change
+                the map anywhere. Tick layers in the Layers list to rewrite several with one instruction.
+                Each layer keeps its own undo.
               </p>
-            </>
+              {activeLayer === 'polities' && (
+                <>
+                  <button
+                    style={{ marginTop: 6, width: '100%' }}
+                    disabled={props.busy || (map.layers.polities.data?.polities.length ?? 0) === 0}
+                    onClick={props.onGenerateShortNames}
+                  >
+                    Generate short map names with AI
+                  </button>
+                  <p className="hint" style={{ marginTop: 4 }}>
+                    Generates only the polity roster, preserving the existing borders. Full names remain
+                    available in the legend.
+                  </p>
+                </>
+              )}
+            </div>
           )}
-          <p className="hint" style={{ marginTop: 4 }}>
-            The whole layer is sent as context and comes back rewritten, so one instruction can change
-            the map anywhere. Tick layers in the Layers list to rewrite several with one instruction.
-            Each layer keeps its own undo.
+
+          {hasData && PER_HEX.includes(activeLayer) && (
+            <div className="section">
+              <h2>Selected</h2>
+              <SelectionCard {...props} selected={selected} readOnly />
+            </div>
+          )}
+        </>
+      ) : hasData ? (
+        <>
+          <div className="section">
+            <h2>Edit by hand</h2>
+            {PER_HEX.includes(activeLayer) ? (
+              <PerHexEditor {...props} selected={selected} />
+            ) : activeLayer === 'polities' ? (
+              <PolityEditor {...props} selected={selected} />
+            ) : activeLayer === 'cities' ? (
+              <CityEditor {...props} selected={selected} />
+            ) : (
+              <RiverEditor {...props} notice={props.riverNotice} setNotice={props.setRiverNotice} />
+            )}
+          </div>
+          {activeLayer === 'base' && (
+            <GeoNamesEditor map={map} dispatch={dispatch} selected={selected} setSelection={props.setSelection} />
+          )}
+        </>
+      ) : (
+        <div className="section">
+          <p className="hint" style={{ margin: 0 }}>
+            {missing.length > 0
+              ? `${meta.label} needs ${missing.map((m) => LAYER_META[m].label).join(' and ')} first.`
+              : `${meta.label} is empty, so there is nothing to edit yet.`}
           </p>
         </div>
       )}
 
-      {aboutCount > 0 && (
+      {ai && aboutCount > 0 && (
         <div className="section">
           <h2>About this layer</h2>
           {layer.notes && <div className="notice info">{layer.notes}</div>}
           <LayerDecisions map={map} layer={activeLayer} onOpenLog={props.onOpenDecisionLog} />
-          {layer.warnings.length > 0 && (
-            <details className="notice warn" style={{ marginTop: 8 }} open={layer.warnings.length <= 3}>
-              <summary>
-                <b>
-                  {layer.warnings.length} validation note{layer.warnings.length === 1 ? '' : 's'}
-                </b>
-              </summary>
-              <ul className="warnlist">
-                {layer.warnings.map((w, i) => (
-                  <li key={i}>{w}</li>
-                ))}
-              </ul>
-            </details>
-          )}
+          <Warnings warnings={layer.warnings} />
+        </div>
+      )}
+      {!ai && layer.warnings.length > 0 && (
+        <div className="section">
+          <Warnings warnings={layer.warnings} />
         </div>
       )}
 
@@ -290,6 +317,24 @@ export default function Inspector(props: InspectorProps) {
         <Legend layer={activeLayer} map={map} />
       </div>
     </div>
+  );
+}
+
+function Warnings({ warnings }: { warnings: string[] }) {
+  if (warnings.length === 0) return null;
+  return (
+    <details className="notice warn" style={{ marginTop: 8 }} open={warnings.length <= 3}>
+      <summary>
+        <b>
+          {warnings.length} validation note{warnings.length === 1 ? '' : 's'}
+        </b>
+      </summary>
+      <ul className="warnlist">
+        {warnings.map((w, i) => (
+          <li key={i}>{w}</li>
+        ))}
+      </ul>
+    </details>
   );
 }
 
@@ -489,12 +534,12 @@ function PerHexEditor(props: SubProps) {
  * means, for a single hex), and the settings that belong to those hexes -
  * the islands of island hexes.
  */
-function SelectionCard(props: SubProps) {
-  const { map, activeLayer, selected } = props;
+function SelectionCard(props: SubProps & { readOnly?: boolean }) {
+  const { map, activeLayer, selected, readOnly } = props;
   if (selected.length === 0) {
     return (
       <div className="card" style={{ padding: 10 }}>
-        <div className="hint" style={{ margin: 0 }}>Nothing selected. Click a hex on the map to see what it is and change it.</div>
+        <div className="hint" style={{ margin: 0 }}>{readOnly ? 'Nothing selected. Click a hex on the map to see what it is.' : 'Nothing selected. Click a hex on the map to see what it is and change it.'}</div>
       </div>
     );
   }
@@ -527,7 +572,7 @@ function SelectionCard(props: SubProps) {
       {activeLayer === 'base' && only !== null && only in BASE_DESCRIPTIONS && (
         <div className="hint" style={{ margin: 0 }}>{BASE_DESCRIPTIONS[only as BaseGeo]}</div>
       )}
-      {activeLayer === 'base' && <IslandSidePanel {...props} />}
+      {activeLayer === 'base' && !readOnly && <IslandSidePanel {...props} />}
     </div>
   );
 }
@@ -854,16 +899,6 @@ function PolityEditor(props: SubProps) {
       <button onClick={assignContrastingColours} disabled={data.polities.length === 0}>
         Assign contrasting colours
       </button>
-      <button
-        onClick={props.onGenerateShortNames}
-        disabled={props.busy || data.polities.length === 0}
-      >
-        Generate short map names with AI
-      </button>
-      <p className="hint" style={{ margin: 0 }}>
-        Generates only the polity roster, preserving the existing borders. Full names remain
-        available in the legend.
-      </p>
 
       <div className="row">
         <input placeholder="New polity name" value={name} onChange={(e) => setName(e.target.value)} />

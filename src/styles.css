@@ -410,3 +410,10 @@ button.eye:hover:not(:disabled) { border-color: var(--line); }
 .style-preset { display: flex; flex-direction: column; align-items: stretch; gap: 6px; padding: 6px; border: 1px solid var(--line); border-radius: 8px; background: transparent; color: var(--ink-dim); text-align: left; }
 .style-preset.active { border-color: var(--accent); color: var(--accent); background: rgba(127,178,229,0.10); }
 .style-preset .style-thumb { display: block; width: 100%; height: auto; border-radius: 4px; }
+
+/* The AI | Manual switch: two segments, the active one filled. */
+.mode-switch { display: inline-flex; border: 1px solid var(--accent-2); border-radius: 6px; overflow: hidden; flex: 0 0 auto; }
+.mode-switch button { border: 0; border-radius: 0; padding: 3px 12px; font-size: 12px; background: transparent; color: var(--ink); }
+.mode-switch button + button { border-left: 1px solid var(--accent-2); }
+.mode-switch button[aria-pressed='true'] { background: var(--accent-2); color: #061018; font-weight: 600; }
+.layer-head.no-batch > span:nth-child(2) { display: none; }

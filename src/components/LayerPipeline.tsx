@@ -9,8 +9,11 @@ import {
 import { generationOrder } from '../../shared/generationQueue.js';
 import { type LayerId, type MapState } from '../../shared/types.js';
 import type { VisibleLayers } from '../render/scene.js';
+import type { EditorMode } from '../state/workspace.js';
 
 export interface LayerPipelineProps {
+  /** Manual mode lists the layers to pick and show; everything about generating them is AI mode's. */
+  mode: EditorMode;
   map: MapState;
   activeLayer: LayerId;
   visible: VisibleLayers;
@@ -40,6 +43,7 @@ function EyeIcon({ open }: { open: boolean }) {
 
 export default function LayerPipeline(props: LayerPipelineProps) {
   const { map, activeLayer, visible, selectedLayers, busyLayers } = props;
+  const ai = props.mode === 'ai';
   const planned = plannedLayers(map);
   const omitted = 8 - planned.length;
   const busy = busyLayers.size > 0;
@@ -50,12 +54,14 @@ export default function LayerPipeline(props: LayerPipelineProps) {
     <div className="section">
       <div className="row" style={{ alignItems: 'baseline' }}>
         <h2 style={{ flex: 1 }}>Layers</h2>
-        <button className="tiny" onClick={props.onEditPlan} title="Choose which layers this map has">
-          plan{omitted > 0 ? ` (${omitted} left out)` : ''}
-        </button>
+        {ai && (
+          <button className="tiny" onClick={props.onEditPlan} title="Choose which layers this map has">
+            plan{omitted > 0 ? ` (${omitted} left out)` : ''}
+          </button>
+        )}
       </div>
 
-      {remaining.length > 0 && !busy && (
+      {ai && remaining.length > 0 && !busy && (
         <div className="next-step">
           <span>
             {remaining.length === planned.length ? 'Nothing generated yet.' : 'Still to generate:'}{' '}
@@ -69,9 +75,9 @@ export default function LayerPipeline(props: LayerPipelineProps) {
         </div>
       )}
 
-      <div className="layer-head" aria-hidden="true">
+      <div className={`layer-head ${ai ? '' : 'no-batch'}`} aria-hidden="true">
         <span title="Show the layer on the map">show</span>
-        <span title="Tick layers to generate or rewrite together">batch</span>
+        {ai && <span title="Tick layers to generate or rewrite together">batch</span>}
       </div>
       {planned.map((id) => {
         const meta = LAYER_META[id];
@@ -102,35 +108,43 @@ export default function LayerPipeline(props: LayerPipelineProps) {
             >
               <EyeIcon open={shown} />
             </button>
-            <input
-              type="checkbox"
-              checked={selectedLayers.has(id)}
-              disabled={busy}
-              onClick={(e) => e.stopPropagation()}
-              onChange={() => props.onToggleSelected(id)}
-              title="Tick to generate or rewrite this layer together with other ticked layers"
-              aria-label={`Select ${meta.label} for generation`}
-            />
+            {ai && (
+              <input
+                type="checkbox"
+                checked={selectedLayers.has(id)}
+                disabled={busy}
+                onClick={(e) => e.stopPropagation()}
+                onChange={() => props.onToggleSelected(id)}
+                title="Tick to generate or rewrite this layer together with other ticked layers"
+                aria-label={`Select ${meta.label} for generation`}
+              />
+            )}
             <span className="name">
               <b>{meta.label}</b>
               <small>
-                {busyLayers.has(id)
-                  ? 'Generating…'
-                  : layer.data
-                    ? staleness.stale
-                      ? staleness.reasons.join('; ')
-                      : gaps.length > 0
-                        ? `Made without ${gaps.map((g) => LAYER_META[g].label).join(', ')}`
-                        : meta.blurb
+                {!ai
+                  ? layer.data
+                    ? meta.blurb
                     : unlocked
-                      ? 'Not generated yet'
-                      : `Locked - needs ${missing.map((m) => LAYER_META[m].label).join(', ')}`}
+                      ? 'Empty'
+                      : `Locked - needs ${missing.map((m) => LAYER_META[m].label).join(', ')}`
+                  : busyLayers.has(id)
+                    ? 'Generating…'
+                    : layer.data
+                      ? staleness.stale
+                        ? staleness.reasons.join('; ')
+                        : gaps.length > 0
+                          ? `Made without ${gaps.map((g) => LAYER_META[g].label).join(', ')}`
+                          : meta.blurb
+                      : unlocked
+                        ? 'Not generated yet'
+                        : `Locked - needs ${missing.map((m) => LAYER_META[m].label).join(', ')}`}
               </small>
             </span>
-            {busyLayers.has(id) ? (
+            {ai && busyLayers.has(id) ? (
               <span className="badge">working</span>
             ) : layer.data ? (
-              <span className={`badge ${staleness.stale ? 'stale' : 'ok'}`}>{staleness.stale ? 'stale' : 'ready'}</span>
+              <span className={`badge ${ai && staleness.stale ? 'stale' : 'ok'}`}>{ai && staleness.stale ? 'stale' : 'ready'}</span>
             ) : (
               <span className="badge empty">empty</span>
             )}
@@ -138,6 +152,7 @@ export default function LayerPipeline(props: LayerPipelineProps) {
         );
       })}
 
+      {ai && (
       <div className="row layer-batch-controls">
         <button
           className="tiny grow"
@@ -161,6 +176,7 @@ export default function LayerPipeline(props: LayerPipelineProps) {
           </select>
         </label>
       </div>
+      )}
     </div>
   );
 }
