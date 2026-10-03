@@ -6,7 +6,8 @@ import { DEFAULT_HEX_DIMENSIONS, hexShapeFor, type BaseGeo, type MapState } from
 import { reducer } from '../src/state/store.ts';
 import { buildScene, defaultVisibility } from '../src/render/scene.ts';
 import { resolveStyle } from '../src/render/styles.ts';
-import { coastGeometryOf, coastEdges } from '../src/render/coast.ts';
+import { coastGeometryOf, coastEdges, landInsetDepth } from '../src/render/coast.ts';
+import { hexCorners } from '../shared/hex.ts';
 import type { PathCmd, Prim } from '../src/render/prims.ts';
 
 const dims = DEFAULT_HEX_DIMENSIONS;
@@ -273,4 +274,76 @@ test('a lake shore is drawn ragged by default, follows its own map default, and 
   const back = reducer(smoothLake, { type: 'setDefaultLakeIrregularity', irregular: null });
   assert.equal('defaultLakeIrregularity' in back, false);
   assert.equal(lakeShape(back), ragged);
+});
+
+/* ------------------------------------------------------------ drawn land share */
+
+test('a coast hex is inset until the land left is its share of the hex', () => {
+  const size = 10;
+  const edges = coastEdges(['Coastal Land', 'Sea', 'Sea', 'Sea'], 2, 2, size).filter((e) => e.hex === 0);
+  assert.ok(edges.length >= 1, 'the hex has a coast');
+  const corners = hexCorners(0, 0, size);
+  const hexArea = 1.5 * Math.sqrt(3) * size * size;
+  assert.equal(landInsetDepth(corners, edges, 1), 0, 'all land: no inset');
+  // With one wet edge the strip is a trapezoid, widening inwards as a hexagon does: depth * size + depth^2 * tan(30deg).
+  const one = edges.slice(0, 1);
+  const depth = landInsetDepth(corners, one, 0.9);
+  const strip = depth * size + depth * depth * Math.tan(Math.PI / 6);
+  assert.ok(Math.abs(strip / hexArea - 0.1) < 1e-3, `one wet edge gives up 10% of the hex, got ${strip / hexArea}`);
+  // More wet edges share the loss, so each moves in less.
+  assert.ok(landInsetDepth(corners, edges, 0.9) <= depth + 1e-9);
+});
+
+test('the land a coast hex leaves uncovered is its share, whatever its neighbours, and a hex set to all land has no strips', () => {
+  const size = 10;
+  const S: BaseGeo = 'Sea';
+  const L: BaseGeo = 'Land';
+  const C: BaseGeo = 'Coastal Land';
+  const layouts: Record<string, BaseGeo[]> = {
+    // The hex at the centre of a 5 x 5 map is index 12.
+    surrounded: [S, S, S, S, S, S, S, S, S, S, S, S, C, S, S, S, S, S, S, S, S, S, S, S, S],
+    'a bay': [S, S, S, S, S, S, S, C, S, S, S, L, C, S, S, S, C, L, S, S, S, S, S, S, S],
+    'a coast of coastal hexes': [S, S, S, S, S, S, C, C, C, S, S, L, C, S, S, S, L, C, S, S, S, S, S, S, S],
+  };
+  const inside = (x: number, y: number, poly: Array<{ x: number; y: number }>) => {
+    let hit = false;
+    for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+      if ((poly[i]!.y > y) !== (poly[j]!.y > y) && x < ((poly[j]!.x - poly[i]!.x) * (y - poly[i]!.y)) / (poly[j]!.y - poly[i]!.y) + poly[i]!.x) hit = !hit;
+    }
+    return hit;
+  };
+  for (const [name, base] of Object.entries(layouts)) {
+    const edges = coastEdges(base, 5, 5, size);
+    const wet = edges.filter((e) => e.hex === 12);
+    assert.ok(wet.length > 0, `${name}: the hex has a coast`);
+    const hex = hexCorners(2, 2, size);
+    for (const land of [0.9, 0.6, 0.3]) {
+      const depth = landInsetDepth(hex, wet, land);
+      const { strips } = coastGeometryOf(edges, false, undefined, { depth: (e) => (e.hex === 12 ? depth : 0), hex: () => hex });
+      const polygons = strips.map((strip) => strip.d.filter((c) => c[0] !== 'Z').map((c) => ({ x: c.at(-2) as number, y: c.at(-1) as number })));
+      const xs = hex.map((p) => p.x);
+      const ys = hex.map((p) => p.y);
+      let total = 0;
+      let dry = 0;
+      for (let a = 0; a < 120; a++) {
+        for (let b = 0; b < 120; b++) {
+          const x = Math.min(...xs) + ((a + 0.5) / 120) * (Math.max(...xs) - Math.min(...xs));
+          const y = Math.min(...ys) + ((b + 0.5) / 120) * (Math.max(...ys) - Math.min(...ys));
+          if (!inside(x, y, hex)) continue;
+          total++;
+          if (!polygons.some((poly) => inside(x, y, poly))) dry++;
+        }
+      }
+      assert.ok(Math.abs(dry / total - land) < 0.01, `${name}, ${land}: land left is ${(dry / total).toFixed(3)}`);
+    }
+  }
+  const edges = coastEdges(['Coastal Land', 'Sea', 'Sea', 'Sea'], 2, 2, size);
+  const base: BaseGeo[] = ['Coastal Land', 'Sea', 'Sea', 'Sea'];
+  assert.equal(coastGeometryOf(edges, false).strips.length, 0, 'no inset, no strips');
+  const flat = resolveStyle({ preset: 'parchment', overrides: { coast: 'hex' } });
+  const draw = (land: number) => buildScene(
+    reducer(mapWith(base, 2, 2), { type: 'setHexShape', indices: [0], change: { land } }),
+    { size: 30, visible: defaultVisibility(), labels: false, style: flat },
+  ).prims;
+  assert.ok(JSON.stringify(draw(50)) !== JSON.stringify(draw(100)), 'the share changes what is drawn');
 });

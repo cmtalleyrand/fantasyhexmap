@@ -680,3 +680,39 @@ to a shore exactly and never over land, and the water's bands carry on underneat
 
 **Why only the open edge is roughened.** Ice against land follows the coast the rest of the map uses;
 if it had its own line the two would leave gaps and overlaps along every shore.
+
+## 39. A land share is the share of the hex that is drawn as land
+
+**Chosen.** Decision 37 left a coast hex drawn whole and called its share bookkeeping for area. It is
+now drawn: a Coastal Land or Glacier hex whose share is under 100% has its water-facing edges moved in
+from the hex's own edge, by one depth for all of them, chosen so that the land left is exactly the
+share (the depth is found by cutting the hex with its moved edges and bisecting on the area left, not
+estimated from edge lengths). The strip between the old edge and the new one is water, drawn through
+the same list as the corners a smoothed coast cuts off, so realm bands, the water's surface and the
+ice follow it with no further change. Rivers are clipped at the new shore, so they end in the sea
+rather than at the hex's old edge.
+
+**Where two hexes meet.** Where a moved edge meets a neighbouring hex's coast, the coast runs out to
+the border the two land hexes share and steps along it to where the neighbour's coast begins, so a bay
+cut into one hex has the neighbour's land standing as its wall. Only edges of the hex itself move: a
+neighbour that is at its full share, or an Isthmus, a Strait or a Land hex, is not pulled in with it.
+
+**Islands.** Each island is drawn at its own share of the hex: a large island takes the large-island
+percentage of the hex's area and a small one the small-island percentage. The layout still decides
+where each lies and how stretched it is. A hex that sets its own share scales its islands, in the
+same proportions, to fill it (less the mainland's share in a mainland hex). Islands that would then
+run over the hex's edge are drawn nearer its centre, so a crowded hex draws its islands touching
+rather than spilling into the neighbours. This makes the default islands smaller than before: a lone
+large island is 20% of its hex where it was drawn at over half of it, and a small island is 10%
+where it was 3%. The percentages are what changed, in Settings, not a hidden size.
+
+**What is exact and what is approximate.** The share is exact for a coast drawn along hex edges (the
+Hex coast style) and within a few percent for the smooth styles, whose rounding trims convex corners
+and fills concave ones by up to an eighth of a hex, and whose irregularity then roughens the line. It
+is not corrected for.
+
+**What it does not cover.** An Isthmus, a Strait and the mainland of a Mainland-and-islands hex are
+cut from fixed pieces of the hex (a neck or channel a third of a hex wide, banks, a half) and still
+draw that much whatever their share; the share counts in their area only. Their defaults (30% and 40%)
+sit close to what those pieces already show. A coast hex next to a lake is not drawn in from the lake,
+which has a body of its own.

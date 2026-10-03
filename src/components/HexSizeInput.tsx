@@ -246,7 +246,7 @@ export default function HexSizeInput({
           </div>
         ))}
       </div>
-      <p className="hint">Polity areas in the legend count this share of each such hex; an island hex adds up its islands. A single hex can override its own share in the sidebar.</p>
+      <p className="hint">Each such hex is drawn with this share as land (a coastal hex's shore is set in from its edge; an island is drawn at its share of the hex), and polity areas in the legend count it. An island hex adds up its islands. A single hex can override its own share in the sidebar.</p>
 
       <h3>Displayed measurement rounding</h3>
       <div className="row">

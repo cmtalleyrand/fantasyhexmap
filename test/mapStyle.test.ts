@@ -399,9 +399,23 @@ test('an Islands hex draws the islands its spec asks for, inside its hex, coasta
       }
       if (spec.coastal) {
         // The land lies west; a coastal group's islands sit on the west side of the hex.
+        // Each island counts by the area of its bounding box, as the land it draws.
         const c = hexCenter(1, 1, size);
-        const mean = pts.reduce((sum, q) => sum + q.x, 0) / pts.length;
-        assert.ok(mean < c.x, `${JSON.stringify(spec)} (${preset}) lies toward the land`);
+        const islands: Array<typeof pts> = [];
+        for (const cmd of land[0]!.d) {
+          if (cmd[0] === 'M') islands.push([]);
+          if (cmd[0] !== 'Z') islands.at(-1)!.push({ x: cmd.at(-2) as number, y: cmd.at(-1) as number });
+        }
+        let weight = 0;
+        let moment = 0;
+        for (const isle of islands) {
+          const xs = isle.map((q) => q.x);
+          const ys = isle.map((q) => q.y);
+          const area = (Math.max(...xs) - Math.min(...xs)) * (Math.max(...ys) - Math.min(...ys));
+          weight += area;
+          moment += area * ((Math.max(...xs) + Math.min(...xs)) / 2);
+        }
+        assert.ok(moment / weight < c.x, `${JSON.stringify(spec)} (${preset}) lies toward the land`);
       }
     }
   }

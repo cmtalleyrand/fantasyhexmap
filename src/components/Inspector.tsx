@@ -647,9 +647,9 @@ function HexShapePanel(props: SubProps) {
             {LAND_SHARE_STEPS.map((p) => <option key={p} value={String(p)}>{p}%</option>)}
           </select>
           <p className="hint" style={{ margin: 0 }}>
-            How much of the hex is land, used for surface areas.{usual !== '' ? ` Usually ${usual}%.` : ''}
+            How much of the hex is drawn as land, and counted in surface areas.{usual !== '' ? ` Usually ${usual}%.` : ''}
             {landHexes.some((i) => isIslandType(base![i]))
-              ? ` An island hex adds up its islands (${dims.smallIslandPercent}% for each small one, ${dims.largeIslandPercent}% for each large one, plus ${dims.mainlandPercent}% for a mainland); its islands are drawn larger or smaller to match a share you set.`
+              ? ` An island hex adds up its islands (${dims.smallIslandPercent}% for each small one, ${dims.largeIslandPercent}% for each large one, plus ${dims.mainlandPercent}% for a mainland); its islands are drawn at that size, and are set in nearer the middle if they would not otherwise fit.`
               : ''}
           </p>
         </>
