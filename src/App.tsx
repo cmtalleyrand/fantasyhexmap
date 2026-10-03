@@ -481,6 +481,7 @@ export default function App() {
         current.layers.elevation.data,
         current.cols,
         current.rows,
+        current.layers.rivers.data?.rivers ?? [],
       );
       if ('error' in result) {
         setRiverNotice({ kind: 'error', text: result.error });
@@ -509,6 +510,7 @@ export default function App() {
         current.layers.elevation.data,
         current.cols,
         current.rows,
+        current.layers.rivers.data?.rivers ?? [],
       );
       if ('error' in result) {
         setRiverNotice({ kind: 'error', text: result.error });

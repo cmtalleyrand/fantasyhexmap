@@ -70,7 +70,9 @@ test('a river through flooded hexes ends at the new water', () => {
   assert.deepEqual(middle[0]!.segments.map((s) => s.col), [0, 1]);
   assert.equal(middle[0]!.terminus, 'Lake');
   assert.deepEqual(middle[1]!.segments.map((s) => s.col), [3, 4]);
-  assert.equal(middle[1]!.segments[0]!.entryEdge, null);
+  // The lower course now flows out of the new lake, entering from it.
+  assert.equal(middle[1]!.fromLake, true);
+  assert.equal(middle[1]!.segments[0]!.entryEdge, 3);
 
   const whole = setBase(map, [0, 1, 2, 3, 4], 'Sea').layers.rivers.data!.rivers;
   assert.equal(whole.length, 0);

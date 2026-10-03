@@ -218,8 +218,19 @@ export type PopulationResponse = z.infer<ReturnType<typeof PopulationResponse>>;
 const riverPath = z
   .array(z.object({ col: z.number().int(), row: z.number().int() }))
   .describe(
-    'Ordered source-to-mouth list of adjacent hexes. Every consecutive pair must share an edge. End with the Sea or Lake hex the river empties into, or with the border hex it leaves the map through.',
+    'Ordered source-to-mouth list of adjacent hexes. Every consecutive pair must share an edge. Start with the Lake hex the river flows out of, if it rises in a lake. End with the Sea or Lake hex the river empties into, with the hex where it joins the river named in `joins`, or with the border hex it leaves the map through.',
   );
+
+const riverLinks = {
+  joins: z
+    .string()
+    .optional()
+    .describe('A tributary: the name of the river it flows into. Its path ends on a hex of that river.'),
+  branchOf: z
+    .string()
+    .optional()
+    .describe('A distributary (a delta arm): the name of the river it splits from. Its path starts on a hex of that river.'),
+};
 
 const riverNavigable = z
   .array(z.boolean())
@@ -228,7 +239,7 @@ const riverNavigable = z
 export const RiversResponse = (_cols: number, _rows: number, opts: SchemaOptions = {}) =>
   z.object({
     brief: briefField(opts),
-    rivers: z.array(z.object({ name: z.string(), path: riverPath, navigable: riverNavigable })),
+    rivers: z.array(z.object({ name: z.string(), path: riverPath, navigable: riverNavigable, ...riverLinks })),
     notes,
     decisions,
   });
@@ -262,7 +273,7 @@ export type RiversRosterResponse = z.infer<ReturnType<typeof RiversRosterRespons
 export const RiversPathsResponse = (_cols: number, _rows: number, opts: SchemaOptions = {}) =>
   z.object({
     brief: briefField(opts),
-    rivers: z.array(z.object({ name: z.string(), path: riverPath, navigable: riverNavigable })),
+    rivers: z.array(z.object({ name: z.string(), path: riverPath, navigable: riverNavigable, ...riverLinks })),
     notes,
     decisions,
   });

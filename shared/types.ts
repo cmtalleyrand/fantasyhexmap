@@ -160,8 +160,22 @@ export interface River {
   id: string;
   name: string;
   segments: RiverSegment[];
-  /** 'Sea' | 'Lake' | 'OffMap' | 'Unresolved' - what the last segment empties into. */
-  terminus: 'Sea' | 'Lake' | 'OffMap' | 'Unresolved';
+  /**
+   * What the last segment empties into: the sea, a lake, another river (a
+   * tributary: see `joins`), over the map edge, or nothing found.
+   */
+  terminus: 'Sea' | 'Lake' | 'River' | 'OffMap' | 'Unresolved';
+  /**
+   * Set on a tributary: the id of the river it flows into. Its last segment
+   * sits in the confluence hex, which is one of that river's hexes, and has no
+   * exit edge.
+   */
+  joins?: string;
+  /**
+   * The river flows out of a lake: its first segment's entry edge is the edge
+   * it shares with the lake. The lake hex itself is not a segment.
+   */
+  fromLake?: boolean;
   /**
    * Set on a distributary: the id of the river it splits from. Its first segment
    * sits in the fork hex, which must also be one of the parent's hexes. A river

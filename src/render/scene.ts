@@ -36,6 +36,7 @@ import {
   type LayerId,
   type MapState,
   type PolitiesData,
+  type RiverSegment,
   type Vegetation,
 } from '../../shared/types.js';
 import {
@@ -671,6 +672,31 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
     }
   }
 
+  /** Whether a point lies in a lake's water as drawn (islands in it are land). */
+  const lakeRings = lakeShores.map((d) => {
+    const rings: Point[][] = [];
+    for (const c of d) {
+      if (c[0] === 'M') rings.push([{ x: c[1], y: c[2] }]);
+      else if (c[0] === 'L') rings[rings.length - 1]?.push({ x: c[1], y: c[2] });
+    }
+    const xs = rings.flat().map((p) => p.x);
+    const ys = rings.flat().map((p) => p.y);
+    return { rings, box: { x0: Math.min(...xs), x1: Math.max(...xs), y0: Math.min(...ys), y1: Math.max(...ys) } };
+  });
+  const inLakeWater = (p: Point): boolean =>
+    lakeRings.some(({ rings, box }) => {
+      if (p.x < box.x0 || p.x > box.x1 || p.y < box.y0 || p.y > box.y1) return false;
+      let inside = false;
+      for (const ring of rings) {
+        for (let a = 0, b = ring.length - 1; a < ring.length; b = a++) {
+          const pa = ring[a]!;
+          const pb = ring[b]!;
+          if ((pa.y > p.y) !== (pb.y > p.y) && p.x < ((pb.x - pa.x) * (p.y - pa.y)) / (pb.y - pa.y) + pa.x) inside = !inside;
+        }
+      }
+      return inside;
+    });
+
   // --- islands ------------------------------------------------------------------
   const islandLand = uniformLand ? palette.land : palette.island;
   for (const i of islands) {
@@ -923,11 +949,20 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
   // A river emptying into a small lake runs on into the lake's body.
   const tapering: Map<string, RiverCourse> = rivers && tapered
     ? riverCourses(rivers.rivers, size, seed, (river) => {
+        // The lake hex across an edge, if any: its centre is a point in its water.
+        const lakeAcross = (seg: RiverSegment | undefined, edge: number | null): Point | null => {
+          if (!seg || edge === null) return null;
+          const n = neighbourOf(seg.col, seg.row, edge);
+          if (!inBounds(cols, rows, n.col, n.row) || !isLakeHex(hexIndex(cols, n.col, n.row))) return null;
+          return hexCenter(n.col, n.row, size);
+        };
+        const first = river.segments[0];
         const last = river.segments.at(-1);
-        if (!last || last.exitEdge === null) return null;
-        const n = neighbourOf(last.col, last.row, last.exitEdge);
-        if (!inBounds(cols, rows, n.col, n.row) || !inLakeBody.has(hexIndex(cols, n.col, n.row))) return null;
-        return hexCenter(n.col, n.row, size);
+        return {
+          before: river.fromLake ? lakeAcross(first, first?.entryEdge ?? null) : null,
+          beyond: lakeAcross(last, last?.exitEdge ?? null),
+          inWater: inLakeWater,
+        };
       })
     : new Map();
   if (rivers) {
@@ -960,17 +995,9 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
       // weight along a river is visible rather than averaged away.
       let run: Point[] = [];
       let runNavigable: boolean | null = null;
+      const runs: Array<{ points: Point[]; navigable: boolean }> = [];
       const flush = () => {
-        if (run.length > 1) {
-          prims.push({
-            kind: 'polyline',
-            points: run,
-            stroke: runNavigable ? palette.river : palette.riverNonNavigable,
-            strokeWidth: runNavigable ? Math.max(2.5, size * 0.2125) : Math.max(1.25, size * 0.1125),
-            round: true,
-            smooth: true,
-          });
-        }
+        if (run.length > 1) runs.push({ points: run, navigable: Boolean(runNavigable) });
         run = [];
       };
       for (const seg of river.segments) {
@@ -997,6 +1024,33 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
         }
       }
       flush();
+      // A river out of or into a lake starts or stops at the lake's drawn shore.
+      const toShore = (wet: Point, dry: Point): Point => {
+        let a = wet;
+        let b = dry;
+        for (let k = 0; k < 12; k++) {
+          const m = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+          if (inLakeWater(m)) a = m;
+          else b = m;
+        }
+        return b;
+      };
+      const head = runs[0]?.points;
+      if (head && head.length > 1 && inLakeWater(head[0]!) && !inLakeWater(head[1]!)) head[0] = toShore(head[0]!, head[1]!);
+      const tail = runs.at(-1)?.points;
+      if (tail && tail.length > 1 && inLakeWater(tail.at(-1)!) && !inLakeWater(tail.at(-2)!)) {
+        tail[tail.length - 1] = toShore(tail.at(-1)!, tail.at(-2)!);
+      }
+      for (const r of runs) {
+        prims.push({
+          kind: 'polyline',
+          points: r.points,
+          stroke: r.navigable ? palette.river : palette.riverNonNavigable,
+          strokeWidth: r.navigable ? Math.max(2.5, size * 0.2125) : Math.max(1.25, size * 0.1125),
+          round: true,
+          smooth: true,
+        });
+      }
     }
   }
 
