@@ -210,6 +210,8 @@ export interface SceneOptions {
   landNames?: boolean;
   /** Smallest polity, in hexes, that is named; default 4. */
   polityNames?: PolityNameMin;
+  /** The largest city-state, in hexes, that is named by its capital alone. */
+  cityStateMax?: number;
   elevationStyle?: ElevationStyle;
   /** Opacity of polity fills, 0-1 (default 1); lower values let terrain show through. */
   polityOpacity?: number;
@@ -2365,7 +2367,7 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
     : polities;
   // A small city-state is known by its capital alone: no realm name, and its
   // seat is lettered in capitals as a realm's name would be.
-  const seats = polities && cities ? cityStateSeats(polities.polities, polities.owner, cities.cities, cols) : new Map<string, string>();
+  const seats = polities && cities ? cityStateSeats(polities.polities, polities.owner, cities.cities, cols, opts.cityStateMax) : new Map<string, string>();
   const seatIds = new Set(seats.values());
   const unnamed = new Set(seats.keys());
   if (opts.labels && polities) {

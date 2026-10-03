@@ -17,6 +17,7 @@ test('a small city-state is seated at its capital, else its largest city', () =>
 test('a polity that is not a city-state, is large, or has no city is not seated', () => {
   const cities = [city('x', 0, 0, 900)];
   assert.equal(cityStateSeats([polity('a')], ['a', null], cities, 2).size, 0);
-  assert.equal(cityStateSeats([polity('a', true)], ['a', 'a', 'a', 'a', 'a', 'a', 'a'], cities, 7).size, 0);
+  assert.equal(cityStateSeats([polity('a', true)], ['a', 'a', 'a', 'a'], cities, 4).size, 0);
+  assert.equal(cityStateSeats([polity('a', true)], ['a', 'a', 'a', 'a'], cities, 4, 4).size, 1);
   assert.equal(cityStateSeats([polity('a', true)], [null, 'a'], cities, 2).size, 0);
 });

@@ -10,6 +10,7 @@
  * running on this origin, which is why the page loads no third-party code.
  */
 
+import { DEFAULT_CITY_STATE_MAX_HEXES, parseCityStateMaxHexes } from '../../shared/cityState.js';
 import {
   clampTaskBudget,
   DEFAULT_EFFORT,
@@ -68,6 +69,8 @@ export interface Prefs {
   landNames: boolean;
   /** Smallest polity, in hexes, that is named on the map; `auto` lets the placer decide. */
   polityNames: PolityNameMin;
+  /** Largest city-state, in hexes, that is named by its capital alone. */
+  cityStateMax: number;
   /**
    * Which generation of defaults these prefs were saved under. Prefs saved
    * before this existed carry the old effort and budget whether or not anyone
@@ -93,6 +96,7 @@ export const DEFAULT_PREFS: Prefs = {
   seaNames: true,
   landNames: true,
   polityNames: DEFAULT_POLITY_NAME_MIN,
+  cityStateMax: DEFAULT_CITY_STATE_MAX_HEXES,
   defaultsVersion: DEFAULTS_VERSION,
 };
 
@@ -212,6 +216,7 @@ export function loadPrefs(): Prefs {
       seaNames: stored.seaNames !== false,
       landNames: stored.landNames !== false,
       polityNames: parsePolityNameMin(stored.polityNames),
+      cityStateMax: parseCityStateMaxHexes(stored.cityStateMax ?? DEFAULT_CITY_STATE_MAX_HEXES),
       defaultsVersion: DEFAULTS_VERSION,
     };
   } catch {

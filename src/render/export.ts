@@ -32,6 +32,7 @@ export interface ExportOptions {
   seaNames?: boolean;
   landNames?: boolean;
   polityNames?: PolityNameMin;
+  cityStateMax?: number;
   elevationStyle?: ElevationStyle;
   polityOpacity?: number;
   uniformLand?: boolean;
@@ -80,6 +81,7 @@ export function buildExportScene(map: MapState, visible: VisibleLayers, opts: Ex
     seaNames: opts.seaNames,
     landNames: opts.landNames,
     polityNames: opts.polityNames,
+    cityStateMax: opts.cityStateMax,
     elevationStyle: opts.elevationStyle,
     polityOpacity: opts.polityOpacity,
     uniformLand: opts.uniformLand,
