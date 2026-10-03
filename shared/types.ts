@@ -392,6 +392,8 @@ export interface City {
   coastal: boolean;
   /** Which of the hex's six edges border Sea or Lake. */
   coastalEdges: number[];
+  /** The seat of its realm: drawn with a crown over its marker and its name in capitals. */
+  capital?: boolean;
   /**
    * Where in its hex the city is drawn: on its river, against one of its
    * coastal edges, at the centre, or (absent or 'auto') river first, then

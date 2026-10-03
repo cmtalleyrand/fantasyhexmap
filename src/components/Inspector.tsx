@@ -1302,6 +1302,17 @@ function CityEditor(props: SubProps) {
                 ×
               </button>
               <div className="row" style={{ flexBasis: '100%', alignItems: 'center' }}>
+                <label htmlFor={`capital-${c.id}`} style={{ margin: 0 }}>
+                  <input
+                    id={`capital-${c.id}`}
+                    type="checkbox"
+                    checked={c.capital === true}
+                    onChange={(e) => dispatch({ type: 'upsertCity', city: { ...c, capital: e.target.checked || undefined } })}
+                  />{' '}
+                  Capital
+                </label>
+              </div>
+              <div className="row" style={{ flexBasis: '100%', alignItems: 'center' }}>
                 <label htmlFor={`site-${c.id}`} style={{ margin: 0 }}>Site</label>
                 <select
                   id={`site-${c.id}`}

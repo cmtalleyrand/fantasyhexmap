@@ -342,6 +342,7 @@ export function decodeLayer(
         row: c.row,
         name: c.name,
         population: c.population,
+        ...(c.capital ? { capital: true } : {}),
         onRiver: false,
         riverId: null,
         coastal: false,

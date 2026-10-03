@@ -746,6 +746,11 @@ function citiesPrompt(ctx: PromptContext): BuiltPrompt {
       '- Spread them out: a hinterland is part of a city. Do not put two large cities in adjacent hexes.',
     ]),
     '',
+    section('CAPITALS', [
+      '- Set "capital" to true on the seat of each realm or kingdom the brief names, and on no other settlement.',
+      '  A realm has one capital. Leave it out entirely when the brief names no realms.',
+    ]),
+    '',
     section('POPULATION', [
       '- Use a plausible pre-modern settlement hierarchy: one or two primate cities well clear of the rest, a handful',
       '  of regional centres, and a larger number of small towns.',

@@ -291,6 +291,10 @@ export const CitiesResponse = (_cols: number, _rows: number, opts: SchemaOptions
         row: z.number().int(),
         population: z.number().int().min(0),
         reason: z.string().describe('Why the settlement is here - one short clause.'),
+        capital: z
+          .boolean()
+          .optional()
+          .describe('True for the seat of a realm or kingdom the brief names; omit for every other settlement.'),
       }),
     ),
     notes,

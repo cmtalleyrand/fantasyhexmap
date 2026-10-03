@@ -161,17 +161,60 @@ export function cityMarker(
   ];
 }
 
+/** Height of a capital's crown, and the gap left under it (radius multiples). */
+const CROWN_HEIGHT = 0.6;
+const CROWN_GAP = 0.12;
+
 /** How far a marker reaches above and below its site, for label clearance (radius multiples). */
-export function markerExtent(set: CityMarkerSet, symbol: CitySymbol): { up: number; down: number; half: number } {
-  if (set !== 'illustrated') return { up: 1, down: 1, half: 1 };
-  switch (symbol) {
-    case 'village':
-      return { up: 0.6, down: 0.5, half: 0.45 };
-    case 'town':
-      return { up: 0.85, down: 0.5, half: 0.85 };
-    case 'city':
-      return { up: 0.9, down: 0.5, half: 1 };
-    default:
-      return { up: 1.55, down: 0.5, half: 0.95 };
-  }
+export function markerExtent(
+  set: CityMarkerSet,
+  symbol: CitySymbol,
+  capital = false,
+): { up: number; down: number; half: number } {
+  const extent = ((): { up: number; down: number; half: number } => {
+    if (set !== 'illustrated') return { up: 1, down: 1, half: 1 };
+    switch (symbol) {
+      case 'village':
+        return { up: 0.6, down: 0.5, half: 0.45 };
+      case 'town':
+        return { up: 0.85, down: 0.5, half: 0.85 };
+      case 'city':
+        return { up: 0.9, down: 0.5, half: 1 };
+      default:
+        return { up: 1.55, down: 0.5, half: 0.95 };
+    }
+  })();
+  if (!capital) return extent;
+  return { ...extent, up: extent.up + CROWN_GAP + CROWN_HEIGHT, half: Math.max(extent.half, 0.55) };
+}
+
+/**
+ * The crown that marks a capital, standing just above its marker. Plain paths,
+ * outlined in the paper colour like the markers, so every marker set and both
+ * renderers draw it alike.
+ */
+export function capitalCrown(
+  set: CityMarkerSet,
+  symbol: CitySymbol,
+  c: Point,
+  r: number,
+  colours: Pick<MarkerColours, 'ink' | 'paper'>,
+): Prim[] {
+  const base = c.y - (markerExtent(set, symbol).up + CROWN_GAP) * r;
+  const w = r * 1.1;
+  const h = r * CROWN_HEIGHT;
+  const crown = poly([
+    [c.x - w / 2, base],
+    [c.x - w / 2, base - h * 0.8],
+    [c.x - w / 4, base - h * 0.45],
+    [c.x, base - h],
+    [c.x + w / 4, base - h * 0.45],
+    [c.x + w / 2, base - h * 0.8],
+    [c.x + w / 2, base],
+  ]);
+  const edge = Math.max(0.8, r * 0.16);
+  return [
+    { kind: 'path', d: crown, stroke: colours.paper, strokeWidth: edge * 2, round: true },
+    { kind: 'path', d: crown, fill: colours.ink },
+  ];
 }
