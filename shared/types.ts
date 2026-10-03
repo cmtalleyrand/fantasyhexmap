@@ -379,6 +379,10 @@ export interface HexDimensions {
   unit: string;
   coastalLandPercent: number;
   islandLandPercent: number;
+  /** Increment used when displaying areas (in square `unit`s). */
+  areaRounding: number;
+  /** Increment used when displaying lengths (in `unit`s). */
+  lengthRounding: number;
 }
 
 export const DEFAULT_HEX_DIMENSIONS: HexDimensions = {
@@ -388,6 +392,8 @@ export const DEFAULT_HEX_DIMENSIONS: HexDimensions = {
   unit: 'km',
   coastalLandPercent: 60,
   islandLandPercent: 40,
+  areaRounding: 100,
+  lengthRounding: 10,
 };
 
 export const MAX_DIM = 50;

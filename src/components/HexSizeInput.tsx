@@ -247,6 +247,39 @@ export default function HexSizeInput({
         </div>
       </div>
       <p className="hint">Polity areas in the legend use these shares of each coastal/island hex.</p>
+
+      <h3>Displayed measurement rounding</h3>
+      <div className="row">
+        <div className="grow">
+          <label>Surface areas (in {unit}²)</label>
+          <input
+            aria-label="Surface area rounding"
+            type="number"
+            min="0.0000001"
+            step="any"
+            value={value.areaRounding}
+            onChange={(e) => {
+              const next = Number(e.target.value);
+              if (Number.isFinite(next) && next > 0) onChange({ ...value, areaRounding: next });
+            }}
+          />
+        </div>
+        <div className="grow">
+          <label>Lengths (in {unit})</label>
+          <input
+            aria-label="Length rounding"
+            type="number"
+            min="0.0000001"
+            step="any"
+            value={value.lengthRounding}
+            onChange={(e) => {
+              const next = Number(e.target.value);
+              if (Number.isFinite(next) && next > 0) onChange({ ...value, lengthRounding: next });
+            }}
+          />
+        </div>
+      </div>
+      <p className="hint">Displayed values are rounded to the nearest increment.</p>
     </div>
   );
 }

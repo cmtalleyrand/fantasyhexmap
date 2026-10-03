@@ -40,6 +40,12 @@ export function politySurfaceAreas(
   return areas;
 }
 
+/** Round and format an area for display using a positive increment. */
+export function formatArea(value: number, unit: string, rounding = 100): string {
+  const rounded = Math.round(value / rounding) * rounding;
+  return `${rounded.toLocaleString(undefined, { maximumFractionDigits: 10 })} ${unit}²`;
+}
+
 /** Which single measurement of a regular pointy-top hex the user supplies. */
 export type HexMeasure = 'width' | 'corners' | 'side' | 'area';
 
