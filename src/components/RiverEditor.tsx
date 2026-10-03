@@ -97,6 +97,7 @@ export default function RiverEditor(props: RiverEditorProps) {
   const base = map.layers.base.data;
   const dims = useMemo(() => normaliseHexDimensions(map.hexDimensions), [map.hexDimensions]);
   const unit = dims.unit;
+  const rounding = dims.lengthRounding;
   const draft = props.riverDraft;
   const active: ToolButton = draft !== null ? 'draw' : tool.kind;
   const selected = rivers.find((r) => r.id === tool.selectedId) ?? null;
@@ -151,7 +152,7 @@ export default function RiverEditor(props: RiverEditorProps) {
       )}
 
       {draft !== null && base && (
-        <DraftCard {...props} draft={draft} endDraft={endDraft} unit={unit} />
+        <DraftCard {...props} draft={draft} endDraft={endDraft} unit={unit} rounding={rounding} />
       )}
 
       {draft === null && tool.kind === 'navigability' && (
@@ -189,6 +190,7 @@ export default function RiverEditor(props: RiverEditorProps) {
           length={lengths.get(selected.id) ?? 0}
           systemLength={riverSystemLength(selected, rivers, dims)}
           unit={unit}
+          rounding={rounding}
           onSelect={select}
         />
       )}
@@ -204,6 +206,7 @@ export default function RiverEditor(props: RiverEditorProps) {
         lengths={lengths}
         total={total}
         unit={unit}
+        rounding={rounding}
         onSelect={select}
       />
     </div>
@@ -213,7 +216,7 @@ export default function RiverEditor(props: RiverEditorProps) {
 /* ------------------------------------------------------------------ drawing */
 
 function DraftCard(
-  props: RiverEditorProps & { draft: number[]; endDraft: () => void; unit: string },
+  props: RiverEditorProps & { draft: number[]; endDraft: () => void; unit: string; rounding: number },
 ) {
   const { map, dispatch, draft, endDraft, setNotice } = props;
   const rivers = map.layers.rivers.data?.rivers ?? [];
@@ -286,7 +289,7 @@ function DraftCard(
       <div className="hint" style={{ marginTop: 4 }}>
         {draft.length === 0
           ? 'Click the hex where it rises.'
-          : `${draft.length} hex${draft.length === 1 ? '' : 'es'}${draft.length > 1 ? `, ${formatLength(soFar, props.unit)}` : ''} so far: ${path
+          : `${draft.length} hex${draft.length === 1 ? '' : 'es'}${draft.length > 1 ? `, ${formatLength(soFar, props.unit, props.rounding)}` : ''} so far: ${path
               .map((p) => `${p.col},${p.row}`)
               .join(' → ')}`}
       </div>
@@ -314,6 +317,7 @@ function SelectedRiver(
     length: number;
     systemLength: number;
     unit: string;
+    rounding: number;
     onSelect: (id: string | null) => void;
   },
 ) {
@@ -372,7 +376,7 @@ function SelectedRiver(
         onCommit={(name) => dispatch({ type: 'updateRiver', river: { ...river, name } })}
       />
       <div className="river-facts">
-        <span className="river-length">{formatLength(props.length, props.unit)}</span>
+        <span className="river-length">{formatLength(props.length, props.unit, props.rounding)}</span>
         <span className="hint">
           {river.segments.length} hex{river.segments.length === 1 ? '' : 'es'} · {terminusText(river, rivers)} ·{' '}
           {navigable === 0 ? 'not navigable' : navigable === river.segments.length ? 'navigable throughout' : `${navigable} hexes navigable`}
@@ -381,7 +385,7 @@ function SelectedRiver(
       {branches.length > 0 && (
         <div className="hint">
           With its {branches.length} branch{branches.length === 1 ? '' : 'es'}:{' '}
-          {formatLength(props.systemLength, props.unit)} in all.
+          {formatLength(props.systemLength, props.unit, props.rounding)} in all.
         </div>
       )}
       {parent && (
@@ -489,6 +493,7 @@ function RiverList(
     lengths: Map<string, number>;
     total: number;
     unit: string;
+    rounding: number;
     onSelect: (id: string | null) => void;
   },
 ) {
@@ -537,7 +542,7 @@ function RiverList(
       <div className="row" style={{ alignItems: 'baseline' }}>
         <b className="grow">
           {rivers.length} river{rivers.length === 1 ? '' : 's'}{' '}
-          <span className="hint">· {formatLength(props.total, props.unit)} in all</span>
+          <span className="hint">· {formatLength(props.total, props.unit, props.rounding)} in all</span>
         </b>
         {rivers.length > 1 && (
           <button
@@ -616,7 +621,7 @@ function RiverList(
                 {depth > 0 && <span className="hint">↳ </span>}
                 {river.name}
               </span>
-              <span className="hint">{formatLength(props.lengths.get(river.id) ?? 0, props.unit)}</span>
+              <span className="hint">{formatLength(props.lengths.get(river.id) ?? 0, props.unit, props.rounding)}</span>
               <span className="hint" style={{ minWidth: 44, textAlign: 'right' }}>
                 {river.segments.length} hex
               </span>

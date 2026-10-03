@@ -69,8 +69,8 @@ export function riverSystemLength(
   return [river, ...branchesOf(river, rivers)].reduce((sum, r) => sum + riverLength(r, dims), 0);
 }
 
-/** A length for display: whole units from 100 up, one decimal below. */
-export function formatLength(value: number, unit: string): string {
-  const digits = value >= 100 ? 0 : 1;
-  return `${value.toLocaleString(undefined, { maximumFractionDigits: digits, minimumFractionDigits: 0 })} ${unit}`;
+/** Round and format a length for display using a positive increment. */
+export function formatLength(value: number, unit: string, rounding = 10): string {
+  const rounded = Math.round(value / rounding) * rounding;
+  return `${rounded.toLocaleString(undefined, { maximumFractionDigits: 10 })} ${unit}`;
 }

@@ -18,7 +18,7 @@ import {
   VEGETATION_COLOURS,
 } from '../render/palette.js';
 import type { MapState } from '../../shared/types.js';
-import { normaliseHexDimensions, politySurfaceAreas } from '../../shared/surfaceArea.js';
+import { formatArea, normaliseHexDimensions, politySurfaceAreas } from '../../shared/surfaceArea.js';
 
 function Swatch({ colour, label }: { colour: string; label: string }) {
   return (
@@ -110,7 +110,7 @@ export default function Legend({ layer, map }: { layer: LayerId; map: MapState }
             <Swatch
               key={p.id}
               colour={p.colour}
-              label={`${p.name} — ${(areas.get(p.id) ?? 0).toLocaleString(undefined, { maximumFractionDigits: 2 })} ${dimensions.unit}²`}
+              label={`${p.name} — ${formatArea(areas.get(p.id) ?? 0, dimensions.unit, dimensions.areaRounding)}`}
             />
           ))}
         </div>
