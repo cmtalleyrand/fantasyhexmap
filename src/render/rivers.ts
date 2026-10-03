@@ -57,8 +57,18 @@ export interface CourseEnds {
   start?: Point | null;
   /** Where the river ends, if it ends inside a hex (a tributary's confluence). */
   end?: Point | null;
-  /** A point past the mouth to run into, such as the centre of a small lake. */
+  /** A point in the lake the river flows out of, before its first crossing. */
+  before?: Point | null;
+  /** A point in the lake the river empties into, past its last crossing. */
   beyond?: Point | null;
+  /**
+   * Whether a point lies in standing water as drawn (a lake's body). The
+   * course is cut where it leaves the water at its source and where it meets
+   * it at its mouth, so it starts and ends exactly on the shore.
+   */
+  inWater?: ((p: Point) => boolean) | null;
+  /** Rivers flowing in along the way: the length upstream of each, added to the width below where it joins. */
+  inflows?: Array<{ at: Point; run: number }>;
 }
 
 function controls(river: River, size: number, seed: string, ends: CourseEnds): Control[] {
@@ -68,6 +78,7 @@ function controls(river: River, size: number, seed: string, ends: CourseEnds): C
     if (last && Math.hypot(last.p.x - p.x, last.p.y - p.y) < size * 0.02) return;
     out.push({ p, navigable });
   };
+  if (ends.before && river.segments[0]) push(ends.before, river.segments[0].navigable);
   river.segments.forEach((s, k) => {
     if (s.entryEdge !== null) push(edgeCrossing(s.col, s.row, s.entryEdge, size, seed), s.navigable);
     else if (k === 0) {
@@ -125,13 +136,43 @@ export function riverCourse(river: River, size: number, seed: string, ends: Cour
   const after = { x: 2 * pts[n - 1]!.x - pts[n - 2]!.x, y: 2 * pts[n - 1]!.y - pts[n - 2]!.y };
   const ext = [before, ...pts, after];
 
-  const centreline: Point[] = [pts[0]!];
-  const navigable: boolean[] = [ctrl[0]!.navigable];
+  let centreline: Point[] = [pts[0]!];
+  let navigable: boolean[] = [ctrl[0]!.navigable];
   for (let i = 0; i < n - 1; i++) {
     for (const p of catmullRom(ext[i]!, ext[i + 1]!, ext[i + 2]!, ext[i + 3]!, SAMPLES_PER_SPAN)) {
       centreline.push(p);
       navigable.push(ctrl[i + 1]!.navigable);
     }
+  }
+  // Cut the course at the shore where it leaves its source lake and where it
+  // reaches the lake it empties into.
+  const wet = ends.inWater;
+  if (wet) {
+    const shore = (inside: Point, outside: Point): Point => {
+      let a = inside;
+      let b = outside;
+      for (let k = 0; k < 12; k++) {
+        const m = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+        if (wet(m)) a = m;
+        else b = m;
+      }
+      return b;
+    };
+    let from = 0;
+    if (ends.before) while (from < centreline.length - 1 && wet(centreline[from]!)) from++;
+    let to = centreline.length - 1;
+    if (ends.beyond) while (to > from && wet(centreline[to]!)) to--;
+    if (from > 0 || to < centreline.length - 1) {
+      const head = from > 0 ? [shore(centreline[from - 1]!, centreline[from]!)] : [];
+      const tail = to < centreline.length - 1 ? [shore(centreline[to + 1]!, centreline[to]!)] : [];
+      centreline = [...head, ...centreline.slice(from, to + 1), ...tail];
+      navigable = [
+        ...(head.length ? [navigable[from]!] : []),
+        ...navigable.slice(from, to + 1),
+        ...(tail.length ? [navigable[to]!] : []),
+      ];
+    }
+    if (centreline.length < 2) return null;
   }
 
   const cum = [0];
@@ -141,8 +182,22 @@ export function riverCourse(river: River, size: number, seed: string, ends: Cour
   const total = cum[cum.length - 1]!;
   // A distributary leaves a river that is already full grown.
   const head = river.branchOf ? 8 * size : 0;
+  // Below each confluence the river carries its tributary's water too.
+  const added = centreline.map(() => 0);
+  for (const inflow of ends.inflows ?? []) {
+    let k = 0;
+    let d = Infinity;
+    centreline.forEach((q, i) => {
+      const dq = Math.hypot(q.x - inflow.at.x, q.y - inflow.at.y);
+      if (dq < d) {
+        d = dq;
+        k = i;
+      }
+    });
+    for (let i = k; i < added.length; i++) added[i]! += inflow.run;
+  }
   const target = centreline.map((_, i) => {
-    const run = (cum[i]! + head) / size;
+    const run = (cum[i]! + head + added[i]!) / size;
     const narrow = Math.min(0.15, 0.04 + 0.011 * run);
     return navigable[i] ? Math.min(0.3, Math.max(narrow, 0.19 + 0.004 * run)) : narrow;
   });
@@ -199,16 +254,18 @@ function nearest(line: Point[], p: Point): Point {
 }
 
 /**
- * Courses for a whole river network. Rivers that end in another river's hex
- * are laid out after that river, so they can end on its drawn line; a river
- * that cannot find one ends at the hex centre, as a river that runs nowhere does.
- * `beyond` gives a point past a river's mouth to run into (a small lake's body).
+ * Courses for a whole river network. A tributary (one with `joins`, or one
+ * that ends in another river's hex) is laid out after its river, so it can end
+ * on that river's drawn line, and that river widens below the confluence by
+ * the tributary's water. A river that cannot find its host ends at the hex
+ * centre, as a river that runs nowhere does. `lakeEnds` supplies points in the
+ * lakes a river flows out of or into, and the test for being in their water.
  */
 export function riverCourses(
   rivers: River[],
   size: number,
   seed: string,
-  beyond: (river: River) => Point | null = () => null,
+  lakeEnds: (river: River) => Pick<CourseEnds, 'before' | 'beyond' | 'inWater'> = () => ({}),
 ): Map<string, RiverCourse> {
   const out = new Map<string, RiverCourse>();
   const key = (col: number, row: number) => `${col},${row}`;
@@ -222,14 +279,30 @@ export function riverCourses(
     }
   }
   const byId = new Map(rivers.map((r) => [r.id, r]));
+  /** The river `r` flows into, if any: the one it names, or one running through its last hex. */
+  const hostOf = (r: River): string | null => {
+    const last = r.segments.at(-1);
+    if (!last || last.exitEdge !== null) return null;
+    if (r.joins && byId.has(r.joins) && r.joins !== r.id) return r.joins;
+    return (through.get(key(last.col, last.row)) ?? []).find((id) => id !== r.id) ?? null;
+  };
+  const tributaries = new Map<string, River[]>();
+  for (const r of rivers) {
+    const host = hostOf(r);
+    if (host) tributaries.set(host, [...(tributaries.get(host) ?? []), r]);
+  }
+  /** Length of a river and everything flowing into it, roughly, from its hex count. */
+  const upstream = (r: River, seen = new Set<string>()): number => {
+    if (seen.has(r.id)) return 0;
+    seen.add(r.id);
+    const own = r.segments.length * Math.sqrt(3) * size;
+    return own + (tributaries.get(r.id) ?? []).reduce((sum, t) => sum + upstream(t, seen), 0);
+  };
   const pending = new Set(rivers.map((r) => r.id));
   const needs = (r: River): string[] => {
     const deps: string[] = [];
-    const last = r.segments.at(-1);
-    if (last && last.exitEdge === null) {
-      const host = (through.get(key(last.col, last.row)) ?? []).find((id) => id !== r.id);
-      if (host) deps.push(host);
-    }
+    const host = hostOf(r);
+    if (host) deps.push(host);
     if (r.branchOf && byId.has(r.branchOf)) deps.push(r.branchOf);
     return deps;
   };
@@ -237,14 +310,21 @@ export function riverCourses(
     pending.delete(r.id);
     const first = r.segments[0];
     const last = r.segments.at(-1);
-    const ends: CourseEnds = { beyond: beyond(r) };
+    const ends: CourseEnds = {
+      ...lakeEnds(r),
+      inflows: (tributaries.get(r.id) ?? []).map((t) => {
+        const end = t.segments.at(-1)!;
+        return { at: hexCenter(end.col, end.row, size), run: upstream(t) };
+      }),
+    };
     if (first && first.entryEdge === null && r.branchOf) {
       const parent = out.get(r.branchOf);
       if (parent) ends.start = nearest(parent.centreline, hexCenter(first.col, first.row, size));
     }
-    if (last && last.exitEdge === null) {
-      const host = (through.get(key(last.col, last.row)) ?? []).map((id) => out.get(id)).find(Boolean);
-      if (host) ends.end = nearest(host.centreline, hexCenter(last.col, last.row, size));
+    const host = hostOf(r);
+    if (last && host) {
+      const course = out.get(host);
+      if (course) ends.end = nearest(course.centreline, hexCenter(last.col, last.row, size));
     }
     const course = riverCourse(r, size, seed, ends);
     if (course) out.set(r.id, course);

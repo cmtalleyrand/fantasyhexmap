@@ -28,7 +28,7 @@ function islandMap(): MapState {
   ];
   for (const [col, row] of land) base[hexIndex(cols, col!, row!)] = 'Land';
   base[hexIndex(cols, 3, 3)] = 'Lake';
-  base[hexIndex(cols, 7, 1)] = 'Island';
+  base[hexIndex(cols, 7, 1)] = 'Islands';
   for (let col = 0; col < cols; col++) base[hexIndex(cols, col, rows - 1)] = 'Ice';
   map.layers.base.data = base;
   map.layers.rivers.data = {
@@ -213,7 +213,7 @@ test('editing one hex leaves the decoration of distant hexes unchanged', () => {
   const style = resolveStyle({ preset: 'parchment', overrides: { water: 'flat' } });
   const before = buildScene(map, { size: 20, visible: defaultVisibility(), labels: false, style });
   const edited = structuredClone(map);
-  edited.layers.base.data![hexIndex(map.cols, 0, 0)] = 'Island';
+  edited.layers.base.data![hexIndex(map.cols, 0, 0)] = 'Islands';
   const after = buildScene(edited, { size: 20, visible: defaultVisibility(), labels: false, style });
   const islet = (scene: typeof before, c: { x: number; y: number }) =>
     scene.prims.filter((p) => p.kind === 'path' && p.fill === style.palette.island)
@@ -344,44 +344,106 @@ test('a tributary ends on its parent river and a distributary starts on it', asy
   assert.ok(onLine(courses.get('branch')!.centreline[0]!), 'the distributary leaves the main river');
 });
 
-test('the island types round-trip through the base codec and count as land', async () => {
+test('the new base types round-trip through the codec, and old island types migrate to Islands', async () => {
   const { encodeBase, decodeBase } = await import('../shared/codec.ts');
-  const { isLandLike } = await import('../shared/derive.ts');
-  const values: BaseGeo[] = ['Island', 'Coastal Island', 'Large Island', 'Small Islands'];
-  const decoded = decodeBase(encodeBase(values, 4, 1), 4, 1);
-  assert.deepEqual(decoded.data, values);
-  for (const v of values) assert.ok(isLandLike(v), `${v} carries land layers`);
+  const { isLandLike, isWater } = await import('../shared/derive.ts');
+  const { migrateLegacyIslands } = await import('../shared/islandMigration.ts');
+  const values: BaseGeo[] = ['Islands', 'Mainland and islands', 'Isthmus', 'Strait'];
+  assert.deepEqual(decodeBase(encodeBase(values, 4, 1), 4, 1).data, values);
+  for (const v of ['Islands', 'Mainland and islands', 'Isthmus'] as BaseGeo[]) assert.ok(isLandLike(v), `${v} carries land layers`);
+  assert.ok(isWater('Strait') && !isLandLike('Strait'));
+  // The retired codec characters still read, as Islands.
+  assert.deepEqual(decodeBase(['ab'], 2, 1).data, ['Islands', 'Islands']);
+  // A saved map with the four old types, one with a stored side.
+  const map = createMapState('Old', 4, 1);
+  map.layers.base.data = ['Island', 'Coastal Island', 'Large Island', 'Small Islands'] as unknown as BaseGeo[];
+  map.islandSides = { '1': 4 };
+  const migrated = migrateLegacyIslands(map);
+  assert.deepEqual(migrated.layers.base.data, ['Islands', 'Islands', 'Islands', 'Islands']);
+  assert.deepEqual(migrated.islandSpecs, {
+    '0': { large: 0, small: 1 },
+    '1': { large: 1, small: 0, coastal: { large: true }, side: 4 },
+    '2': { large: 1, small: 0 },
+    '3': { large: 0, small: 3 },
+  });
+  assert.equal(migrated.islandSides, undefined);
+  assert.equal(migrateLegacyIslands(migrated), migrated, 'a current map is left alone');
 });
 
-test('each island type draws its land inside its own hex, and a coastal island faces the nearest land', async () => {
-  const { coastalIslandSide } = await import('../src/render/coast.ts');
+test('an Islands hex draws the islands its spec asks for, inside its hex, coastal ones toward land', async () => {
   const { hexCenter, pixelToOffset } = await import('../shared/hex.ts');
   const size = 20;
-  for (const kind of ['Island', 'Coastal Island', 'Large Island', 'Small Islands'] as BaseGeo[]) {
+  const specs = [
+    { large: 1, small: 0 },
+    { large: 2, small: 0 },
+    { large: 0, small: 5 },
+    { large: 1, small: 3 },
+    { large: 2, small: 2, coastal: { large: true } },
+    { large: 0, small: 4, coastal: { small: true } },
+  ];
+  for (const spec of specs) {
     const map = createMapState('Islands', 3, 3);
-    map.layers.base.data = ['Land', 'Sea', 'Sea', 'Land', kind, 'Sea', 'Sea', 'Sea', 'Sea'];
+    map.layers.base.data = ['Land', 'Sea', 'Sea', 'Land', 'Islands', 'Sea', 'Sea', 'Sea', 'Sea'];
+    map.islandSpecs = { '4': spec };
     for (const preset of PRESET_ORDER) {
       const style = resolveStyle({ preset, overrides: {} });
       const prims = buildScene(map, { size, visible: defaultVisibility(), labels: false, style }).prims;
-      const land = prims.filter((p) => (p.kind === 'path' || p.kind === 'circle') && p.fill === style.palette.island);
-      assert.ok(land.length > 0, `${kind} (${preset}) draws land`);
-      for (const p of land) {
-        const pts = p.kind === 'circle'
-          ? [p.c]
-          : (p as { d: PathCmd[] }).d.filter((c) => c[0] !== 'Z').map((c) => ({ x: c.at(-2) as number, y: c.at(-1) as number }));
-        for (const q of pts) {
-          const { col, row } = pixelToOffset(q.x, q.y, size);
-          assert.deepEqual([col, row], [1, 1], `${kind} (${preset}) stays in its hex`);
-        }
+      const land = prims.filter((p): p is Extract<Prim, { kind: 'path' }> => p.kind === 'path' && p.fill === style.palette.island);
+      assert.equal(land.length, 1, `${JSON.stringify(spec)} (${preset}) draws its islands as one shape`);
+      const subpaths = land[0]!.d.filter((c) => c[0] === 'M').length;
+      assert.equal(subpaths, spec.large + spec.small, `${JSON.stringify(spec)} (${preset}) island count`);
+      const pts = land[0]!.d.filter((c) => c[0] !== 'Z').map((c) => ({ x: c.at(-2) as number, y: c.at(-1) as number }));
+      for (const q of pts) {
+        const { col, row } = pixelToOffset(q.x, q.y, size);
+        assert.deepEqual([col, row], [1, 1], `${JSON.stringify(spec)} (${preset}) stays in its hex`);
+      }
+      if (spec.coastal) {
+        // The land lies west; a coastal group's islands sit on the west side of the hex.
+        const c = hexCenter(1, 1, size);
+        const mean = pts.reduce((sum, q) => sum + q.x, 0) / pts.length;
+        assert.ok(mean < c.x, `${JSON.stringify(spec)} (${preset}) lies toward the land`);
       }
     }
   }
-  // Hex (1,1) sits on an odd row; its land neighbours are west (0,1) and north-west (1,0)... here only (0,0) and (0,1).
-  const base: BaseGeo[] = ['Land', 'Sea', 'Sea', 'Land', 'Coastal Island', 'Sea', 'Sea', 'Sea', 'Sea'];
-  const side = coastalIslandSide(base, 3, 3, 4);
-  const c = hexCenter(1, 1, 1);
-  const towards = Math.atan2(hexCenter(0, 1, 1).y - c.y, hexCenter(0, 1, 1).x - c.x);
-  assert.ok(Math.abs(((side * Math.PI) / 3 - towards + 3 * Math.PI) % (2 * Math.PI) - Math.PI) <= Math.PI / 3 + 1e-9);
+});
+
+test('an isthmus is a neck of land, a strait a channel of water, and a mainland coast keeps its islands offshore', async () => {
+  const { surfaceMap, surfaceEdges, CORE } = await import('../src/render/coast.ts');
+  const { hexCenter } = await import('../shared/hex.ts');
+  const size = 20;
+  // West-east: land, the split hex, land (or sea), with sea (or land) north and south.
+  const row = (top: BaseGeo, middle: BaseGeo[], bottom: BaseGeo): BaseGeo[] => [top, top, top, ...middle, bottom, bottom, bottom];
+  const isthmus = surfaceMap(row('Sea', ['Land', 'Isthmus', 'Land'], 'Sea'), 3, 3);
+  const neck = isthmus.split.get(4)!;
+  assert.ok(neck.sides.slice(0, 6).every((s) => s === 'land'), 'the centre of an isthmus is land');
+  assert.equal(neck.sides[6], 'land', 'it reaches the land to the east');
+  assert.equal(neck.sides[9], 'land', 'and to the west');
+  assert.ok(neck.sides.slice(6).filter((s) => s === 'sea').length >= 2, 'with sea on its other sides');
+  // The coast runs through the hex, within the inner corners' reach of its centre.
+  const c = hexCenter(1, 1, size);
+  const inner = surfaceEdges(isthmus, size, (s) => s === 'land').filter((e) => Math.hypot(e.from.x - c.x, e.from.y - c.y) < size * CORE + 1e-6);
+  assert.ok(inner.length > 0, 'the coast passes inside the isthmus hex');
+
+  const strait = surfaceMap(row('Land', ['Sea', 'Strait', 'Sea'], 'Land'), 3, 3);
+  const channel = strait.split.get(4)!;
+  assert.ok(channel.sides.slice(0, 6).every((s) => s === 'sea'), 'the centre of a strait is water');
+  assert.equal(channel.sides[6], 'sea');
+  assert.equal(channel.sides[9], 'sea');
+  // Banks take the colours of the land they face.
+  channel.sides.forEach((side, p) => {
+    if (side === 'land') assert.notEqual(channel.donors[p], 4, 'a bank borrows its neighbour');
+  });
+
+  // A mainland coast with islands: land to the west, sea elsewhere.
+  const map = createMapState('Coast', 3, 3);
+  map.layers.base.data = ['Sea', 'Sea', 'Sea', 'Land', 'Mainland and islands', 'Sea', 'Sea', 'Sea', 'Sea'];
+  map.islandSpecs = { '4': { large: 1, small: 2 } };
+  const style = resolveStyle({ preset: 'parchment', overrides: {} });
+  const prims = buildScene(map, { size, visible: defaultVisibility(), labels: false, style }).prims;
+  const isles = prims.filter((p): p is Extract<Prim, { kind: 'path' }> => p.kind === 'path' && p.fill === style.palette.island);
+  const pts = isles[0]!.d.filter((q) => q[0] === 'M').map((q) => ({ x: q[1] as number, y: q[2] as number }));
+  assert.equal(pts.length, 3);
+  for (const q of pts) assert.ok(q.x > c.x - size * 0.2, 'the islands lie off the mainland, in the water');
 });
 
 test('a city is drawn at its site: centre, river, or toward its chosen coast', async () => {
@@ -596,7 +658,7 @@ test('realms can be filled, washed along their borders, or outlined, and islet h
   const rows = 3;
   const map = createMapState('Modes', cols, rows);
   const base: BaseGeo[] = Array(cols * rows).fill('Land');
-  base[5] = 'Island';
+  base[5] = 'Islands';
   map.layers.base.data = base;
   map.layers.polities.data = {
     polities: [{ id: 'a', name: 'Avel', colour: '#aa3333' }, { id: 'b', name: 'Brin', colour: '#3355aa' }],
@@ -640,8 +702,11 @@ test('every preset names in its own ink, and dark styles stay legible', () => {
     const prims = buildScene(map, { size: 20, visible, labels: true, style }).prims;
     const name = prims.find((p): p is Extract<Prim, { kind: 'text' }> => p.kind === 'text' && p.text === 'Harrow');
     assert.equal(name?.fill, style.palette.label, `${preset}: city name ink`);
-    const marker = prims.find((p): p is Extract<Prim, { kind: 'city' }> => p.kind === 'city');
-    assert.equal(marker?.fill, style.palette.cityFill, `${preset}: marker colour`);
+    // The marker is in the preset's city ink, whichever marker set it uses.
+    const marker = prims.find((p) =>
+      (p.kind === 'city' || p.kind === 'circle' || p.kind === 'path') && 'fill' in p && p.fill === style.palette.cityFill,
+    );
+    assert.ok(marker, `${preset}: marker colour`);
   }
   // On the dark preset the names are light.
   const night = resolveStyle({ preset: 'night', overrides: {} }).palette;
@@ -684,42 +749,62 @@ test('a river city on the coast stands where its river meets the shore', async (
   assert.equal(resolvedSite({ ...city, site: { coast: 0 } }).kind, 'coast', 'coast alone still leaves the river');
 });
 
-test('an island in a lake sits on lake water, and a lake inside one realm is drawn as part of it', () => {
+test('a lake is treated as sea by realms: its shore carries the band and no realm colour reaches its water', () => {
   const cols = 7;
   const rows = 5;
   const map = createMapState('Lake realm', cols, rows);
   const base: BaseGeo[] = Array(cols * rows).fill('Land');
-  // A three-hex lake with an islet in it, all inside one realm.
+  // A three-hex lake with an islet in it, all inside one realm, which also claims the lake.
   for (const i of [2 * cols + 2, 2 * cols + 4, 1 * cols + 3]) base[i] = 'Lake';
-  base[2 * cols + 3] = 'Island';
+  base[2 * cols + 3] = 'Islands';
   map.layers.base.data = base;
   map.layers.polities.data = {
     polities: [{ id: 'r', name: 'Realm', colour: '#aa3333' }],
-    owner: base.map((v) => (v === 'Land' ? 'r' : null)),
+    owner: base.map(() => 'r'),
   };
   const visible = defaultVisibility();
   visible.polities = true;
-  const style = resolveStyle({ preset: 'parchment', overrides: {} });
-  const prims = buildScene(map, { size: 20, visible, labels: false, style }).prims;
-  assert.ok(!prims.some((p) => p.kind === 'polygon' && p.fill === style.palette.sea), 'no sea under the lake islet');
-  assert.equal(prims.filter((p) => p.kind === 'path' && p.fill === style.palette.lake).length, 1, 'one lake body');
-  // The realm's border band runs round the realm's outside only: no band loop round the lake.
-  const bands = prims.filter((p): p is Extract<Prim, { kind: 'group' }> => p.kind === 'group' && p.prims.length === 1);
-  const lakeCentre = { x: 20 * Math.sqrt(3) * 3 + 20 * Math.sqrt(3) / 2, y: 20 * 1.5 * 2 + 20 };
-  for (const g of bands) {
-    const pts = (g.prims[0] as { d: PathCmd[] }).d.filter((c) => c[0] !== 'Z').map((c) => ({ x: c[1] as number, y: c[2] as number }));
-    assert.ok(!pts.some((q) => Math.hypot(q.x - lakeCentre.x, q.y - lakeCentre.y) < 20 * 1.2), 'a border band rings the lake');
+  for (const polityStyle of ['wash', 'fill'] as const) {
+    const style = resolveStyle({ preset: 'parchment', overrides: { polityStyle } });
+    const prims = buildScene(map, { size: 20, visible, labels: false, style }).prims;
+    assert.ok(!prims.some((p) => p.kind === 'polygon' && p.fill === style.palette.sea), 'no sea under the lake islet');
+    const bodies = prims.filter((p): p is Extract<Prim, { kind: 'path' }> => p.kind === 'path' && p.fill === style.palette.lake);
+    assert.equal(bodies.length, 1, 'one lake body');
+    const body = bodies[0]!.d;
+    const bodyIndex = prims.indexOf(bodies[0]!);
+    // No realm-coloured hex or sector is painted over the lake body (its islet is land, and may be).
+    prims.slice(bodyIndex + 1).forEach((p) => {
+      if (p.kind === 'polygon') assert.ok(!String(p.fill).includes('170, 51, 51') && p.fill !== '#aa3333', 'realm colour over the lake');
+    });
+    if (polityStyle === 'wash') {
+      // The band strokes the drawn shore, inside a mask that cuts the lake out.
+      const masks = prims.flatMap((p) => (p.kind === 'group' ? p.prims : [])).filter((p): p is Extract<Prim, { kind: 'group' }> => p.kind === 'group' && p.clipRule === 'evenodd');
+      assert.equal(masks.length, 1);
+      const stroke = masks[0]!.prims[0] as Extract<Prim, { kind: 'path' }>;
+      assert.ok(JSON.stringify(stroke.d).includes(JSON.stringify(body[0])), 'the band follows the lake shore');
+      assert.ok(JSON.stringify(masks[0]!.clip).includes(JSON.stringify(body[0])), 'the lake is cut out of the band');
+    }
   }
 });
 
-test('small islands are two or three islets, spread apart', () => {
-  const map = createMapState('Isles', 3, 3);
-  map.layers.base.data = ['Sea', 'Sea', 'Sea', 'Sea', 'Small Islands', 'Sea', 'Sea', 'Sea', 'Sea'];
-  const style = resolveStyle({ preset: 'parchment', overrides: {} });
-  const isles = buildScene(map, { size: 20, visible: defaultVisibility(), labels: false, style }).prims
-    .filter((p): p is Extract<Prim, { kind: 'path' }> => p.kind === 'path' && p.fill === style.palette.island);
-  const count = isles[0]!.d.filter((c) => c[0] === 'M').length;
-  assert.ok(count >= 2 && count <= 3, `${count} islets`);
+test('the land a lake hex leaves uncovered takes the colour of the realm it faces', () => {
+  const cols = 6;
+  const rows = 4;
+  const map = createMapState('Shared lake', cols, rows);
+  const base: BaseGeo[] = Array(cols * rows).fill('Land');
+  base[1 * cols + 2] = 'Lake';
+  map.layers.base.data = base;
+  map.layers.polities.data = {
+    polities: [{ id: 'w', name: 'West', colour: '#aa3333' }, { id: 'e', name: 'East', colour: '#3333aa' }],
+    owner: base.map((v, i) => (v === 'Lake' ? 'w' : i % cols <= 2 ? 'w' : 'e')),
+  };
+  const visible = defaultVisibility();
+  visible.polities = true;
+  const style = resolveStyle({ preset: 'classic', overrides: {} });
+  const prims = buildScene(map, { size: 20, visible, labels: false, style }).prims;
+  const triangles = prims.filter((p): p is Extract<Prim, { kind: 'polygon' }> => p.kind === 'polygon' && p.points.length === 3);
+  const fills = new Set(triangles.map((t) => t.fill));
+  assert.ok(fills.has('#aa3333') && fills.has('#3333aa'), 'sectors facing each realm take its colour');
 });
 
 test('automatic colours contrast neighbouring realms and shade each realm’s parts from it', async () => {
@@ -828,7 +913,9 @@ test('every bundled pairing has a real face for each kind of name', async () => 
   }
   assert.deepEqual(letteringFaces('classic'), []);
   assert.equal(parseStyleChoice({ preset: 'parchment', overrides: { lettering: 'comic' } }).overrides.lettering, undefined);
-  assert.equal(resolveStyle({ preset: 'atlas', overrides: {} }).knobs.lettering, 'atlas');
+  assert.equal(resolveStyle({ preset: 'atlas', overrides: {} }).knobs.lettering, 'chancery');
+  // The retired Alegreya pairing falls back to the preset's own.
+  assert.equal(parseStyleChoice({ preset: 'atlas', overrides: { lettering: 'atlas' } }).overrides.lettering, undefined);
 });
 
 test('an SVG carries the font rules it is given, and measurements can be thrown away', async () => {
@@ -851,4 +938,137 @@ test('a river name moves along its river to keep clear of a realm name', async (
   const realm = { cx: 200, cy: 95, halfW: 70, halfH: 12, rotation: 0 };
   const moved = placeRiverLabels([river], 20, () => line, undefined, [realm])[0]!;
   for (const g of moved.glyphs!) assert.ok(Math.abs(g.x - 200) > 70, `glyph ${g.ch} clears the realm name`);
+});
+
+/** A 9x5 land map with a lake at (1,2) and sea down the east edge, for the river-network tests. */
+function riverNetworkMap(): MapState {
+  const cols = 9;
+  const rows = 5;
+  const map = createMapState('Rivers', cols, rows);
+  const base: BaseGeo[] = Array(cols * rows).fill('Land');
+  base[hexIndex(cols, 1, 2)] = 'Lake';
+  for (let row = 0; row < rows; row++) base[hexIndex(cols, 8, row)] = 'Sea';
+  map.layers.base.data = base;
+  return map;
+}
+
+/** A path from `start` stepping across the given edges. */
+function stepPath(start: { col: number; row: number }, edges: number[]) {
+  const path = [start];
+  for (const e of edges) path.push(neighbourOf(path.at(-1)!.col, path.at(-1)!.row, e));
+  return path;
+}
+
+test('a river can flow out of a lake, and a tributary ends on the river it joins', async () => {
+  const { buildRiverFromPath, validateRivers } = await import('../shared/validate.ts');
+  const map = riverNetworkMap();
+  const base = map.layers.base.data!;
+  const warnings: string[] = [];
+  // East from the lake to the sea.
+  const trunk = buildRiverFromPath({ name: 'Trunk', path: stepPath({ col: 1, row: 2 }, [0, 0, 0, 0, 0, 0, 0]) }, 't', base, null, 9, 5, warnings)!;
+  assert.equal(trunk.fromLake, true);
+  assert.equal(trunk.segments[0]!.col, 2, 'the lake hex is not a segment');
+  assert.equal(trunk.segments[0]!.entryEdge, 3, 'it enters from the lake');
+  assert.equal(trunk.terminus, 'Sea');
+  // From the north, down onto the trunk at (4,2).
+  const tribPath = [{ col: 4, row: 0 }, { col: 4, row: 1 }, { col: 4, row: 2 }];
+  const trib = buildRiverFromPath({ name: 'Trib', path: tribPath, joins: 't' }, 'b', base, null, 9, 5, warnings, [trunk])!;
+  assert.equal(trib.terminus, 'River');
+  assert.equal(trib.joins, 't');
+  assert.equal(trib.segments.at(-1)!.exitEdge, null);
+  // Validation keeps a sound link and cuts one that no longer reaches its river.
+  assert.equal(validateRivers([trunk, trib], base, 9, 5).data[1]!.joins, 't');
+  const moved = { ...trunk, segments: trunk.segments.filter((s) => s.col !== 4) };
+  const checked = validateRivers([moved, trib], base, 9, 5).data[1]!;
+  assert.equal(checked.joins, undefined);
+  assert.equal(checked.terminus, 'Unresolved');
+});
+
+test('editing keeps a lake source and can run a river into a lake upstream or into another river', async () => {
+  const { buildRiverFromPath } = await import('../shared/validate.ts');
+  const { extendRiver, moveRiverSegment, detachOrphanBranches } = await import('../shared/riverEdit.ts');
+  const map = riverNetworkMap();
+  const base = map.layers.base.data!;
+  const trunk = buildRiverFromPath({ name: 'Trunk', path: stepPath({ col: 1, row: 2 }, [0, 0, 0, 0, 0, 0, 0]) }, 't', base, null, 9, 5, [])!;
+  // Moving a middle hex keeps the lake source, and the edges either side of it.
+  const moved = moveRiverSegment(trunk, 3, { col: 5, row: 1 }, base, null, 9, 5, []);
+  assert.ok(!('error' in moved), 'error' in moved ? moved.error : '');
+  assert.equal(moved.river.fromLake, true);
+  assert.equal(moved.river.segments[0]!.col, 2);
+  // A short river from (3,0) east; extend its source back west into... land, then a tributary by extension.
+  const short = buildRiverFromPath({ name: 'Short', path: [{ col: 2, row: 0 }, { col: 3, row: 0 }] }, 's', base, null, 9, 5, [])!;
+  const joined = extendRiver(short, { col: 3, row: 2 }, base, null, 9, 5, [trunk]);
+  assert.ok(!('error' in joined));
+  assert.equal(joined.river.joins, 't');
+  assert.equal(joined.river.terminus, 'River');
+  // Up into the lake: the river then flows out of it.
+  const fromShore = buildRiverFromPath({ name: 'Shore', path: [{ col: 2, row: 1 }, { col: 3, row: 1 }] }, 'u', base, null, 9, 5, [])!;
+  const intoLake = extendRiver(fromShore, { col: 1, row: 2 }, base, null, 9, 5, []);
+  assert.ok(!('error' in intoLake));
+  assert.equal(intoLake.river.fromLake, true);
+  // A tributary whose river is gone ends inland.
+  const [orphan] = detachOrphanBranches([joined.river]);
+  assert.equal(orphan!.joins, undefined);
+  assert.equal(orphan!.terminus, 'Unresolved');
+});
+
+test('rivers start and stop on a lake’s drawn shore, and a river widens below a confluence', async () => {
+  const { buildRiverFromPath } = await import('../shared/validate.ts');
+  const map = riverNetworkMap();
+  const base = map.layers.base.data!;
+  base[hexIndex(9, 6, 0)] = 'Lake';
+  const trunk = buildRiverFromPath({ name: 'Trunk', path: stepPath({ col: 1, row: 2 }, [0, 0, 0, 0, 0, 0, 0]) }, 't', base, null, 9, 5, [])!;
+  const trib = buildRiverFromPath({ name: 'Trib', path: [{ col: 4, row: 0 }, { col: 4, row: 1 }, { col: 4, row: 2 }] }, 'b', base, null, 9, 5, [], [trunk])!;
+  const intoLake = buildRiverFromPath({ name: 'Mere', path: [{ col: 3, row: 4 }, { col: 4, row: 4 }, { col: 5, row: 4 }, { col: 5, row: 3 }, { col: 6, row: 2 }, { col: 6, row: 1 }, { col: 6, row: 0 }] }, 'm', base, null, 9, 5, [])!;
+  assert.equal(intoLake.terminus, 'Lake');
+  map.layers.rivers.data = { rivers: [trunk, trib, intoLake] };
+  const visible = defaultVisibility();
+  visible.rivers = true;
+  const style = resolveStyle({ preset: 'parchment', overrides: {} });
+  const scene = buildScene(map, { size: 20, visible, labels: false, style });
+  const lakeBodies = scene.prims.filter((p): p is Extract<Prim, { kind: 'path' }> => p.kind === 'path' && p.fill === style.palette.lake);
+  const rings = lakeBodies.map((b) => b.d.filter((c) => c[0] !== 'Z').map((c) => ({ x: c[1] as number, y: c[2] as number })));
+  const distToShore = (p: { x: number; y: number }) => Math.min(...rings.flatMap((ring) => ring.map((q) => Math.hypot(q.x - p.x, q.y - p.y))));
+  const rivers = scene.prims.filter((p): p is Extract<Prim, { kind: 'path' }> => p.kind === 'path' && p.fill === style.palette.river);
+  assert.equal(rivers.length, 3);
+  // Each outline's ends: the trunk's first points and the mere's last lie on a shore (within a sample step).
+  const outlineEnds = (d: PathCmd[]) => {
+    const pts = d.filter((c) => c[0] !== 'Z').map((c) => ({ x: c[1] as number, y: c[2] as number }));
+    const half = pts.length / 2;
+    const mid = (a: { x: number; y: number }, b: { x: number; y: number }) => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
+    return { start: mid(pts[0]!, pts[pts.length - 1]!), end: mid(pts[half - 1]!, pts[half]!) };
+  };
+  const [trunkPrim, , merePrim] = rivers;
+  assert.ok(distToShore(outlineEnds(trunkPrim!.d).start) < 20 * 0.12, 'the trunk starts on the lake shore');
+  assert.ok(distToShore(outlineEnds(merePrim!.d).end) < 20 * 0.12, 'the mere river ends on the lake shore');
+  // Width: compare the trunk just above and below the confluence at (4,2).
+  const { riverCourse } = await import('../src/render/rivers.ts');
+  const plain = riverCourse(trunk, 20, map.id)!;
+  const fed = riverCourse(trunk, 20, map.id, { inflows: [{ at: { x: 4.5 * 20 * Math.sqrt(3), y: 20 + 2 * 30 }, run: 10 * 20 }] })!;
+  assert.ok(fed.widths.at(-10)! > plain.widths.at(-10)!, 'wider below the confluence');
+  assert.equal(fed.widths[2], plain.widths[2], 'unchanged above it');
+});
+
+test('city markers come in three sets, each drawing every size of place', async () => {
+  const map = islandMap();
+  const sizes = [5_000, 30_000, 120_000, 600_000];
+  map.layers.cities.data = {
+    cities: sizes.map((population, k) => ({ id: `c${k}`, col: 2 + (k % 3), row: 1 + Math.floor(k / 3) * 2, name: `C${k}`, population, onRiver: false, riverId: null, coastal: false, coastalEdges: [] })),
+  };
+  const visible = { ...allLayers(), cities: true };
+  for (const cityMarkers of ['symbols', 'classic', 'illustrated'] as const) {
+    const style = resolveStyle({ preset: 'parchment', overrides: { cityMarkers } });
+    const prims = buildScene(map, { size: 20, visible, labels: false, style }).prims;
+    if (cityMarkers === 'symbols') {
+      assert.equal(prims.filter((p) => p.kind === 'city').length, sizes.length);
+    } else {
+      assert.equal(prims.filter((p) => p.kind === 'city').length, 0);
+      const ink = prims.filter((p) => (p.kind === 'circle' || p.kind === 'path') && p.fill === style.palette.cityFill);
+      assert.ok(ink.length >= sizes.length, `${cityMarkers}: every place has a marker`);
+    }
+    // The SVG of each set is well formed.
+    assert.ok(sceneToSvg({ width: 100, height: 100, background: '#fff', prims }, 'x').startsWith('<'));
+  }
+  assert.equal(resolveStyle({ preset: 'parchment', overrides: {} }).knobs.cityMarkers, 'illustrated');
+  assert.equal(resolveStyle({ preset: 'classic', overrides: {} }).knobs.cityMarkers, 'symbols');
 });

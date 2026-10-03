@@ -15,14 +15,15 @@ import type {
   River,
 } from './types.js';
 
-export const WATER: BaseGeo[] = ['Sea', 'Lake'];
+/** Open water: a river empties into it, a city beside it is on the coast. A strait is a channel of it. */
+export const WATER: BaseGeo[] = ['Sea', 'Lake', 'Strait'];
 
 export function isWater(v: BaseGeo | undefined): boolean {
-  return v === 'Sea' || v === 'Lake';
+  return v === 'Sea' || v === 'Lake' || v === 'Strait';
 }
 
 export function isLandLike(v: BaseGeo | undefined): boolean {
-  return v === 'Land' || v === 'Coastal Land' || isIslandType(v);
+  return v === 'Land' || v === 'Coastal Land' || v === 'Isthmus' || isIslandType(v);
 }
 
 /**

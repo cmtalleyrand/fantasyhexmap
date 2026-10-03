@@ -167,10 +167,10 @@ test('polity type size grows with territory area: slowly by default, to fill whe
     return label.size;
   };
 
-  // Moderate (the default): type grows with the fourth root of the area, so
-  // sixteen times the hexes gives type twice the size.
-  assert.ok(Math.abs(sizeFor(8, 8) / sizeFor(2, 2) - 2) < 1e-9);
-  assert.ok(Math.abs(sizeFor(4, 4) / sizeFor(2, 2) - Math.SQRT2) < 1e-9);
+  // Moderate (the default): type grows with the cube root of the area, so
+  // eight times the hexes gives type twice the size.
+  assert.ok(Math.abs(sizeFor(8, 8) / sizeFor(2, 2) - Math.cbrt(16)) < 1e-9);
+  assert.ok(Math.abs(sizeFor(4, 4) / sizeFor(2, 2) - Math.cbrt(4)) < 1e-9);
   // Filling: type grows with the square root of the area, as it used to.
   assert.ok(Math.abs(sizeFor(4, 4, 'fill') / sizeFor(2, 2, 'fill') - 2) < 1e-9);
 });

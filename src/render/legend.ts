@@ -10,6 +10,7 @@
  * legends and neither back end needs to know a legend exists.
  */
 
+import { cityMarker, type CityMarkerSet } from './cityMarkers.js';
 import { fantasyTextEm } from './fonts.js';
 import {
   BASE_COLOURS,
@@ -62,10 +63,10 @@ export const DEFAULT_LEGEND_OPTIONS: LegendOptions = {
 
 export type LegendSwatch =
   | { kind: 'fill'; colour: string }
-  | { kind: 'island'; sea: string; land: string; variant: 'one' | 'coastal' | 'large' | 'small' }
+  | { kind: 'island'; sea: string; land: string; variant: 'islands' | 'mainland' | 'isthmus' | 'strait' }
   | { kind: 'line'; colour: string; width: number }
   | { kind: 'coast' }
-  | { kind: 'city'; symbol: CitySymbol; onRiver: boolean }
+  | { kind: 'city'; symbol: CitySymbol; onRiver: boolean; set?: CityMarkerSet; ink?: string; paper?: string }
   | { kind: 'contour'; marks: number; flat: boolean }
   | { kind: 'ramp' };
 
@@ -153,13 +154,13 @@ export function legendSections(
     switch (id) {
       case 'base':
         entries = keep(BASE_GEO_VALUES, usedValues(map.layers.base.data)).map((v) =>
-          isIslandType(v)
+          isIslandType(v) || v === 'Isthmus' || v === 'Strait'
             ? {
                 swatch: {
                   kind: 'island',
                   sea: palette.sea,
                   land: style.knobs.land === 'uniform' ? palette.land : palette.island,
-                  variant: v === 'Coastal Island' ? 'coastal' : v === 'Large Island' ? 'large' : v === 'Small Islands' ? 'small' : 'one',
+                  variant: v === 'Mainland and islands' ? 'mainland' : v === 'Isthmus' ? 'isthmus' : v === 'Strait' ? 'strait' : 'islands',
                 },
                 label: v,
               }
@@ -221,10 +222,14 @@ export function legendSections(
         const used = new Set(cities.map((c) => symbolForPopulation(c.population)));
         for (const { symbol, label } of CITY_ENTRIES) {
           if (!options.onlyUsed || used.has(symbol)) {
-            entries.push({ swatch: { kind: 'city', symbol, onRiver: false }, label });
+            entries.push({
+              swatch: { kind: 'city', symbol, onRiver: false, set: style.knobs.cityMarkers, ink: style.palette.cityFill, paper: style.palette.cityRing },
+              label,
+            });
           }
         }
-        if (!options.onlyUsed || cities.some((c) => c.onRiver)) {
+        // Only the symbols set marks river cities with a blue centre.
+        if (style.knobs.cityMarkers === 'symbols' && (!options.onlyUsed || cities.some((c) => c.onRiver))) {
           entries.push({ swatch: { kind: 'city', symbol: 'village', onRiver: true }, label: 'Blue centre: on a river' });
         }
         if (style.knobs.cityCoastMarks && (!options.onlyUsed || cities.some((c) => c.coastalEdges.length > 0))) {
@@ -237,7 +242,7 @@ export function legendSections(
         const base = map.layers.base.data;
         const dimensions = normaliseHexDimensions(map.hexDimensions);
         const areas = options.polityAreas && data && base
-          ? politySurfaceAreas(base, data, dimensions)
+          ? politySurfaceAreas(base, data, dimensions, map.islandSpecs)
           : null;
         const owned = usedValues(data?.owner);
         const all = data?.polities ?? [];
@@ -324,15 +329,22 @@ function swatchPrims(swatch: LegendSwatch, x: number, cy: number, m: ReturnType<
     case 'island':
     {
       const dot = (x0: number, y0: number, r: number): Prim => ({ kind: 'circle', c: { x: x0, y: y0 }, r, fill: swatch.land });
+      // A band across the swatch, as a polygon from x0 to x1 (full height) or y0 to y1 (full width).
+      const band = (fill: string, x0: number, x1: number, y0: number, y1: number): Prim => ({
+        kind: 'polygon',
+        points: [{ x: x0, y: y0 }, { x: x1, y: y0 }, { x: x1, y: y1 }, { x: x0, y: y1 }],
+        fill,
+      });
+      const top = cy - h / 2;
       switch (swatch.variant) {
-        case 'coastal':
-          return [box(swatch.sea), dot(x + w - 5 * k, cy, 4 * k)];
-        case 'large':
-          return [box(swatch.sea), dot(cx, cy, 6.2 * k)];
-        case 'small':
-          return [box(swatch.sea), dot(cx - 5 * k, cy - 2 * k, 2.3 * k), dot(cx + 4 * k, cy - 3 * k, 2 * k), dot(cx + 1 * k, cy + 3.5 * k, 2.4 * k)];
+        case 'mainland':
+          return [box(swatch.sea), band(swatch.land, x, x + w * 0.4, top, top + h), dot(cx + 3 * k, cy - 2.5 * k, 2.2 * k), dot(cx + 6.5 * k, cy + 3 * k, 2 * k)];
+        case 'isthmus':
+          return [box(swatch.sea), band(swatch.land, x, x + w, cy - 2.4 * k, cy + 2.4 * k)];
+        case 'strait':
+          return [box(swatch.land), band(swatch.sea, x, x + w, cy - 2.4 * k, cy + 2.4 * k)];
         default:
-          return [box(swatch.sea), dot(cx, cy, 4.6 * k)];
+          return [box(swatch.sea), dot(cx - 2 * k, cy, 4.6 * k), dot(cx + 6 * k, cy - 3 * k, 1.8 * k)];
       }
     }
     case 'line':
@@ -352,6 +364,13 @@ function swatchPrims(swatch: LegendSwatch, x: number, cy: number, m: ReturnType<
         dash: [4 * k, 3 * k],
       }];
     case 'city':
+      if (swatch.set && swatch.set !== 'symbols') {
+        return cityMarker(swatch.set, swatch.symbol, { x: cx, y: cy + (swatch.set === 'illustrated' ? 2 * k : 0) }, 8 * k, {
+          ink: swatch.ink ?? MAP_COLOURS.city,
+          paper: swatch.paper ?? MAP_COLOURS.cityRing,
+          river: MAP_COLOURS.river,
+        }, () => 0.5);
+      }
       return [{ kind: 'city', c: { x: cx, y: cy }, r: 8 * k, onRiver: swatch.onRiver, symbol: swatch.symbol }];
     case 'contour': {
       const prims: Prim[] = [box(ELEVATION_COLOURS.Rolling)];

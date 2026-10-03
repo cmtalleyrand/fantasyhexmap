@@ -6,12 +6,14 @@ import { reducer } from '../src/state/store.ts';
 
 test('polity surface area weights coast and island land shares', () => {
   const areas = politySurfaceAreas(
-    ['Land', 'Coastal Land', 'Island', 'Sea'],
+    ['Land', 'Coastal Land', 'Islands', 'Sea'],
     {
       polities: [{ id: 'realm', name: 'Realm', colour: '#123456' }],
       owner: ['realm', 'realm', 'realm', 'realm'],
     },
     { width: 10, height: 8, unit: 'km', coastalLandPercent: 60, islandLandPercent: 40 },
+    // One small islet, as the old single Island was.
+    { '2': { large: 0, small: 1 } },
   );
 
   // Each hex is 60 km²; weighted land is 1 + 0.6 + 0.4 hexes. Sea contributes zero.

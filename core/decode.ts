@@ -281,20 +281,41 @@ export function decodeLayer(
     case 'rivers': {
       const r = parsed as RiversResponse;
       notes = r.notes;
-      const built: River[] = [];
-      r.rivers.forEach((input, i) => {
-        const id = reuseIdByName(existing?.rivers, input.name) ?? stableId('riv', input.name, i);
-        const river = buildRiverFromPath(
-          { name: input.name, path: input.path, navigable: input.navigable },
-          id,
-          ctx.base!,
-          ctx.elevation,
-          cols,
-          rows,
-          warnings,
-        );
-        if (river) built.push(river);
-      });
+      const ids = r.rivers.map((input, i) => reuseIdByName(existing?.rivers, input.name) ?? stableId('riv', input.name, i));
+      const idByName = new Map(r.rivers.map((input, i) => [input.name.trim().toLowerCase(), ids[i]!]));
+      const named = (name: string | undefined, of: string, link: string): string | undefined => {
+        if (!name?.trim()) return undefined;
+        const id = idByName.get(name.trim().toLowerCase());
+        if (!id) warnings.push(`River "${of}" ${link} an unknown river "${name}".`);
+        return id;
+      };
+      const build = (others: River[], quiet: boolean): River[] => {
+        const out: River[] = [];
+        r.rivers.forEach((input, i) => {
+          const river = buildRiverFromPath(
+            {
+              name: input.name,
+              path: input.path,
+              navigable: input.navigable,
+              joins: quiet ? undefined : named(input.joins, input.name, 'joins'),
+            },
+            ids[i]!,
+            ctx.base!,
+            ctx.elevation,
+            cols,
+            rows,
+            quiet ? [] : warnings,
+            others,
+          );
+          if (!river) return;
+          const branchOf = quiet ? undefined : named(input.branchOf, input.name, 'is a branch of');
+          out.push(branchOf && branchOf !== river.id ? { ...river, branchOf } : river);
+        });
+        return out;
+      };
+      // Tributaries end on their trunk's hexes, so every river's hexes are
+      // laid out once before any of them is linked to another.
+      const built = build(build([], true), false);
       const checked = validateRivers(built, ctx.base!, cols, rows);
       warnings.push(...checked.warnings);
       data = { rivers: checked.data };

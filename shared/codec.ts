@@ -40,14 +40,17 @@ export const BASE_CHARS: Record<BaseGeo, string> = {
   Sea: 'm',
   Lake: 'l',
   Ice: 'g',
-  Island: 'i',
-  'Coastal Island': 'k',
-  'Large Island': 'b',
-  'Small Islands': 'a',
+  Islands: 'i',
+  'Mainland and islands': 'k',
+  Isthmus: 'n',
+  Strait: 's',
 };
-const BASE_BY_CHAR = new Map<string, BaseGeo>(
-  BASE_GEO_VALUES.map((v) => [BASE_CHARS[v], v]),
-);
+const BASE_BY_CHAR = new Map<string, BaseGeo>([
+  // Characters of the retired island types still read, as Islands.
+  ['b', 'Islands'],
+  ['a', 'Islands'],
+  ...BASE_GEO_VALUES.map((v) => [BASE_CHARS[v], v] as [string, BaseGeo]),
+]);
 
 export const BASE_LEGEND = BASE_GEO_VALUES.map(
   (v) => `${BASE_CHARS[v]} = ${v}`,

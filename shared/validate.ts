@@ -256,6 +256,8 @@ export interface RiverPathInput {
   name: string;
   path: { col: number; row: number }[];
   navigable?: boolean[];
+  /** The id of the river this one should flow into, when its path ends on that river. */
+  joins?: string;
 }
 
 /**
@@ -273,6 +275,11 @@ export function buildRiverFromPath(
   cols: number,
   rows: number,
   warnings: string[],
+  /**
+   * The other rivers on the map. A path that ends on one of their hexes,
+   * rather than at water or the map edge, flows into that river.
+   */
+  others: River[] = [],
 ): River | null {
   const raw = input.path.filter((p) => inBounds(cols, rows, p.col, p.row));
   if (raw.length !== input.path.length) {
@@ -298,6 +305,14 @@ export function buildRiverFromPath(
     path.push(cur);
   }
 
+  // A leading lake hex is the lake the river flows out of, not a traversed hex.
+  let source: { col: number; row: number } | null = null;
+  let lead = 0;
+  while (path.length > 1 && base[hexIndex(cols, path[0]!.col, path[0]!.row)] === 'Lake') {
+    source = path.shift()!;
+    lead++;
+  }
+
   // A trailing water hex is the mouth, not a traversed hex.
   let terminus: River['terminus'] = 'Unresolved';
   let mouth: { col: number; row: number } | null = null;
@@ -311,14 +326,27 @@ export function buildRiverFromPath(
     return null;
   }
 
+  // A path that ends on another river (not at a water mouth) is a tributary
+  // of it: the one asked for, if it is there, or else the first found.
+  const end = path[path.length - 1]!;
+  const hosts = mouth
+    ? []
+    : others.filter((r) => r.id !== id && r.segments.some((s) => s.col === end.col && s.row === end.row));
+  const host = hosts.find((r) => r.id === input.joins) ?? hosts[0] ?? null;
+  if (input.joins && !host) {
+    warnings.push(`River "${input.name}" was to flow into another river, but its path does not end on it.`);
+  }
+
   const segments: RiverSegment[] = [];
   for (let i = 0; i < path.length; i++) {
     const hex = path[i]!;
-    const prev = i > 0 ? path[i - 1]! : null;
+    const prev = i > 0 ? path[i - 1]! : source;
     const next = i + 1 < path.length ? path[i + 1]! : null;
     const entryEdge = prev ? edgeBetween(hex, prev) : null;
     let exitEdge = next ? edgeBetween(hex, next) : null;
-    if (exitEdge === null) {
+    if (exitEdge === null && host) {
+      terminus = 'River';
+    } else if (exitEdge === null) {
       // Last land hex: leave through the mouth, or over the map edge.
       if (mouth) exitEdge = edgeBetween(hex, mouth);
       if (exitEdge === null || exitEdge === -1) {
@@ -340,7 +368,7 @@ export function buildRiverFromPath(
         }
       }
     }
-    const navigable = input.navigable?.[i] ?? false;
+    const navigable = input.navigable?.[i + lead] ?? false;
     segments.push({
       col: hex.col,
       row: hex.row,
@@ -351,7 +379,14 @@ export function buildRiverFromPath(
   }
 
   if (elevation) flagUphill(input.name, segments, elevation, cols, warnings);
-  return { id, name: input.name.trim() || 'Unnamed river', segments, terminus };
+  return {
+    id,
+    name: input.name.trim() || 'Unnamed river',
+    segments,
+    terminus,
+    ...(host ? { joins: host.id } : {}),
+    ...(source ? { fromLake: true } : {}),
+  };
 }
 
 /** Flag, don't block: a segment whose next hex is higher ground. */
@@ -399,12 +434,22 @@ export function validateRivers(
     }
     out.push({ ...r, segments: segs });
   }
-  // A branch must name a river that survived; otherwise it is just a river.
+  // A branch must leave from a hex of a river that survived, and a tributary
+  // must end on one; otherwise it is just a river.
+  const onRiver = (id: string | undefined, self: string, hex: RiverSegment | undefined) => {
+    const other = out.find((p) => p.id === id);
+    return Boolean(other && id !== self && hex && other.segments.some((s) => s.col === hex.col && s.row === hex.row));
+  };
   for (let i = 0; i < out.length; i++) {
     const r = out[i]!;
-    if (r.branchOf !== undefined && (r.branchOf === r.id || !out.some((p) => p.id === r.branchOf))) {
-      const { branchOf: _gone, ...rest } = r;
+    if (r.branchOf !== undefined && !onRiver(r.branchOf, r.id, r.segments[0])) {
+      const { branchOf: _gone, ...rest } = out[i]!;
       out[i] = rest;
+    }
+    if (out[i]!.joins !== undefined && !onRiver(out[i]!.joins, r.id, r.segments.at(-1))) {
+      const { joins: _gone, ...rest } = out[i]!;
+      out[i] = { ...rest, terminus: 'Unresolved' };
+      warnings.push(`River "${r.name}" no longer ends on the river it flowed into.`);
     }
   }
   summarise(warnings, overWater, (n) => `${n} river segments run across water hexes`);
