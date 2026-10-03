@@ -2099,13 +2099,17 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
         : knobs.polityStyle === 'outline'
           ? { width: size * 0.09, alpha: 1 }
           : { width: Math.max(1.5, size * 0.16), alpha: 1 };
-    // Bands stop at the water as drawn: they are cut to the land inside the
-    // coast as it is drawn, less every lake body. (Cutting out the water
-    // pieces instead goes wrong where one lies under land the coast has since
-    // bulged over.)
-    const landMask: PathCmd[] = traced
-      ? [...drawnLand(traced.geometry, width, height, size), ...lakeOutlines]
-      : [['M', -size, -size], ['L', width + size, -size], ['L', width + size, height + size], ['L', -size, height + size], ['Z']];
+    // Bands and borders stop at the water as drawn: they are cut to the land
+    // inside the coast as it is drawn, then to everything outside the lake
+    // bodies (less the islands in them). Two clips, not one even-odd mask of
+    // both: a lake reaching past the coast would flip the sea beside it to land.
+    // (Cutting out the water pieces instead goes wrong where one lies under
+    // land the coast has since bulged over.)
+    const pageRect: PathCmd[] = [['M', -size, -size], ['L', width + size, -size], ['L', width + size, height + size], ['L', -size, height + size], ['Z']];
+    const onLand = (inner: Prim[]): Prim[] => {
+      const dry: Prim[] = lakeOutlines.length > 0 ? [{ kind: 'group', clip: [...pageRect, ...lakeOutlines], clipRule: 'evenodd', prims: inner }] : inner;
+      return traced ? [{ kind: 'group', clip: drawnLand(traced.geometry, width, height, size), clipRule: 'evenodd', prims: dry }] : dry;
+    };
     /** Where a realm's band may be painted: its hexes and the coast land it has gained. */
     const ground = (owner: string, hexes: number[]): PathCmd[] => alike([...realmGround(hexes), ...(extraLand.get(owner) ?? [])]);
     for (const owner of new Set([...bands.keys(), ...coastBands.keys(), ...shoreLakes.keys()])) {
@@ -2120,11 +2124,7 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
       prims.push({
         kind: 'group',
         clip: ground(owner, regions.get(owner) ?? []),
-        prims: [{
-          kind: 'group',
-          clip: landMask,
-          clipRule: 'evenodd',
-          prims: [
+        prims: onLand([
             // A see-through band shows the ground, which differs from hex to hex
             // (coastal land is darker), so it would change shade at every hex
             // edge it crosses: it lies on one even ground instead. Ice keeps its own.
@@ -2142,8 +2142,7 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
               strokeWidth: band.width * 2,
               round: true,
             },
-          ],
-        }],
+        ]),
       });
     }
     // A fine ink line where one realm ends and the next begins.
@@ -2151,7 +2150,7 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
       const d = chainEdges(frontier).flatMap((chain) =>
         chain.points.map((p, k) => [k === 0 ? 'M' : 'L', p.x, p.y] as PathCmd).concat(chain.closed ? [['Z'] as PathCmd] : []),
       );
-      prims.push({
+      prims.push(...onLand([{
         kind: 'path',
         d,
         stroke: palette.frontier,
@@ -2162,19 +2161,18 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
             ? [size * 0.3, size * 0.1, size * 0.04, size * 0.1]
             : undefined,
         round: true,
-      });
+      }]));
     }
-  }
-
-  if (internal.length > 0) {
-    prims.push({
-      kind: 'path',
-      d: internal,
-      stroke: palette.frontier,
-      strokeWidth: Math.max(0.8, size * 0.034 * knobs.lineWeight),
-      dash: [size * 0.16, size * 0.1],
-      round: true,
-    });
+    if (internal.length > 0) {
+      prims.push(...onLand([{
+        kind: 'path',
+        d: internal,
+        stroke: palette.frontier,
+        strokeWidth: Math.max(0.8, size * 0.034 * knobs.lineWeight),
+        dash: [size * 0.16, size * 0.1],
+        round: true,
+      }]));
+    }
   }
 
   // --- drawn relief and vegetation ----------------------------------------------------
