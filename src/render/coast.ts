@@ -589,7 +589,7 @@ const turn = (u: Point, degrees: number): Point => {
  * exactly the hex cut by its moved edges. The water each moved edge leaves in
  * its hex is returned as a strip, for the donor of the water across.
  */
-function insetChain(chain: CoastChain, inset: CoastInset, strips: Sliver[]): CoastChain {
+function insetChain(chain: CoastChain, inset: CoastInset, strips: Sliver[], taken: Map<number, Array<{ edge: CoastEdge; depth: number }>>): CoastChain {
   const { points, edges, closed } = chain;
   const depth = edges.map(inset.depth);
   if (depth.every((d) => d <= 0)) return chain;
@@ -667,10 +667,17 @@ function insetChain(chain: CoastChain, inset: CoastInset, strips: Sliver[]): Coa
   }
   edges.forEach((e, k) => {
     if (depth[k]! <= 0) return;
-    for (const piece of [clipToInset(inset.hex(e), e.from, e.to, depth[k]!, true)]) {
-      if (piece.length < 3) continue;
-      strips.push({ d: [...piece.map((q, i) => [i === 0 ? 'M' : 'L', q.x, q.y] as PathCmd), ['Z'] as PathCmd], donor: e.water });
-    }
+    // Where two of a hex's moved edges meet, their strips would cover the corner
+    // twice, and the water would then cancel out wherever strips are laid
+    // together as one even-odd shape: each strip keeps only what the hex's
+    // earlier strips have not taken.
+    const before = e.hex === undefined ? [] : taken.get(e.hex) ?? [];
+    let piece = inset.hex(e);
+    for (const earlier of before) piece = clipToInset(piece, earlier.edge.from, earlier.edge.to, earlier.depth);
+    piece = clipToInset(piece, e.from, e.to, depth[k]!, true);
+    if (e.hex !== undefined) taken.set(e.hex, [...before, { edge: e, depth: depth[k]! }]);
+    if (piece.length < 3) return;
+    strips.push({ d: [...piece.map((q, i) => [i === 0 ? 'M' : 'L', q.x, q.y] as PathCmd), ['Z'] as PathCmd], donor: e.water });
   });
   return { points: outPoints, edges: outEdges, closed };
 }
@@ -686,7 +693,8 @@ export function coastGeometryOf(
   inset?: CoastInset,
 ): CoastGeometry {
   const strips: Sliver[] = [];
-  const chains = chainEdges(edges).map((chain) => (inset ? insetChain(chain, inset, strips) : chain));
+  const taken = new Map<number, Array<{ edge: CoastEdge; depth: number }>>();
+  const chains = chainEdges(edges).map((chain) => (inset ? insetChain(chain, inset, strips, taken) : chain));
   const toWater: Sliver[] = [...strips];
   const toLand: Sliver[] = [];
   const anchors = new Map<string, Point>();
