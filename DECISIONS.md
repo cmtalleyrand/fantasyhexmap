@@ -758,9 +758,6 @@ it as a hole.
 **What it costs.** About twice the scene-building time on a very large icy map (120×100 hexes: a
 quarter to half a second). The glacier shading discs and flow strokes are many small primitives.
 
-sit close to what those pieces already show. A coast hex next to a lake is not drawn in from the lake,
-which has a body of its own.
-
 ## 41. Names keep their true footprint, their clearance, and the middle of what they name
 
 **Chosen.** A realm name claims the rotated rectangle it occupies, not the axis-aligned box that
