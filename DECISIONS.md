@@ -892,17 +892,18 @@ reaches it; a shorter river adds in proportion to its distance, so every river i
 yardstick), and navigable water is a tenth wider, eased in over about a hex. Together these make rivers about
 half as heavy as before; the bank stroke is thinner to match.
 
-**Bends.** After the course is fitted through the edge crossings it is smoothed by arc length (a Gaussian about
-0.4 of a hex across), kept inside the river's own hexes (with a little give at the corners) and held fixed at
-both ends so confluences and forks still land on their host. A turn that is already close to a hairpin is
-smoothed less, and if smoothing would leave any turn sharper than the line began with, it is applied at a
-smaller strength or not at all: a bend is widened, never pinched.
+**Bends.** A bendy river looked like a drawn curve because its wander was one regular wave on top of a smooth
+spline. The wander is now irregular, as a real river's is: value noise along the river at three scales (about
+two, one and under half a hex) under a slowly changing envelope, so some reaches run nearly straight and others
+wander, with no one wavelength. Its swing still shrinks as the river widens and dies away at both ends, so
+confluences and forks land on their host, and it stays inside the river's hexes and clear of folding.
 
 **Coast.** A river into the sea is cut where the coast is drawn, found from the coast lines themselves (land is
 on the right of each line, so the side a point falls on says whether it is land, however the coast has been
 reshaped, smoothed or roughened), and flares there; where the coast bulges past the hex's edge the river is
-carried on to it. Points of the course that would swing off the land are pulled back. This replaces the clip
-over the water strips, which cut the mouth off flat at the hex's old edge.
+carried on to it. Points of the course that would swing off the land are pulled back. As a guarantee, everything a river
+draws is clipped to the page less the sea and the lake bodies, so no river shows over open water whatever its
+course does (this replaces the clip over the water strips, which cut the mouth off flat at the hex's old edge).
 
 **Lakes.** A river may run through a lake: validation no longer warns about a lake hex in the middle of a path,
 merging two rivers bridges a lake, and the prompts say rivers may link lakes. Where it crosses the water it is
@@ -914,8 +915,15 @@ placed against it by size, in every marker set: villages and towns stand on the 
 river grazing its edge, and only a metropolis stands on the river, which runs across it as a band and splits
 the marker. The offset is taken from the river's drawn width at that point, on whichever bank is land. The legend
 says "Beside a river". Label placement allows for the band only on a metropolis.
-**Cities.** A city on a river sits in a disc of river water edged in paper, in every marker set; the legend says
-"Blue ring: on a river". Label placement allows for the wider collar.
+
+**River irregularity is a setting.** Style knob `riverWander` (Very gentle, Gentle, Normal, Irregular, Wild; Normal by
+default) sets the swing of the wander, how many passes pull the hex-edge crossings taut (fewer leaves the hex walk's
+own corners), how far a crossing may slide along its edge, and how often a river that bends within a hex swings
+into it towards its centre instead of just clipping the corner between its two edges, and how far (past the centre
+at the top two levels). That last is what allows sharper, deeper bends. The first scale (gentle to wild) proved
+too timid about entering the hexes a river bends into, so it was shifted two places down: the old Wild is Normal,
+the old Irregular is Gentle and the old Natural is Very gentle, and two new levels go further than the old Wild.
+Saved maps keep any value that still exists, so a stored `irregular` or `wild` is now the stronger one.
 
 ## 47. Lakes carry their own irregularity; shores vary in strength; coast ink follows line weight
 
