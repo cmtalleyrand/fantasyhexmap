@@ -942,7 +942,10 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
     }
   }
 
-  const islandRand = (i: number) => (k: number) => unit(seed, 'islet', i, k);
+  const islandRand = (i: number) => {
+    const layoutSeed = islandSpecFor(base![i], map.islandSpecs?.[String(i)]).layoutSeed ?? 0;
+    return (k: number) => unit(seed, 'islet', i, layoutSeed, k);
+  };
   /** The direction (radians) from an island hex's centre toward the land its coastal groups lie against. */
   const coastward = (i: number, spec: IslandSpec): number => {
     const split = terrain?.split.get(i);
@@ -1248,13 +1251,10 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
    * the hex they are to. Islands cannot grow past what fits in the hex, so a
    * share beyond that is drawn as large as they go.
    */
-  /** The size (times its own share) the layout places islands at, as they were before the share was measured. */
-  const islandFloor = (i: number): number => {
-    const set = hexShapeFor(base![i], map.hexShapes?.[String(i)]).land;
-    const spec = islandSpecFor(base![i], map.islandSpecs?.[String(i)]);
-    const usual = spec.large * dimensions.largeIslandPercent + spec.small * dimensions.smallIslandPercent;
-    return set === undefined || usual <= 0 ? 1 : (islandCover(i) * 100) / usual;
-  };
+  // Keep the layout anchors at the islands' ordinary sizes. Scaling the anchors
+  // with a per-hex land override made a larger requested share move islands into
+  // less usable positions, so the visible land area could paradoxically shrink.
+  const islandFloor = (_i: number): number => 1;
   const islandScales = new Map<number, number>();
   const islandScale = (i: number): number => {
     const known = islandScales.get(i);
@@ -1274,15 +1274,16 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
         const corners = hexCorners(i % cols, Math.floor(i / cols), size);
         // Islands may not run into each other or the mainland, so there is a size past which they cannot grow.
         const room = size * 0.004;
-        // Area grows about as the square of the size, so each try lands close. A size that is too
-        // crowded is not measured; the search turns back towards the largest size that is not.
+        // `t` multiplies area (the radii use sqrt(t)), so the measured-area ratio
+        // gives the direct next estimate. A crowded size is not measured; the
+        // search turns back towards the largest non-overlapping size.
         let t = Math.min(Math.max(2, (want / usual) * 4), (want / usual) * 1.12);
         let best = { t: floor, off: Infinity };
         let fits = 0;
         let over = Infinity;
         let below = 0;
         let above = Infinity;
-        for (let k = 0; k < 16; k++) {
+        for (let k = 0; k < 20; k++) {
           const laid = layoutAt(i, t, floor);
           let next: number;
           if (laid.crowd > room) {
@@ -1290,13 +1291,13 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
             next = fits > 0 ? (fits + over) / 2 : t * 0.85;
           } else {
             fits = Math.max(fits, t);
-            const c = coveredArea(pathPolylines(islandPathFrom(i, laid.isles), 4), corners, 64) / hexArea;
+            const c = coveredArea(pathPolylines(islandPathFrom(i, laid.isles), 8), corners, 128) / hexArea;
             const off = Math.abs(c - want);
             if (off < best.off) best = { t, off };
-            if (off < 0.002 || c <= 1e-6) break;
+            if (off < 0.0005 || c <= 1e-6) break;
             if (c < want) below = Math.max(below, t);
             else above = Math.min(above, t);
-            next = above < Infinity && below > 0 ? (below + above) / 2 : t * Math.max(0.6, Math.min(1.6, Math.sqrt(want / c)));
+            next = above < Infinity && below > 0 ? (below + above) / 2 : t * Math.max(0.6, Math.min(1.6, want / c));
             if (next >= over) next = (fits + over) / 2;
           }
           // As large as the hex lets them be, or no further to go.

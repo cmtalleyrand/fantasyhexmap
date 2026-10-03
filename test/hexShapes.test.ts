@@ -7,7 +7,8 @@ import { reducer } from '../src/state/store.ts';
 import { buildScene, defaultVisibility } from '../src/render/scene.ts';
 import { resolveStyle } from '../src/render/styles.ts';
 import { coastGeometryOf, coastEdges, landInsetDepth, surfaceMap } from '../src/render/coast.ts';
-import { shapeCoast } from '../src/render/footprint.ts';
+import { coveredArea, shapeCoast } from '../src/render/footprint.ts';
+import { pathPolylines } from '../src/render/ice.ts';
 import { hexCorners } from '../shared/hex.ts';
 import type { PathCmd, Prim } from '../src/render/prims.ts';
 
@@ -22,13 +23,13 @@ test('each shaped type has its default land share', () => {
   assert.equal(share('Glacier'), 1);
   assert.equal(share('Sea Ice'), 0);
   assert.equal(share('Sea'), 0);
-  // Small islands take 10% each, large ones 20% each.
-  assert.equal(share('Islands', { large: 0, small: 1 }), 0.1);
+  // Small islands take 5% each, large ones 20% each.
+  assert.equal(share('Islands', { large: 0, small: 1 }), 0.05);
   assert.equal(share('Islands', { large: 1, small: 0 }), 0.2);
-  assert.equal(Number(share('Islands', { large: 2, small: 5 }).toFixed(10)), 0.9);
+  assert.equal(Number(share('Islands', { large: 2, small: 6 }).toFixed(10)), 0.7);
   // Any mainland takes 30% before its islands are added.
-  assert.equal(share('Mainland and islands', { large: 0, small: 2 }), 0.5);
-  assert.equal(share('Mainland and islands', { large: 1, small: 1 }), 0.6);
+  assert.equal(share('Mainland and islands', { large: 0, small: 2 }), 0.4);
+  assert.equal(share('Mainland and islands', { large: 1, small: 1 }), 0.55);
 });
 
 test('a hex that sets its own land share takes it, within 0 to 100', () => {
@@ -70,7 +71,7 @@ test('dimensions saved with the old defaults take the new ones, and a chosen isl
   const old = { width: 10, height: 11.5, unit: 'km', coastalLandPercent: 60, islandLandPercent: 40, areaRounding: 100, lengthRounding: 10 };
   const migrated = normaliseHexDimensions(old);
   assert.equal(migrated.coastalLandPercent, 90);
-  assert.equal(migrated.smallIslandPercent, 10);
+  assert.equal(migrated.smallIslandPercent, 5);
   assert.equal(migrated.largeIslandPercent, 20);
   assert.ok(!('islandLandPercent' in migrated));
   const chosen = normaliseHexDimensions({ ...old, coastalLandPercent: 50, islandLandPercent: 60 });
@@ -79,6 +80,7 @@ test('dimensions saved with the old defaults take the new ones, and a chosen isl
   assert.equal(chosen.largeIslandPercent, 30);
   // Dimensions that already carry the new fields are left alone.
   assert.equal(normaliseHexDimensions({ ...dims, coastalLandPercent: 70 }).coastalLandPercent, 70);
+  assert.equal(normaliseHexDimensions({ ...dims, smallIslandPercent: 0 }).smallIslandPercent, 2.5, 'a small island is at least 2.5% of a hex');
 });
 
 function mapWith(base: BaseGeo[], cols = base.length, rows = 1): MapState {
@@ -108,6 +110,19 @@ test('shape settings are applied to shaped hexes only, and can be cleared', () =
   // Nothing to change: the same map comes back.
   assert.equal(reducer(reset, { type: 'setHexShape', indices: [1, 2, 3], change: null }), reset);
   assert.equal(reducer(map, { type: 'setHexShape', indices: [0, 4], change: { land: 10 } }), map);
+});
+
+test('island specs allow six small islands and a new random layout without changing land share', () => {
+  const map = mapWith(['Islands']);
+  const changed = reducer(map, { type: 'setIslandSpec', indices: [0], change: { large: 0, small: 6, layoutSeed: 12345 } });
+  assert.deepEqual(changed.islandSpecs?.['0'], {
+    large: 0,
+    small: 6,
+    coastal: { large: false, small: false },
+    layoutSeed: 12345,
+  });
+  assert.equal(landFraction('Islands', changed.islandSpecs?.['0'], dims), 0.3);
+  assert.notDeepEqual(scene(changed).prims, scene({ ...changed, islandSpecs: { '0': { ...changed.islandSpecs!['0']!, layoutSeed: 54321 } } }).prims);
 });
 
 test('a hex that changes type stops using the settings made for its old type', () => {
@@ -210,6 +225,29 @@ test('irregularity changes how islands are drawn and a land share changes how bi
   assert.ok(smaller < usual, 'a smaller share draws smaller ones');
   const fractured = scene({ ...map, hexShapes: { '1': { type: 'Islands', irregular: 'Fractured' } } }).prims;
   assert.notEqual(commandCount(fractured), commandCount(scene(map).prims));
+});
+
+test('an island hex visibly occupies the selected percentage of its hex', () => {
+  const size = 30;
+  const hexArea = 1.5 * Math.sqrt(3) * size * size;
+  const actualLandPercent = (land: number, small: number) => {
+    const map = mapWith(['Islands']);
+    map.islandSpecs = { '0': { large: small === 0 ? 1 : 0, small } };
+    map.hexShapes = { '0': { type: 'Islands', land } };
+    const paths: PathCmd[] = [];
+    const collect = (prims: Prim[]) => {
+      for (const prim of prims) {
+        if (prim.kind === 'group') collect(prim.prims);
+        else if (prim.kind === 'path' && prim.fill === smooth.palette.island) paths.push(...prim.d);
+      }
+    };
+    collect(buildScene(map, { size, visible: defaultVisibility(), labels: false, style: smooth }).prims);
+    return coveredArea(pathPolylines(paths, 12), hexCorners(0, 0, size), 300) / hexArea * 100;
+  };
+
+  for (const [land, small] of [[2.5, 1], [5, 1], [30, 6], [40, 6]]) {
+    assert.ok(Math.abs(actualLandPercent(land, small) - land) < 0.15, `${small} small island(s) visibly cover ${land}%`);
+  }
 });
 
 test('sea ice is one organic body that follows the hex edges only in a hex-edged coast style', () => {

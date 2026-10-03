@@ -760,7 +760,7 @@ function IslandSidePanel(props: SubProps) {
           Small islands{' '}
           <select value={small} onChange={(e) => set({ small: Number(e.target.value) })}>
             {small === '' && <option value="">Mixed</option>}
-            {[0, 1, 2, 3, 4, 5].map((n) => <option key={n} value={String(n)}>{n}</option>)}
+            {[0, 1, 2, 3, 4, 5, 6].map((n) => <option key={n} value={String(n)}>{n}</option>)}
           </select>
         </label>
       </div>
@@ -798,6 +798,13 @@ function IslandSidePanel(props: SubProps) {
           </option>
         ))}
       </select>
+      <button
+        type="button"
+        className="tiny"
+        onClick={() => set({ layoutSeed: Math.floor(Math.random() * 0x7fffffff) })}
+      >
+        Disperse and reshape randomly
+      </button>
       <p className="hint" style={{ margin: 0 }}>A hex needs at least one island; setting both counts to 0 restores its default.</p>
     </div>
   );
