@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { hexCenter } from '../shared/hex.ts';
+import { hexCenter, pixelToOffset } from '../shared/hex.ts';
 import type { BaseGeo } from '../shared/types.ts';
 import { placeWaterLabels } from '../src/render/featureLabels.ts';
 
@@ -48,4 +48,27 @@ test('a long narrow ocean along the map edge is named from its middle, not from 
   const middle = centreOf(strip.hexes, cols);
   const length = rows * 1.5 * SIZE;
   assert.ok(Math.abs(label.at.y - middle.y) < length * 0.2, `name at y=${label.at.y.toFixed(0)} should be near the strip's middle y=${middle.y.toFixed(0)}`);
+});
+
+test('a curving gulf is named along its water, in larger type than any straight run could carry', () => {
+  const cols = 24;
+  const rows = 16;
+  // A C-shaped channel about a hex and a third wide: no long straight run lies inside it.
+  const gulf = seaWhere(cols, rows, (c, r) => {
+    const p = hexCenter(c, r, SIZE);
+    const angle = Math.atan2(p.y - 210, p.x - 330);
+    return Math.abs(angle) <= 1.75 && Math.abs(Math.hypot(p.x - 330, p.y - 210) - 150) <= 22;
+  });
+  const [label] = placeWaterLabels([{ name: 'Gulf of Eskeld', hexes: gulf.hexes }], cols, SIZE, undefined, gulf.base, rows);
+  assert.ok(label?.glyphs, 'the gulf is named letter by letter');
+  const wet = new Set(gulf.hexes);
+  const off = label.glyphs.filter((g) => {
+    const { col, row } = pixelToOffset(g.x, g.y, SIZE);
+    return !wet.has(row * cols + col);
+  });
+  assert.equal(off.length, 0, `${off.length} of ${label.glyphs.length} letters lie off the water`);
+  // A straight name fits this channel only at about 11px, steeply tilted.
+  assert.ok(label.size >= 14, `type ${label.size.toFixed(1)} should beat the straight fit`);
+  const turn = Math.abs(label.glyphs[label.glyphs.length - 1]!.rotation - label.glyphs[0]!.rotation);
+  assert.ok(turn > 0.3, 'the name bends with the channel');
 });

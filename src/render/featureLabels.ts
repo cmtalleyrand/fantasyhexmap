@@ -12,7 +12,7 @@ import type { FaceRole } from './lettering.js';
 import { LETTERINGS } from './lettering.js';
 import { insideBox, type OrientedBox } from './labels.js';
 import { glyphAdvances, glyphsAlong, glyphsStraight, type Glyph } from './glyphs.js';
-import { depthWithin } from './depth.js';
+import { depthWithin, ridgePath } from './depth.js';
 
 /**
  * Largest type for a water name, in hex sizes: a body only a hex or two deep
@@ -22,6 +22,11 @@ import { depthWithin } from './depth.js';
  */
 const WATER_FONT_SHALLOW = 0.85;
 const WATER_FONT_DEEP = 1.2;
+
+/** The type a water body `maxDepth` hexes deep may carry: a pond keeps modest type, an ocean approaches the largest realm names. */
+function waterCeiling(size: number, maxDepth: number): number {
+  return size * WATER_FONT_SHALLOW + size * (WATER_FONT_DEEP - WATER_FONT_SHALLOW) * Math.min(1, Math.max(0, (maxDepth - 2) / 6));
+}
 
 export interface FeatureLabel {
   text: string;
@@ -131,9 +136,7 @@ function openWaterLabel(
     font: number;
   }
   const found: Spot[] = [];
-  // The type a deep body may carry, in hexes: a pond keeps modest type, an
-  // ocean is named in type approaching the largest realm names.
-  const ceiling = size * WATER_FONT_SHALLOW + size * (WATER_FONT_DEEP - WATER_FONT_SHALLOW) * Math.min(1, Math.max(0, (maxDepth - 2) / 6));
+  const ceiling = waterCeiling(size, maxDepth);
   let fitAt = 0;
   for (let font = ceiling; font >= size * 0.32; font *= 0.9) {
     // Once a size fits, one smaller may still win by sitting nearer the middle.
@@ -171,6 +174,85 @@ function openWaterLabel(
     italic: face.italic,
   });
   return { text, at: best.at, size: best.font, rotation, glyphs, width: em * best.font };
+}
+
+/**
+ * A name set along the middle of a winding body of water (a gulf, a bay with
+ * a corridor): the ridge of its deepest water, from end to end, with the name
+ * on the stretch of it nearest the body's middle where every letter, with
+ * room above and below, lies over open water. Larger type is tried first.
+ * Null when no stretch carries the name at its smallest size.
+ */
+function spineLabel(
+  text: string,
+  hexes: number[],
+  cols: number,
+  rows: number,
+  size: number,
+  face: FaceRole,
+  base: ReadonlyArray<BaseGeo | null>,
+): FeatureLabel | null {
+  if (hexes.length > 6000) return null;
+  const inBody = new Set(hexes);
+  const open = (i: number) => inBody.has(i) && (base[i] === 'Sea' || base[i] === 'Lake');
+  const height = Number.isFinite(rows) ? rows : Math.ceil(Math.max(...hexes) / cols) + 1;
+  const depth = depthWithin(hexes, open, cols, height);
+  if (depth.size < 2) return null;
+  const maxDepth = Math.max(...depth.values());
+  const ridge = ridgePath(depth, cols, height);
+  if (ridge.length < 2) return null;
+  // Smooth the hex-to-hex zigzag so letters follow a curve, not a staircase.
+  let path = ridge.map((i) => hexCenter(i % cols, Math.floor(i / cols), size));
+  for (let pass = 0; pass < 2; pass++) {
+    path = path.map((p, k) => (k === 0 || k === path.length - 1
+      ? p
+      : { x: (path[k - 1]!.x + p.x + path[k + 1]!.x) / 3, y: (path[k - 1]!.y + p.y + path[k + 1]!.y) / 3 }));
+  }
+  const cum = [0];
+  for (let k = 1; k < path.length; k++) cum.push(cum[k - 1]! + Math.hypot(path[k]!.x - path[k - 1]!.x, path[k]!.y - path[k - 1]!.y));
+  const length = cum[cum.length - 1]!;
+  const centre = { x: 0, y: 0 };
+  for (const i of depth.keys()) {
+    const c = hexCenter(i % cols, Math.floor(i / cols), size);
+    centre.x += c.x / depth.size;
+    centre.y += c.y / depth.size;
+  }
+  const bodyRadius = Math.max(size, Math.sqrt(depth.size) * size);
+
+  const wet = (x: number, y: number, margin: number) =>
+    [[0, 0], [margin, 0], [-margin, 0], [0, margin], [0, -margin]].every(([dx, dy]) => {
+      const { col, row } = pixelToOffset(x + dx!, y + dy!, size);
+      return inBounds(cols, height, col, row) && open(hexIndex(cols, col, row));
+    });
+  const em = glyphAdvances(text, 1, face.tracking, face.weight, face.family, face.italic).width;
+  const options = { tracking: face.tracking, weight: face.weight, family: face.family, italic: face.italic };
+  let best: { score: number; glyphs: Glyph[]; at: Point; font: number } | null = null;
+  let fitAt = 0;
+  for (let font = waterCeiling(size, maxDepth); font >= size * 0.32; font *= 0.9) {
+    if (fitAt > 0 && font < fitAt * 0.85) break;
+    const width = em * font;
+    if (width > length) continue;
+    const steps = 40;
+    for (let k = 0; k <= steps; k++) {
+      const start = ((length - width) * k) / steps;
+      const glyphs = glyphsAlong(text, font, path, start, options);
+      // Every letter, and the room above and below it, over open water.
+      const over = glyphs.every((g) =>
+        [-0.5, 0, 0.5].every((side) => wet(g.x - Math.sin(g.rotation) * font * side, g.y + Math.cos(g.rotation) * font * side, size * 0.1)),
+      );
+      if (!over) continue;
+      // A name that bends sharply reads badly: the turn from first to last letter.
+      const turn = Math.abs(glyphs[glyphs.length - 1]!.rotation - glyphs[0]!.rotation);
+      if (turn > (2 * Math.PI) / 3) continue;
+      const mid = glyphs[Math.floor(glyphs.length / 2)]!;
+      const score = font / size - 0.15 * Math.min(1, Math.hypot(mid.x - centre.x, mid.y - centre.y) / bodyRadius) - 0.1 * turn;
+      if (!best || score > best.score) best = { score, glyphs, at: { x: mid.x, y: mid.y }, font };
+    }
+    if (best && fitAt === 0) fitAt = font;
+  }
+  if (!best) return null;
+  const mid = best.glyphs[Math.floor(best.glyphs.length / 2)]!;
+  return { text, at: best.at, size: best.font, rotation: mid.rotation, glyphs: best.glyphs, width: em * best.font };
 }
 
 /**
@@ -396,7 +478,13 @@ export function placeWaterLabels(
   for (const body of bodies) {
     const text = body.name.trim().toUpperCase();
     if (!text || body.hexes.length === 0) continue;
-    const open = base ? openWaterLabel(text, body.hexes, cols, rows, size, face, base) : null;
+    const straight = base ? openWaterLabel(text, body.hexes, cols, rows, size, face, base) : null;
+    // A winding body may hold only a small straight name; a name along its
+    // water is worth taking when its type is meaningfully larger.
+    const winding = base && (!straight || straight.size < size * WATER_FONT_SHALLOW)
+      ? spineLabel(text, body.hexes, cols, rows, size, face, base)
+      : null;
+    const open = winding && (!straight || winding.size > straight.size * 1.25) ? winding : straight;
     if (open) {
       out.push(open);
       continue;

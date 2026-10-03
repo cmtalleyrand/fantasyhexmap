@@ -55,3 +55,110 @@ export function depthWithin(
   for (const i of members) if (!depth.has(i)) depth.set(i, NO_SHORE);
   return depth;
 }
+
+/** Hex steps from `from` to every hex it reaches through `depth`'s hexes. */
+function hopsFrom(from: number, depth: ReadonlyMap<number, number>, cols: number, rows: number): Map<number, number> {
+  const hops = new Map<number, number>([[from, 0]]);
+  let frontier = [from];
+  while (frontier.length > 0) {
+    const next: number[] = [];
+    for (const i of frontier) {
+      for (let e = 0; e < 6; e++) {
+        const n = neighbourOf(i % cols, Math.floor(i / cols), e);
+        if (!inBounds(cols, rows, n.col, n.row)) continue;
+        const j = hexIndex(cols, n.col, n.row);
+        if (!depth.has(j) || hops.has(j)) continue;
+        hops.set(j, hops.get(i)! + 1);
+        next.push(j);
+      }
+    }
+    frontier = next;
+  }
+  return hops;
+}
+
+function farthest(hops: ReadonlyMap<number, number>): number {
+  let best = -1;
+  let far = -1;
+  for (const [i, h] of hops) {
+    if (h > best || (h === best && i < far)) {
+      best = h;
+      far = i;
+    }
+  }
+  return far;
+}
+
+/**
+ * A path through the middle of a region, end to end: between its two most
+ * distant hexes, keeping to the deepest ground it can. This is what a name
+ * follows when it is too long to lie straight in a winding body of water.
+ * Returns hex indices in order, or none for an empty region.
+ */
+export function ridgePath(depth: ReadonlyMap<number, number>, cols: number, rows: number): number[] {
+  if (depth.size === 0) return [];
+  let seed = -1;
+  for (const [i, d] of depth) if (seed < 0 || d > depth.get(seed)! || (d === depth.get(seed) && i < seed)) seed = i;
+  const a = farthest(hopsFrom(seed, depth, cols, rows));
+  const b = farthest(hopsFrom(a, depth, cols, rows));
+  const cap = Math.min(12, Math.max(...depth.values()));
+  const stepCost = (j: number) => 1 + 4 * (1 - Math.min(depth.get(j)!, cap) / cap);
+
+  // Dijkstra from a to b: cheap to cross deep water, dear to hug the shore.
+  const cost = new Map<number, number>([[a, 0]]);
+  const via = new Map<number, number>();
+  const heap: Array<[number, number]> = [[0, a]];
+  const push = (item: [number, number]) => {
+    heap.push(item);
+    let k = heap.length - 1;
+    while (k > 0) {
+      const parent = (k - 1) >> 1;
+      if (heap[parent]![0] <= heap[k]![0]) break;
+      [heap[parent], heap[k]] = [heap[k]!, heap[parent]!];
+      k = parent;
+    }
+  };
+  const pop = (): [number, number] => {
+    const top = heap[0]!;
+    const last = heap.pop()!;
+    if (heap.length > 0) {
+      heap[0] = last;
+      let k = 0;
+      for (;;) {
+        const l = 2 * k + 1;
+        const r = l + 1;
+        let m = k;
+        if (l < heap.length && heap[l]![0] < heap[m]![0]) m = l;
+        if (r < heap.length && heap[r]![0] < heap[m]![0]) m = r;
+        if (m === k) break;
+        [heap[m], heap[k]] = [heap[k]!, heap[m]!];
+        k = m;
+      }
+    }
+    return top;
+  };
+  while (heap.length > 0) {
+    const [c, i] = pop();
+    if (c > (cost.get(i) ?? Infinity)) continue;
+    if (i === b) break;
+    for (let e = 0; e < 6; e++) {
+      const n = neighbourOf(i % cols, Math.floor(i / cols), e);
+      if (!inBounds(cols, rows, n.col, n.row)) continue;
+      const j = hexIndex(cols, n.col, n.row);
+      if (!depth.has(j)) continue;
+      const next = c + stepCost(j);
+      if (next < (cost.get(j) ?? Infinity)) {
+        cost.set(j, next);
+        via.set(j, i);
+        push([next, j]);
+      }
+    }
+  }
+  const path = [b];
+  while (path[path.length - 1] !== a) {
+    const prev = via.get(path[path.length - 1]!);
+    if (prev === undefined) return [a];
+    path.push(prev);
+  }
+  return path.reverse();
+}
