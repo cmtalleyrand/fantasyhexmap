@@ -17,7 +17,7 @@
  * the curve is repainted with the colour of the side it now belongs to.
  */
 
-import { hexCenter, hexCorners, hexEdgePoints, hexIndex, inBounds, neighbourOf, type Point } from '../../shared/hex.js';
+import { hexCenter, hexCorners, hexEdgePoints, hexIndex, inBounds, neighbourOf, pixelToOffset, type Point } from '../../shared/hex.js';
 import { isIslandType, type BaseGeo } from '../../shared/types.js';
 import type { PathCmd } from './prims.js';
 import { signed } from './seed.js';
@@ -580,6 +580,50 @@ export function landInsetDepth(corners: Point[], wet: CoastEdge[], land: number)
     else high = mid;
   }
   return (low + high) / 2;
+}
+
+/**
+ * Whether a point of the map is land as the coast is drawn: in a land piece of
+ * its hex (see `surfaceMap`) and, in a partly-land hex, not in the strip its
+ * water-facing edges (`wet`) have moved in over (by `insets`). The coast's
+ * smoothing and roughening are not counted, so a point near the shore is
+ * uncertain; callers wanting a safe point keep clear of it.
+ */
+export function landTest(
+  map: SurfaceMap,
+  wet: ReadonlyMap<number, CoastEdge[]>,
+  insets: ReadonlyMap<number, number>,
+  size: number,
+): (p: Point) => boolean {
+  const side = (a: Point, b: Point, q: Point) => (b.x - a.x) * (q.y - a.y) - (b.y - a.y) * (q.x - a.x);
+  const within = (a: Point, b: Point, c: Point, q: Point) => {
+    const s1 = side(a, b, q);
+    const s2 = side(b, c, q);
+    const s3 = side(c, a, q);
+    return (s1 >= 0 && s2 >= 0 && s3 >= 0) || (s1 <= 0 && s2 <= 0 && s3 <= 0);
+  };
+  return (q) => {
+    const { col, row } = pixelToOffset(q.x, q.y, size);
+    if (!inBounds(map.cols, map.rows, col, row)) return false;
+    const i = hexIndex(map.cols, col, row);
+    if (map.split.has(i)) {
+      const c = hexCenter(col, row, size);
+      const corners = hexCorners(col, row, size);
+      let piece = -1;
+      for (let k = 0; k < 6 && piece < 0; k++) {
+        if (!within(c, corners[k]!, corners[(k + 1) % 6]!, q)) continue;
+        const u = { x: c.x + (q.x - c.x) / CORE, y: c.y + (q.y - c.y) / CORE };
+        piece = within(c, corners[k]!, corners[(k + 1) % 6]!, u) ? k : 6 + k;
+      }
+      if (piece < 0 || pieceSurface(map, i, piece) !== 'land') return false;
+    } else if (map.whole[i] !== 'land') return false;
+    const depth = insets.get(i);
+    if (depth === undefined) return true;
+    return (wet.get(i) ?? []).every((e) => {
+      const len = Math.hypot(e.to.x - e.from.x, e.to.y - e.from.y) || 1;
+      return ((q.x - e.from.x) * (-(e.to.y - e.from.y)) + (q.y - e.from.y) * (e.to.x - e.from.x)) / len >= depth;
+    });
+  };
 }
 
 /** How a hex that is only partly land is drawn: how far in each of its coast edges moves, and the hex's own outline. */
