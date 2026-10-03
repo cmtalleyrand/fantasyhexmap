@@ -3,11 +3,12 @@ import {
   excludedInfluences,
   isUnlocked,
   missingRequirements,
+  normaliseSelection,
   plannedLayers,
   stalenessOf,
 } from '../../shared/layers.js';
 import { generationOrder } from '../../shared/generationQueue.js';
-import { type LayerId, type MapState } from '../../shared/types.js';
+import { LAYER_ORDER, type LayerId, type MapState } from '../../shared/types.js';
 import type { VisibleLayers } from '../render/scene.js';
 import type { EditorMode } from '../state/workspace.js';
 
@@ -28,6 +29,8 @@ export interface LayerPipelineProps {
   /** Generate exactly these layers, in dependency order. */
   onGenerateLayers: (layers: LayerId[]) => void;
   onEditPlan: () => void;
+  /** Add a layer the map left out to its plan (with any layers it requires). */
+  onAddLayer: (layer: LayerId) => void;
 }
 
 /** An eye, open or struck through: whether a layer is drawn on the map. */
@@ -45,7 +48,8 @@ export default function LayerPipeline(props: LayerPipelineProps) {
   const { map, activeLayer, visible, selectedLayers, busyLayers } = props;
   const ai = props.mode === 'ai';
   const planned = plannedLayers(map);
-  const omitted = 8 - planned.length;
+  const omittedLayers = LAYER_ORDER.filter((id) => !planned.includes(id));
+  const omitted = omittedLayers.length;
   const busy = busyLayers.size > 0;
   // Layers in the plan with nothing generated yet, in the order they would be made.
   const remaining = generationOrder(planned.filter((id) => !map.layers[id].data));
@@ -54,11 +58,9 @@ export default function LayerPipeline(props: LayerPipelineProps) {
     <div className="section">
       <div className="row" style={{ alignItems: 'baseline' }}>
         <h2 style={{ flex: 1 }}>Layers</h2>
-        {ai && (
-          <button className="tiny" onClick={props.onEditPlan} title="Choose which layers this map has">
-            plan{omitted > 0 ? ` (${omitted} left out)` : ''}
-          </button>
-        )}
+        <button className="tiny" onClick={props.onEditPlan} title="Choose which layers this map has">
+          plan{omitted > 0 ? ` (${omitted} left out)` : ''}
+        </button>
       </div>
 
       {ai && remaining.length > 0 && !busy && (
@@ -151,6 +153,33 @@ export default function LayerPipeline(props: LayerPipelineProps) {
           </div>
         );
       })}
+
+      {omittedLayers.length > 0 && (
+        <>
+          <div className="row" style={{ alignItems: 'baseline', marginTop: 10 }}>
+            <h2 style={{ flex: 1 }}>Not in this map</h2>
+          </div>
+          {omittedLayers.map((id) => {
+            const meta = LAYER_META[id];
+            const alsoAdds = normaliseSelection([...planned, id]).filter((x) => x !== id && !planned.includes(x));
+            return (
+              <div key={id} className="layer-row" title={meta.blurb} style={{ cursor: 'default' }}>
+                <span className="name">
+                  <b>{meta.label}</b>
+                  <small>
+                    {meta.blurb}
+                    {map.layers[id].data ? ' Existing data is kept and returns when added.' : ''}
+                    {alsoAdds.length > 0 ? ` Also adds ${alsoAdds.map((x) => LAYER_META[x].label).join(', ')}.` : ''}
+                  </small>
+                </span>
+                <button className="tiny" disabled={busy} onClick={() => props.onAddLayer(id)}>
+                  + add
+                </button>
+              </div>
+            );
+          })}
+        </>
+      )}
 
       {ai && (
       <div className="row layer-batch-controls">

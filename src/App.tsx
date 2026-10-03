@@ -3,7 +3,7 @@ import { GEO_KIND_LABEL, geoEligibility, geoNamesOf } from '../shared/geoNames.j
 import { hexIndex, hexLine, indexToOffset } from '../shared/hex.js';
 import { canHoldSettlement, riversThroughHex } from '../shared/derive.js';
 import { extendRiver, moveRiverSegment } from '../shared/riverEdit.js';
-import { LAYER_META, createMapState } from '../shared/layers.js';
+import { LAYER_META, createMapState, plannedLayers } from '../shared/layers.js';
 import { generationOrder, nextGenerationWave } from '../shared/generationQueue.js';
 import { instructionForLayer, planMultiLayerEdit } from '../shared/multiEdit.js';
 import { LAYER_ORDER, type LayerId, type MapState } from '../shared/types.js';
@@ -750,7 +750,7 @@ export default function App() {
     ) : null;
 
   const planDialog =
-    aiMode && showPlan && map ? (
+    showPlan && map ? (
       <PlanDialog
         map={map}
         onClose={() => setShowPlan(false)}
@@ -1089,6 +1089,11 @@ export default function App() {
             onGenerateSelected={() => void generateSelected()}
             onGenerateLayers={(layers) => void generateSelected(layers)}
             onEditPlan={() => setShowPlan(true)}
+            onAddLayer={(id) => {
+              dispatch({ type: 'setPlan', layers: [...plannedLayers(map), id] });
+              setActiveLayer(id);
+              setSelection(new Set());
+            }}
           />
 
           {aiMode && busyLayers.size > 0 && (
