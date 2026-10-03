@@ -388,6 +388,8 @@ export function placeRiverLabels(
   widthFor?: (riverId: string) => number | undefined,
   /** Whether a point lies in standing water a name must not be set over (a lake's body). */
   inWater?: (p: Point) => boolean,
+  /** The drawn width at each point of the river's line, where it has one: a name prefers the slimmer stretches. */
+  profileFor?: (riverId: string) => number[] | undefined,
 ): FeatureLabel[] {
   const out: FeatureLabel[] = [];
   // Every river's line, so a name keeps off the other rivers it might cross.
@@ -406,6 +408,7 @@ export function placeRiverLabels(
     const minFont = Math.max(7, size * 0.3);
     const pts = lines.get(river.id)!;
     if (pts.length < 2) continue;
+    const profile = profileFor?.(river.id);
     const others = rivers.filter((r) => r.id !== river.id).flatMap((r) => lines.get(r.id) ?? []);
     const cum = [0];
     for (let i = 1; i < pts.length; i++) {
@@ -440,6 +443,11 @@ export function placeRiverLabels(
         );
       }
       const centreBias = Math.abs(start + width / 2 - total / 2) / total;
+      // The widest the river is under the text: a name goes on the slim stretches.
+      let wide = 0;
+      if (profile && profile.length === pts.length) {
+        for (let i = 0; i < pts.length; i++) if (cum[i]! >= start && cum[i]! <= start + width) wide = Math.max(wide, profile[i]!);
+      }
       for (const side of [1, -1] as const) {
         let hits = 0;
         let samples = 0;
@@ -461,7 +469,7 @@ export function placeRiverLabels(
         }
         const covered = hits / (2 * samples);
         // The name bends with the river, so a bend matters less than for straight type.
-        const score = (deviation / size) * 0.5 + centreBias * 0.3 + covered * 4 + (side === 1 ? 0 : 0.02);
+        const score = (deviation / size) * 0.5 + centreBias * 0.3 + covered * 4 + (wide / size) * 1.5 + (side === 1 ? 0 : 0.02);
         if (!best || score < best.score) best = { start, side, score };
       }
     }

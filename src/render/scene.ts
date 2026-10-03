@@ -1590,6 +1590,7 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
   const tapered = knobs.rivers === 'tapered';
   const courses = new Map<string, Point[]>();
   const meanWidths = new Map<string, number>();
+  const widthProfiles = new Map<string, number[]>();
   // A river emptying into a small lake runs on into the lake's body.
   const tapering: Map<string, RiverCourse> = rivers && tapered
     ? riverCourses(rivers.rivers, size, seed, (river) => {
@@ -1637,6 +1638,7 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
         const course = tapering.get(river.id);
         if (!course) return [];
         courses.set(river.id, course.centreline);
+        widthProfiles.set(river.id, course.widths);
         meanWidths.set(river.id, course.widths.reduce((sum, w) => sum + w, 0) / course.widths.length);
         return [course];
       });
@@ -1910,7 +1912,7 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
   // --- river and mountain range names -------------------------------------
   if (rivers && opts.riverNames) {
     const pathFor = tapered ? (id: string) => courses.get(id) ?? null : undefined;
-    for (const l of placeRiverLabels(rivers.rivers, size, pathFor, lettering.river, [...taken, ...cityBoxes], (id) => meanWidths.get(id), inLakeWater)) {
+    for (const l of placeRiverLabels(rivers.rivers, size, pathFor, lettering.river, [...taken, ...cityBoxes], (id) => meanWidths.get(id), inLakeWater, (id) => widthProfiles.get(id))) {
       prims.push({
         kind: 'text',
         at: l.at,

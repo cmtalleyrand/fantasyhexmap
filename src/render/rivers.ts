@@ -420,7 +420,7 @@ export function riverCourse(river: River, size: number, seed: string, ends: Cour
     // Flare over the last half hex where the river meets standing water.
     if (river.terminus === 'Sea' || river.terminus === 'Lake') {
       const fromMouth = (total - cum[i]!) / size;
-      if (fromMouth < 0.6) w *= 1 + 0.5 * (1 - fromMouth / 0.6) ** 2;
+      if (fromMouth < 0.7) w *= 1 + 0.75 * (1 - fromMouth / 0.7) ** 2;
     }
     return w;
   });

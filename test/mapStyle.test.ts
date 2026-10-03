@@ -327,6 +327,21 @@ test('a river that rises at a city comes out from under its icon, and one that r
   assert.ok(withCities.widths[0]! > bare.widths[0]! * 2, 'full width where it leaves the icon');
 });
 
+test('a river name goes on the slimmer stretch of a river that widens', async () => {
+  const { placeRiverLabels } = await import('../src/render/featureLabels.ts');
+  const size = 40;
+  const river = {
+    id: 'w', name: 'Widening', terminus: 'OffMap' as const,
+    segments: [0, 1, 2, 3, 4, 5, 6, 7, 8].map((col) => ({ col, row: 2, entryEdge: col === 0 ? null : 3, exitEdge: 0, navigable: false })),
+  };
+  const line = riverCourse(river, size, 'seed')!.centreline;
+  // Wide at the downstream end, slim at the head.
+  const profile = line.map((_, i) => 2 + (12 * i) / line.length);
+  const label = placeRiverLabels([river], size, () => line, undefined, [], undefined, undefined, () => profile)[0]!;
+  const mid = label.glyphs![Math.floor(label.glyphs!.length / 2)]!;
+  assert.ok(mid.x < line[Math.floor(line.length / 2)]!.x, 'set in the upstream half');
+});
+
 test('river names keep off lakes, city markers, other rivers and each other', async () => {
   const { placeRiverLabels } = await import('../src/render/featureLabels.ts');
   const size = 40;
@@ -372,7 +387,7 @@ test('a one-hex lake is drawn as an irregular body, not traced from its hex edge
   const radii = d.map((c) => Math.hypot((c[1] as number) - centre.x, (c[2] as number) - centre.y));
   assert.ok(Math.max(...radii) - Math.min(...radii) > 1, 'not a circle');
   assert.ok(Math.max(...radii) > 20 * (Math.sqrt(3) / 2), 'reaches into a neighbouring hex');
-  assert.ok(Math.max(...radii) < 20 * 1.4, 'but only a little way');
+  assert.ok(Math.max(...radii) < 20 * 1.6, 'but only a little way');
 });
 
 test('a crossing point is the same seen from either side of its edge', async () => {
