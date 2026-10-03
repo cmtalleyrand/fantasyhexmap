@@ -91,7 +91,7 @@ test('cities, rivers and polities list only what occurs, with optional areas', (
 
   const lean = by(opts());
   assert.deepEqual(lean.rivers, ['Non-navigable river']);
-  assert.deepEqual(lean.cities!.map((l) => l.split(' (')[0]), ['Village', 'Metropolis', 'Blue ring: on a river', 'Dashed edge: borders sea or lake']);
+  assert.deepEqual(lean.cities!.map((l) => l.split(' (')[0]), ['Village', 'Metropolis', 'Beside a river', 'Dashed edge: borders sea or lake']);
   assert.deepEqual(lean.polities, ['Northmark']);
 
   const full = by(opts({ onlyUsed: false, polityAreas: true }));
