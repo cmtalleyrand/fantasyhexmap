@@ -384,15 +384,19 @@ export function placeRiverLabels(
   pathFor?: (riverId: string) => Point[] | null,
   face: FaceRole = LETTERINGS.classic.river,
   avoid: OrientedBox[] = [],
+  /** The river's mean drawn width, where it has one: wider rivers carry slightly larger names. */
+  widthFor?: (riverId: string) => number | undefined,
 ): FeatureLabel[] {
   const out: FeatureLabel[] = [];
-  // Large enough to read against relief and polity colour; a river too
-  // short to carry its name at the floor size goes unnamed.
-  const idealFont = Math.max(9, size * 0.44);
   const minFont = Math.max(7, size * 0.3);
   for (const river of rivers) {
     const text = river.name.trim();
     if (!text) continue;
+    const drawn = widthFor?.(river.id) ?? 0;
+    // Large enough to read against relief and polity colour, and up to a tenth
+    // larger on a wide river; a river too short to carry its name at the floor
+    // size goes unnamed.
+    const idealFont = Math.max(9, size * 0.44) * (1 + 0.1 * Math.min(1, drawn / (size * 0.17)));
     const pts = pathFor?.(river.id) ?? riverPath(river, size);
     if (pts.length < 2) continue;
     const cum = [0];
@@ -451,7 +455,7 @@ export function placeRiverLabels(
     const rotation = upright(Math.atan2(b.y - a.y, b.x - a.x));
     const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
     // Sit just above the line (in the text's own frame) so the stroke stays visible.
-    const lift = font * 0.8;
+    const lift = Math.max(font * 0.8, drawn / 2 + font * 0.45);
     out.push({
       text,
       size: font,

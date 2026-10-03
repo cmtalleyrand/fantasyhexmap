@@ -1586,6 +1586,7 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
   const rivers = opts.visible.rivers ? layers.rivers.data : null;
   const tapered = knobs.rivers === 'tapered';
   const courses = new Map<string, Point[]>();
+  const meanWidths = new Map<string, number>();
   // A river emptying into a small lake runs on into the lake's body.
   const tapering: Map<string, RiverCourse> = rivers && tapered
     ? riverCourses(rivers.rivers, size, seed, (river) => {
@@ -1624,14 +1625,24 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
         smooth: true,
       });
     }
-    for (const river of rivers.rivers) {
-      if (tapered) {
+    if (tapered) {
+      // Every river's edge first, then every river's water over it, so where
+      // one river joins another the edge stops at the join.
+      const drawn = rivers.rivers.flatMap((river) => {
         const course = tapering.get(river.id);
-        if (!course) continue;
+        if (!course) return [];
         courses.set(river.id, course.centreline);
-        prims.push({ kind: 'path', d: course.outline, fill: palette.river, stroke: palette.river, strokeWidth: Math.max(0.3, size * 0.015), round: true });
-        continue;
+        meanWidths.set(river.id, course.widths.reduce((sum, w) => sum + w, 0) / course.widths.length);
+        return [course];
+      });
+      for (const course of drawn) {
+        for (const points of course.bank) prims.push({ kind: 'polyline', points, stroke: palette.riverBank, strokeWidth: Math.max(1, size * 0.07), round: true });
       }
+      for (const course of drawn) {
+        prims.push({ kind: 'path', d: course.outline, fill: palette.river, stroke: palette.river, strokeWidth: Math.max(0.3, size * 0.015), round: true });
+      }
+    }
+    for (const river of tapered ? [] : rivers.rivers) {
       // One polyline per run of same-navigability segments, so the change in
       // weight along a river is visible rather than averaged away.
       let run: Point[] = [];
@@ -1890,7 +1901,7 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
   // --- river and mountain range names -------------------------------------
   if (rivers && opts.riverNames) {
     const pathFor = tapered ? (id: string) => courses.get(id) ?? null : undefined;
-    for (const l of placeRiverLabels(rivers.rivers, size, pathFor, lettering.river, taken)) {
+    for (const l of placeRiverLabels(rivers.rivers, size, pathFor, lettering.river, taken, (id) => meanWidths.get(id))) {
       prims.push({
         kind: 'text',
         at: l.at,

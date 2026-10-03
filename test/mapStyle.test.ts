@@ -239,6 +239,50 @@ test('a tapered river widens downstream, flares at its mouth and keeps to its he
   assert.ok(Math.max(...widths) <= size * 0.3 * 1.9 + 1e-9);
 });
 
+test('a tapered river is slender, eases into navigable water and starts as a thread', () => {
+  const size = 20;
+  const segs = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9].map((col) => ({ col, row: 2, entryEdge: col === 0 ? null : 3, exitEdge: 0, navigable: col >= 5 }));
+  const river = { id: 'e', name: 'Ease', terminus: 'OffMap' as const, segments: segs };
+  const { widths } = riverCourse(river, size, 'seed')!;
+  let jump = 0;
+  for (let i = 1; i < widths.length; i++) jump = Math.max(jump, Math.abs(widths[i]! - widths[i - 1]!));
+  assert.ok(jump < size * 0.01, `width changes by ${jump.toFixed(3)} between samples`);
+  assert.ok(Math.max(...widths) <= size * 0.17 + 1e-9, 'no wider than a fifth of a hex or so');
+  assert.ok(widths[0]! < widths[Math.round(4 * 8 / 2)]! * 0.5, 'a thread at its spring');
+});
+
+test('a tapered river wanders the same way every time, and a different way for another seed', () => {
+  const size = 20;
+  const segs = [0, 1, 2, 3, 4, 5].map((col) => ({ col, row: 2, entryEdge: col === 0 ? null : 3, exitEdge: 0, navigable: false }));
+  const river = { id: 'w', name: 'Wander', terminus: 'OffMap' as const, segments: segs };
+  const a = riverCourse(river, size, 'one')!.centreline;
+  const b = riverCourse(river, size, 'one')!.centreline;
+  const c = riverCourse(river, size, 'two')!.centreline;
+  assert.deepEqual(a, b);
+  assert.ok(a.some((p, i) => Math.hypot(p.x - c[i]!.x, p.y - c[i]!.y) > 0.5));
+});
+
+test('a river leaving a lake has an open bank at its start, and a spring has a closed one', async () => {
+  const size = 20;
+  const segs = [0, 1, 2, 3].map((col) => ({ col, row: 2, entryEdge: col === 0 ? null : 3, exitEdge: 0, navigable: false }));
+  const river = { id: 'b', name: 'Bank', terminus: 'OffMap' as const, segments: segs };
+  assert.equal(riverCourse(river, size, 'seed')!.bank.length, 1);
+  assert.equal(riverCourse(river, size, 'seed', { before: { x: 0, y: 2 * 30 + 20 }, inWater: () => false })!.bank.length, 2);
+});
+
+test('a wider river carries a slightly larger name', async () => {
+  const { placeRiverLabels } = await import('../src/render/featureLabels.ts');
+  const size = 20;
+  const rivers = [1, 2].map((k) => ({
+    id: `r${k}`, name: `Name${k}`, terminus: 'OffMap' as const,
+    segments: [0, 1, 2, 3, 4, 5, 6, 7].map((col) => ({ col, row: k * 2, entryEdge: col === 0 ? null : 3, exitEdge: 0, navigable: false })),
+  }));
+  const labels = placeRiverLabels(rivers, size, undefined, undefined, [], (id) => (id === 'r2' ? size * 0.17 : size * 0.03));
+  assert.equal(labels.length, 2);
+  const ratio = labels[1]!.size / labels[0]!.size;
+  assert.ok(ratio > 1.05 && ratio < 1.12, `ratio ${ratio.toFixed(3)}`);
+});
+
 test('the PNG encoder writes a valid signature and chunk layout', () => {
   const png = encodePng(2, 2, new Uint8ClampedArray(16).fill(200));
   assert.deepEqual([...png.slice(0, 8)], [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
@@ -1060,16 +1104,23 @@ test('rivers start and stop on a lake’s drawn shore, and a river widens below 
   const distToShore = (p: { x: number; y: number }) => Math.min(...rings.flatMap((ring) => ring.map((q) => Math.hypot(q.x - p.x, q.y - p.y))));
   const rivers = scene.prims.filter((p): p is Extract<Prim, { kind: 'path' }> => p.kind === 'path' && p.fill === style.palette.river);
   assert.equal(rivers.length, 3);
-  // Each outline's ends: the trunk's first points and the mere's last lie on a shore (within a sample step).
-  const outlineEnds = (d: PathCmd[]) => {
-    const pts = d.filter((c) => c[0] !== 'Z').map((c) => ({ x: c[1] as number, y: c[2] as number }));
-    const half = pts.length / 2;
-    const mid = (a: { x: number; y: number }, b: { x: number; y: number }) => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
-    return { start: mid(pts[0]!, pts[pts.length - 1]!), end: mid(pts[half - 1]!, pts[half]!) };
-  };
   const [trunkPrim, , merePrim] = rivers;
-  assert.ok(distToShore(outlineEnds(trunkPrim!.d).start) < 20 * 0.12, 'the trunk starts on the lake shore');
-  assert.ok(distToShore(outlineEnds(merePrim!.d).end) < 20 * 0.12, 'the mere river ends on the lake shore');
+  // The trunk leaves the lake at its shore.
+  const first = trunkPrim!.d[0]!;
+  assert.ok(distToShore({ x: first[1] as number, y: first[2] as number }) < 20 * 0.15, 'the trunk starts on the lake shore');
+  // The mere runs on a little way into the lake it empties into, but only a little.
+  const inside = (p: { x: number; y: number }, ring: Array<{ x: number; y: number }>) => {
+    let in_ = false;
+    for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+      const a = ring[i]!;
+      const b = ring[j]!;
+      if (a.y > p.y !== b.y > p.y && p.x < ((b.x - a.x) * (p.y - a.y)) / (b.y - a.y) + a.x) in_ = !in_;
+    }
+    return in_;
+  };
+  const mere = merePrim!.d.filter((c) => c[0] !== 'Z').map((c) => ({ x: c[1] as number, y: c[2] as number }));
+  const depth = Math.max(0, ...mere.filter((p) => rings.some((ring) => inside(p, ring))).map(distToShore));
+  assert.ok(depth > 0 && depth < 20 * 0.6, `the mere river reaches into the lake by ${depth.toFixed(1)}`);
   // Width: compare the trunk just above and below the confluence at (4,2).
   const { riverCourse } = await import('../src/render/rivers.ts');
   const plain = riverCourse(trunk, 20, map.id)!;
