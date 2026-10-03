@@ -52,7 +52,7 @@ const TOOLS: { id: ToolButton; label: string; hint: string }[] = [
   {
     id: 'draw',
     label: 'Draw new',
-    hint: 'Click hexes from source to mouth; hexes that do not touch are joined by a straight run. Start on a Lake to have the river flow out of it. End on the Sea or Lake it empties into, on another river it flows into, or on a border hex.',
+    hint: 'Click hexes from source to mouth; hexes that do not touch are joined by a straight run. Start on a Lake to have the river flow out of it. End on the Sea or Lake it empties into, on another river it flows into, or on a border hex. A river can link lakes: start on one and end on another, or click on through a lake.',
   },
 ];
 

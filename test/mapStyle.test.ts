@@ -1244,7 +1244,7 @@ test('rivers start and stop on a lake’s drawn shore, and a river widens below 
   // Width: compare the trunk just above and below the confluence at (4,2).
   const { riverCourse } = await import('../src/render/rivers.ts');
   const plain = riverCourse(trunk, 20, map.id)!;
-  const fed = riverCourse(trunk, 20, map.id, { inflows: [{ at: { x: 4.5 * 20 * Math.sqrt(3), y: 20 + 2 * 30 }, run: 10 * 20 }] })!;
+  const fed = riverCourse(trunk, 20, map.id, { inflows: [{ at: { x: 4.5 * 20 * Math.sqrt(3), y: 20 + 2 * 30 } }] })!;
   assert.ok(fed.widths.at(-10)! > plain.widths.at(-10)!, 'wider below the confluence');
   assert.equal(fed.widths[2], plain.widths[2], 'unchanged above it');
 });
@@ -1400,4 +1400,95 @@ test('every map style draws no ripples by default, bar All frills', () => {
   assert.equal(PRESETS.frills.label, 'All frills');
   assert.ok(KNOB_OPTIONS.ripples.options.some((o) => o.value === 0), 'no ripples can be chosen in settings');
   assert.equal(parseStyleChoice({ preset: 'frills', overrides: { ripples: 0 } }).overrides.ripples, 0);
+});
+
+/** An eastward river of `count` hexes along row 2, with the hexes from `navigableFrom` navigable. */
+function eastward(count: number, navigableFrom = Infinity, terminus: 'OffMap' | 'Sea' = 'OffMap') {
+  const segments = Array.from({ length: count }, (_, col) => ({ col, row: 2, entryEdge: col === 0 ? null : 3, exitEdge: col === count - 1 && terminus !== 'Sea' ? null : 0, navigable: col >= navigableFrom }));
+  return { id: 'e', name: 'East', terminus, segments };
+}
+
+/** The arc length from the start of a course to each of its samples. */
+function arcs(line: Array<{ x: number; y: number }>): number[] {
+  const out = [0];
+  for (let i = 1; i < line.length; i++) out.push(out[i - 1]! + Math.hypot(line[i]!.x - line[i - 1]!.x, line[i]!.y - line[i - 1]!.y));
+  return out;
+}
+
+test('a river leaves its source hex half the normal width, and reaches the normal width a hex later', () => {
+  const size = 40;
+  const normal = size * 0.045;
+  // A river much shorter than the longest adds almost nothing for length, so its body is the normal width.
+  const { centreline, widths } = riverCourse(eastward(9), size, 'seed', { longest: 1000 * size })!;
+  const arc = arcs(centreline);
+  const at = (hexes: number) => widths[arc.findIndex((a) => a >= hexes * size)]!;
+  assert.ok(widths[0]! < normal * 0.25, 'a thread at its spring');
+  assert.ok(Math.abs(at(Math.sqrt(3) / 2) - normal * 0.5) < normal * 0.06, `${at(Math.sqrt(3) / 2) / normal} of normal at the hex edge`);
+  assert.ok(Math.abs(at(4) - normal) < normal * 0.04, 'the normal width in the body');
+});
+
+test('length, tributaries and navigability each widen a river by their own small share', () => {
+  const size = 40;
+  const normal = size * 0.045;
+  const end = (w: number[]) => w.at(-12)!;
+  const short = riverCourse(eastward(9), size, 'seed', { longest: 1000 * size })!;
+  // The longest river on the map adds up to a fifth of the normal width at its far end, in proportion to the distance
+  // run: a river half as long as the longest adds half as much for the same distance.
+  const run = arcs(short.centreline).at(-12)!;
+  const longest = riverCourse(eastward(9), size, 'seed', { longest: 9 * Math.sqrt(3) * size })!.widths;
+  const expected = (1 + 0.2 * (run / (9 * Math.sqrt(3) * size))) / (1 + 0.2 * (run / (1000 * size)));
+  assert.ok(Math.abs(end(longest) / end(short.widths) - expected) < 0.01, `longest river ratio ${end(longest) / end(short.widths)} against ${expected}`);
+  assert.ok(expected > 1.1 && expected < 1.2);
+  const half = riverCourse(eastward(9), size, 'seed', { longest: 18 * Math.sqrt(3) * size })!.widths;
+  assert.ok(Math.abs(end(half) / end(short.widths) - (1 + (expected - 1) / 2)) < 0.01, `half-length river ratio ${end(half) / end(short.widths)}`);
+  // Each tributary adds a twentieth of the normal width below its confluence.
+  const at = (n: number) => ({ at: { x: size * Math.sqrt(3) * (n + 0.5), y: size + 2 * 1.5 * size } });
+  const fed = riverCourse(eastward(9), size, 'seed', { longest: 1000 * size, inflows: [at(2), at(3)] })!.widths;
+  assert.ok(Math.abs((end(fed) - end(short.widths)) / normal - 0.1) < 0.012, `two tributaries add ${(end(fed) - end(short.widths)) / normal}`);
+  // Navigable water is a tenth wider.
+  const navigable = riverCourse(eastward(9, 4), size, 'seed', { longest: 1000 * size })!.widths;
+  assert.ok(Math.abs((end(navigable) - end(short.widths)) / normal - 0.1) < 0.012, `navigable adds ${(end(navigable) - end(short.widths)) / normal}`);
+  // The widest river of all is still slender.
+  const big = riverCourse(eastward(12, 3), size, 'seed', { longest: 12 * Math.sqrt(3) * size, inflows: [at(2), at(4), at(6)] })!.widths;
+  assert.ok(Math.max(...big) < size * 0.08, `widest ${Math.max(...big) / size} of a hex`);
+});
+
+test('a river into the sea ends at the coast as drawn, wherever that is', () => {
+  const size = 40;
+  const river = eastward(6, Infinity, 'Sea');
+  const shoreAt = size * Math.sqrt(3) * 4.2;
+  const course = riverCourse(river, size, 'seed', { onLand: (p) => p.x < shoreAt })!;
+  const last = course.centreline.at(-1)!;
+  assert.ok(Math.abs(last.x - shoreAt) < 1, `ends ${last.x.toFixed(1)} against a shore at ${shoreAt.toFixed(1)}`);
+  // A shore beyond the last hex's own edge is reached too.
+  const far = size * Math.sqrt(3) * 6.2;
+  const farther = riverCourse(river, size, 'seed', { onLand: (p) => p.x < far })!;
+  assert.ok(Math.abs(farther.centreline.at(-1)!.x - far) < 1, 'carried on to a shore beyond the edge');
+  // And the river stays on the land: no point of its outline lies past the shore by more than half its width.
+  for (const cmd of course.outline) if (cmd[0] === 'L' || cmd[0] === 'M') assert.ok((cmd[1] as number) < shoreAt + size * 0.05);
+});
+
+test('the side of the coast line a point falls on says whether it is land', async () => {
+  const { landBySide } = await import('../src/render/rivers.ts');
+  // A coast running down the page with the land to its right as it travels (the left of the screen).
+  const land = landBySide([[{ x: 100, y: 0 }, { x: 100, y: 200 }]], 30, () => true);
+  assert.equal(land({ x: 90, y: 100 }), true);
+  assert.equal(land({ x: 110, y: 100 }), false);
+  // Away from every line it defers to the hexes.
+  assert.equal(land({ x: 500, y: 100 }), true);
+});
+
+test('a city on a river sits in a ring of river water in every marker set', () => {
+  const map = islandMap();
+  map.layers.cities.data = { cities: [
+    { id: 'a', col: 3, row: 2, name: 'Wet', population: 5_000, onRiver: true, riverId: 'r', coastal: false, coastalEdges: [] },
+    { id: 'b', col: 4, row: 2, name: 'Dry', population: 5_000, onRiver: false, riverId: null, coastal: false, coastalEdges: [] },
+  ] };
+  const visible = { ...allLayers(), cities: true };
+  for (const cityMarkers of ['symbols', 'classic', 'illustrated'] as const) {
+    const style = resolveStyle({ preset: 'parchment', overrides: { cityMarkers } });
+    const prims = buildScene(map, { size: 20, visible, labels: false, style }).prims;
+    const collars = prims.filter((p) => p.kind === 'circle' && p.fill === style.palette.river && p.stroke === style.palette.cityRing);
+    assert.equal(collars.length, 1, `${cityMarkers}: one river city, one collar`);
+  }
 });

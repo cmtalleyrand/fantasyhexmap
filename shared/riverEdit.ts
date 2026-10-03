@@ -375,11 +375,12 @@ function joinTwo(
   const navigable = from.navigable && to.navigable;
   // leg() includes `to`; drop it, as down's own first hex follows.
   const bridge = from.col === to.col && from.row === to.row ? [] : leg(from, to, navigable).slice(0, -1);
-  if (bridge.some((h) => isWater(base[hexIndex(cols, h.col, h.row)]))) {
+  // A lake is no obstacle: the joined river flows into it and out the far side.
+  if (bridge.some((h) => isWater(base[hexIndex(cols, h.col, h.row)]) && base[hexIndex(cols, h.col, h.row)] !== 'Lake')) {
     return {
       error:
-        `The gap between ${up.name} and ${down.name} crosses water. ` +
-        'Move or extend one of them so their ends meet over land, then join them.',
+        `The gap between ${up.name} and ${down.name} crosses the sea. ` +
+        'Move or extend one of them so their ends meet over land or a lake, then join them.',
     };
   }
   const startsAtEnd = from.col === to.col && from.row === to.row;

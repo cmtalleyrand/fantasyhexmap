@@ -25,6 +25,15 @@ export interface MarkerColours {
   river: string;
 }
 
+/**
+ * What marks a city on a river, whichever marker set it is drawn in: a disc of
+ * river water round the marker, edged in paper, so the marker stands in the
+ * river whatever its size or silhouette. Drawn before the marker.
+ */
+export function riverCollar(c: Point, r: number, colours: { river: string; paper: string }): Prim[] {
+  return [{ kind: 'circle', c, r: r * 1.3, fill: colours.river, stroke: colours.paper, strokeWidth: Math.max(0.8, r * 0.1) }];
+}
+
 /** Points of a closed polygon as path commands. */
 function poly(points: Array<[number, number]>): PathCmd[] {
   return [...points.map(([x, y], k) => [k === 0 ? 'M' : 'L', x, y] as PathCmd), ['Z']];
