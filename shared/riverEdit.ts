@@ -117,10 +117,30 @@ export function moveRiverSegment(
   if (!seg) return { error: 'That hex is not part of the river.' };
   if (!inBounds(cols, rows, target.col, target.row)) return { error: 'That is off the map.' };
   if (seg.col === target.col && seg.row === target.row) return { error: 'The river is already there.' };
-  if (isWater(base[hexIndex(cols, target.col, target.row)])) {
-    return { error: 'A river segment cannot be moved into water; the river ends on its own where it meets water.' };
-  }
+  const targetValue = base[hexIndex(cols, target.col, target.row)];
   const path = pathOf(river, base, cols, rows);
+  if (isWater(targetValue)) {
+    const first = index === 0;
+    const last = index === river.segments.length - 1;
+    // The source dragged onto a lake: the river now flows out of that lake.
+    // The mouth dragged onto water: the river now empties there.
+    if (first && targetValue === 'Lake') {
+      const rest = path.slice(sourceOffset(river, path) + 1);
+      const next = rest[0];
+      const run = next ? leg(target, next, seg.navigable).slice(0, -1) : [];
+      return rebuild(river, withoutLoops([{ ...target, navigable: false }, ...run, ...rest]), base, elevation, cols, rows, others);
+    }
+    if (last && river.segments.length > 1) {
+      const head = path.slice(0, sourceOffset(river, path) + index);
+      const prev = head[head.length - 1]!;
+      return rebuild(river, withoutLoops([...head, ...leg(prev, target, seg.navigable)]), base, elevation, cols, rows, others);
+    }
+    return {
+      error: first
+        ? 'A river can rise in a lake, but not in the sea: drag its source onto a Lake hex.'
+        : 'Only a river\'s source can be moved into a lake (it then flows out of it), or its mouth into water.',
+    };
+  }
   // The path may open with the lake the river flows out of.
   const at = index + sourceOffset(river, path);
   const prev = path[at - 1];

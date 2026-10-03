@@ -32,7 +32,7 @@ export const LAYER_META: Record<LayerId, LayerMeta> = {
   base: {
     id: 'base',
     label: 'Base Geography',
-    blurb: 'Land, Coastal Land, Sea, Lake, Ice and Island - the foundation every other layer sits on.',
+    blurb: 'Land, sea, lakes, ice, islands, isthmuses and straits - the foundation every other layer sits on.',
     requires: [],
     uses: [],
     perHex: true,

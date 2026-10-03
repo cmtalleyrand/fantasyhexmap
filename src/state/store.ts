@@ -507,6 +507,18 @@ function propagateBaseEdit(
   return journal(next, manualEntry('base', `${parts.join(' and ')}: ${notes.join(', ')}.`));
 }
 
+/**
+ * The app's state: no map until one is loaded or created, then the map. Every
+ * load, the first included, goes through the reducer so older saves are
+ * migrated (see `migrateLegacyIslands`).
+ */
+export function appReducer(state: MapState | null, action: Action | { type: 'reset' }): MapState | null {
+  if (action.type === 'reset') return null;
+  if (action.type === 'load') return reducer(action.map, action);
+  if (state === null) return null;
+  return reducer(state, action);
+}
+
 export function reducer(map: MapState, action: Action): MapState {
   switch (action.type) {
     case 'load':

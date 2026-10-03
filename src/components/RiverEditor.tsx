@@ -382,6 +382,10 @@ function SelectedRiver(
           {navigable === 0 ? 'not navigable' : navigable === river.segments.length ? 'navigable throughout' : `${navigable} hexes navigable`}
         </span>
       </div>
+      <p className="hint" style={{ margin: 0 }}>
+        {river.fromLake ? 'It flows out of a lake. ' : 'To have it flow out of a lake, drag its first hex onto the lake, or use Extend and click the lake. '}
+        To have it flow into another river, use Extend and click a hex of that river.
+      </p>
       {branches.length > 0 && (
         <div className="hint">
           With its {branches.length} branch{branches.length === 1 ? '' : 'es'}:{' '}

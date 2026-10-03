@@ -78,6 +78,19 @@ export function isSplitType(value: BaseGeo | null | undefined): boolean {
   return value === 'Mainland and islands' || value === 'Isthmus' || value === 'Strait';
 }
 
+/** What each base type means, for the sidebar and the legend. */
+export const BASE_DESCRIPTIONS: Record<BaseGeo, string> = {
+  Land: 'Dry land.',
+  'Coastal Land': 'Land with a shoreline crossing it.',
+  Sea: 'Open salt water.',
+  Lake: 'Fresh water enclosed by land.',
+  Ice: 'Permanent ice.',
+  Islands: 'Sea holding up to two large islands and five small ones.',
+  'Mainland and islands': 'Part mainland coast, part sea with islands off the shore.',
+  Isthmus: 'A narrow neck of land joining two land masses, with water either side.',
+  Strait: 'A narrow channel of water joining two seas or lakes, with land either side.',
+};
+
 /** Hex types that carry land-only layer values (elevation, climate, vegetation, population). */
 export const LAND_LIKE: BaseGeo[] = ['Land', 'Coastal Land', 'Islands', 'Mainland and islands', 'Isthmus'];
 

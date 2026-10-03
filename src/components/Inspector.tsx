@@ -8,9 +8,11 @@ import {
   BASE_GEO_VALUES,
   CLIMATE_VALUES,
   ELEVATION_VALUES,
+  BASE_DESCRIPTIONS,
   VEGETATION_GROUPS,
   isIslandType,
   islandSpecFor,
+  type BaseGeo,
   type City,
   type IslandSpec,
   type LayerId,
@@ -406,17 +408,14 @@ function PerHexEditor(props: SubProps) {
     });
   };
 
-  const distinct = new Set(
-    selected.map((i) => {
-      const v = (map.layers[activeLayer].data as unknown[] | null)?.[i];
-      return v === null || v === undefined ? '(none)' : String(v);
-    }),
-  );
+  const valueLabel = (v: string) => options.find((o) => o.value === v)?.label ?? v;
+  const brushIsIsland = activeLayer === 'base' && isIslandType(current as BaseGeo);
 
   return (
     <div className="stack">
+      <SelectionCard {...props} />
       <div>
-        <label>Value to apply</label>
+        <label>{selected.length > 0 ? 'Change the selected hexes to' : 'Value to paint'}</label>
         {isPopulation ? (
           <input
             type="number"
@@ -434,21 +433,13 @@ function PerHexEditor(props: SubProps) {
             ))}
           </select>
         )}
+        {activeLayer === 'base' && current && (
+          <p className="hint" style={{ margin: '4px 0 0' }}>
+            {BASE_DESCRIPTIONS[current as BaseGeo]}
+            {brushIsIsland ? ' Once applied, set how many islands each hex holds in the Selected box above.' : ''}
+          </p>
+        )}
       </div>
-      {!isPopulation && (
-        <button
-          className="linkish"
-          style={{ alignSelf: 'flex-start' }}
-          onClick={() => {
-            const data = map.layers[activeLayer].data as unknown[] | null;
-            const want = current === '' ? null : current;
-            const matches = (data ?? []).flatMap((v, i) => ((v ?? null) === want ? [i] : []));
-            props.setSelection(new Set(matches));
-          }}
-        >
-          select every hex that is {options.find((o) => o.value === current)?.label ?? current}
-        </button>
-      )}
       <div className="row">
         <button className="primary grow" disabled={selected.length === 0} onClick={() => apply(selected)}>
           Apply to {selected.length} selected
@@ -466,20 +457,73 @@ function PerHexEditor(props: SubProps) {
         />
         Brush mode - apply the value as you drag across the map
       </label>
-      <p className="hint" style={{ margin: 0 }}>
-        Shift-click or shift-drag adds to the selection. Ctrl+A (⌘A) selects every hex, Esc clears.
-      </p>
-      {selected.length > 0 && (
-        <div className="hint">
-          Selected: {selected.slice(0, 8).map((i) => coordLabel(map, i)).join(' ')}
-          {selected.length > 8 ? ` +${selected.length - 8} more` : ''}
-          <br />
-          Current values: {[...distinct].slice(0, 6).join(', ')}
-        </div>
+      {!isPopulation && (
+        <button
+          className="linkish"
+          style={{ alignSelf: 'flex-start' }}
+          onClick={() => {
+            const data = map.layers[activeLayer].data as unknown[] | null;
+            const want = current === '' ? null : current;
+            const matches = (data ?? []).flatMap((v, i) => ((v ?? null) === want ? [i] : []));
+            props.setSelection(new Set(matches));
+          }}
+        >
+          Select every {valueLabel(current)} hex on the map
+        </button>
       )}
-      {activeLayer === 'base' && <IslandSidePanel {...props} />}
+      <p className="hint" style={{ margin: 0 }}>
+        Click a hex to select it; shift-click or shift-drag adds to the selection. Ctrl+A (⌘A) selects every hex, Esc clears.
+      </p>
       {activeLayer === 'base' && <WaterNamePanel {...props} />}
       {activeLayer === 'elevation' && <MountainRangePanel {...props} />}
+    </div>
+  );
+}
+
+/**
+ * What is selected: each hex's value on this layer (with what a base type
+ * means, for a single hex), and the settings that belong to those hexes -
+ * the islands of island hexes.
+ */
+function SelectionCard(props: SubProps) {
+  const { map, activeLayer, selected } = props;
+  if (selected.length === 0) {
+    return (
+      <div className="card" style={{ padding: 10 }}>
+        <div className="hint" style={{ margin: 0 }}>Nothing selected. Click a hex on the map to see what it is and change it.</div>
+      </div>
+    );
+  }
+  const data = map.layers[activeLayer].data as unknown[] | null;
+  const counts = new Map<string, number>();
+  for (const i of selected) {
+    const v = data?.[i];
+    const key = v === null || v === undefined ? '(none)' : String(v);
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  const values = [...counts.entries()].sort((a, b) => b[1] - a[1]);
+  const single = selected.length === 1;
+  const only = values.length === 1 ? values[0]![0] : null;
+  return (
+    <div className="card stack" style={{ padding: 10, gap: 6 }}>
+      <div className="hint" style={{ margin: 0 }}>
+        Selected: {single ? `hex ${coordLabel(map, selected[0]!)}` : `${selected.length} hexes`}
+        {!single && selected.length <= 8 ? ` (${selected.map((i) => coordLabel(map, i)).join(' ')})` : ''}
+      </div>
+      {only !== null ? (
+        <div style={{ fontWeight: 600, fontSize: 15 }}>
+          {single ? '' : 'All '}{only}
+        </div>
+      ) : (
+        <div style={{ fontWeight: 600 }}>
+          {values.slice(0, 6).map(([v, n]) => `${n} ${v}`).join(', ')}
+          {values.length > 6 ? ` and ${values.length - 6} more types` : ''}
+        </div>
+      )}
+      {activeLayer === 'base' && only !== null && only in BASE_DESCRIPTIONS && (
+        <div className="hint" style={{ margin: 0 }}>{BASE_DESCRIPTIONS[only as BaseGeo]}</div>
+      )}
+      {activeLayer === 'base' && <IslandSidePanel {...props} />}
     </div>
   );
 }
@@ -524,7 +568,7 @@ function IslandSidePanel(props: SubProps) {
   const mainland = hexes.every((i) => base![i] === 'Mainland and islands');
   return (
     <div className="stack" style={{ marginTop: 8 }}>
-      <h2>Islands ({hexes.length} hex{hexes.length === 1 ? '' : 'es'})</h2>
+      <label style={{ margin: 0 }}>The islands in {hexes.length === 1 ? 'this hex' : `these ${hexes.length} hexes`}</label>
       <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
         <label>
           Large islands{' '}
@@ -541,18 +585,20 @@ function IslandSidePanel(props: SubProps) {
           </select>
         </label>
       </div>
-      <label>
+      <label style={{ display: 'flex', alignItems: 'center', gap: 6, textTransform: 'none', fontSize: 12, margin: 0 }}>
         <input
           type="checkbox"
+          style={{ width: 'auto' }}
           checked={coastalLarge === 'true'}
           ref={(el) => { if (el) el.indeterminate = coastalLarge === ''; }}
           onChange={(e) => set({ coastal: { large: e.target.checked } })}
         />{' '}
         Large islands lie against the {mainland ? 'mainland' : 'coast'}
       </label>
-      <label>
+      <label style={{ display: 'flex', alignItems: 'center', gap: 6, textTransform: 'none', fontSize: 12, margin: 0 }}>
         <input
           type="checkbox"
+          style={{ width: 'auto' }}
           checked={coastalSmall === 'true'}
           ref={(el) => { if (el) el.indeterminate = coastalSmall === ''; }}
           onChange={(e) => set({ coastal: { small: e.target.checked } })}

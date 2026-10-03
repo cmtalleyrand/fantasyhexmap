@@ -2,9 +2,10 @@ import {
   BASE_GEO_VALUES,
   CLIMATE_VALUES,
   ELEVATION_VALUES,
+  BASE_DESCRIPTIONS,
   VEGETATION_GROUPS,
   isIslandType,
-  type BaseGeo,
+  isSplitType,
   type LayerId,
   type VegetationGroup,
 } from '../../shared/types.js';
@@ -29,12 +30,6 @@ function Swatch({ colour, label }: { colour: string; label: string }) {
   );
 }
 
-const ISLAND_NOTES: Partial<Record<BaseGeo, string>> = {
-  Islands: 'sea holding one or two large islands and up to five small ones',
-  'Mainland and islands': 'part of a mainland coast, with islands off it',
-  Isthmus: 'a neck of land between two waters',
-  Strait: 'a channel of water between two lands',
-};
 
 export default function Legend({ layer, map }: { layer: LayerId; map: MapState }) {
   switch (layer) {
@@ -45,7 +40,7 @@ export default function Legend({ layer, map }: { layer: LayerId; map: MapState }
             <Swatch
               key={v}
               colour={isIslandType(v) ? ISLAND_DOT : BASE_COLOURS[v]}
-              label={ISLAND_NOTES[v] ? `${v} (${ISLAND_NOTES[v]})` : v}
+              label={isSplitType(v) || isIslandType(v) ? `${v} - ${BASE_DESCRIPTIONS[v].replace(/\.$/, '').toLowerCase()}` : v}
             />
           ))}
         </div>
