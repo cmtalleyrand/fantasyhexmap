@@ -256,7 +256,8 @@ function cachedCoast(
 }
 
 /**
- * The owners the map is drawn with: only land carries a realm's colour. Sea
+ * The owners the map is drawn with: only land carries a realm's colour (a
+ * strait's banks are land, so an owned strait keeps its owner). Sea
  * and lake hexes are drawn unowned even where the data gives them an owner
  * (the data is not changed); the land round a lake still takes the colour of
  * the realm it borders (see the lake sectors in `buildStaticScene`).
@@ -266,7 +267,7 @@ const landOwnerCache = new WeakMap<object, { base: object; owner: (string | null
 function landOwners(owner: (string | null)[], base: ReadonlyArray<BaseGeo | null>): (string | null)[] {
   const hit = landOwnerCache.get(owner);
   if (hit && hit.base === base) return hit.owner;
-  const out = owner.map((o, i) => (base[i] === 'Sea' || base[i] === 'Lake' || base[i] === 'Strait' ? null : o));
+  const out = owner.map((o, i) => (base[i] === 'Sea' || base[i] === 'Lake' ? null : o));
   landOwnerCache.set(owner, { base, owner: out });
   return out;
 }
@@ -984,8 +985,10 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
       const owner = polities.owner[sliver.donor];
       if (owner) addLand(owner, sliver.d);
     }
-    // The banks of a strait belong to the realms whose land they face.
+    // The banks of a strait belong to the realms whose land they face, unless
+    // the strait hex is itself owned: then its own region colours them.
     for (const [i, split] of terrain?.split ?? []) {
+      if (base?.[i] === 'Strait' && polities.owner[i]) continue;
       split.sides.forEach((side, p) => {
         const owner = side === 'land' ? polities.owner[split.donors[p]!] : null;
         if (!owner || split.donors[p] === i) return;
