@@ -1166,6 +1166,8 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
     const regions = new Map<string, number[]>();
     const bands = new Map<string, Array<{ from: Point; to: Point; land: number; water: number }>>();
     const frontier: Array<{ from: Point; to: Point; land: number; water: number }> = [];
+    /** The hex edges (hex * 6 + edge) a border between realms wanders along, rather than keeping to the edge. */
+    const wanders = new Set<number>();
     // Island hexes carry their realm's colour on their islands alone. (An
     // island in a lake is part of the lake's body, and a mainland coast with
     // islands has a realm's land in it.)
@@ -1266,6 +1268,7 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
           // Between realms on land the border wanders; where it meets the sea
           // it stays on the coast, which the coast bands above cover.
           const landAcross = inside && across === 'land' && !isIsland(j);
+          if (landAcross) wanders.add(i * 6 + e);
           const pieces = landAcross
             ? toCoast(a, b, raggedEdge(a, b, knobs.borders, seed, size)).map((piece) => ({ ...piece, land: i, water: j }))
             : [{ from: a, to: b, land: i, water: j }];
@@ -1275,6 +1278,21 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
         }
       }
     }
+    /** A realm's hexes with the edges it shares with another realm following the wandering border, so its band stops at the line drawn. */
+    const realmGround = (hexes: number[]): PathCmd[] =>
+      hexes.flatMap((i) => {
+        const col = i % cols;
+        const row = Math.floor(i / cols);
+        const corners = hexCorners(col, row, size);
+        const d: PathCmd[] = [['M', corners[0]!.x, corners[0]!.y]];
+        for (let e = 0; e < 6; e++) {
+          const [a, b] = hexEdgePoints(col, row, e, size);
+          if (wanders.has(i * 6 + e)) for (const q of raggedEdge(a, b, knobs.borders, seed, size)) d.push(['L', q.x, q.y]);
+          else d.push(['L', b.x, b.y]);
+        }
+        d.push(['Z']);
+        return d;
+      });
     const band =
       knobs.polityStyle === 'wash'
         ? { width: size * 0.6, alpha: 0.55 }
@@ -1309,7 +1327,7 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
       const colour = polityColour.get(owner) ?? '#888888';
       prims.push({
         kind: 'group',
-        clip: [...hexesPath(regions.get(owner) ?? [], cols, size), ...(extraLand.get(owner) ?? [])],
+        clip: [...realmGround(regions.get(owner) ?? []), ...(extraLand.get(owner) ?? [])],
         prims: [{
           kind: 'group',
           clip: landMask,
