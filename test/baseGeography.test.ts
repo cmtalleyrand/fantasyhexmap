@@ -37,7 +37,7 @@ test('maps saved with the old Ice type load it as Sea Ice', async () => {
   assert.equal(migrateLegacyIslands(migrated), migrated);
 });
 
-test('a glacier is shaded by its elevation and sea ice is drawn as floes', async () => {
+test('a glacier is shaded by its elevation and sea ice is drawn as a body of pack ice', async () => {
   const { createMapState } = await import('../shared/layers.js');
   const { buildScene, defaultVisibility } = await import('../src/render/scene.js');
   const { resolveStyle } = await import('../src/render/styles.js');
@@ -50,7 +50,10 @@ test('a glacier is shaded by its elevation and sea ice is drawn as floes', async
   const fills = prims.filter((p) => p.kind === 'polygon' && p.points.length === 6).map((p) => (p as { fill?: string }).fill);
   assert.ok(fills.includes(style.palette.ice), 'high ice is the plain ice colour');
   assert.ok(fills.some((f) => f !== style.palette.ice && f !== style.palette.sea && f !== style.palette.seaIce && f !== undefined && /^#/.test(f)), 'low ice is shaded');
-  assert.ok(fills.includes(style.palette.seaIce), 'sea ice has its own fill');
-  const floes = prims.filter((p) => p.kind === 'polygon' && p.stroke === style.palette.iceShade);
-  assert.ok(floes.length >= 3, 'sea ice carries floes');
+  // Sea ice lies on ordinary sea as one body, not as a pale hex.
+  assert.ok(!fills.includes(style.palette.seaIce), 'sea ice is not a hex fill');
+  const group = prims.find((p) => p.kind === 'group' && p.prims.some((q) => q.kind === 'path' && q.fill === style.palette.seaIce));
+  assert.ok(group, 'the pack is a path in the frozen sea\'s colour');
+  const floes = (group as { prims: Array<{ kind: string }> }).prims.flatMap((p) => (p.kind === 'group' ? (p as { prims: Array<{ kind: string }> }).prims : [p])).filter((p) => p.kind === 'polygon');
+  assert.ok(floes.length >= 2, 'sea ice carries plates');
 });

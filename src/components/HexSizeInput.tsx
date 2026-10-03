@@ -16,7 +16,18 @@ const MEASURES: { id: HexMeasure; label: string; hint: string }[] = [
 
 const UNITS = ['km', 'mi', 'm', 'ft', 'yd', 'leagues'];
 const CUSTOM = '__custom';
-const LAND_PERCENT_OPTIONS = Array.from({ length: 11 }, (_, index) => index * 10);
+const LAND_PERCENT_OPTIONS = Array.from({ length: 21 }, (_, index) => index * 5);
+
+/** The land share of each shaped type, as (field, label) for the settings below. */
+const LAND_SHARES: Array<[keyof HexDimensions, string]> = [
+  ['coastalLandPercent', 'Coastal land'],
+  ['largeIslandPercent', 'Each large island'],
+  ['smallIslandPercent', 'Each small island'],
+  ['mainlandPercent', 'Mainland (with islands)'],
+  ['isthmusPercent', 'Isthmus'],
+  ['straitPercent', 'Strait'],
+  ['glacierPercent', 'Glacier'],
+];
 
 const fmt = (n: number) =>
   Number.isFinite(n) ? Number(n.toPrecision(4)).toLocaleString(undefined, { maximumFractionDigits: 4 }) : '-';
@@ -216,37 +227,26 @@ export default function HexSizeInput({
         </div>
       )}
 
-      <div className="row" style={{ marginTop: 12 }}>
-        <div className="grow">
-          <label>Coastal land counted as land</label>
-          <select
-            aria-label="Coastal Land percentage"
-            value={value.coastalLandPercent}
-            onChange={(e) => onChange({ ...value, coastalLandPercent: Number(e.target.value) })}
-          >
-            {LAND_PERCENT_OPTIONS.map((p) => (
-              <option key={p} value={p}>
-                {p}%
-              </option>
-            ))}
-          </select>
-        </div>
-        <div className="grow">
-          <label>Island hexes counted as land</label>
-          <select
-            aria-label="Island land percentage"
-            value={value.islandLandPercent}
-            onChange={(e) => onChange({ ...value, islandLandPercent: Number(e.target.value) })}
-          >
-            {LAND_PERCENT_OPTIONS.map((p) => (
-              <option key={p} value={p}>
-                {p}%
-              </option>
-            ))}
-          </select>
-        </div>
+      <h3>Land share of shaped hexes</h3>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 8 }}>
+        {LAND_SHARES.map(([field, label]) => (
+          <div key={field}>
+            <label>{label}</label>
+            <select
+              aria-label={`${label} land percentage`}
+              value={value[field] as number}
+              onChange={(e) => onChange({ ...value, [field]: Number(e.target.value) })}
+            >
+              {LAND_PERCENT_OPTIONS.map((p) => (
+                <option key={p} value={p}>
+                  {p}%
+                </option>
+              ))}
+            </select>
+          </div>
+        ))}
       </div>
-      <p className="hint">Polity areas in the legend use these shares of each coastal/island hex.</p>
+      <p className="hint">Polity areas in the legend count this share of each such hex; an island hex adds up its islands. A single hex can override its own share in the sidebar.</p>
 
       <h3>Displayed measurement rounding</h3>
       <div className="row">

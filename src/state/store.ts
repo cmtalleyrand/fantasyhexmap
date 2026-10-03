@@ -14,7 +14,7 @@
  */
 
 import { recomputeCityFacts, canHoldSettlement } from '../../shared/derive.js';
-import { isIslandType, islandSpecFor, type IslandSpec } from '../../shared/types.js';
+import { hasLandShare, isIslandType, isShapedType, islandSpecFor, type HexShape, type IslandSpec, type Irregularity } from '../../shared/types.js';
 import { migrateLegacyIslands } from '../../shared/islandMigration.js';
 import { GEO_KIND_LABEL, geoEligibility, geoNamesOf, withMigratedGeoNames } from '../../shared/geoNames.js';
 import { withValidParents } from '../../shared/polityTree.js';
@@ -51,6 +51,12 @@ import type {
 
 /** A change to island hexes' specs: counts, coastal groups, and the side (null: automatic). */
 export type IslandSpecChange = Partial<Omit<IslandSpec, 'side' | 'coastal'>> & { coastal?: IslandSpec['coastal']; side?: number | null };
+
+/** A change to shaped hexes' land share and irregularity; null on a field puts that one back to the type's default. */
+export interface HexShapeChange {
+  land?: number | null;
+  irregular?: Irregularity | null;
+}
 
 /** Hexes whose surface is open water: seas, lakes and straits, and the sea round islands. */
 export function isWaterSurface(v: BaseGeo | null | undefined): boolean {
@@ -120,6 +126,11 @@ export type Action =
       indices: number[];
       change: IslandSpecChange | null;
     }
+  /**
+   * Set the land share and irregularity of shaped hexes (coastal land, islands,
+   * isthmus, strait, ice). A null change restores each hex's defaults.
+   */
+  | { type: 'setHexShape'; indices: number[]; change: HexShapeChange | null }
   | { type: 'clearLayer'; layer: LayerId }
   | { type: 'undo'; layer: LayerId }
   | { type: 'redo'; layer: LayerId };
@@ -396,6 +407,9 @@ function relayout(map: MapState, to: Relayout): MapState {
     islandSpecs: map.islandSpecs
       ? Object.fromEntries(Object.entries(map.islandSpecs).map(([index, spec]) => [String(remapIndex(Number(index))), spec]))
       : map.islandSpecs,
+    hexShapes: map.hexShapes
+      ? Object.fromEntries(Object.entries(map.hexShapes).map(([index, shape]) => [String(remapIndex(Number(index))), shape]))
+      : map.hexShapes,
     updatedAt: Date.now(),
   };
 }
@@ -1079,6 +1093,38 @@ export function reducer(map: MapState, action: Action): MapState {
       return journal(
         { ...map, islandSpecs: specs, updatedAt: Date.now() },
         manualEntry('base', `Changed the islands of ${changed} hex${changed === 1 ? '' : 'es'} by hand.`),
+      );
+    }
+
+    case 'setHexShape': {
+      const base = map.layers.base.data;
+      if (!base) return map;
+      const shapes = { ...(map.hexShapes ?? {}) };
+      let changed = 0;
+      for (const i of action.indices) {
+        const value = base[i];
+        if (!isShapedType(value)) continue;
+        const key = String(i);
+        const before = JSON.stringify(shapes[key] ?? null);
+        const kept = shapes[key]?.type === value ? shapes[key]! : undefined;
+        let next: HexShape | undefined = { type: value!, ...(kept?.land !== undefined ? { land: kept.land } : {}), ...(kept?.irregular ? { irregular: kept.irregular } : {}) };
+        const change = action.change;
+        if (change === null) next = undefined;
+        else {
+          if (change.land === null) delete next.land;
+          else if (change.land !== undefined && hasLandShare(value)) next.land = Math.max(0, Math.min(100, Math.round(change.land)));
+          if (change.irregular === null) delete next.irregular;
+          else if (change.irregular !== undefined) next.irregular = change.irregular;
+          if (next.land === undefined && next.irregular === undefined) next = undefined;
+        }
+        if (next) shapes[key] = next;
+        else delete shapes[key];
+        if (JSON.stringify(shapes[key] ?? null) !== before) changed++;
+      }
+      if (changed === 0) return map;
+      return journal(
+        { ...map, hexShapes: shapes, updatedAt: Date.now() },
+        manualEntry('base', `Changed the land share or irregularity of ${changed} hex${changed === 1 ? '' : 'es'} by hand.`),
       );
     }
 

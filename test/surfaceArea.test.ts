@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createMapState } from '../shared/layers.ts';
+import { DEFAULT_HEX_DIMENSIONS } from '../shared/types.ts';
 import { formatArea, politySurfaceAreas } from '../shared/surfaceArea.ts';
 import { reducer } from '../src/state/store.ts';
 
@@ -11,7 +12,7 @@ test('polity surface area weights coast and island land shares', () => {
       polities: [{ id: 'realm', name: 'Realm', colour: '#123456' }],
       owner: ['realm', 'realm', 'realm', 'realm'],
     },
-    { width: 10, height: 8, unit: 'km', coastalLandPercent: 60, islandLandPercent: 40, areaRounding: 100, lengthRounding: 10 },
+    { ...DEFAULT_HEX_DIMENSIONS, width: 10, height: 8, coastalLandPercent: 60, smallIslandPercent: 40 },
     // One small islet, as the old single Island was.
     { '2': { large: 0, small: 1 } },
   );
@@ -30,7 +31,7 @@ test('polity surface area remains linear across multiple owners', () => {
       ],
       owner: ['a', 'b', 'b'],
     },
-    { width: 4, height: 2, unit: 'mi', coastalLandPercent: 50, islandLandPercent: 40, areaRounding: 100, lengthRounding: 10 },
+    { ...DEFAULT_HEX_DIMENSIONS, width: 4, height: 2, unit: 'mi', coastalLandPercent: 50 },
   );
 
   assert.deepEqual(Object.fromEntries(areas), { a: 6, b: 9 });
@@ -41,22 +42,24 @@ test('area settings can be changed after a map has been created', () => {
   const updated = reducer(map, {
     type: 'setHexDimensions',
     hexDimensions: {
+      ...DEFAULT_HEX_DIMENSIONS,
       width: 24,
       height: 20,
       unit: 'mi',
       coastalLandPercent: 70,
-      islandLandPercent: 30,
+      smallIslandPercent: 15,
       areaRounding: 50,
       lengthRounding: 5,
     },
   });
 
   assert.deepEqual(updated.hexDimensions, {
+    ...DEFAULT_HEX_DIMENSIONS,
     width: 24,
     height: 20,
     unit: 'mi',
     coastalLandPercent: 70,
-    islandLandPercent: 30,
+    smallIslandPercent: 15,
     areaRounding: 50,
     lengthRounding: 5,
   });
