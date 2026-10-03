@@ -92,7 +92,7 @@ import {
   type CoastEdge,
   raggedEdge,
 } from './coast.js';
-import type { CitySymbol, PathCmd, Prim } from './prims.js';
+import { polygonPath, type CitySymbol, type PathCmd, type Prim } from './prims.js';
 import { cityMarker, markerExtent } from './cityMarkers.js';
 import { riverCourses, type RiverCourse } from './rivers.js';
 import { citySite } from './sites.js';
@@ -103,9 +103,10 @@ import { measureEpoch, textEm } from './fonts.js';
 import { glyphAdvances, glyphsStraight } from './glyphs.js';
 import { BUNDLED_FACES, LETTERINGS, type FaceRole } from './lettering.js';
 import { signed, unit } from './seed.js';
-import { floeFringe, glacierShelf, nearHexes, pathPolylines, seaIcePrims } from './ice.js';
+import { ELEVATION_RANK, floeFringe, glacierEdges, glacierFlow, glacierMarginPrims, glacierShading, glacierShelf, iceSeam, nearHexes, pathPolylines, seaIcePrims } from './ice.js';
 import { landFraction, normaliseHexDimensions } from '../../shared/surfaceArea.js';
 import { CLASSIC_STYLE, type ElevationStyle, type MapStyle } from './styles.js';
+import { extendToRim, rimPieces } from './rim.js';
 import { grainTile } from './texture.js';
 
 export type { CitySymbol, PathCmd, Prim } from './prims.js';
@@ -448,6 +449,7 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
   const style = opts.style ?? CLASSIC_STYLE;
   const { palette, knobs } = style;
   const { width, height } = gridPixelSize(cols, rows, size);
+  const rimBounds = { width, height };
   const prims: Prim[] = [];
   const seed = map.id;
   const uniformLand = opts.uniformLand ?? knobs.land === 'uniform';
@@ -512,8 +514,16 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
   const GLACIER_SHADE: Record<Elevation, number> = {
     Lowland: 0.45, Rolling: 0.32, Hills: 0.2, Plateau: 0.12, Highland: 0.06, Mountains: 0,
   };
+  // Textured ice is one sheet, a little dulled where elevation is shown, whose height is
+  // then shaded softly over it (below), brighter above its colour and duller below, not hex by hex.
+  const ICE_SHEET = 0.28;
+  const texturedIce = knobs.ice === 'glacier';
+  const organicIce = texturedIce && knobs.coast === 'smooth';
+  /** How ragged a hex's outline is drawn. */
+  const levelOf = (i: number): Irregularity => hexShapeFor(base?.[i], map.hexShapes?.[String(i)], map.defaultIrregularity).irregular;
   const glacierFill = (i: number): string => {
     const height = elevationData?.[i];
+    if (texturedIce) return height ? mix(palette.ice, palette.iceShade, ICE_SHEET) : palette.ice;
     return height ? mix(palette.ice, palette.iceShade, GLACIER_SHADE[height]) : palette.ice;
   };
 
@@ -653,12 +663,6 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
       const fill = hexFill(own);
       prims.push({ kind: 'polygon', points: corners, fill, stroke: fill, strokeWidth: seal });
 
-      // Crevasses crack flat ice; on rising ground the relief marks show instead.
-      const iceHeight = elevationData?.[i];
-      if (knobs.ice === 'glacier' && base?.[i] === 'Glacier' && !thematic && (!iceHeight || iceHeight === 'Lowland' || iceHeight === 'Rolling')) {
-        prims.push(...crevasses(hexCenter(col, row, size), size, seed, i, palette.iceShade));
-      }
-
       if (relief === 'marks' && showElevation) {
         const elevation = layers.elevation.data?.[i];
         if (elevation) prims.push(...elevationMarks(hexCenter(col, row, size), size, elevation));
@@ -668,12 +672,104 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
     }
   }
 
+  // --- glacier ground ----------------------------------------------------------------
+  const glacierHexes: number[] = [];
+  base?.forEach((v, i) => {
+    if (v === 'Glacier') glacierHexes.push(i);
+  });
+  /** Where the ice margin on dry land is drawn, when it is not the hex edge. */
+  let iceMargin: CoastGeometry | null = null;
+  if (base && texturedIce && glacierHexes.length > 0) {
+    if (organicIce) {
+      iceMargin = glacierEdges({
+        cols,
+        rows,
+        size,
+        glacier: new Set(glacierHexes),
+        isWater: (j) => sideOf(base[j]) === 'water',
+        levelOf,
+        rankOf: (j) => (elevationData?.[j] ? ELEVATION_RANK[elevationData[j]!] : null),
+        noise: (x, y, k) => unit(seed, 'ice-margin', Math.round(x * 1000), Math.round(y * 1000), k),
+      });
+      // Ground regained from the ice and ice gained over the ground beside it,
+      // each in the colours of the hex it belongs to.
+      for (const sliver of [...iceMargin.toWater, ...iceMargin.toLand]) {
+        const donor = inLakeBody.has(sliver.donor) ? lakeShoreDonor(sliver.donor) : sliver.donor;
+        const fill = hexFill(donor);
+        prims.push({ kind: 'path', d: sliver.d, fill, stroke: fill, strokeWidth: seal });
+        for (const overlay of overlays(donor)) prims.push({ kind: 'path', d: sliver.d, fill: overlay });
+      }
+    }
+    // The ice as drawn: its hexes, with what the margin adds and takes away (even-odd).
+    const iceRegion: PathCmd[] = [
+      ...hexesPath(glacierHexes, cols, size),
+      ...(iceMargin ? [...iceMargin.toLand, ...iceMargin.toWater].flatMap((sliver) => sliver.d) : []),
+    ];
+    const surface: Prim[] = [];
+    /** Hexes whose ice flows downhill in strokes; level ice is cracked with crevasses instead. */
+    let flowing = new Set<number>();
+    if (!thematic && elevationData) {
+      const rankAt = (j: number) => (elevationData[j] ? ELEVATION_RANK[elevationData[j]!] : null);
+      surface.push(
+        ...glacierShading(
+          glacierHexes.flatMap((i) => {
+            const rank = rankAt(i);
+            return rank === null ? [] : [{ c: hexCenter(i % cols, Math.floor(i / cols), size), rank }];
+          }),
+          size,
+          { dull: palette.iceShade, bright: '#ffffff' },
+          withAlpha,
+        ),
+      );
+      // Ice runs downhill: on a slope, strokes lead off towards the lowest ground beside it.
+      const flows: Array<{ i: number; c: Point; to: Point }> = [];
+      for (const i of glacierHexes) {
+        const rank = rankAt(i);
+        if (rank === null || rank < 1 || rank > 3) continue;
+        let lowest = rank;
+        let toward = -1;
+        for (let e = 0; e < 6; e++) {
+          const n = neighbourOf(i % cols, Math.floor(i / cols), e);
+          if (!inBounds(cols, rows, n.col, n.row)) continue;
+          const j = hexIndex(cols, n.col, n.row);
+          const there = sideOf(base[j]) === 'water' ? -1 : rankAt(j) ?? rank;
+          if (there < lowest) {
+            lowest = there;
+            toward = j;
+          }
+        }
+        if (toward >= 0) flows.push({ i, c: hexCenter(i % cols, Math.floor(i / cols), size), to: hexCenter(toward % cols, Math.floor(toward / cols), size) });
+      }
+      flowing = new Set(flows.map((f) => f.i));
+      surface.push(...glacierFlow(flows, size, seed, withAlpha(mix(palette.ice, palette.iceShade, 0.9), 0.8)));
+    }
+    if (!thematic) {
+      for (const i of glacierHexes) {
+        if (flowing.has(i)) continue;
+        const height = elevationData?.[i];
+        // On rising ground the relief marks show instead.
+        if (!height || ELEVATION_RANK[height] <= 3) surface.push(...crevasses(hexCenter(i % cols, Math.floor(i / cols), size), size, seed, i, palette.iceShade));
+      }
+    }
+    if (iceMargin) {
+      const paths = iceMargin.paths.flatMap((d, c) => extendToRim(d, iceMargin!.chains[c]?.closed ?? true, rimBounds, size));
+      surface.push(
+        ...glacierMarginPrims(paths, size, {
+          frost: thematic ? 'rgba(255,255,255,0)' : withAlpha(mix(palette.ice, '#ffffff', 0.6), 0.6),
+          line: withAlpha(mix(palette.iceShade, palette.coast, 0.5), 0.85),
+        }),
+      );
+    }
+    if (surface.length > 0) prims.push({ kind: 'group', clip: iceRegion, clipRule: 'evenodd', prims: surface });
+  }
+
   // --- hill shading ----------------------------------------------------------------
   // Over the land's colours (realm fills included), so height reads through them.
   if (relief === 'hillshade' && elevationData) {
     for (let i = 0; i < cols * rows; i++) {
       const here = elevationData[i];
-      if (!here || isWater(i)) continue;
+      // Textured ice is shaded by its ground already, in its own way.
+      if (!here || isWater(i) || (texturedIce && base?.[i] === 'Glacier')) continue;
       const col = i % cols;
       const row = Math.floor(i / cols);
       const v = hillshade(here, (e) => {
@@ -697,6 +793,8 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
   // Sea ice lies on ordinary sea; its pack is drawn over the water below.
   const waterColour = (i: number) => (base?.[i] === 'Lake' ? palette.lake : palette.sea);
   const islands: number[] = [];
+  /** The rim notches that are water, by body, so the sea's surface and its ice reach the page's edge. */
+  const rimWater: Record<'sea' | 'lake', PathCmd[]> = { sea: [], lake: [] };
   if (base) {
     for (let i = 0; i < base.length; i++) {
       if (isIslandType(base[i]) && !lakeIslands.has(i)) islands.push(i);
@@ -724,6 +822,27 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
         for (const overlay of overlays(donor)) prims.push({ kind: 'polygon', points, fill: overlay });
       });
     }
+    // The notches the hex grid leaves at the page's edge belong to the border
+    // hex beside them: what it is, they are, so nothing stops short of the rim.
+    for (let i = 0; i < base.length; i++) {
+      const col = i % cols;
+      const row = Math.floor(i / cols);
+      if (col > 0 && row > 0 && col < cols - 1 && row < rows - 1) continue;
+      for (const piece of rimPieces(cols, rows, size, col, row, rimBounds)) {
+        const split = terrain?.split.get(i);
+        const surface = split ? split.sides[6 + piece.edge]! : isLakeHex(i) ? 'lake' : terrain?.whole[i] ?? (isWater(i) ? 'sea' : 'land');
+        if (surface !== 'land') {
+          const fill = surface === 'lake' ? palette.lake : palette.sea;
+          prims.push({ kind: 'path', d: polygonPath(piece.points), fill, stroke: fill, strokeWidth: seal });
+          rimWater[surface].push(...polygonPath(piece.points));
+          continue;
+        }
+        const donor = split ? split.donors[6 + piece.edge]! : i;
+        const fill = hexFill(donor);
+        prims.push({ kind: 'path', d: polygonPath(piece.points), fill, stroke: fill, strokeWidth: seal });
+        for (const overlay of overlays(donor)) prims.push({ kind: 'path', d: polygonPath(piece.points), fill: overlay });
+      }
+    }
     // Corners of land that the smoothed coast cuts off become water.
     for (const s of coast?.toWater ?? []) {
       const fill = waterColour(s.donor);
@@ -731,8 +850,6 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
     }
   }
 
-  /** How ragged a hex's outline is drawn. */
-  const levelOf = (i: number): Irregularity => hexShapeFor(base?.[i], map.hexShapes?.[String(i)], map.defaultIrregularity).irregular;
   const islandRand = (i: number) => (k: number) => unit(seed, 'islet', i, k);
   /** The direction (radians) from an island hex's centre toward the land its coastal groups lie against. */
   const coastward = (i: number, spec: IslandSpec): number => {
@@ -903,7 +1020,9 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
       return [...body, ...skerries];
     });
   };
-  const shorelines: PathCmd[] = [...(coast?.paths.flat() ?? []), ...islands.filter((i) => !lakeIslands.has(i)).flatMap(islandPath)];
+  /** The coast's paths, those that run off the map carried on to the page's edge. */
+  const coastPaths = coast?.paths.map((d, c) => extendToRim(d, coast.chains[c]?.closed ?? true, rimBounds, size)) ?? [];
+  const shorelines: PathCmd[] = [...coastPaths.flat(), ...islands.filter((i) => !lakeIslands.has(i)).flatMap(islandPath)];
 
   /**
    * The water of one body (the sea, or lakes) as a clip: its whole hexes, the
@@ -925,10 +1044,11 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
         pieces.push(['Z']);
       });
     }
-    if (hexes.length === 0 && pieces.length === 0) return null;
+    if (hexes.length === 0 && pieces.length === 0 && rimWater[body].length === 0) return null;
     return [
       ...hexesPath(hexes, cols, size),
       ...pieces,
+      ...rimWater[body],
       ...(coast?.toWater ?? []).filter((s) => (base[s.donor] === 'Lake') === (body === 'lake')).flatMap((s) => s.d),
     ];
   };
@@ -948,12 +1068,9 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
 
   // --- ice ------------------------------------------------------------------------
   // Pack ice is one body laid over the sea, and glaciers calve bergs into it.
-  const texturedIce = knobs.ice === 'glacier';
   const iceHexes: number[] = [];
-  const glacierHexes: number[] = [];
   base?.forEach((v, i) => {
     if (v === 'Sea Ice' && !isSplit(i)) iceHexes.push(i);
-    if (v === 'Glacier') glacierHexes.push(i);
   });
   const iceColours = {
     body: palette.seaIce,
@@ -962,7 +1079,7 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
     crack: mix(palette.seaIce, palette.iceShade, 0.85),
   };
   const iceNoise = (x: number, y: number, k: number) => unit(seed, 'ice-edge', Math.round(x * 1000), Math.round(y * 1000), k);
-  const coastLines = coast ? coast.paths.flatMap((d) => pathPolylines(d)) : [];
+  const coastLines = coastPaths.flatMap((d) => pathPolylines(d));
   const nearGlacier = nearHexes(cols, rows, size, (i) => (base?.[i] === 'Glacier' ? levelOf(i) : null), 1.15);
   if (base && (iceHexes.length > 0 || (texturedIce && glacierHexes.length > 0))) {
     const clip = waterClip('sea');
@@ -1107,7 +1224,7 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
   // notches filled in for it, and under the grid and the coastline.
   if (texturedIce && !thematic && glacierHexes.length > 0 && coastLines.length > 0) {
     const shelf = glacierShelf(coastLines, size, (p) => nearGlacier(p) !== null, {
-      slope: mix(palette.ice, palette.iceShade, 0.5),
+      slope: mix(palette.ice, palette.iceShade, 0.38),
       edge: mix(palette.ice, '#ffffff', 0.8),
     });
     if (shelf.length > 0) {
@@ -1139,6 +1256,8 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
           } else if (inside && j < i) {
             continue; // each shared edge once
           }
+          // Where the ice ends on dry land the ice margin is the line, not the hex edge.
+          if (iceMargin && inside && sides![i] === 'land' && sides![j] === 'land' && (base![i] === 'Glacier') !== (base![j] === 'Glacier')) continue;
           const [a, b] = hexEdgePoints(col, row, e, size);
           d.push(['M', a.x, a.y], ['L', b.x, b.y]);
         }
@@ -1158,6 +1277,14 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
       strokeWidth: Math.max(0.8, size * palette.coastWidth),
       round: true,
     });
+  }
+
+  // Glacier against pack ice: ice on ice, so the coast's ink gives way to a pale seam.
+  if (texturedIce && !thematic && glacierHexes.length > 0 && iceHexes.length > 0 && coastLines.length > 0) {
+    const nearPack = nearHexes(cols, rows, size, (i) => (base?.[i] === 'Sea Ice' ? 'Smooth' : null), 1.25);
+    prims.push(
+      ...iceSeam(coastLines, size, (p) => nearGlacier(p) !== null && nearPack(p) !== null, mix(palette.seaIce, palette.iceShade, 0.35), Math.max(0.8, size * palette.coastWidth)),
+    );
   }
 
   // --- polity borders ------------------------------------------------------

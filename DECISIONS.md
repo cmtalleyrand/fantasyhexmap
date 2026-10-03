@@ -716,3 +716,39 @@ cut from fixed pieces of the hex (a neck or channel a third of a hex wide, banks
 draw that much whatever their share; the share counts in their area only. Their defaults (30% and 40%)
 sit close to what those pieces already show. A coast hex next to a lake is not drawn in from the lake,
 which has a body of its own.
+
+## 40. Ice follows the ground it lies on, and every edge resolves to a neighbour
+
+**Chosen.** Three changes to how ice is drawn, all in the textured ice setting unless stated.
+
+*The map's rim.* A hex grid cut to a rectangle leaves half-hex notches down the sides and small
+triangles along the top and bottom; they used to show the page colour, so a band of pack ice ended in
+teal teeth. Each notch now belongs to the border hex beside it: that hex's edge facing off the map is
+extruded to the rim (`rim.ts`), and the piece is painted as the hex is (its fill and overlays for land,
+the sea's colour for water, and into the sea's clip, so the water's surface and the ice reach the page
+edge). A coast that runs off the map is carried on to the rim the same way. This applies to every
+style, not only ice.
+
+*Glacier against land.* A glacier's edge on dry land is traced as a line of its own (glacier hexes
+against land hexes; the water beside a glacier counts as part of it, since its coast is the sea's to
+draw), smoothed and roughened like a coast, and repaints the slivers it moves across: ice gained over
+the neighbouring land in the glacier's colours, land regained in the neighbour's. Height sets its
+character through the roughening's new `lean`: ice pushes out onto ground higher than its own (up to
+about a quarter of a hex) and ends in a more broken edge there, and holds back in rounded lobes against
+lower ground. A frosted band and a fine line mark the margin, and the grid line along it is dropped.
+Where elevation is not shown there is no height to follow, so the margin is plain roughening.
+
+*The ice sheet.* Height is shaded over the sheet as stacks of soft discs rather than hex by hex: dull
+on low ground, bright over high. Ice flows downhill: on a slope, strokes lead toward the lowest
+neighbouring ground, and level ice is cracked with crevasses instead, with relief marks over the rest
+as before. Glacier hexes no longer take hill shading, which shows through ice as hexagonal blotches.
+Where a glacier meets pack ice the coast's ink gives way to a pale seam (ice on ice, no shore).
+
+*Pack ice.* The overlapping blobs are replaced by plates, the Voronoi cells of a jittered scatter on a
+fixed grid (so they do not shift when the map is edited or zoomed), with the leads between them as
+cracks that open up where the pack meets open water. A pack that meets the map edge all the way
+round used to draw nothing (it had no edge to close); it now fills the page, with any open water in
+it as a hole.
+
+**What it costs.** About twice the scene-building time on a very large icy map (120×100 hexes: a
+quarter to half a second). The glacier shading discs and flow strokes are many small primitives.
