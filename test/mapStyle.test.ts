@@ -8,6 +8,8 @@ import type { PathCmd, Prim } from '../src/render/prims.ts';
 import { riverCourse } from '../src/render/rivers.ts';
 import { buildScene, defaultVisibility } from '../src/render/scene.ts';
 import {
+  KNOB_OPTIONS,
+  PRESETS,
   PRESET_ORDER,
   elevationStyleOf,
   parseStyleChoice,
@@ -1386,4 +1388,14 @@ test('a coast that runs off the map is closed round the page on its land side, s
   };
   assert.ok(inside(5, 20), 'a point in the land is inside');
   assert.ok(!inside(60, 20), 'a point in the sea is not');
+});
+
+test('every map style draws no ripples by default, bar All frills', () => {
+  for (const preset of PRESET_ORDER) {
+    const ripples = resolveStyle({ preset, overrides: {} }).knobs.ripples;
+    assert.equal(ripples, preset === 'frills' ? 3 : 0, preset);
+  }
+  assert.equal(PRESETS.frills.label, 'All frills');
+  assert.ok(KNOB_OPTIONS.ripples.options.some((o) => o.value === 0), 'no ripples can be chosen in settings');
+  assert.equal(parseStyleChoice({ preset: 'frills', overrides: { ripples: 0 } }).overrides.ripples, 0);
 });

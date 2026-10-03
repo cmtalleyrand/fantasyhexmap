@@ -227,27 +227,138 @@ test('irregularity changes how islands are drawn and a land share changes how bi
   assert.notEqual(commandCount(fractured), commandCount(scene(map).prims));
 });
 
-test('an island hex visibly occupies the selected percentage of its hex', () => {
-  const size = 30;
-  const hexArea = 1.5 * Math.sqrt(3) * size * size;
-  const actualLandPercent = (land: number, small: number) => {
+/**
+ * The share of hex 0 that its drawn islands visibly take: their land and the outer half of the coast's ink round
+ * it, found by testing a grid of points rather than by the renderer's own area estimate.
+ */
+function visibleIslandPercent(map: MapState, size: number, style: ReturnType<typeof resolveStyle>): number {
+  const paths: PathCmd[] = [];
+  const collect = (prims: Prim[]) => {
+    for (const prim of prims) {
+      if (prim.kind === 'group') collect(prim.prims);
+      else if (prim.kind === 'path' && prim.fill === style.palette.island) paths.push(...prim.d);
+    }
+  };
+  collect(buildScene(map, { size, visible: defaultVisibility(), labels: false, style }).prims);
+  const rings = pathPolylines(paths, 12);
+  const reach = style.knobs.coast === 'none' ? 0 : Math.max(0.8, size * style.palette.coastWidth) / 2;
+  const corners = hexCorners(0, 0, size);
+  const xs = corners.map((q) => q.x);
+  const ys = corners.map((q) => q.y);
+  const [x0, x1, y0, y1] = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)];
+  const inHex = (px: number, py: number) => corners.every((a, k) => {
+    const b = corners[(k + 1) % 6]!;
+    return (b.x - a.x) * (py - a.y) - (b.y - a.y) * (px - a.x) >= 0;
+  });
+  const within = (px: number, py: number) => {
+    for (const ring of rings) {
+      let inside = false;
+      let near = false;
+      for (let k = 0; k < ring.length; k++) {
+        const a = ring[k]!;
+        const b = ring[(k + 1) % ring.length]!;
+        if (a.y > py !== b.y > py && px < ((b.x - a.x) * (py - a.y)) / (b.y - a.y) + a.x) inside = !inside;
+        if (reach > 0 && !near) {
+          const len2 = (b.x - a.x) ** 2 + (b.y - a.y) ** 2 || 1;
+          const t = Math.max(0, Math.min(1, ((px - a.x) * (b.x - a.x) + (py - a.y) * (b.y - a.y)) / len2));
+          near = Math.hypot(px - (a.x + t * (b.x - a.x)), py - (a.y + t * (b.y - a.y))) <= reach;
+        }
+      }
+      if (inside || near) return true;
+    }
+    return false;
+  };
+  const n = 220;
+  let hexPoints = 0;
+  let covered = 0;
+  for (let a = 0; a < n; a++) {
+    for (let b = 0; b < n; b++) {
+      const px = x0 + ((a + 0.5) / n) * (x1 - x0);
+      const py = y0 + ((b + 0.5) / n) * (y1 - y0);
+      if (!inHex(px, py)) continue;
+      hexPoints++;
+      if (within(px, py)) covered++;
+    }
+  }
+  return (covered / hexPoints) * 100;
+}
+
+test('an island hex visibly occupies the selected percentage of its hex, outline included', () => {
+  for (const [land, small] of [[5, 1], [30, 6], [40, 6]]) {
     const map = mapWith(['Islands']);
     map.islandSpecs = { '0': { large: small === 0 ? 1 : 0, small } };
     map.hexShapes = { '0': { type: 'Islands', land } };
+    const shown = visibleIslandPercent(map, 30, smooth);
+    assert.ok(Math.abs(shown - land) < 0.6, `${small} small island(s) visibly cover ${land}% with their outline, not ${shown.toFixed(2)}%`);
+  }
+});
+
+test('islands are drawn smaller when the coastline has ink, so the outline is inside their share', () => {
+  const map = mapWith(['Islands']);
+  map.islandSpecs = { '0': { large: 0, small: 3 } };
+  const inked = resolveStyle({ preset: 'parchment', overrides: { coast: 'smooth' } });
+  const bare = resolveStyle({ preset: 'parchment', overrides: { coast: 'none' } });
+  const fillOf = (style: typeof inked) => {
     const paths: PathCmd[] = [];
+    const collect = (prims: Prim[]) => prims.forEach((p) => (p.kind === 'group' ? collect(p.prims) : p.kind === 'path' && p.fill === style.palette.island ? paths.push(...p.d) : undefined));
+    collect(buildScene(map, { size: 30, visible: defaultVisibility(), labels: false, style }).prims);
+    return coveredArea(pathPolylines(paths, 12), hexCorners(0, 0, 30), 300);
+  };
+  assert.ok(fillOf(inked) < fillOf(bare), 'the land inside the ink is less than the land of an uninked island');
+});
+
+test('every arrangement keeps its islands in the hex, at the selected share, and differs from the scattered layout', () => {
+  const scattered = mapWith(['Islands']);
+  scattered.islandSpecs = { '0': { large: 1, small: 4 } };
+  const plain = JSON.stringify(scene(scattered).prims);
+  for (const arrangement of ['chain', 'arc', 'barrier', 'ring'] as const) {
+    const map = { ...scattered, islandSpecs: { '0': { large: 1, small: 4, arrangement } } };
+    assert.notEqual(JSON.stringify(scene(map).prims), plain, `${arrangement} lays islands out differently`);
+    const want = landFraction('Islands', map.islandSpecs['0'], dims) * 100;
+    const shown = visibleIslandPercent(map, 30, smooth);
+    // Crowded islands are drawn smaller, never larger, than their share.
+    assert.ok(shown <= want + 0.6 && shown > want * 0.5, `${arrangement}: ${shown.toFixed(1)}% shown for a ${want}% share`);
+  }
+});
+
+test('islands in a scattered group share one grain, and a chain runs with the coast when asked', () => {
+  // Land to the west of a sea hex: the coast runs north-south, so "along" is vertical.
+  const base: BaseGeo[] = ['Land', 'Islands'];
+  const centres = (spec: { large: number; small: number; arrangement?: 'chain'; orientation?: 'along' | 'across' }) => {
+    const map = { ...mapWith(base, 2, 1), islandSpecs: { '1': spec } };
+    const found: Array<{ x: number; y: number }> = [];
     const collect = (prims: Prim[]) => {
-      for (const prim of prims) {
-        if (prim.kind === 'group') collect(prim.prims);
-        else if (prim.kind === 'path' && prim.fill === smooth.palette.island) paths.push(...prim.d);
+      for (const p of prims) {
+        if (p.kind === 'group') collect(p.prims);
+        else if (p.kind === 'path' && p.fill === smooth.palette.island) {
+          for (const ring of pathPolylines(p.d, 6)) {
+            found.push({ x: ring.reduce((a, q) => a + q.x, 0) / ring.length, y: ring.reduce((a, q) => a + q.y, 0) / ring.length });
+          }
+        }
       }
     };
-    collect(buildScene(map, { size, visible: defaultVisibility(), labels: false, style: smooth }).prims);
-    return coveredArea(pathPolylines(paths, 12), hexCorners(0, 0, size), 300) / hexArea * 100;
+    collect(buildScene(map, { size: 30, visible: defaultVisibility(), labels: false, style: smooth }).prims);
+    return found;
   };
+  const spread = (list: Array<{ x: number; y: number }>) => {
+    const xs = list.map((q) => q.x);
+    const ys = list.map((q) => q.y);
+    return { x: Math.max(...xs) - Math.min(...xs), y: Math.max(...ys) - Math.min(...ys) };
+  };
+  const along = spread(centres({ large: 0, small: 4, arrangement: 'chain', orientation: 'along' }));
+  const across = spread(centres({ large: 0, small: 4, arrangement: 'chain', orientation: 'across' }));
+  assert.ok(along.y > along.x * 2, 'a chain along a north-south coast runs north-south');
+  assert.ok(across.x > across.y * 2, 'a chain across it runs east-west');
+});
 
-  for (const [land, small] of [[2.5, 1], [5, 1], [30, 6], [40, 6]]) {
-    assert.ok(Math.abs(actualLandPercent(land, small) - land) < 0.15, `${small} small island(s) visibly cover ${land}%`);
-  }
+test('an arrangement can be set and reset on a hex by hand', () => {
+  const map = mapWith(['Islands']);
+  const arc = reducer(map, { type: 'setIslandSpec', indices: [0], change: { arrangement: 'arc', orientation: 'along' } });
+  assert.equal(arc.islandSpecs?.['0']?.arrangement, 'arc');
+  assert.equal(arc.islandSpecs?.['0']?.orientation, 'along');
+  const back = reducer(arc, { type: 'setIslandSpec', indices: [0], change: { arrangement: 'scattered', orientation: 'free' } });
+  assert.equal(back.islandSpecs?.['0']?.arrangement, undefined, 'scattered is the default and is not stored');
+  assert.equal(back.islandSpecs?.['0']?.orientation, undefined);
 });
 
 test('sea ice is one organic body that follows the hex edges only in a hex-edged coast style', () => {

@@ -19,6 +19,10 @@ import {
   isIslandType,
   isShapedType,
   islandSpecFor,
+  ISLAND_ARRANGEMENTS,
+  ISLAND_ORIENTATIONS,
+  type IslandArrangement,
+  type IslandOrientation,
   type BaseGeo,
   type City,
   type IslandSpec,
@@ -745,6 +749,9 @@ function IslandSidePanel(props: SubProps) {
   const coastalLarge = shared((s) => String(Boolean(s.coastal?.large)));
   const coastalSmall = shared((s) => String(Boolean(s.coastal?.small)));
   const mainland = hexes.every((i) => base![i] === 'Mainland and islands');
+  const arrangement = shared((s) => s.arrangement ?? 'scattered');
+  const orientation = shared((s) => s.orientation ?? 'free');
+  const scattered = arrangement === 'scattered';
   return (
     <div className="stack" style={{ marginTop: 8 }}>
       <label style={{ margin: 0 }}>The islands in {hexes.length === 1 ? 'this hex' : `these ${hexes.length} hexes`}</label>
@@ -764,6 +771,34 @@ function IslandSidePanel(props: SubProps) {
           </select>
         </label>
       </div>
+      <label htmlFor="island-arrangement">Arrangement</label>
+      <select
+        id="island-arrangement"
+        value={arrangement}
+        onChange={(e) => set({ arrangement: e.target.value as IslandArrangement })}
+      >
+        {arrangement === '' && <option value="">Mixed</option>}
+        {ISLAND_ARRANGEMENTS.map((a) => (
+          <option key={a.value} value={a.value}>{a.label}</option>
+        ))}
+      </select>
+      <p className="hint" style={{ margin: 0 }}>{ISLAND_ARRANGEMENTS.find((a) => a.value === arrangement)?.hint ?? 'Hexes differ.'}</p>
+      {arrangement !== 'ring' && (
+        <>
+          <label htmlFor="island-orientation">{scattered ? 'Grain of the islets' : 'Direction'}</label>
+          <select
+            id="island-orientation"
+            value={orientation}
+            onChange={(e) => set({ orientation: e.target.value as IslandOrientation })}
+          >
+            {orientation === '' && <option value="">Mixed</option>}
+            {ISLAND_ORIENTATIONS.map((o) => (
+              <option key={o.value} value={o.value}>{o.label}</option>
+            ))}
+          </select>
+        </>
+      )}
+      {scattered && (<>
       <label style={{ display: 'flex', alignItems: 'center', gap: 6, textTransform: 'none', fontSize: 12, margin: 0 }}>
         <input
           type="checkbox"
@@ -784,7 +819,8 @@ function IslandSidePanel(props: SubProps) {
         />{' '}
         Small islands lie against the {mainland ? 'mainland' : 'coast'}
       </label>
-      <label htmlFor="island-side">Side they lie against</label>
+      </>)}
+      <label htmlFor="island-side">{scattered ? 'Side they lie against' : 'Side of the coast the pattern is measured from'}</label>
       <select
         id="island-side"
         value={side}

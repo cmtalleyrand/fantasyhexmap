@@ -856,3 +856,24 @@ edge, so the share is exact only for a lake hex whose land edges are those. The 
 roughened like any lake shore, so the drawn land is approximate.
 
 **In areas.** A lake's share counts as land in a polity's area when the hex is owned.
+
+## Islands: share includes the outline, arrangements, and ripples off by default
+
+**Problem.** Islands read larger than their land share, and clusters looked arbitrary. Three causes.
+(1) The size fit (`islandScale`) measured the island's fill only, but the coast's ink is centred on the
+edge, so the outer half of the stroke added to what shows: roughly a third more area on a 5% islet.
+(2) Every islet took a random axis, so a group read as pebbles. (3) With ripple lines on, the rings round
+neighbouring islands merge into one halo that makes a group look like a single large landmass.
+
+**Chosen.** (1) The fit counts the land plus the outer half of the coastline's stroke (`inkReach`; none with
+`coast: none`), so a share is what is visible. (2) Islets in a group share one grain, set by the new
+orientation (parallel to the coast, across it, or by chance). Spacing between islets now uses each one's
+reach along the line joining them, since elongated islets overlapped end to end under the old circle test.
+(3) `ripples` takes 0 (the new default in Classic, Parchment, Atlas and Night) and the new All frills preset
+keeps three. At 0 a lake has no ring either.
+
+**Arrangements** (`IslandSpec.arrangement`, `orientation`; absent means scattered/free, so saved maps are
+unchanged apart from the shared grain): chain (hotspot trail, largest at one end), arc (volcanic island arc,
+bowed away from the land), barrier (a staggered row of long narrow islands off a coast) and ring (atoll).
+They replace the coastal-group checkboxes, which apply to scattered islands only. A crowded arrangement is
+drawn smaller than its share rather than run together, as before.
