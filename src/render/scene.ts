@@ -59,7 +59,8 @@ import { geoEligibility, geoNamesOf, liveHexes } from '../../shared/geoNames.js'
 import type { GeoNameKind } from '../../shared/types.js';
 import {
   LABEL_LINE_EM,
-  labelBox,
+  claimBox,
+  insideBox,
   placeCityNames,
   placePolityLabels,
   type OrientedBox,
@@ -217,6 +218,7 @@ function cachedPolityLabels(
   sizing: 'moderate' | 'fill',
   role: FaceRole,
   letteringId: string,
+  lakes: ReadonlySet<number>,
 ): PolityLabel[] {
   const key = `${cols}x${rows}@${size}/${minHexes ?? ''}/${sizing}/${letteringId}/${measureEpoch}`;
   const hit = labelCache.get(data.owner);
@@ -230,6 +232,7 @@ function cachedPolityLabels(
     obstacles,
     minHexes,
     sizing,
+    lakes,
     measure: (text) => roleEm(role, text),
   });
   labelCache.set(data.owner, { cities, polities: data.polities, key, labels });
@@ -389,6 +392,11 @@ function labelOwners(owner: (string | null)[], lakes: number[][], cols: number, 
   labelOwnerCache.set(owner, { lakes, owner: out });
   return out;
 }
+
+/** Opacity of relief and vegetation symbols under a realm's name: subtle, the ground still shows. */
+const RELIEF_FADE = 0.4;
+/** How far past a name's edge, in hex sizes, a hex's symbols are still faded: roughly a symbol's own reach. */
+const RELIEF_FADE_REACH = 0.35;
 
 /** Opacity of the realm fill under the border band in the tint style. */
 const TINT_ALPHA = 0.32;
@@ -1532,6 +1540,8 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
   }
 
   // --- drawn relief and vegetation ----------------------------------------------------
+  /** Where each drawn relief or vegetation symbol sits in `prims`, so names can later fade those under them. */
+  const reliefRuns: Array<{ hex: number; from: number; to: number }> = [];
   if (relief === 'illustrated' && base) {
     const vegetation = opts.visible.vegetation ? layers.vegetation.data : null;
     const placed: Placed[] = [];
@@ -1540,6 +1550,7 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
       const height = elevationData?.[i] ?? null;
       const cover = vegetation?.[i] ?? null;
       if (!height && !cover) continue;
+      const firstOfHex = placed.length;
       const centre = hexCenter(i % cols, Math.floor(i / cols), size);
       const rand = (k: number) => unit(seed, 'symbol', i, k);
       const colours = { ground: groundColour(i), ink: palette.ink };
@@ -1562,9 +1573,13 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
         const crowded = height === 'Mountains' || height === 'Highland' || height === 'Hills' || height === 'Plateau';
         if (height !== 'Mountains') placed.push(...vegetationSymbols(centre, size, cover, rand, colours, crowded));
       }
+      for (let k = firstOfHex; k < placed.length; k++) placed[k]!.hex = i;
     }
     placed.sort((a, b) => a.y - b.y);
-    for (const p of placed) prims.push(...p.prims);
+    for (const p of placed) {
+      if (p.hex !== undefined) reliefRuns.push({ hex: p.hex, from: prims.length, to: prims.length + p.prims.length });
+      prims.push(...p.prims);
+    }
   }
 
   // --- rivers --------------------------------------------------------------
@@ -1779,6 +1794,7 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
     ? { ...polities, owner: labelOwners(polities.owner, traced.lakes, cols, rows) }
     : polities;
   if (opts.labels && polities) {
+    const labelLakes = new Set<number>((traced?.lakes ?? []).flat());
     const obstacles: LabelObstacle[] = [];
     for (const city of cities?.cities ?? []) {
       const c = siteOf(city);
@@ -1792,7 +1808,7 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
     const maxDepth = Math.max(0, ...depths.values());
     const levels: Array<{ labels: PolityLabel[]; depth: number }> = [];
     if (maxDepth === 0) {
-      levels.push({ labels: cachedPolityLabels(namingPolities!, cities, cols, rows, size, obstacles, opts.polityNames, knobs.realmNames, realmRole, lettering.id), depth: 0 });
+      levels.push({ labels: cachedPolityLabels(namingPolities!, cities, cols, rows, size, obstacles, opts.polityNames, knobs.realmNames, realmRole, lettering.id, labelLakes), depth: 0 });
     } else {
       const claimed: LabelObstacle[] = [...obstacles];
       for (let depth = 0; depth <= maxDepth; depth++) {
@@ -1806,11 +1822,12 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
           minHexes: opts.polityNames,
           scale: depth === 0 ? 1 : 0.62 ** depth,
           sizing: knobs.realmNames,
+          lakes: labelLakes,
           measure: (text) => roleEm(realmRole, text, depth === 0 ? realmRole.weight : subWeight),
         });
         for (const label of labels) {
           const em = Math.max(...label.lines.map((line) => roleEm(realmRole, line, depth === 0 ? realmRole.weight : subWeight)));
-          claimed.push(labelBox(label.at, em * label.size, label.size * LABEL_LINE_EM * label.lines.length, label.rotation));
+          claimed.push(claimBox(label.at, em * label.size, label.size * LABEL_LINE_EM * label.lines.length, label.rotation, label.size));
         }
         levels.push({ labels, depth });
       }
@@ -1852,6 +1869,21 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
           rotation: label.rotation,
         });
       }
+    }
+  }
+
+  // Relief under a realm's name is faded, not removed: the name stays legible
+  // over mountains and woods while the ground still shows through. The `taken`
+  // list holds only realm names at this point.
+  if (reliefRuns.length > 0 && taken.length > 0) {
+    const reach = size * RELIEF_FADE_REACH;
+    const near = taken.map((b) => ({ ...b, halfW: b.halfW + reach, halfH: b.halfH + reach }));
+    // Latest first, so earlier runs keep their positions as each is wrapped.
+    for (let k = reliefRuns.length - 1; k >= 0; k--) {
+      const run = reliefRuns[k]!;
+      const c = hexCenter(run.hex % cols, Math.floor(run.hex / cols), size);
+      if (!near.some((b) => insideBox(b, c.x, c.y))) continue;
+      prims.splice(run.from, run.to - run.from, { kind: 'group', opacity: RELIEF_FADE, prims: prims.slice(run.from, run.to) });
     }
   }
 

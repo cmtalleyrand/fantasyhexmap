@@ -21,6 +21,8 @@ export interface Placed {
   /** Base line of the symbol; larger y is nearer the viewer and drawn later. */
   y: number;
   prims: Prim[];
+  /** The hex the symbol belongs to, when the caller records it. */
+  hex?: number;
 }
 
 export interface SymbolInk {

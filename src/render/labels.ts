@@ -17,6 +17,7 @@ import {
   pixelToOffset,
   type Point,
 } from '../../shared/hex.js';
+import { depthWithin, NO_SHORE } from './depth.js';
 import { fantasyTextEm } from './fonts.js';
 
 export interface LabelBox {
@@ -56,7 +57,18 @@ export function parsePolityNameMin(value: unknown): PolityNameMin {
 /** Territories under this size are only named in `auto` mode when a clean fit exists. */
 const AUTO_CLEAN_FIT_BELOW = 4;
 
-export interface LabelObstacle extends LabelBox {}
+/**
+ * Something a polity name should not cover. City markers are plain boxes; names
+ * already placed are rotated rectangles (see {@link claimBox}), which keep their
+ * true footprint instead of the larger box that encloses a tilted name.
+ */
+export type LabelObstacle = LabelBox | ClaimedBox;
+
+/** A rotated rectangle with the clearance a name keeps from others. */
+export interface ClaimedBox extends OrientedBox {
+  padX: number;
+  padY: number;
+}
 
 export interface LabelInput {
   cols: number;
@@ -68,6 +80,11 @@ export interface LabelInput {
   obstacles: LabelObstacle[];
   /** Defaults to {@link DEFAULT_POLITY_NAME_MIN}. */
   minHexes?: PolityNameMin;
+  /**
+   * Hexes of lakes. A lake in a realm's territory counts against its name, but
+   * a name may graze one (see {@link LAKE_ALLOWANCE}) rather than avoid it entirely.
+   */
+  lakes?: ReadonlySet<number>;
   /** Type size relative to a top-level realm's: the parts of a realm are named smaller. */
   scale?: number;
   /** Width of a line of the name, in em, in the face (and letter-spacing) it is set in. */
@@ -95,6 +112,12 @@ const LOOSE_COVERAGE = 0.66;
 /** How far below its floor a name may shrink to stay inside its realm, before it may spill over. */
 const SHRINK_BEFORE_SPILL = 0.7;
 const GOOD_COVERAGE = 0.92;
+/** How much of a name's pull to the middle of its realm comes from depth rather than distance from the mean. */
+const DEPTH_SHARE = 0.75;
+/** The share of a name that may lie over a lake in its own realm: a graze, not a crossing. */
+const LAKE_ALLOWANCE = 0.1;
+/** The gap between a small realm and the name set beside it, as a share of the type size. */
+const BESIDE_GAP = 0.3;
 /** Tried before the fallback, so a name shrinks before it is allowed over water. */
 const SECOND_COVERAGE = 0.86;
 const FALLBACK_COVERAGE = 0.78;
@@ -104,8 +127,69 @@ const SIZE_STEP = 0.9;
 const ROTATION_STEP = Math.PI / 12;
 const MAX_ROTATION = Math.PI / 6;
 
-function overlaps(a: LabelBox, b: LabelBox): boolean {
-  return a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
+/**
+ * Clearance kept between two names, as a share of the font size of each: about
+ * half an em in all between a pair, so neighbouring tracked names are not read
+ * as one word. Horizontal clearance matters most, so vertical is smaller.
+ */
+const PAD_X = 0.25;
+const PAD_Y = 0.1;
+/** The share of the clearance kept in the last attempt, before a name would go unplaced. */
+const RELAXED_PAD = 0.25;
+
+function asClaimed(o: LabelObstacle): ClaimedBox {
+  if ('cx' in o) return o;
+  return {
+    cx: (o.left + o.right) / 2,
+    cy: (o.top + o.bottom) / 2,
+    halfW: (o.right - o.left) / 2,
+    halfH: (o.bottom - o.top) / 2,
+    rotation: 0,
+    padX: 0,
+    padY: 0,
+  };
+}
+
+/**
+ * The rectangle a placed name occupies, with the clearance later names keep
+ * from it. Its width and height are those of the text itself.
+ */
+export function claimBox(at: Point, width: number, height: number, rotation: number, font: number): ClaimedBox {
+  return { cx: at.x, cy: at.y, halfW: width / 2, halfH: height / 2, rotation, padX: font * PAD_X, padY: font * PAD_Y };
+}
+
+/**
+ * Whether two rotated rectangles overlap, each grown by its own clearance
+ * scaled by `padScale`: the separating-axis test, exact for rectangles.
+ */
+function overlapsClaimed(a: ClaimedBox, b: ClaimedBox, padScale: number): boolean {
+  const aw = a.halfW + a.padX * padScale;
+  const ah = a.halfH + a.padY * padScale;
+  const bw = b.halfW + b.padX * padScale;
+  const bh = b.halfH + b.padY * padScale;
+  const dx = b.cx - a.cx;
+  const dy = b.cy - a.cy;
+  // Too far apart for any rotation to bring them together.
+  const reach = Math.hypot(aw, ah) + Math.hypot(bw, bh);
+  if (dx * dx + dy * dy > reach * reach) return false;
+  const ac = Math.cos(a.rotation);
+  const as = Math.sin(a.rotation);
+  const bc = Math.cos(b.rotation);
+  const bs = Math.sin(b.rotation);
+  // Each box's own two axes; on every one the projected centres must lie
+  // closer than the two half-extents together, or the boxes are apart.
+  const axes: Array<[number, number]> = [
+    [ac, as],
+    [-as, ac],
+    [bc, bs],
+    [-bs, bc],
+  ];
+  for (const [ux, uy] of axes) {
+    const ra = aw * Math.abs(ux * ac + uy * as) + ah * Math.abs(ux * -as + uy * ac);
+    const rb = bw * Math.abs(ux * bc + uy * bs) + bh * Math.abs(ux * -bs + uy * bc);
+    if (Math.abs(dx * ux + dy * uy) >= ra + rb) return false;
+  }
+  return true;
 }
 
 export function labelBox(at: Point, width: number, height: number, rotation: number): LabelBox {
@@ -123,8 +207,13 @@ export function labelBox(at: Point, width: number, height: number, rotation: num
 
 interface Candidate {
   at: Point;
-  /** Distance from the territory centroid, used to prefer central placements. */
-  offCentre: number;
+  /**
+   * How far from the heart of the territory this anchor lies, from 0 to 1.
+   * Mostly depth (the hex furthest from every border and lake is 0), because
+   * the mean of a ring is its hole; with some distance from the mean, which
+   * is what centres a name along a strip, where every hex is equally deep.
+   */
+  inward: number;
 }
 
 interface TextLayout {
@@ -160,9 +249,14 @@ export function placePolityLabels(input: LabelInput): PolityLabel[] {
     else hexesByPolity.set(id, [i]);
   });
 
-  const isOwnedBy = (id: string, x: number, y: number): boolean => {
+  const lakes = input.lakes ?? new Set<number>();
+  /** What lies under a point for this polity's name: its own land, its own lake, or something else. */
+  const ownership = (id: string, x: number, y: number): 'own' | 'lake' | 'other' => {
     const { col, row } = pixelToOffset(x, y, size);
-    return inBounds(cols, rows, col, row) && owner[hexIndex(width, col, row)] === id;
+    if (!inBounds(cols, rows, col, row)) return 'other';
+    const i = hexIndex(width, col, row);
+    if (owner[i] !== id) return 'other';
+    return lakes.has(i) ? 'lake' : 'own';
   };
 
   const ordered = [...polities].sort(
@@ -170,7 +264,7 @@ export function placePolityLabels(input: LabelInput): PolityLabel[] {
   );
 
   const placed: PolityLabel[] = [];
-  const claimed: LabelBox[] = [];
+  const claimed: ClaimedBox[] = [];
 
   for (const polity of ordered) {
     const owned = hexesByPolity.get(polity.id) ?? [];
@@ -188,23 +282,31 @@ export function placePolityLabels(input: LabelInput): PolityLabel[] {
     // Anchors: every owned hex centre plus the midpoint to each owned
     // neighbour. Half-hex granularity lets a long name sit between hexes.
     const ownedSet = new Set(owned);
+    // Depth of each hex of dry territory below its border, a lake counting as
+    // border: the middle of a realm is where its name has most room.
+    const depth = depthWithin(owned, (i) => owner[i] === polity.id && !lakes.has(i), cols, rows);
+    const deepest = Math.max(1, ...depth.values());
+    const inwardOf = (i: number) => (deepest >= NO_SHORE ? 0 : 1 - (depth.get(i) ?? 0) / deepest);
+    // The territory's rough radius, against which distance from the mean is judged.
+    const radius = size * Math.sqrt(owned.length) * 0.9;
+    const blend = (at: Point, deep: number) =>
+      DEPTH_SHARE * deep + (1 - DEPTH_SHARE) * Math.min(1, Math.hypot(at.x - mean.x, at.y - mean.y) / radius);
     const candidates: Candidate[] = [];
-    const addCandidate = (at: Point) =>
-      candidates.push({ at, offCentre: Math.hypot(at.x - mean.x, at.y - mean.y) });
     owned.forEach((i, k) => {
       const col = i % cols;
       const row = Math.floor(i / cols);
-      addCandidate(centres[k]!);
+      candidates.push({ at: centres[k]!, inward: blend(centres[k]!, inwardOf(i)) });
       for (let e = 0; e < 6; e++) {
         const n = neighbourOf(col, row, e);
         if (!inBounds(cols, rows, n.col, n.row)) continue;
         const j = hexIndex(cols, n.col, n.row);
         if (j <= i || !ownedSet.has(j)) continue;
         const nc = hexCenter(n.col, n.row, size);
-        addCandidate({ x: (centres[k]!.x + nc.x) / 2, y: (centres[k]!.y + nc.y) / 2 });
+        const mid = { x: (centres[k]!.x + nc.x) / 2, y: (centres[k]!.y + nc.y) / 2 };
+        candidates.push({ at: mid, inward: blend(mid, (inwardOf(i) + inwardOf(j)) / 2) });
       }
     });
-    candidates.sort((a, b) => a.offCentre - b.offCentre);
+    candidates.sort((a, b) => a.inward - b.inward);
 
     // Principal axis of the territory, kept within 30 degrees of horizontal and
     // snapped to 15 so that placement reads as deliberate. Flat and slightly
@@ -246,12 +348,11 @@ export function placePolityLabels(input: LabelInput): PolityLabel[] {
     const floor = moderate && owned.length >= FLOOR_FROM_HEXES ? Math.max(MIN_FONT, size * scale * MODERATE_FLOOR) : MIN_FONT;
 
     const attempt = (
-      obstacles: LabelBox[],
+      obstacles: ClaimedBox[],
       minCoverage: number,
       fontFloor: number,
+      padScale = 1,
     ): PolityLabel | null => {
-      // The territory's rough radius, against which "off centre" is judged.
-      const radius = size * Math.sqrt(owned.length) * 0.9;
       let chosen: { at: Point; rotation: number; lines: string[]; score: number; font: number } | null = null;
       let firstFit = 0;
       for (let font = idealSize; font >= fontFloor; font *= SIZE_STEP) {
@@ -276,13 +377,20 @@ export function placePolityLabels(input: LabelInput): PolityLabel[] {
               }
             }
             const allowedMisses = Math.floor(samples.length * (1 - minCoverage));
+            // A name may graze a lake in its realm, but not run across it.
+            const allowedLake = Math.floor(samples.length * LAKE_ALLOWANCE);
             for (const cand of candidates) {
               const box = labelBox(cand.at, w, h, rotation);
               if (box.left < 0 || box.top < 0) continue;
-              if (obstacles.some((o) => overlaps(box, o))) continue;
+              const probe = claimBox(cand.at, w, h, rotation, font);
+              if (obstacles.some((o) => overlapsClaimed(probe, o, padScale))) continue;
               let misses = 0;
+              let lakeHits = 0;
               for (const s of samples) {
-                if (!isOwnedBy(polity.id, cand.at.x + s.x, cand.at.y + s.y) && ++misses > allowedMisses) break;
+                const hit = ownership(polity.id, cand.at.x + s.x, cand.at.y + s.y);
+                if (hit === 'own') continue;
+                // A lake sample is a miss once past the small allowance.
+                if ((hit === 'lake' ? ++lakeHits > allowedLake : true) && ++misses > allowedMisses) break;
               }
               if (misses > allowedMisses) continue;
               const coverage = 1 - misses / samples.length;
@@ -290,7 +398,7 @@ export function placePolityLabels(input: LabelInput): PolityLabel[] {
               // realm, then lying level; size counts for less than all three.
               const score =
                 coverage -
-                Math.min(1, cand.offCentre / radius) * 0.25 -
+                cand.inward * 0.25 -
                 (Math.abs(rotation) / MAX_ROTATION) * 0.05 -
                 (layout.lines.length > 1 ? WRAP_PENALTY : 0) +
                 (font / idealSize) * 0.12;
@@ -308,30 +416,90 @@ export function placePolityLabels(input: LabelInput): PolityLabel[] {
         : null;
     };
 
-    const blockers = [...input.obstacles, ...claimed];
+    // Markers and every name already placed, on this level or a higher one.
+    const blockers = [...input.obstacles.map(asClaimed), ...claimed];
+    // Names only: the later attempts let a name run over a city marker, but
+    // never over another name.
+    const names = [...input.obstacles.filter((o) => 'cx' in o).map(asClaimed), ...claimed];
     // Prefer clean placements; relax in stages so a realm is named somewhere
     // sensible rather than not at all.
     // A small polity in auto mode gets only the strictest attempt: clear of
     // cities and other names, fully inside its territory.
     // A name shrinks (to SHRINK_BEFORE_SPILL of its floor) before any of it
     // is allowed over a neighbour: a name straddling a border reads as
-    // belonging to neither realm.
+    // belonging to neither realm. Only the last attempt gives up part of the
+    // clearance kept between names, rather than leave a realm unnamed.
     const snug = Math.max(MIN_FONT, floor * SHRINK_BEFORE_SPILL);
+    // A small realm whose name does not fit cleanly on it is named beside it
+    // rather than over it, where the name would cover the island's own relief.
+    let minX = Infinity;
+    let maxX = -Infinity;
+    let minY = Infinity;
+    let maxY = -Infinity;
+    for (const c of centres) {
+      minX = Math.min(minX, c.x);
+      maxX = Math.max(maxX, c.x);
+      minY = Math.min(minY, c.y);
+      maxY = Math.max(maxY, c.y);
+    }
+    // A name too wide for its realm at its natural size would otherwise be
+    // shrunk until it sits on the island, covering the island's own relief.
+    const tooLong = small && layouts[0]!.em * idealSize > maxX - minX + size * Math.sqrt(3);
+    const beside = (): PolityLabel | null => {
+      const layout = layouts[0]!;
+      const midX = (minX + maxX) / 2;
+      const midY = (minY + maxY) / 2;
+      // A hex reaches about one size from its centre.
+      const reach = size;
+      const mapW = size * Math.sqrt(3) * (cols + 0.5);
+      const mapH = size * (1.5 * rows + 0.5);
+      for (let font = idealSize; font >= Math.max(MIN_FONT, snug); font *= SIZE_STEP) {
+        const w = layout.em * font;
+        const h = font * LABEL_HEIGHT_EM;
+        const gap = font * BESIDE_GAP;
+        // Right, left, below, above: the order city names take.
+        const slots: Point[] = [
+          { x: maxX + reach + gap + w / 2, y: midY },
+          { x: minX - reach - gap - w / 2, y: midY },
+          { x: midX, y: maxY + reach + gap + h / 2 },
+          { x: midX, y: minY - reach - gap - h / 2 },
+        ];
+        for (const at of slots) {
+          const box = labelBox(at, w, h, 0);
+          if (box.left < 0 || box.top < 0 || box.right > mapW || box.bottom > mapH) continue;
+          const probe = claimBox(at, w, h, 0, font);
+          if (blockers.some((o) => overlapsClaimed(probe, o, 1))) continue;
+          // Clear of every other realm: only open water or its own ground lies under the name.
+          let foreign = false;
+          for (let a = 0; a < 7 && !foreign; a++) {
+            for (let b = 0; b < 3 && !foreign; b++) {
+              const { col, row } = pixelToOffset(at.x + (a / 6 - 0.5) * w, at.y + (b / 2 - 0.5) * h * 0.8, size);
+              const i = hexIndex(cols, col, row);
+              foreign = inBounds(cols, rows, col, row) && owner[i] != null && owner[i] !== polity.id;
+            }
+          }
+          if (foreign) continue;
+          return { polityId: polity.id, at, lines: layout.lines, size: font, rotation: 0 };
+        }
+      }
+      return null;
+    };
     const label =
+      (tooLong ? beside() : null) ??
       attempt(blockers, GOOD_COVERAGE, snug) ??
+      (small ? beside() : null) ??
       (minHexes === 'auto' && small
         ? null
-        : (attempt(claimed, GOOD_COVERAGE, snug) ??
-          attempt(claimed, SECOND_COVERAGE, snug) ??
-          attempt(claimed, FALLBACK_COVERAGE, snug) ??
-          (floor > MIN_FONT
-            ? attempt(claimed, LOOSE_COVERAGE, snug) ?? attempt(claimed, FALLBACK_COVERAGE, MIN_FONT)
-            : null)));
+        : (attempt(names, GOOD_COVERAGE, snug) ??
+          attempt(names, SECOND_COVERAGE, snug) ??
+          attempt(names, FALLBACK_COVERAGE, snug) ??
+          (floor > MIN_FONT ? attempt(names, LOOSE_COVERAGE, snug) : null) ??
+          attempt(names, FALLBACK_COVERAGE, MIN_FONT, RELAXED_PAD)));
     if (!label) continue;
     placed.push(label);
     const em = Math.max(...label.lines.map((line) => (input.measure ?? ((t: string) => fantasyTextEm(t)))(line)));
     claimed.push(
-      labelBox(label.at, em * label.size, label.size * LABEL_HEIGHT_EM * label.lines.length, label.rotation),
+      claimBox(label.at, em * label.size, label.size * LABEL_HEIGHT_EM * label.lines.length, label.rotation, label.size),
     );
   }
   return placed;

@@ -764,3 +764,40 @@ it as a hole.
 
 **What it costs.** About twice the scene-building time on a very large icy map (120×100 hexes: a
 quarter to half a second). The glacier shading discs and flow strokes are many small primitives.
+
+## 41. Names keep their true footprint, their clearance, and the middle of what they name
+
+**Chosen.** A realm name claims the rotated rectangle it occupies, not the axis-aligned box that
+encloses it, and later names are tested against it exactly (separating axes). Each name keeps a
+clearance of a quarter of its type size either side and a tenth above and below, so two tracked names
+read as two words; the last placement attempt gives up three quarters of that rather than leave a
+realm unnamed. A realm's "middle" is the ground furthest from its border and its lakes, with some pull
+towards the mean of its hexes (which is what centres a name along a strip where every hex is as deep
+as any other); a name may graze a lake in its realm, one sample in ten, but not run across it. A
+small realm whose name is wider than the realm at its natural size is named beside it, not shrunk
+onto it. Relief symbols under a realm name are drawn at 40% opacity.
+
+Water names are set in type that grows with the body's depth (0.85 hex for a shallow body up to 1.2
+for one eight or more hexes deep), centred on the body's middle rather than on its deepest hex (which,
+for a body that meets the map's edge, is the edge itself). A winding body (a gulf, a bay with a
+corridor) takes a name along the ridge of its deepest water, with every letter and the room beside it
+over open water, when that carries type at least a quarter larger than the straight fit. A name of
+two or more words in an ocean cut by an island group is split: the words stand on one baseline, each
+in its own stretch of open water, as close together as the obstruction allows, when that carries type
+at least a quarter larger and the stretches lie within three word-lengths of each other (further
+apart, the words would read as two names).
+
+**Why.** The first two are what had realm names touching ("AHNVER" and "RANGMULS" read as one word),
+children pushed to the margin of a diagonal parent's bounding box, and a ring-shaped realm named from
+its hole. The water changes are what had every ocean named in a pond's type, at the top edge of its
+body, and a gulf named in small steeply tilted type in its narrowest corridor.
+
+**What it costs.** Clearance can shrink the later of two crowded names or, for a one- or two-hex realm,
+leave it to the legend. A fade is subtler than clearing the relief but leaves the symbols faintly
+under the letters. A larger ocean name competes harder with realm names (it is capped at 80% of the
+largest realm type). The simple relief marks (not the drawn relief) are not faded, because they are
+drawn inside the hex fill loop.
+
+**Not changed, and why.** Names on thin steep coastal strips still use the ±30° rotation limit and
+may spill; this was judged not worth steeper type. Child realms keep their flat 0.62 scale and
+lighter weight.
