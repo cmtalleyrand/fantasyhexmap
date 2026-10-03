@@ -17,6 +17,7 @@ import {
   DEFAULT_IRREGULARITY,
   hasLandShare,
   hexShapeFor,
+  DEFAULT_LAKE_IRREGULARITY,
   isIslandType,
   isShapedType,
   islandSpecFor,
@@ -643,8 +644,12 @@ function HexShapePanel(props: SubProps) {
   const base = map.layers.base.data;
   const hexes = selected.filter((i) => isShapedType(base?.[i]) || base?.[i] === 'Lake');
   if (hexes.length === 0) return null;
-  // A lake takes a land share but no irregularity: its shore follows the land beside it.
-  const shaped = hexes.filter((i) => isShapedType(base![i]));
+  // A lake takes an irregularity for its own shore too; unset, its shore follows the land beside it, then the map's lake setting.
+  const shaped = hexes;
+  const irregularOf = (i: number): Irregularity =>
+    base![i] === 'Lake'
+      ? (map.hexShapes?.[String(i)]?.type === 'Lake' ? map.hexShapes[String(i)]!.irregular : undefined) ?? map.defaultLakeIrregularity ?? DEFAULT_LAKE_IRREGULARITY
+      : hexShapeFor(base![i], map.hexShapes?.[String(i)], map.defaultIrregularity).irregular;
   const dims = normaliseHexDimensions(map.hexDimensions);
   const percentOf = (i: number, withShape: boolean) =>
     Math.round(landFraction(base![i], map.islandSpecs?.[String(i)], dims, withShape ? map.hexShapes?.[String(i)] : undefined) * 100);
@@ -652,8 +657,8 @@ function HexShapePanel(props: SubProps) {
   const sharedOf = (values: string[]) => (new Set(values).size === 1 ? values[0]! : '');
   const land = sharedOf(landHexes.map((i) => String(percentOf(i, true))));
   const usual = sharedOf(landHexes.map((i) => String(percentOf(i, false))));
-  const irregular = sharedOf(shaped.map((i) => hexShapeFor(base![i], map.hexShapes?.[String(i)], map.defaultIrregularity).irregular));
-  const usualIrregular = map.defaultIrregularity ?? sharedOf(shaped.map((i) => DEFAULT_IRREGULARITY[base![i]!]));
+  const irregular = sharedOf(shaped.map(irregularOf));
+  const usualIrregular = sharedOf(shaped.map((i) => (base![i] === 'Lake' ? map.defaultLakeIrregularity ?? DEFAULT_LAKE_IRREGULARITY : map.defaultIrregularity ?? DEFAULT_IRREGULARITY[base![i]!])));
   const customised = hexes.some((i) => {
     const stored = map.hexShapes?.[String(i)];
     return stored !== undefined && stored.type === base![i];

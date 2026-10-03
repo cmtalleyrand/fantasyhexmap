@@ -450,7 +450,10 @@ function roughPiece(a: Point, p: Point, b: Point, amplitude: number, lean: numbe
     const len = Math.hypot(dx, dy) || 1;
     let d = 0;
     for (let h = 0; h < weights.length; h++) d += weights[h]! * Math.sin(Math.PI * (h + 1) * t);
-    d = (d / total) * amplitude * size * 1.6 - lean * size * Math.sin(Math.PI * t);
+    // How boldly this piece wanders: some stretches are nearly calm, a few take a deep bay or point, so the
+    // coast does not repeat one wobble at one strength all the way round.
+    const gain = Math.min(1.5, 0.3 + 1.6 * nx(5) ** 2);
+    d = (d / total) * gain * amplitude * size * 1.6 - lean * size * Math.sin(Math.PI * t);
     out.push({ x: here.x - (dy / len) * d, y: here.y + (dx / len) * d });
   }
   out.push(m1);
@@ -1084,16 +1087,25 @@ export function lakeBodyPath(
           for (let k = -span; k <= span; k++) sum += amps[(i + k + amps.length) % amps.length]!;
           return sum / (2 * span + 1);
         });
+        // Three bands of wobble, each with a slowly drifting wavelength and the whole under a slowly varying
+        // strength, so the shore has calm stretches and bold ones instead of one repeating ripple.
         const bands = [2.2, 1.2, 0.7].map((wavelength, h) => ({
           cycles: Math.max(1, Math.round(perimeter / (wavelength * size))),
           phase: rand(c * 1000 + 30 + h) * Math.PI * 2,
           weight: [1, 0.7, 0.45][h]!,
+          drift: 1 + Math.floor(rand(c * 1000 + 40 + h) * 3),
+          driftPhase: rand(c * 1000 + 50 + h) * Math.PI * 2,
+          swing: 0.9 + 1.6 * rand(c * 1000 + 60 + h),
         }));
         const norm = Math.sqrt(bands.reduce((sum, b) => sum + b.weight * b.weight, 0));
+        const envelope = [2, 3, 5].map((harmonic, h) => ({ harmonic, phase: rand(c * 1000 + 70 + h) * Math.PI * 2, weight: [0.5, 0.4, 0.3][h]! }));
         out.forEach((q, i) => {
           const f = (i / pts.length) * Math.PI * 2;
-          const shape = bands.reduce((sum, b) => sum + b.weight * Math.cos(b.cycles * f + b.phase), 0) / norm;
-          const r = shape * smoothed[i]! * 2 * eased[i]! * size;
+          const shape = bands.reduce((sum, b) => sum + b.weight * Math.cos(b.cycles * f + b.phase + b.swing * Math.sin(b.drift * f + b.driftPhase)), 0) / norm;
+          const strength = Math.min(1.2, Math.max(0.2, 0.8 + envelope.reduce((sum, e) => sum + e.weight * Math.cos(e.harmonic * f + e.phase), 0)));
+          // Where land is narrow the lake is held back from reaching further in, but its shore may still wander: a
+          // strip a hex wide has room for it, and without this a hex between two lakes took no irregularity at all.
+          const r = shape * strength * smoothed[i]! * 2 * Math.max(eased[i]!, 0.55) * size;
           out[i] = { x: q.x + normals[i]!.x * r, y: q.y + normals[i]!.y * r };
         });
       }

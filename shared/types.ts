@@ -265,7 +265,10 @@ export function lakeShoreIrregularity(
   value: BaseGeo | null | undefined,
   stored: HexShape | undefined,
   mapDefault?: Irregularity | null,
+  /** What is set on the lake hex itself, which wins over the land beside it. */
+  lake?: HexShape,
 ): Irregularity {
+  if (lake && lake.type === 'Lake' && IRREGULARITY_VALUES.includes(lake.irregular as Irregularity)) return lake.irregular as Irregularity;
   if (value && stored && stored.type === value && isShapedType(value) && IRREGULARITY_VALUES.includes(stored.irregular as Irregularity)) {
     return stored.irregular as Irregularity;
   }
