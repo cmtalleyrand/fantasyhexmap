@@ -14,7 +14,7 @@ test('a port in an isthmus hex stands on the neck, not out in the water of its r
   // The isthmus (index 12) joins land to the west and east, with sea north and south.
   const base: BaseGeo[] = [S, S, S, S, S, L, S, S, S, S, S, L, I, L, S, S, S, S, S, S, S, S, S, S, S].map((b, i) => (i === 11 || i === 13 ? L : b));
   const map = surfaceMap(base, 5, 5);
-  const onLand = landTest(map, new Map(), new Map(), size);
+  const onLand = landTest(map, new Map(), size);
   const city = { id: 'c', col: 2, row: 2, coastalEdges: [1, 2], onRiver: false } as unknown as City;
   const c = hexCenter(2, 2, size);
   const p = citySite(city, { size, base, cols: 5, onLand });
