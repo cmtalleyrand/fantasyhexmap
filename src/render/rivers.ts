@@ -34,8 +34,9 @@
 
 import { canonicalEdgeId, hexCenter, hexEdgePoints, pixelToOffset, type Point } from '../../shared/hex.js';
 import type { River } from '../../shared/types.js';
+import type { RiverWander } from './styles.js';
 import type { PathCmd } from './prims.js';
-import { signed } from './seed.js';
+import { signed, unit } from './seed.js';
 
 export interface RiverCourse {
   /** Dense points along the centre of the river, source to mouth. */
@@ -49,10 +50,21 @@ export interface RiverCourse {
 
 /** How far a crossing may slide from the edge midpoint, as a fraction of the edge. */
 const SLIDE = 0.25;
+
+/**
+ * What each level of river irregularity does: how far the wander swings (a multiple of the base swing), how
+ * many passes pull the crossings taut (fewer leaves the hex walk's own corners), how far a crossing may slide
+ * along its edge, and how often (`chance`) and how far (`bulge`, as a fraction of the way to the hex centre)
+ * a river that bends within a hex swings into it rather than just clipping its corner.
+ */
+const WANDER: Record<RiverWander, { swing: number; relax: number; slide: number; chance: number; bulge: number }> = {
+  gentle: { swing: 0.45, relax: 12, slide: 0.25, chance: 0, bulge: 0 },
+  natural: { swing: 0.85, relax: 6, slide: 0.3, chance: 0.4, bulge: 0.5 },
+  irregular: { swing: 1.3, relax: 2, slide: 0.36, chance: 0.7, bulge: 0.85 },
+  wild: { swing: 1.9, relax: 0, slide: 0.42, chance: 0.9, bulge: 1.1 },
+};
 const SAMPLES_PER_SPAN = 8;
 /** How far along its edge a relaxed crossing may settle, as a fraction of the edge. */
-const RELAX_RANGE: [number, number] = [0.5 - SLIDE, 0.5 + SLIDE];
-const RELAX_PASSES = 5;
 /** How far ahead, in hex sizes, a tributary's last tangent looks along its host's flow. */
 const JOIN_LEAN = 1.2;
 /** How far upstream of the join, in hex sizes, a tributary is steered onto its host's line. */
@@ -85,11 +97,11 @@ interface Slide {
 }
 
 /** The edge `edge` of hex (col, row) as its two ends and the seeded fraction along it where rivers cross. */
-function edgeSlide(col: number, row: number, edge: number, size: number, seed: string): Slide {
+function edgeSlide(col: number, row: number, edge: number, size: number, seed: string, slide = SLIDE): Slide {
   const id = canonicalEdgeId(col, row, edge);
   const m = /^(-?\d+),(-?\d+):(\d)$/.exec(id)!;
   const [a, b] = hexEdgePoints(Number(m[1]), Number(m[2]), Number(m[3]), size);
-  return { a, b, t: 0.5 + signed(seed, 'crossing', id) * SLIDE };
+  return { a, b, t: 0.5 + signed(seed, 'crossing', id) * slide };
 }
 
 const along = (s: Slide): Point => ({ x: s.a.x + (s.b.x - s.a.x) * s.t, y: s.a.y + (s.b.y - s.a.y) * s.t });
@@ -139,9 +151,12 @@ export interface CourseEnds {
    * rather than running on past it as a stub, and the meander calms near it.
    */
   cities?: Array<{ at: Point; radius: number }>;
+  /** How irregular the course is (see `WANDER`); 'irregular' when omitted. */
+  wander?: RiverWander;
 }
 
 function controls(river: River, size: number, seed: string, ends: CourseEnds): Control[] {
+  const level = WANDER[ends.wander ?? 'irregular'];
   const out: Control[] = [];
   const push = (p: Point, navigable: boolean, slide?: Slide) => {
     const last = out[out.length - 1];
@@ -149,7 +164,7 @@ function controls(river: River, size: number, seed: string, ends: CourseEnds): C
     out.push({ p, navigable, slide });
   };
   const cross = (col: number, row: number, edge: number, navigable: boolean) => {
-    const slide = edgeSlide(col, row, edge, size, seed);
+    const slide = edgeSlide(col, row, edge, size, seed, level.slide);
     push(along(slide), navigable, slide);
   };
   if (ends.before && river.segments[0]) push(ends.before, river.segments[0].navigable);
@@ -164,6 +179,19 @@ function controls(river: River, size: number, seed: string, ends: CourseEnds): C
           x: c.x + signed(seed, 'source', s.col, s.row, 'x') * size * 0.15,
           y: c.y + signed(seed, 'source', s.col, s.row, 'y') * size * 0.15,
         }, s.navigable);
+      }
+    }
+    // A river that bends within the hex sometimes swings into it, towards its centre, rather than just clipping
+    // the corner between its two edges: the bend is then sharper, as a river's are.
+    if (s.entryEdge !== null && s.exitEdge !== null && level.chance > 0) {
+      const turn = Math.abs((((s.exitEdge - s.entryEdge - 3) % 6) + 9) % 6 - 3);
+      if (turn > 0 && unit(seed, 'bulge', s.col, s.row, 'p') < level.chance * (turn === 1 ? 0.6 : 1)) {
+        const a = along(edgeSlide(s.col, s.row, s.entryEdge, size, seed, level.slide));
+        const b = along(edgeSlide(s.col, s.row, s.exitEdge, size, seed, level.slide));
+        const c = hexCenter(s.col, s.row, size);
+        const k = level.bulge * (0.4 + 0.6 * unit(seed, 'bulge', s.col, s.row, 'k')) * (turn === 1 ? 0.7 : 1);
+        const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+        push({ x: mid.x + (c.x - mid.x) * k, y: mid.y + (c.y - mid.y) * k }, s.navigable);
       }
     }
     if (s.exitEdge !== null) cross(s.col, s.row, s.exitEdge, s.navigable);
@@ -193,8 +221,8 @@ function controls(river: River, size: number, seed: string, ends: CourseEnds): C
  * own edge, so the course through the channel of edges is as taut as the hexes
  * allow. The seeded starting positions keep a little of their character.
  */
-function relax(ctrl: Control[]): void {
-  for (let pass = 0; pass < RELAX_PASSES; pass++) {
+function relax(ctrl: Control[], passes: number, slide: number): void {
+  for (let pass = 0; pass < passes; pass++) {
     for (let i = 1; i < ctrl.length - 1; i++) {
       const c = ctrl[i]!;
       if (!c.slide) continue;
@@ -203,7 +231,7 @@ function relax(ctrl: Control[]): void {
       const dx = b.x - a.x;
       const dy = b.y - a.y;
       const want = ((goal.x - a.x) * dx + (goal.y - a.y) * dy) / (dx * dx + dy * dy);
-      const target = Math.min(RELAX_RANGE[1], Math.max(RELAX_RANGE[0], want));
+      const target = Math.min(0.5 + slide, Math.max(0.5 - slide, want));
       c.slide.t += (target - c.slide.t) * 0.5;
       c.p = along(c.slide);
     }
@@ -242,7 +270,7 @@ function catmullRom(p0: Point, p1: Point, p2: Point, p3: Point, samples: number)
 export function riverCourse(river: River, size: number, seed: string, ends: CourseEnds = {}): RiverCourse | null {
   const ctrl = controls(river, size, seed, ends);
   if (ctrl.length < 2) return null;
-  relax(ctrl);
+  relax(ctrl, WANDER[ends.wander ?? 'irregular'].relax, WANDER[ends.wander ?? 'irregular'].slide);
   const pts = ctrl.map((c) => c.p);
   // Reflect the ends so the first and last spans have a tangent to follow.
   const n = pts.length;
@@ -456,7 +484,7 @@ export function riverCourse(river: River, size: number, seed: string, ends: Cour
   const offset = centreline.map((_, i) => {
     // Scaled to the widths the meander was tuned for.
     const fraction = (base[i]! / size) * 2.2;
-    const amplitude = size * MEANDER * (1 - 0.5 * smoothstep((fraction - 0.04) / 0.13));
+    const amplitude = size * MEANDER * WANDER[ends.wander ?? 'irregular'].swing * (1 - 0.5 * smoothstep((fraction - 0.04) / 0.13));
     const at = cum[i]! / size;
     const envelope = 0.55 + 0.45 * (0.5 + 0.5 * noise(7, at / 3.4));
     let fade = smoothstep(cum[i]! / (0.8 * size)) * smoothstep((total - cum[i]!) / (0.8 * size));
@@ -651,6 +679,7 @@ export function riverCourses(
   seed: string,
   lakeEnds: (river: River) => Pick<CourseEnds, 'before' | 'beyond' | 'inWater' | 'onLand'> = () => ({}),
   cities: Array<{ riverId: string; at: Point; radius: number }> = [],
+  wander: RiverWander = 'irregular',
 ): Map<string, RiverCourse> {
   const out = new Map<string, RiverCourse>();
   const key = (col: number, row: number) => `${col},${row}`;
@@ -693,6 +722,7 @@ export function riverCourses(
     const ends: CourseEnds = {
       ...lakeEnds(r),
       cities: cities.filter((c) => c.riverId === r.id),
+      wander,
       longest,
       inflows: (tributaries.get(r.id) ?? []).map((t) => {
         const end = t.segments.at(-1)!;

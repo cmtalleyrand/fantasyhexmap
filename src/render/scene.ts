@@ -2255,7 +2255,7 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
         };
       }, (opts.visible.cities ? layers.cities.data?.cities ?? [] : [])
         .filter((city) => city.onRiver && city.riverId)
-        .map((city) => ({ riverId: city.riverId!, at: hexCenter(city.col, city.row, size), radius: markerRadius(city.population) })))
+        .map((city) => ({ riverId: city.riverId!, at: hexCenter(city.col, city.row, size), radius: markerRadius(city.population) })), knobs.riverWander)
     : new Map();
   // Everything a river draws, cut to the land below: over a lake or the sea it does not show, so a river through a lake
   // shows on either side of the water only.

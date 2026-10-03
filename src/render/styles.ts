@@ -32,6 +32,8 @@ export interface StyleKnobs {
   ice: 'flat' | 'glacier';
   /** Rivers: even strokes through hex centres, or a meandering course that widens downstream. */
   rivers: 'classic' | 'tapered';
+  /** How irregular a meandering river's course is, and how far it swings into the hexes it bends through. */
+  riverWander: RiverWander;
   /**
    * How height is shown when the Elevation layer is visible: hexes tinted by
    * height, stacked marks per hex, drawn hills and peaks, or shading as if lit
@@ -63,6 +65,8 @@ export interface StyleKnobs {
   /** Polities that are part of another: in their own colours, or as shades of their parent's. */
   subPolities: 'own' | 'tints';
 }
+
+export type RiverWander = 'gentle' | 'natural' | 'irregular' | 'wild';
 
 export type KnobId = keyof StyleKnobs;
 
@@ -176,6 +180,7 @@ const CLASSIC: PresetInfo = {
     islands: 'dot',
     ice: 'flat',
     rivers: 'classic',
+    riverWander: 'irregular',
     lineWeight: 1,
     grain: false,
     subPolities: 'own',
@@ -236,6 +241,7 @@ const PARCHMENT: PresetInfo = {
     islands: 'blob',
     ice: 'glacier',
     rivers: 'tapered',
+    riverWander: 'irregular',
     lineWeight: 1,
     grain: true,
     subPolities: 'tints',
@@ -309,6 +315,7 @@ const ATLAS: PresetInfo = {
     islands: 'blob',
     ice: 'glacier',
     rivers: 'tapered',
+    riverWander: 'irregular',
     lineWeight: 1,
     grain: false,
     subPolities: 'own',
@@ -368,6 +375,7 @@ const NIGHT: PresetInfo = {
     islands: 'blob',
     ice: 'flat',
     rivers: 'tapered',
+    riverWander: 'irregular',
     lineWeight: 1,
     grain: false,
     subPolities: 'tints',
@@ -457,6 +465,15 @@ export const KNOB_OPTIONS: {
     options: [
       { value: 'classic', label: 'Even strokes' },
       { value: 'tapered', label: 'Meandering, widening' },
+    ],
+  },
+  riverWander: {
+    label: 'River irregularity',
+    options: [
+      { value: 'gentle', label: 'Gentle (smooth bends)' },
+      { value: 'natural', label: 'Natural' },
+      { value: 'irregular', label: 'Irregular' },
+      { value: 'wild', label: 'Very irregular (sharp bends)' },
     ],
   },
   relief: {
@@ -569,7 +586,7 @@ export const KNOB_OPTIONS: {
   },
 };
 
-export const KNOB_ORDER: KnobId[] = ['relief', 'water', 'ripples', 'coast', 'grid', 'land', 'islands', 'ice', 'rivers', 'polityStyle', 'frontier', 'borders', 'polityTone', 'subPolities', 'lettering', 'realmNames', 'cityNames', 'cityMarkers', 'cityCoastMarks', 'lineWeight', 'grain'];
+export const KNOB_ORDER: KnobId[] = ['relief', 'water', 'ripples', 'coast', 'grid', 'land', 'islands', 'ice', 'rivers', 'riverWander', 'polityStyle', 'frontier', 'borders', 'polityTone', 'subPolities', 'lettering', 'realmNames', 'cityNames', 'cityMarkers', 'cityCoastMarks', 'lineWeight', 'grain'];
 
 export const DEFAULT_STYLE_CHOICE: MapStyleChoice = { preset: 'classic', overrides: {} };
 
