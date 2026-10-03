@@ -153,3 +153,11 @@ test('switching the option off removes what it allowed, undoably', () => {
   assert.equal(off.layers.polities.data?.owner[1], null);
   assert.equal(reducer(off, { type: 'undo', layer: 'cities' }).layers.cities.data?.cities.length, 1);
 });
+
+test('a strait holds cities and polity claims without the underwater option', () => {
+  const kept = setBase(strip(), [1], 'Strait');
+  assert.equal(kept.layers.cities.data?.cities.length, 1);
+  assert.equal(kept.layers.polities.data?.owner[1], 'p');
+  const off = reducer(kept, { type: 'setAllowUnderwater', allow: false });
+  assert.equal(off.layers.cities.data?.cities.length, 1);
+});
