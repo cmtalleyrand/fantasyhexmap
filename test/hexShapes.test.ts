@@ -6,7 +6,8 @@ import { DEFAULT_HEX_DIMENSIONS, hexShapeFor, type BaseGeo, type MapState } from
 import { reducer } from '../src/state/store.ts';
 import { buildScene, defaultVisibility } from '../src/render/scene.ts';
 import { resolveStyle } from '../src/render/styles.ts';
-import { coastGeometryOf, coastEdges, landInsetDepth } from '../src/render/coast.ts';
+import { coastGeometryOf, coastEdges, landInsetDepth, surfaceMap } from '../src/render/coast.ts';
+import { shapeCoast } from '../src/render/footprint.ts';
 import { hexCorners } from '../shared/hex.ts';
 import type { PathCmd, Prim } from '../src/render/prims.ts';
 
@@ -16,7 +17,7 @@ test('each shaped type has its default land share', () => {
   const share = (v: BaseGeo, spec?: { large: number; small: number }) => landFraction(v, spec, dims);
   assert.equal(share('Land'), 1);
   assert.equal(share('Coastal Land'), 0.9);
-  assert.equal(share('Isthmus'), 0.3);
+  assert.equal(share('Isthmus'), 0.7);
   assert.equal(share('Strait'), 0.4);
   assert.equal(share('Glacier'), 1);
   assert.equal(share('Sea Ice'), 0);
@@ -43,14 +44,14 @@ test('a hex that sets its own land share takes it, within 0 to 100', () => {
   assert.equal(landFraction('Sea Ice', undefined, dims, { type: 'Sea Ice', land: 80 }), 0);
 });
 
-test('irregularity defaults keep the old drawing and ignore settings for another type', () => {
-  assert.equal(hexShapeFor('Coastal Land', undefined).irregular, 'Smooth');
-  assert.equal(hexShapeFor('Islands', undefined).irregular, 'Wavy');
-  assert.equal(hexShapeFor('Glacier', undefined).irregular, 'Wavy');
+test('every shaped type is Ragged by default, and settings made for another type are ignored', () => {
+  for (const type of ['Coastal Land', 'Islands', 'Mainland and islands', 'Isthmus', 'Strait', 'Glacier', 'Sea Ice'] as BaseGeo[]) {
+    assert.equal(hexShapeFor(type, undefined).irregular, 'Ragged', type);
+  }
   assert.equal(hexShapeFor('Coastal Land', { type: 'Coastal Land', irregular: 'Fractured' }).irregular, 'Fractured');
-  assert.equal(hexShapeFor('Strait', { type: 'Coastal Land', irregular: 'Fractured' }).irregular, 'Smooth');
+  assert.equal(hexShapeFor('Strait', { type: 'Coastal Land', irregular: 'Fractured' }).irregular, 'Ragged');
   // A value that is not one of the four falls back to the type's default.
-  assert.equal(hexShapeFor('Coastal Land', { type: 'Coastal Land', irregular: 'Wild' as never }).irregular, 'Smooth');
+  assert.equal(hexShapeFor('Coastal Land', { type: 'Coastal Land', irregular: 'Wild' as never }).irregular, 'Ragged');
 });
 
 test('polity areas count each hex by its land share', () => {
@@ -131,9 +132,9 @@ function commandCount(prims: Prim[]): number {
   return JSON.stringify(prims).length;
 }
 
-test('a smooth coast is drawn exactly as it was before irregularity existed', () => {
+test('a coast set to Smooth is drawn plain, and a rough one is not', () => {
   const base: BaseGeo[] = ['Sea', 'Coastal Land', 'Land', 'Coastal Land', 'Sea', 'Sea', 'Coastal Land', 'Land', 'Coastal Land', 'Sea'];
-  const plain = mapWith(base, 5, 2);
+  const plain = { ...mapWith(base, 5, 2), defaultIrregularity: 'Smooth' as const };
   const explicit = { ...plain, hexShapes: Object.fromEntries(base.map((v, i) => [String(i), { type: v, irregular: 'Smooth' as const }]).filter(([, s]) => (s as { type: string }).type === 'Coastal Land')) };
   assert.equal(commandCount(scene(explicit).prims), commandCount(scene(plain).prims));
   const rough = { ...plain, hexShapes: Object.fromEntries(base.map((v, i) => [String(i), { type: v, irregular: 'Fractured' as const }]).filter(([, s]) => (s as { type: string }).type === 'Coastal Land')) };
@@ -148,21 +149,21 @@ test('the map default irregularity applies to hexes with none of their own, and 
   assert.equal(hexShapeFor('Coastal Land', { type: 'Coastal Land', irregular: 'Smooth' }, 'Ragged').irregular, 'Smooth');
   assert.equal(hexShapeFor('Strait', { type: 'Coastal Land', irregular: 'Smooth' }, 'Ragged').irregular, 'Ragged');
   assert.equal(hexShapeFor('Land', undefined, 'Ragged').irregular, 'Smooth');
-  assert.equal(hexShapeFor('Coastal Land', undefined, null).irregular, 'Smooth');
+  assert.equal(hexShapeFor('Coastal Land', undefined, null).irregular, 'Ragged');
 });
 
 test('changing the default irregularity redraws default hexes only', () => {
   const base: BaseGeo[] = ['Sea', 'Coastal Land', 'Land', 'Coastal Land', 'Sea', 'Sea', 'Coastal Land', 'Land', 'Coastal Land', 'Sea'];
-  const plain = mapWith(base, 5, 2);
+  const plain = { ...mapWith(base, 5, 2), defaultIrregularity: 'Smooth' as const };
   const rough = reducer(plain, { type: 'setDefaultIrregularity', irregular: 'Fractured' });
   assert.equal(rough.defaultIrregularity, 'Fractured');
   assert.notEqual(commandCount(scene(rough).prims), commandCount(scene(plain).prims));
   // Every coast hex pinned to Smooth by hand ignores the default.
   const pinned = { ...rough, hexShapes: Object.fromEntries(base.map((v, i) => [String(i), { type: v, irregular: 'Smooth' as const }]).filter(([, s]) => (s as { type: string }).type === 'Coastal Land')) };
-  assert.equal(commandCount(scene(pinned).prims), commandCount(scene(plain).prims));
+  assert.equal(commandCount(scene(pinned).prims), commandCount(scene({ ...pinned, defaultIrregularity: 'Smooth' }).prims));
   const back = reducer(rough, { type: 'setDefaultIrregularity', irregular: null });
   assert.equal('defaultIrregularity' in back, false);
-  assert.equal(commandCount(scene(back).prims), commandCount(scene(plain).prims));
+  assert.equal(commandCount(scene(back).prims), commandCount(scene(reducer(plain, { type: 'setDefaultIrregularity', irregular: null })).prims));
 });
 
 test('a roughened coast still passes through the midpoint of every coast edge, and corrects the fills it crosses', () => {
@@ -338,8 +339,9 @@ test('the land a coast hex leaves uncovered is its share, whatever its neighbour
     assert.ok(wet.length > 0, `${name}: the hex has a coast`);
     const hex = hexCorners(2, 2, size);
     for (const land of [0.9, 0.6, 0.3]) {
-      const depth = landInsetDepth(hex, wet, land);
-      const { strips } = coastGeometryOf(edges, false, undefined, { depth: (e) => (e.hex === 12 ? depth : 0), hex: () => hex });
+      const shaped = shapeCoast(edges, surfaceMap(base, 5, 5), size, new Map([[12, { share: land, kind: 'inset' as const }]]));
+      assert.ok(shaped, `${name}, ${land}: the hex is reshaped`);
+      const { strips } = shaped;
       const polygons = strips.map((strip) => strip.d.filter((c) => c[0] !== 'Z').map((c) => ({ x: c.at(-2) as number, y: c.at(-1) as number })));
       const xs = hex.map((p) => p.x);
       const ys = hex.map((p) => p.y);
@@ -368,4 +370,42 @@ test('the land a coast hex leaves uncovered is its share, whatever its neighbour
     { size: 30, visible: defaultVisibility(), labels: false, style: flat },
   ).prims;
   assert.ok(JSON.stringify(draw(50)) !== JSON.stringify(draw(100)), 'the share changes what is drawn');
+});
+
+/* ------------------------------------------------------------ enforced for split hexes */
+
+test('an isthmus, a strait and a mainland are reshaped to exactly their land share, and stay joined', () => {
+  const S: BaseGeo = 'Sea';
+  const L: BaseGeo = 'Land';
+  const size = 10;
+  const hexArea = 1.5 * Math.sqrt(3) * size * size;
+  const layouts: Array<[BaseGeo, BaseGeo[], 'neck' | 'channel' | 'inset']> = [
+    // 3 x 3: land west and east of an isthmus with sea north and south of it.
+    ['Isthmus', [S, S, S, L, 'Isthmus', L, S, S, S], 'neck'],
+    ['Strait', [L, L, L, S, 'Strait', S, L, L, L], 'channel'],
+    ['Mainland and islands', [S, S, S, L, 'Mainland and islands', S, S, S, S], 'inset'],
+  ];
+  for (const [type, base, kind] of layouts) {
+    const surface = surfaceMap(base, 3, 3);
+    assert.ok(surface.split.has(4), `${type} is split`);
+    for (const share of [0.1, 0.3, 0.6, 0.9]) {
+      const shaped = shapeCoast(coastEdges(base, 3, 3, size), surface, size, new Map([[4, { share, kind }]]));
+      assert.ok(shaped, `${type} ${share}: reshaped`);
+      const land = shaped.land.get(4)!.reduce((sum, p) => sum + polyAreaOf(p), 0) / hexArea;
+      assert.ok(Math.abs(land - share) < 1e-4, `${type} ${share}: land is ${land}`);
+    }
+  }
+});
+
+function polyAreaOf(p: Array<{ x: number; y: number }>): number {
+  let sum = 0;
+  for (let k = 0; k < p.length; k++) sum += p[k]!.x * p[(k + 1) % p.length]!.y - p[(k + 1) % p.length]!.x * p[k]!.y;
+  return Math.abs(sum) / 2;
+}
+
+test('the scene draws an isthmus differently at different land shares', () => {
+  const base: BaseGeo[] = ['Sea', 'Sea', 'Sea', 'Land', 'Isthmus', 'Land', 'Sea', 'Sea', 'Sea'];
+  const map = mapWith(base, 3, 3);
+  const draw = (land: number) => JSON.stringify(scene({ ...map, hexShapes: { '4': { type: 'Isthmus', land } } }).prims);
+  assert.notEqual(draw(20), draw(80));
 });

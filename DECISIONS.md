@@ -714,7 +714,7 @@ is not corrected for.
 **What it does not cover.** An Isthmus, a Strait and the mainland of a Mainland-and-islands hex are
 cut from fixed pieces of the hex (a neck or channel a third of a hex wide, banks, a half) and still
 draw that much whatever their share; the share counts in their area only. Their defaults (30% and 40%)
-sit close to what those pieces already show.
+sit close to what those pieces already show (superseded by decision 42, which draws them at their shares).
 
 **Lakes.** A lake has a body of its own, so a coast hex beside one used to be drawn whole, its share
 ignored. The depth worked out for the hex now counts its lake-facing edges as well as its sea-facing
@@ -801,3 +801,31 @@ drawn inside the hex fill loop.
 **Not changed, and why.** Names on thin steep coastal strips still use the ±30° rotation limit and
 may spill; this was judged not worth steeper type. Child realms keep their flat 0.62 scale and
 lighter weight.
+
+## 42. Every land share is enforced, in the shape it is set for
+
+**Chosen.** Decision 39 enforced the share only for Coastal Land and Glacier, and for the size of islands.
+An Isthmus, a Strait and the mainland of a Mainland and islands hex ignored theirs: the pieces they were
+cut into (decision 37) drew the same at 10% as at 90%. `src/render/footprint.ts` now reshapes every hex
+with a share until the land drawn is exactly that share, and the coast is traced again round the result
+(the boundary of the union of every hex's land, so a neighbour's coast steps along a border where a
+reshaped hex no longer reaches all of it).
+
+- Coast hexes (and a mainland, isthmus or strait with no neighbour to join) are cut back from their sea edges, as before.
+- An Isthmus is a neck of uniform width running from the middle to each land neighbour; a Strait is the hex
+  less a channel of uniform width to each sea neighbour. Both stay whole at any share. With three or more
+  such neighbours (which would leave pockets), and for a mainland, land is laid along the edges shared with
+  land, deeper as the share grows, so it stays joined to them.
+- A split hex whose water is a lake keeps its shore. A coast hex beside a lake counts its lake edges towards its depth (the lake is drawn over it, as in decision 39), and is cut only from the sea.
+- Smoothed and roughened coasts move some land; the cut is repeated, up to twice, to the share less what the coast moved.
+  The Hex coast style is exact; smooth styles are within about a point, a few at the thinnest necks.
+
+**Islands.** Their size is found so the land they actually cover (not the ellipse they start from, which the
+outline falls ~10% short of) is the share. They are kept apart from each other and clear of the mainland,
+inside the hex and near the place the layout gave them. Where a hex cannot hold its full share without the
+islands merging, they are drawn as large as they can be and no larger, and never smaller than before.
+
+**What it costs.** Default straits, isthmuses and mainlands look different (they now match their shares (an isthmus now defaults to 70%, close to what it was drawn at before: 30% drew as a thin line)).
+First draw of a 50 x 50 map is slower (~0.7 s against ~0.15 s); later edits reuse what was cut.
+
+**Irregularity defaults.** Every shaped type (coasts, islands, isthmuses, straits, mainlands, ice) now defaults to Ragged, and Settings lists each type's default.

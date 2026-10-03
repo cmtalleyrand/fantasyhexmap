@@ -247,6 +247,12 @@ export interface CoastGeometry {
   toWater: Sliver[];
   /** Notches of water the smoothed coast fills in: they become land. */
   toLand: Sliver[];
+  /** Water a hex was reshaped to take as land (see `shapeCoast`): drawn with the land, under the corners cut off. */
+  grown: Sliver[];
+  /** The water left in each reshaped split hex, by hex (see `shapeCoast`): what its water pieces are cut to. */
+  water: Map<number, PathCmd[]>;
+  /** The land each reshaped hex is left with, by hex. */
+  land: Map<number, Point[][]>;
   /**
    * Where the drawn coast passes each hex corner it turns at (by `coastKey`): on a smoothed
    * or roughened coast that is off the corner itself. Absent for a coast drawn on the hex edges.
@@ -584,15 +590,14 @@ export function landInsetDepth(corners: Point[], wet: CoastEdge[], land: number)
 
 /**
  * Whether a point of the map is land as the coast is drawn: in a land piece of
- * its hex (see `surfaceMap`) and, in a partly-land hex, not in the strip its
- * water-facing edges (`wet`) have moved in over (by `insets`). The coast's
- * smoothing and roughening are not counted, so a point near the shore is
- * uncertain; callers wanting a safe point keep clear of it.
+ * its hex (see `surfaceMap`) or, in a hex reshaped to its land share, in the
+ * land it was left with (`reshaped`, from `shapeCoast`). The coast's smoothing
+ * and roughening are not counted, so a point near the shore is uncertain;
+ * callers wanting a safe point keep clear of it.
  */
 export function landTest(
   map: SurfaceMap,
-  wet: ReadonlyMap<number, CoastEdge[]>,
-  insets: ReadonlyMap<number, number>,
+  reshaped: ReadonlyMap<number, Point[][]>,
   size: number,
 ): (p: Point) => boolean {
   const side = (a: Point, b: Point, q: Point) => (b.x - a.x) * (q.y - a.y) - (b.y - a.y) * (q.x - a.x);
@@ -606,6 +611,8 @@ export function landTest(
     const { col, row } = pixelToOffset(q.x, q.y, size);
     if (!inBounds(map.cols, map.rows, col, row)) return false;
     const i = hexIndex(map.cols, col, row);
+    const land = reshaped.get(i);
+    if (land) return land.some((poly) => poly.every((a, k) => side(a, poly[(k + 1) % poly.length]!, q) >= 0));
     if (map.split.has(i)) {
       const c = hexCenter(col, row, size);
       const corners = hexCorners(col, row, size);
@@ -615,143 +622,26 @@ export function landTest(
         const u = { x: c.x + (q.x - c.x) / CORE, y: c.y + (q.y - c.y) / CORE };
         piece = within(c, corners[k]!, corners[(k + 1) % 6]!, u) ? k : 6 + k;
       }
-      if (piece < 0 || pieceSurface(map, i, piece) !== 'land') return false;
-    } else if (map.whole[i] !== 'land') return false;
-    const depth = insets.get(i);
-    if (depth === undefined) return true;
-    return (wet.get(i) ?? []).every((e) => {
-      const len = Math.hypot(e.to.x - e.from.x, e.to.y - e.from.y) || 1;
-      return ((q.x - e.from.x) * (-(e.to.y - e.from.y)) + (q.y - e.from.y) * (e.to.x - e.from.x)) / len >= depth;
-    });
+      return piece >= 0 && pieceSurface(map, i, piece) === 'land';
+    }
+    return map.whole[i] === 'land';
   };
 }
 
-/** How a hex that is only partly land is drawn: how far in each of its coast edges moves, and the hex's own outline. */
-export interface CoastInset {
-  depth: (edge: CoastEdge) => number;
-  hex: (edge: CoastEdge) => Point[];
-}
-
-const turn = (u: Point, degrees: number): Point => {
-  const a = (degrees * Math.PI) / 180;
-  return { x: u.x * Math.cos(a) - u.y * Math.sin(a), y: u.x * Math.sin(a) + u.y * Math.cos(a) };
-};
-
 /**
- * A chain with each edge moved in towards its land by `inset.depth(edge)`.
- * Where two edges of one hex meet, their moved lines meet at a corner. Where an
- * inset edge meets another hex's coast, the moved line instead runs out to the
- * border the two land hexes share, and the coast steps along that border to
- * where the other hex's own coast (moved or not) begins, so the land left is
- * exactly the hex cut by its moved edges. The water each moved edge leaves in
- * its hex is returned as a strip, for the donor of the water across.
- */
-function insetChain(chain: CoastChain, inset: CoastInset, strips: Sliver[], taken: Map<number, Array<{ edge: CoastEdge; depth: number }>>): CoastChain {
-  const { points, edges, closed } = chain;
-  const depth = edges.map(inset.depth);
-  if (depth.every((d) => d <= 0)) return chain;
-  const n = edges.length;
-  const dir = edges.map((e) => {
-    const len = Math.hypot(e.to.x - e.from.x, e.to.y - e.from.y) || 1;
-    return { x: (e.to.x - e.from.x) / len, y: (e.to.y - e.from.y) / len, len };
-  });
-  /** How far along a hex border from a corner a line moved in by `d` meets it: d over the sine of the angle between them. */
-  const reach = (d: number, k: number) => (d > 0 ? Math.min(dir[k]!.len, d / Math.sin(Math.PI / 3)) : 0);
-  const at = (p: Point, w: Point, t: number): Point => ({ x: p.x + w.x * t, y: p.y + w.y * t });
-
-  const outPoints: Point[] = [];
-  const outEdges: CoastEdge[] = [];
-  const vertices = points.length;
-  // Per vertex: the point or points that replace it, and the connecting edge between two.
-  const made = points.map((p, k) => {
-    const a = closed ? (k - 1 + n) % n : k - 1;
-    const b = closed ? k % n : k;
-    const hasA = a >= 0 && a < n;
-    const hasB = b >= 0 && b < n;
-    if (!hasA && !hasB) return { pts: [p], link: undefined as CoastEdge | undefined };
-    if (!hasA) return { pts: [at(p, turn(dir[b]!, 120), reach(depth[b]!, b))], link: undefined };
-    if (!hasB) return { pts: [at(p, turn(dir[a]!, 60), reach(depth[a]!, a))], link: undefined };
-    const ea = edges[a]!;
-    const eb = edges[b]!;
-    const da = depth[a]!;
-    const db = depth[b]!;
-    if (da <= 0 && db <= 0) return { pts: [p], link: undefined };
-    if (ea.hex === eb.hex) {
-      // Two edges of one hex: the corner where their moved lines meet.
-      const n1 = { x: -dir[a]!.y, y: dir[a]!.x };
-      const n2 = { x: -dir[b]!.y, y: dir[b]!.x };
-      const det = n1.x * n2.y - n1.y * n2.x;
-      if (Math.abs(det) < 1e-3) return { pts: [at(p, n1, da)], link: undefined };
-      const vx = (da * n2.y - db * n1.y) / det;
-      const vy = (n1.x * db - n2.x * da) / det;
-      return { pts: [{ x: p.x + vx, y: p.y + vy }], link: undefined };
-    }
-    // Two land hexes against the same water: the border between them leaves the corner at 60 degrees to the way in.
-    const w = turn(dir[a]!, 60);
-    const ta = reach(da, a);
-    const tb = reach(db, b);
-    const qa = at(p, w, ta);
-    if (Math.abs(ta - tb) < 1e-6) return { pts: [qa], link: undefined };
-    const qb = at(p, w, tb);
-    // Along the border outwards the first hex's land is on the right; back towards the corner, the second's.
-    const forward = ta < tb;
-    return {
-      pts: [qa, qb],
-      link: {
-        from: qa,
-        to: qb,
-        land: forward ? ea.land : eb.land,
-        water: forward ? eb.water : ea.water,
-        hex: forward ? ea.hex : eb.hex,
-        across: forward ? eb.hex : ea.hex,
-      } as CoastEdge,
-    };
-  });
-  const start = new Array<number>(vertices);
-  made.forEach((m, k) => {
-    start[k] = outPoints.length;
-    outPoints.push(...m.pts);
-  });
-  const last = (k: number) => outPoints[start[k]! + made[k]!.pts.length - 1]!;
-  for (let k = 0; k < vertices; k++) {
-    const m = made[k]!;
-    if (m.link) outEdges.push(m.link);
-    if (k < n) {
-      const e = edges[k]!;
-      const nextVertex = (k + 1) % vertices;
-      outEdges.push({ ...e, from: last(k), to: outPoints[start[nextVertex]!]! });
-    }
-  }
-  edges.forEach((e, k) => {
-    if (depth[k]! <= 0) return;
-    // Where two of a hex's moved edges meet, their strips would cover the corner
-    // twice, and the water would then cancel out wherever strips are laid
-    // together as one even-odd shape: each strip keeps only what the hex's
-    // earlier strips have not taken.
-    const before = e.hex === undefined ? [] : taken.get(e.hex) ?? [];
-    let piece = inset.hex(e);
-    for (const earlier of before) piece = clipToInset(piece, earlier.edge.from, earlier.edge.to, earlier.depth);
-    piece = clipToInset(piece, e.from, e.to, depth[k]!, true);
-    if (e.hex !== undefined) taken.set(e.hex, [...before, { edge: e, depth: depth[k]! }]);
-    if (piece.length < 3) return;
-    strips.push({ d: [...piece.map((q, i) => [i === 0 ? 'M' : 'L', q.x, q.y] as PathCmd), ['Z'] as PathCmd], donor: e.water });
-  });
-  return { points: outPoints, edges: outEdges, closed };
-}
-
-/**
- * The coast along `edges` (from `surfaceEdges`), traced into chains and optionally smoothed and roughened.
- * With `inset`, the edges of a hex that is only partly land are drawn that far in from the hex's own edge.
+ * The coast along `edges` (from `surfaceEdges`, or `shapeCoast` when hexes have
+ * been reshaped to their land share), traced into chains and optionally smoothed
+ * and roughened. `reshaped` is what the reshaping moved: land drawn as water
+ * (`strips`) and water drawn as land (`grown`).
  */
 export function coastGeometryOf(
   edges: CoastEdge[],
   smooth: boolean,
   rough?: Roughness,
-  inset?: CoastInset,
+  reshaped?: { strips: Sliver[]; grown: Sliver[]; water: Map<number, PathCmd[]>; land: Map<number, Point[][]> },
 ): CoastGeometry {
-  const strips: Sliver[] = [];
-  const taken = new Map<number, Array<{ edge: CoastEdge; depth: number }>>();
-  const chains = chainEdges(edges).map((chain) => (inset ? insetChain(chain, inset, strips, taken) : chain));
+  const strips: Sliver[] = reshaped?.strips ?? [];
+  const chains = chainEdges(edges);
   const toWater: Sliver[] = [...strips];
   const toLand: Sliver[] = [];
   const anchors = new Map<string, Point>();
@@ -796,7 +686,7 @@ export function coastGeometryOf(
     }
     return piece.some(Boolean) ? roughPath(points, closed, piece) : smoothPath(points, closed);
   });
-  return { chains, strips, paths, toWater, toLand, anchors };
+  return { chains, strips, paths, toWater, toLand, grown: reshaped?.grown ?? [], water: reshaped?.water ?? new Map(), land: reshaped?.land ?? new Map(), anchors };
 }
 
 /** A smoothed chain in which some corners carry a sampled, roughened curve. */

@@ -384,6 +384,8 @@ test('an Islands hex draws the islands its spec asks for, inside its hex, coasta
   ];
   for (const spec of specs) {
     const map = createMapState('Islands', 3, 3);
+    // Ragged islands shed skerries, which are shapes of their own; Wavy ones do not.
+    map.defaultIrregularity = 'Wavy';
     map.layers.base.data = ['Land', 'Sea', 'Sea', 'Land', 'Islands', 'Sea', 'Sea', 'Sea', 'Sea'];
     map.islandSpecs = { '4': spec };
     for (const preset of PRESET_ORDER) {
@@ -402,20 +404,22 @@ test('an Islands hex draws the islands its spec asks for, inside its hex, coasta
         // The land lies west; a coastal group's islands sit on the west side of the hex.
         // Each island counts by the area of its bounding box, as the land it draws.
         const c = hexCenter(1, 1, size);
-        const islands: Array<typeof pts> = [];
+        const islands: Array<{ area: number; x: number }> = [];
+        let current: typeof pts = [];
         for (const cmd of land[0]!.d) {
-          if (cmd[0] === 'M') islands.push([]);
-          if (cmd[0] !== 'Z') islands.at(-1)!.push({ x: cmd.at(-2) as number, y: cmd.at(-1) as number });
+          if (cmd[0] === 'M') current = [];
+          if (cmd[0] !== 'Z') current.push({ x: cmd.at(-2) as number, y: cmd.at(-1) as number });
+          else {
+            const xs = current.map((q) => q.x);
+            const ys = current.map((q) => q.y);
+            islands.push({ area: (Math.max(...xs) - Math.min(...xs)) * (Math.max(...ys) - Math.min(...ys)), x: (Math.max(...xs) + Math.min(...xs)) / 2 });
+          }
         }
-        let weight = 0;
-        let moment = 0;
-        for (const isle of islands) {
-          const xs = isle.map((q) => q.x);
-          const ys = isle.map((q) => q.y);
-          const area = (Math.max(...xs) - Math.min(...xs)) * (Math.max(...ys) - Math.min(...ys));
-          weight += area;
-          moment += area * ((Math.max(...xs) + Math.min(...xs)) / 2);
-        }
+        // The group is the large islands (the largest drawn) or the small ones (the rest); the other group lies where it likes.
+        const bySize = [...islands].sort((a, b) => b.area - a.area);
+        const group = spec.coastal.large ? bySize.slice(0, spec.large) : bySize.slice(spec.large);
+        const weight = group.reduce((sum, isle) => sum + isle.area, 0);
+        const moment = group.reduce((sum, isle) => sum + isle.area * isle.x, 0);
         assert.ok(moment / weight < c.x, `${JSON.stringify(spec)} (${preset}) lies toward the land`);
       }
     }
@@ -451,11 +455,13 @@ test('an isthmus is a neck of land, a strait a channel of water, and a mainland 
 
   // A mainland coast with islands: land to the west, sea elsewhere.
   const map = createMapState('Coast', 3, 3);
+  map.defaultIrregularity = 'Wavy';
   map.layers.base.data = ['Sea', 'Sea', 'Sea', 'Land', 'Mainland and islands', 'Sea', 'Sea', 'Sea', 'Sea'];
   map.islandSpecs = { '4': { large: 1, small: 2 } };
   const style = resolveStyle({ preset: 'parchment', overrides: {} });
   const prims = buildScene(map, { size, visible: defaultVisibility(), labels: false, style }).prims;
-  const isles = prims.filter((p): p is Extract<Prim, { kind: 'path' }> => p.kind === 'path' && p.fill === style.palette.island);
+  // The islands are one unstroked shape; land a hex has grown over the water is stroked, in the same colour.
+  const isles = prims.filter((p): p is Extract<Prim, { kind: 'path' }> => p.kind === 'path' && p.fill === style.palette.island && p.stroke === undefined);
   const pts = isles[0]!.d.filter((q) => q[0] === 'M').map((q) => ({ x: q[1] as number, y: q[2] as number }));
   assert.equal(pts.length, 3);
   for (const q of pts) assert.ok(q.x > c.x - size * 0.2, 'the islands lie off the mainland, in the water');

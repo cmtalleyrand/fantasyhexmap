@@ -161,21 +161,21 @@ export function hasLandShare(value: BaseGeo | null | undefined): boolean {
 }
 
 /**
- * The irregularity a type is drawn with when none is set. These reproduce how the
- * shapes were drawn before irregularity existed: coasts plain, islands slightly
- * wavy. Ice is wavy by default.
+ * The irregularity a type is drawn with when none is set: Ragged for every shaped
+ * type (coasts, islands, isthmuses, straits, ice). Land, Sea and Lake are not shaped,
+ * so theirs is not used.
  */
 export const DEFAULT_IRREGULARITY: Record<BaseGeo, Irregularity> = {
   Land: 'Smooth',
-  'Coastal Land': 'Smooth',
+  'Coastal Land': 'Ragged',
   Sea: 'Smooth',
   Lake: 'Smooth',
-  Glacier: 'Wavy',
-  'Sea Ice': 'Wavy',
-  Islands: 'Wavy',
-  'Mainland and islands': 'Wavy',
-  Isthmus: 'Smooth',
-  Strait: 'Smooth',
+  Glacier: 'Ragged',
+  'Sea Ice': 'Ragged',
+  Islands: 'Ragged',
+  'Mainland and islands': 'Ragged',
+  Isthmus: 'Ragged',
+  Strait: 'Ragged',
 };
 
 /**
@@ -619,7 +619,7 @@ export const DEFAULT_HEX_DIMENSIONS: HexDimensions = {
   largeIslandPercent: 20,
   smallIslandPercent: 10,
   mainlandPercent: 30,
-  isthmusPercent: 30,
+  isthmusPercent: 70,
   straitPercent: 40,
   glacierPercent: 100,
   areaRounding: 100,
