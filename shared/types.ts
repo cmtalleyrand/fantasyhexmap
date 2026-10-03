@@ -450,8 +450,23 @@ export interface City {
  * `{ bank }` stands on the tip of land on that edge of a strait hex, in the
  * realm whose land lies there. `{ coast }` stands on that coastal edge; `{ coast, river: true }` stands
  * where its river meets that coast - a river port.
+ *
+ * `'neck'` stands on the strip of land between two lakes (a hex with lake on two sides that are not
+ * neighbours), midway between their shores; `'auto'` chooses it for such a hex when there is no river.
+ * `'landward'` stands back from the shore, on the side away from the water. `{ corner }` stands toward that
+ * corner of the hex (corner c lies between edges c-1 and c), and `{ offset }` at a free point of the hex, as
+ * a fraction of the hex size from its centre (kept inside the hex and, like every site, moved onto land).
  */
-export type CitySite = 'auto' | 'inland' | 'river' | { coast: number; river?: boolean } | { bank: number };
+export type CitySite =
+  | 'auto'
+  | 'inland'
+  | 'river'
+  | 'neck'
+  | 'landward'
+  | { coast: number; river?: boolean }
+  | { bank: number }
+  | { corner: number }
+  | { offset: { x: number; y: number } };
 
 export interface Polity {
   id: string;
