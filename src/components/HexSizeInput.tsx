@@ -17,6 +17,7 @@ const MEASURES: { id: HexMeasure; label: string; hint: string }[] = [
 const UNITS = ['km', 'mi', 'm', 'ft', 'yd', 'leagues'];
 const CUSTOM = '__custom';
 const LAND_PERCENT_OPTIONS = Array.from({ length: 21 }, (_, index) => index * 5);
+const SMALL_ISLAND_PERCENT_OPTIONS = [2.5, ...LAND_PERCENT_OPTIONS.slice(1)];
 
 /** The land share of each shaped type, as (field, label) for the settings below. */
 const LAND_SHARES: Array<[keyof HexDimensions, string]> = [
@@ -238,7 +239,7 @@ export default function HexSizeInput({
               value={value[field] as number}
               onChange={(e) => onChange({ ...value, [field]: Number(e.target.value) })}
             >
-              {LAND_PERCENT_OPTIONS.map((p) => (
+              {(field === 'smallIslandPercent' ? SMALL_ISLAND_PERCENT_OPTIONS : LAND_PERCENT_OPTIONS).map((p) => (
                 <option key={p} value={p}>
                   {p}%
                 </option>

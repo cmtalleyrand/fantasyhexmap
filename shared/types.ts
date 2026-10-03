@@ -94,7 +94,7 @@ export const BASE_DESCRIPTIONS: Record<BaseGeo, string> = {
   Lake: 'Fresh water enclosed by land.',
   Glacier: 'Land under permanent ice: it has elevation and the rest of the land layers, and shows the ice over the relief.',
   'Sea Ice': 'Frozen sea: pack ice floating on salt water.',
-  Islands: 'Sea holding up to two large islands and five small ones.',
+  Islands: 'Sea holding up to two large islands and six small ones.',
   'Mainland and islands': 'Part mainland coast, part sea with islands off the shore.',
   Isthmus: 'A narrow neck of land joining two land masses, with water either side.',
   Strait: 'A narrow channel of water joining two seas or lakes, with land either side.',
@@ -105,13 +105,15 @@ export const LAND_LIKE: BaseGeo[] = ['Land', 'Coastal Land', 'Glacier', 'Islands
 
 /**
  * How the islands of an Islands or Mainland-and-islands hex are drawn: up to
- * two large islands and five small ones (at least one island in all). A
+ * two large islands and six small ones (at least one island in all). A
  * coastal group lies against the hex's side facing land (`side`, or the
  * nearest land when absent) - for a mainland hex, against the mainland.
  */
 export interface IslandSpec {
   large: number;
   small: number;
+  /** User-selected salt which changes the islands' positions and outlines. */
+  layoutSeed?: number;
   coastal?: { large?: boolean; small?: boolean };
   /** Edge 0-5 the coastal groups lie against; absent means the side facing land. */
   side?: number;
@@ -127,13 +129,14 @@ export function islandSpecFor(value: BaseGeo | null | undefined, stored: IslandS
   const fallback = value === 'Mainland and islands' ? DEFAULT_ISLAND_SPECS['Mainland and islands'] : DEFAULT_ISLAND_SPECS.Islands;
   if (!stored) return fallback;
   const large = Math.max(0, Math.min(2, Math.round(Number(stored.large) || 0)));
-  const small = Math.max(0, Math.min(5, Math.round(Number(stored.small) || 0)));
+  const small = Math.max(0, Math.min(6, Math.round(Number(stored.small) || 0)));
   if (large + small === 0) return fallback;
   const side = typeof stored.side === 'number' && stored.side >= 0 && stored.side < 6 ? Math.floor(stored.side) : undefined;
   return {
     large,
     small,
     coastal: { large: Boolean(stored.coastal?.large), small: Boolean(stored.coastal?.small) },
+    ...(Number.isFinite(stored.layoutSeed) ? { layoutSeed: Math.floor(stored.layoutSeed!) } : {}),
     ...(side !== undefined ? { side } : {}),
   };
 }
@@ -625,7 +628,7 @@ export const DEFAULT_HEX_DIMENSIONS: HexDimensions = {
   coastalLandPercent: 90,
   lakeLandPercent: 0,
   largeIslandPercent: 20,
-  smallIslandPercent: 10,
+  smallIslandPercent: 5,
   mainlandPercent: 30,
   isthmusPercent: 70,
   straitPercent: 40,

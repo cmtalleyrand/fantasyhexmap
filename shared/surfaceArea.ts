@@ -27,6 +27,7 @@ export function normaliseHexDimensions(value?: StoredHexDimensions): HexDimensio
       out.largeIslandPercent = Math.round(islandLandPercent / 10) * 5;
     }
   }
+  out.smallIslandPercent = Math.max(2.5, out.smallIslandPercent);
   return out;
 }
 
