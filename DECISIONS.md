@@ -833,3 +833,26 @@ First draw of a 50 x 50 map is slower (~0.7 s against ~0.15 s); later edits reus
 ## 43. Map furniture is searched for, and the audit checks it independently
 
 The frame grows the page by a margin instead of covering the map's edge, so the margin band is guaranteed empty and is where a piece goes when open sea has no room. The scene is wrapped in a translated group (`group.translate`) rather than rewritten. Pieces are placed on a coarse occupancy grid (non-sea hexes, name boxes, city markers, the legend panel, placed pieces); `audit.ts` re-tests the result rectangle against rectangle and against land as drawn (`landTestOf`, kept beside the scene so scenes stay plain data). Known gap, found by the audit: realm names are placed on hex ownership, so a realm whose land is a few small islands can have its name printed across them.
+
+## 44. A lake hex can hold land: the land share the other way round
+
+**Chosen.** A Lake hex takes a land share like Coastal Land does, in Settings (`lakeLandPercent`, default
+0%) and per hex in the sidebar (`MapState.hexShapes`, land only: a lake has no irregularity of its own,
+its shore takes the land beside it, decision 37). Where a coast hex is cut back from its water-facing
+edges until the land left is its share, a lake hex has its land-facing edges moved in, by one depth for
+all of them, until the land those strips take is the share. The depth is found with the same bisection as
+a coast hex (`landInsetDepth`, asked for the water left, one minus the share).
+
+**Drawing.** The lake's shore (`lakeBodyPath`) lies that far into the lake hex instead of its usual
+outward reach into the land. Where the land hex beside it is itself cut back (a Coastal Land hex under
+100% against the lake), the two meet: the shore lies at the difference of the two depths. The ground
+revealed is the ground the lake hex already had drawn under its body, so realm bands, rivers and the lake's
+depth bands follow the new shore as they follow any other.
+
+**Why 0% by default.** A lake hex is counted as all water in areas, as before, and a lake with no share
+set is drawn as it always was; nothing in an existing map changes. Only edges against whole land hexes
+move: an edge against a sea, another lake or a split hex (isthmus, strait, mainland) stays at the hex
+edge, so the share is exact only for a lake hex whose land edges are those. The shore is smoothed and
+roughened like any lake shore, so the drawn land is approximate.
+
+**In areas.** A lake's share counts as land in a polity's area when the hex is owned.

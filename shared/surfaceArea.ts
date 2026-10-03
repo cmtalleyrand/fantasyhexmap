@@ -33,7 +33,7 @@ export function normaliseHexDimensions(value?: StoredHexDimensions): HexDimensio
 /**
  * How much of a hex is land, from 0 to 1. A hex a person has given a land share
  * takes that. Otherwise it is its type's share (see `HexDimensions`): a coastal
- * hex, an isthmus, a strait or a glacier has one; an island hex is the sum of its
+ * hex, a lake, an isthmus, a strait or a glacier has one; an island hex is the sum of its
  * islands, each large island and each small one taking its own share; and a
  * mainland-and-islands hex adds the mainland's share to those.
  */
@@ -53,6 +53,8 @@ export function landFraction(
       return percent(dimensions.glacierPercent);
     case 'Coastal Land':
       return percent(dimensions.coastalLandPercent);
+    case 'Lake':
+      return percent(dimensions.lakeLandPercent);
     case 'Isthmus':
       return percent(dimensions.isthmusPercent);
     case 'Strait':

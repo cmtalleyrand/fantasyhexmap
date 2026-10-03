@@ -297,6 +297,33 @@ test('coastal land beside a lake is drawn at its land share, as beside the sea',
   assert.ok(half > full * 1.3, `the lake takes more of the coast hexes when they are half land (${half} against ${full})`);
 });
 
+test('a lake hex with a land share has land drawn in from its edges against land', () => {
+  const base: BaseGeo[] = Array.from({ length: 25 }, (_, i) => (i === 12 ? 'Lake' : 'Land'));
+  const lakeArea = (map: MapState): number => {
+    const body = scene(map).prims.find((p) => p.kind === 'path' && p.fill === smooth.palette.lake);
+    assert.ok(body && body.kind === 'path');
+    const pts = body.d.filter((c): c is ['M' | 'L', number, number] => c[0] === 'M' || c[0] === 'L');
+    let twice = 0;
+    pts.forEach((p, i) => {
+      const q = pts[(i + 1) % pts.length]!;
+      twice += p[1] * q[2] - q[1] * p[2];
+    });
+    return Math.abs(twice) / 2;
+  };
+  const map = mapWith(base, 5, 5);
+  const none = lakeArea(map);
+  const some = lakeArea({ ...map, hexDimensions: { ...dims, lakeLandPercent: 40 } });
+  const most = lakeArea({ ...map, hexDimensions: { ...dims, lakeLandPercent: 80 } });
+  assert.ok(some < none * 0.8, `the lake shrinks as its hex takes land (${some} against ${none})`);
+  assert.ok(most < some, `and more as the share grows (${most} against ${some})`);
+  // A share set on the hex overrides the map-wide one, and counts in surface areas.
+  const set = reducer(map, { type: 'setHexShape', indices: [12], change: { land: 40, irregular: 'Fractured' } });
+  assert.deepEqual(set.hexShapes, { '12': { type: 'Lake', land: 40 } }, 'a lake keeps no irregularity of its own');
+  assert.ok(Math.abs(lakeArea(set) - some) < 1e-6);
+  assert.equal(landFraction('Lake', undefined, normaliseHexDimensions(undefined), set.hexShapes!['12']), 0.4);
+  assert.equal(landFraction('Lake', undefined, normaliseHexDimensions(undefined)), 0, 'a lake is all water unless given land');
+});
+
 /* ------------------------------------------------------------ drawn land share */
 
 test('a coast hex is inset until the land left is its share of the hex', () => {

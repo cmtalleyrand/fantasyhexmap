@@ -155,9 +155,14 @@ export function isShapedType(value: BaseGeo | null | undefined): boolean {
   return value !== null && value !== undefined && SHAPED_TYPES.includes(value);
 }
 
-/** Types with a land share: every shaped type but Sea Ice, which is all water. */
+/**
+ * Types with a land share: every shaped type but Sea Ice, which is all water, and Lake, which
+ * is the other way round from a coast: water with some land (shore, mudflats) drawn in from
+ * the edges it shares with land. A lake has no irregularity of its own (its shore takes the
+ * land beside it, see `lakeShoreIrregularity`), so it is not a shaped type.
+ */
 export function hasLandShare(value: BaseGeo | null | undefined): boolean {
-  return isShapedType(value) && value !== 'Sea Ice';
+  return value === 'Lake' || (isShapedType(value) && value !== 'Sea Ice');
 }
 
 /**
@@ -202,7 +207,7 @@ export function hexShapeFor(
 ): { land?: number; irregular: Irregularity } {
   const fallback = mapDefault && IRREGULARITY_VALUES.includes(mapDefault) && isShapedType(value) ? mapDefault : undefined;
   const irregular = fallback ?? (value ? DEFAULT_IRREGULARITY[value] : 'Smooth');
-  if (!value || !stored || stored.type !== value || !isShapedType(value)) return { irregular };
+  if (!value || !stored || stored.type !== value || !(isShapedType(value) || value === 'Lake')) return { irregular };
   const land = hasLandShare(value) && typeof stored.land === 'number' && Number.isFinite(stored.land)
     ? Math.max(0, Math.min(100, stored.land))
     : undefined;
@@ -595,6 +600,8 @@ export interface HexDimensions {
   unit: string;
   /** Share of a hex that is land, by type, unless a hex sets its own (`MapState.hexShapes`). */
   coastalLandPercent: number;
+  /** Land in a lake hex, drawn in from the edges it shares with land: the reverse of coastal land. */
+  lakeLandPercent: number;
   /** Share of an island hex taken by each large island, and by each small one. */
   largeIslandPercent: number;
   smallIslandPercent: number;
@@ -616,6 +623,7 @@ export const DEFAULT_HEX_DIMENSIONS: HexDimensions = {
   height: 11.5470053838,
   unit: 'km',
   coastalLandPercent: 90,
+  lakeLandPercent: 0,
   largeIslandPercent: 20,
   smallIslandPercent: 10,
   mainlandPercent: 30,

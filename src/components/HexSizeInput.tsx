@@ -21,6 +21,7 @@ const LAND_PERCENT_OPTIONS = Array.from({ length: 21 }, (_, index) => index * 5)
 /** The land share of each shaped type, as (field, label) for the settings below. */
 const LAND_SHARES: Array<[keyof HexDimensions, string]> = [
   ['coastalLandPercent', 'Coastal land'],
+  ['lakeLandPercent', 'Lake (land in the hex)'],
   ['largeIslandPercent', 'Each large island'],
   ['smallIslandPercent', 'Each small island'],
   ['mainlandPercent', 'Mainland (with islands)'],
@@ -246,7 +247,7 @@ export default function HexSizeInput({
           </div>
         ))}
       </div>
-      <p className="hint">Each such hex is drawn with this share as land (a coastal hex's shore is set in from its edge; an island is drawn at its share of the hex), and polity areas in the legend count it. An island hex adds up its islands. A single hex can override its own share in the sidebar.</p>
+      <p className="hint">Each such hex is drawn with this share as land (a coastal hex's shore is set in from its edge; an island is drawn at its share of the hex; a lake hex is the other way round, water with this share of land drawn in from its edges against land, 0% leaving the lake as it is), and polity areas in the legend count it. An island hex adds up its islands. A single hex can override its own share in the sidebar.</p>
 
       <h3>Displayed measurement rounding</h3>
       <div className="row">

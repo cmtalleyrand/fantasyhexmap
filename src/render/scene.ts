@@ -88,6 +88,7 @@ import {
   hexesPath,
   sideOf,
   lakeBodyPath,
+  landInsetDepth,
   lakeComponents,
   type CoastGeometry,
   type CoastEdge,
@@ -107,7 +108,7 @@ import { BUNDLED_FACES, LETTERINGS, type FaceRole } from './lettering.js';
 import { signed, unit } from './seed.js';
 import { ELEVATION_RANK, floeFringe, glacierEdges, glacierFlow, glacierMarginPrims, glacierShading, glacierShelf, iceSeam, nearHexes, pathPolylines, seaIcePrims } from './ice.js';
 import { coveredArea, driftOf, nearestOn, shapeCoast, type ShapeMemo, type ShapeTarget } from './footprint.js';
-import { drawnLandFraction, normaliseHexDimensions } from '../../shared/surfaceArea.js';
+import { drawnLandFraction, landFraction, normaliseHexDimensions } from '../../shared/surfaceArea.js';
 import { CLASSIC_STYLE, type ElevationStyle, type MapStyle } from './styles.js';
 import { extendToRim, rimPieces } from './rim.js';
 import { grainTile } from './texture.js';
@@ -285,6 +286,8 @@ interface TracedCoast {
   surface: SurfaceMap;
   /** How far in from its own edges each partly-land hex (Coastal Land, Glacier) has its water-facing edges drawn. */
   insets: Map<number, number>;
+  /** How far a lake hex's land-facing shore is drawn in from its edge, into the lake, for the land share it has. */
+  lakeInsets: Map<number, number>;
   /** Whether a point is land as drawn, for placing things that must stand on it. */
   onLand: (p: Point) => boolean;
 }
@@ -331,7 +334,7 @@ function cachedCoast(
   dimensions: HexDimensions,
   seed: string,
 ): TracedCoast {
-  const key = `${cols}x${rows}@${size}/${smooth}/${seed}/${defaultIrregularity ?? ''}/${shapesSignature(shapes)}/${dimensions.coastalLandPercent},${dimensions.glacierPercent},${dimensions.isthmusPercent},${dimensions.straitPercent},${dimensions.mainlandPercent}`;
+  const key = `${cols}x${rows}@${size}/${smooth}/${seed}/${defaultIrregularity ?? ''}/${shapesSignature(shapes)}/${dimensions.coastalLandPercent},${dimensions.lakeLandPercent},${dimensions.glacierPercent},${dimensions.isthmusPercent},${dimensions.straitPercent},${dimensions.mainlandPercent}`;
   const hit = coastCache.get(base);
   if (hit && hit.key === key) return hit;
   const lakeIslands = lakeIslandsOf(base, cols, rows);
@@ -396,7 +399,18 @@ function cachedCoast(
     aimed = next;
     ({ shaped, geometry } = trace(aimed));
   }
-  const entry = { key, geometry, lakes, lakeIslands, surface, insets: shaped?.insets ?? new Map<number, number>(), onLand: landTest(surface, shaped?.land ?? new Map(), size) };
+  // A lake hex with a land share has land drawn in from the edges it shares with land, as deep as the share needs.
+  const lakeInsets = new Map<number, number>();
+  for (let i = 0; i < base.length; i++) {
+    if (base[i] !== 'Lake' || surface.whole[i] !== 'lake') continue;
+    const share = landFraction('Lake', undefined, dimensions, shapes?.[String(i)]);
+    if (share <= 0) continue;
+    const against = surfaceEdges(surface, size, (side) => side === 'lake', new Set([i])).filter((e) => e.across !== undefined && surface.whole[e.across] === 'land');
+    if (against.length === 0) continue;
+    const depth = landInsetDepth(hexCorners(i % cols, Math.floor(i / cols), size), against, 1 - share);
+    if (depth > 0) lakeInsets.set(i, depth);
+  }
+  const entry = { key, geometry, lakes, lakeIslands, surface, insets: shaped?.insets ?? new Map<number, number>(), lakeInsets, onLand: landTest(surface, shaped?.land ?? new Map(), size) };
   coastCache.set(base, entry);
   return entry;
 }
@@ -1456,7 +1470,26 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
   const lakeShoreInset = (p: Point): number | null => {
     const { col, row } = pixelToOffset(p.x, p.y, size);
     if (!inBounds(cols, rows, col, row)) return null;
-    return traced?.insets.get(hexIndex(cols, col, row)) ?? null;
+    const h = hexIndex(cols, col, row);
+    const cut = traced?.insets.get(h) ?? null;
+    // Land drawn into the lake hex this point's shore belongs to (the nearest lake hex beside it).
+    let lake = -1;
+    let nearest = Infinity;
+    for (let e = 0; e < 6; e++) {
+      const n = neighbourOf(col, row, e);
+      if (!inBounds(cols, rows, n.col, n.row)) continue;
+      const j = hexIndex(cols, n.col, n.row);
+      if (!isLakeHex(j)) continue;
+      const c = hexCenter(n.col, n.row, size);
+      const dist = (c.x - p.x) ** 2 + (c.y - p.y) ** 2;
+      if (dist < nearest) {
+        nearest = dist;
+        lake = j;
+      }
+    }
+    const grown = lake >= 0 ? traced?.lakeInsets.get(lake) ?? null : null;
+    if (grown === null) return cut;
+    return (cut ?? 0) - grown;
   };
   const lakeOutlines: PathCmd[] = [];
   /** Each lake's drawn shore (body and the islands in it), by lake. */
