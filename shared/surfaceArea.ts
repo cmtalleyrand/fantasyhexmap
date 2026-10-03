@@ -101,7 +101,8 @@ export function drawnLandFraction(
 
 /**
  * Returns land area by polity id. A pointy-top hex occupies 3/4 of its
- * flat-to-flat width times its corner-to-corner height.
+ * flat-to-flat width times its corner-to-corner height. A parent's area
+ * includes both land assigned directly to it and the areas of all its parts.
  */
 export function politySurfaceAreas(
   base: BaseData,
@@ -128,6 +129,25 @@ export function politySurfaceAreas(
     for (const [id, part] of holdersOf(data, index)) {
       if (areas.has(id)) areas.set(id, areas.get(id)! + hexArea * fraction * part);
     }
+  }
+
+  // Accumulate leaves into their parents once each. Starting at leaves makes
+  // every child's total complete before it is added to its parent.
+  const byId = new Map(data.polities.map((polity) => [polity.id, polity]));
+  const childrenLeft = new Map(data.polities.map((polity) => [polity.id, 0]));
+  for (const polity of data.polities) {
+    if (polity.parentId && byId.has(polity.parentId)) {
+      childrenLeft.set(polity.parentId, childrenLeft.get(polity.parentId)! + 1);
+    }
+  }
+  const ready = data.polities.filter((polity) => childrenLeft.get(polity.id) === 0);
+  for (let index = 0; index < ready.length; index++) {
+    const polity = ready[index]!;
+    if (!polity.parentId || !byId.has(polity.parentId)) continue;
+    areas.set(polity.parentId, areas.get(polity.parentId)! + areas.get(polity.id)!);
+    const remaining = childrenLeft.get(polity.parentId)! - 1;
+    childrenLeft.set(polity.parentId, remaining);
+    if (remaining === 0) ready.push(byId.get(polity.parentId)!);
   }
   return areas;
 }

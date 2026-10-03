@@ -260,14 +260,11 @@ export function legendSections(
         const owned = usedValues(data?.owner);
         const all = data?.polities ?? [];
         const colours = polityDisplayColours(all, style.knobs.subPolities);
-        // A realm's area is the sum of its own hexes and all its parts'.
-        const treeArea = (id: string) =>
-          [...descendantsOf(all, id)].reduce((sum, d) => sum + (areas?.get(d) ?? 0), 0);
         const inUse = (id: string) => [...descendantsOf(all, id)].some((d) => owned.has(d));
         const visit = (p: (typeof all)[number], depth: number) => {
           if (options.onlyUsed && !inUse(p.id)) return;
           const area = areas
-            ? ` - ${formatArea(treeArea(p.id), dimensions.unit, dimensions.areaRounding)}`
+            ? ` - ${formatArea(areas.get(p.id) ?? 0, dimensions.unit, dimensions.areaRounding)}`
             : '';
           entries.push({ swatch: { kind: 'fill', colour: colours.get(p.id) ?? p.colour }, label: `${p.name}${area}`, indent: depth });
           for (const child of all.filter((q) => q.parentId === p.id)) visit(child, depth + 1);

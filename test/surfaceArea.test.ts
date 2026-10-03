@@ -37,6 +37,23 @@ test('polity surface area remains linear across multiple owners', () => {
   assert.deepEqual(Object.fromEntries(areas), { a: 6, b: 9 });
 });
 
+test('parent polity surface areas include every descendant and directly held land', () => {
+  const areas = politySurfaceAreas(
+    ['Land', 'Land', 'Land', 'Land'],
+    {
+      polities: [
+        { id: 'realm', name: 'Realm', colour: '#111111' },
+        { id: 'province', name: 'Province', colour: '#222222', parentId: 'realm' },
+        { id: 'county', name: 'County', colour: '#333333', parentId: 'province' },
+      ],
+      owner: ['realm', 'province', 'county', 'county'],
+    },
+    { ...DEFAULT_HEX_DIMENSIONS, width: 4, height: 2 },
+  );
+
+  assert.deepEqual(Object.fromEntries(areas), { realm: 24, province: 18, county: 12 });
+});
+
 test('area settings can be changed after a map has been created', () => {
   const map = createMapState('Editable dimensions', 3, 3);
   const updated = reducer(map, {
