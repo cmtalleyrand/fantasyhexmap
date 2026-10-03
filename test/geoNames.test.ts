@@ -74,7 +74,7 @@ test('names and island specs follow their hexes when the map grows', () => {
     map = reducer(map, { type: 'nameGeo', id: 's', kind: 'sea', name: 'Deep', indices: [at(2, 2), at(1, 5)] });
     map = reducer(map, { type: 'nameGeo', id: 'l', kind: 'lake', name: 'Mere', indices: [at(5, 3)] });
     map = reducer(map, { type: 'setIslandSpec', indices: [at(1, 5)], change: { large: 2 } });
-    const expanded = reducer(map, { type: 'expandMap', edge });
+    const expanded = reducer(map, { type: 'growMap', amounts: { [edge]: edge === 'top' ? 2 : 1 } });
     const dc = edge === 'left' ? 1 : 0;
     const dr = edge === 'top' ? 2 : 0;
     const to = (col: number, row: number) => (row + dr) * expanded.cols + col + dc;
@@ -89,7 +89,7 @@ test('names and island specs follow their hexes when the map grows', () => {
 test('expanding also moves names kept in the older waterNames list', () => {
   let map = world();
   map = { ...map, waterNames: [{ id: 'w', name: 'Old', hexes: [at(2, 2)] }] };
-  map = reducer(map, { type: 'expandMap', edge: 'left' });
+  map = reducer(map, { type: 'growMap', amounts: { left: 1 } });
   assert.deepEqual(map.geoNames?.[0]?.hexes, [2 * map.cols + 3]);
   assert.equal(map.waterNames, undefined);
 });
