@@ -928,3 +928,12 @@ and bold stretches rather than one repeating wobble.
 
 **Ink.** The coastline's stroke width is `size * coastWidth * lineWeight`; the half of it outside the land is
 counted in land shares (decision 45) with that width.
+
+**Lake shores count too (addendum to 46).** A hex whose land share a lake shore sets (a Coastal Land hex with
+less than 100% on a lake, or a lake hex given land) is now measured the way a sea-coast hex is. The lake body
+is drawn, its area in the hex and the length of shore in it are measured, the water is taken as that area less
+the outer half of the outline's ink, and the shore depth is moved until the hex shows its share (up to six
+passes, `lakeAim`, `landFix` and `lakeFix` in `scene.ts`). Before this the lake shore only started from the
+analytic depth and was then smoothed and roughened, which left hexes 14 to 70 points off their share. Not covered:
+a hex with both sea and lake edges (the sea correction decides it), and a hex at 100% (or a plain Land hex)
+beside a lake, where the lake still reaches a little way into it as part of its drawn shape.

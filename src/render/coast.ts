@@ -1102,7 +1102,7 @@ export function lakeBodyPath(
         out.forEach((q, i) => {
           const f = (i / pts.length) * Math.PI * 2;
           const shape = bands.reduce((sum, b) => sum + b.weight * Math.cos(b.cycles * f + b.phase + b.swing * Math.sin(b.drift * f + b.driftPhase)), 0) / norm;
-          const strength = Math.min(1.7, Math.max(0.2, 0.9 + envelope.reduce((sum, e) => sum + e.weight * Math.cos(e.harmonic * f + e.phase), 0)));
+          const strength = Math.min(1.2, Math.max(0.2, 0.8 + envelope.reduce((sum, e) => sum + e.weight * Math.cos(e.harmonic * f + e.phase), 0)));
           // Where land is narrow the lake is held back from reaching further in, but its shore may still wander: a
           // strip a hex wide has room for it, and without this a hex between two lakes took no irregularity at all.
           const r = shape * strength * smoothed[i]! * 2 * Math.max(eased[i]!, 0.55) * size;
