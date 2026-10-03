@@ -733,11 +733,11 @@ function citiesPrompt(ctx: PromptContext): BuiltPrompt {
     section('WHERE CITIES GO', [
       ...(ctx.allowUnderwater
         ? [
-            '- On Land, Coastal Land or island hexes, or - since this world has submerged settlements - on Sea or Lake hexes',
+            '- On Land, Coastal Land, Strait or island hexes, or - since this world has submerged settlements - on Sea or Lake hexes',
             '  where the brief or the setting supports one (a drowned city, a merfolk reef-city, a pile-built lake town).',
             '  Never on Sea Ice. Keep underwater cities rare and say why each exists in its "reason" field.',
           ]
-        : ['- On Land, Coastal Land or island hexes only. Never on Sea, Sea Ice or Lake.']),
+        : ['- On Land, Coastal Land, Strait or island hexes only. Never on Sea, Sea Ice or Lake. A Strait city is a channel port straddling both banks.']),
       '- Cities want water and traffic: river mouths, the lowest bridging point of a river, confluences, sheltered',
       '  bays, the neck of a peninsula, the pass through a range, the edge of a fertile plain.',
       '- Cities want food: cultivated or fertile hexes nearby. A great city in the middle of a desert needs a reason',
@@ -822,7 +822,7 @@ function politiesPrompt(ctx: PromptContext): BuiltPrompt {
             'hexes - territorial waters, a reef kingdom, a drowned empire - but only where the brief or the setting supports it;',
             `open water is otherwise "${POLITY_UNCLAIMED}".`,
           ]
-        : [`Sea, Sea Ice and Lake hexes are always "${POLITY_UNCLAIMED}".`]),
+        : [`Sea, Sea Ice and Lake hexes are always "${POLITY_UNCLAIMED}". Strait hexes may be owned, like the banks they join.`]),
     ]),
     '',
     section('DRAWING BORDERS', [
@@ -1057,7 +1057,7 @@ function politiesPaintPrompt(ctx: PromptContext, roster: Roster | null): BuiltPr
             'hexes - territorial waters, a reef kingdom, a drowned empire - but only where the brief or the setting supports it;',
             `open water is otherwise "${POLITY_UNCLAIMED}".`,
           ]
-        : [`Sea, Sea Ice and Lake hexes are always "${POLITY_UNCLAIMED}".`]),
+        : [`Sea, Sea Ice and Lake hexes are always "${POLITY_UNCLAIMED}". Strait hexes may be owned, like the banks they join.`]),
     ]),
     '',
     section('DRAWING BORDERS', [
