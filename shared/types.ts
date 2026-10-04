@@ -674,6 +674,15 @@ export interface MapState {
   layers: LayersState;
   /** Append-only record of every change, oldest first. */
   journal: JournalEntry[];
+  /** Whole-map snapshots for undo. One entry is one reducer action, even when it changes several layers. */
+  history?: MapHistory;
+}
+
+export type MapHistorySnapshot = Omit<MapState, 'history'>;
+
+export interface MapHistory {
+  past: MapHistorySnapshot[];
+  future: MapHistorySnapshot[];
 }
 
 export interface HexDimensions {

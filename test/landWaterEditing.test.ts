@@ -38,6 +38,21 @@ test('land turned to sea or lake clears the land-only layers at once', () => {
   }
 });
 
+test('one global undo restores every layer changed by one geography edit', () => {
+  const original = strip();
+  const changed = reducer(original, { type: 'setHexValues', layer: 'base', indices: [2], value: 'Sea' });
+
+  assert.equal(changed.layers.base.data?.[2], 'Sea');
+  assert.equal(changed.layers.climate.data?.[2], null);
+
+  const undone = reducer(changed, { type: 'undo' });
+  assert.equal(undone.layers.base.data?.[2], original.layers.base.data?.[2]);
+  assert.equal(undone.layers.climate.data?.[2], original.layers.climate.data?.[2]);
+  assert.equal(undone.layers.elevation.data?.[2], original.layers.elevation.data?.[2]);
+  assert.equal(undone.layers.vegetation.data?.[2], original.layers.vegetation.data?.[2]);
+  assert.equal(undone.layers.population.data?.[2], original.layers.population.data?.[2]);
+});
+
 test('land-only layers clear for every land form, and each clear is undoable', () => {
   for (const land of ['Land', 'Coastal Land', 'Islands', 'Mainland and islands', 'Isthmus'] as const) {
     const map = strip();
