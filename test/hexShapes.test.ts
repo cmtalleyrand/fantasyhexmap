@@ -118,20 +118,31 @@ test('shape settings are applied to shaped hexes only, and can be cleared', () =
   assert.equal(reducer(map, { type: 'setHexShape', indices: [0, 4], change: { land: 10 } }), map);
 });
 
-test('coastal and mainland hexes store a bounded directional concentration', () => {
-  const map = mapWith(['Coastal Land', 'Mainland and islands', 'Islands', 'Strait']);
+test('coastal, mainland and lake hexes store a bounded directional concentration', () => {
+  const map = mapWith(['Coastal Land', 'Mainland and islands', 'Lake', 'Islands', 'Strait']);
   const changed = reducer(map, {
     type: 'setHexShape',
-    indices: [0, 1, 2, 3],
+    indices: [0, 1, 2, 3, 4],
     change: { concentrationSide: 2, concentration: 140 },
   });
   assert.deepEqual(changed.hexShapes, {
     '0': { type: 'Coastal Land', concentrationSide: 2, concentration: 100 },
     '1': { type: 'Mainland and islands', concentrationSide: 2, concentration: 100 },
+    '2': { type: 'Lake', concentrationSide: 2, concentration: 100 },
   });
   assert.equal(hexShapeFor('Coastal Land', changed.hexShapes?.['0']).concentration, 100);
   const cleared = reducer(changed, { type: 'setHexShape', indices: [0], change: { concentrationSide: null, concentration: null } });
   assert.equal(cleared.hexShapes?.['0'], undefined);
+});
+
+test('land concentration changes a lake shore without changing its requested area', () => {
+  const base: BaseGeo[] = ['Land', 'Land', 'Land', 'Land', 'Lake', 'Land', 'Land', 'Land', 'Land'];
+  const map = mapWith(base, 3, 3);
+  const plain = scene({ ...map, hexShapes: { '4': { type: 'Lake', land: 40, irregular: 'Smooth' } } });
+  const biasedMap: MapState = { ...map, hexShapes: { '4': { type: 'Lake', land: 40, irregular: 'Smooth', concentrationSide: 0, concentration: 100 } } };
+  const biased = scene(biasedMap);
+  assert.notDeepEqual(biased.prims, plain.prims);
+  assert.equal(landFraction('Lake', undefined, dims, biasedMap.hexShapes?.['4']), 0.4);
 });
 
 test('land concentration changes coast geometry without changing its requested area', () => {

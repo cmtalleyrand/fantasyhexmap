@@ -201,6 +201,11 @@ export function hasLandShare(value: BaseGeo | null | undefined): boolean {
   return value === 'Lake' || (isShapedType(value) && value !== 'Sea Ice');
 }
 
+/** Types whose land can be biased towards one edge without changing its total share. */
+export function hasLandConcentration(value: BaseGeo | null | undefined): boolean {
+  return value === 'Coastal Land' || value === 'Mainland and islands' || value === 'Lake';
+}
+
 /**
  * How narrow a neck of land (an Isthmus) or a channel of water (a Strait) is at its
  * thinnest, as a share of the hex's flat-to-flat width. The thinnest isthmus is 5% of
@@ -238,7 +243,7 @@ export const DEFAULT_IRREGULARITY: Record<BaseGeo, Irregularity> = {
 /**
  * What a person has set on one shaped hex. `land` is the percentage of the hex
  * that is land, replacing the share its type would give it; `irregular` is how
- * ragged its outline is. A coast or mainland may also concentrate its land towards
+ * ragged its outline is. A coast, mainland or lake may also concentrate its land towards
  * one side. `type` is the base type the settings were made for: they are ignored
  * once the hex becomes something else.
  */
@@ -248,7 +253,7 @@ export interface HexShape {
   /** An Isthmus or Strait: how narrow it is at its thinnest, replacing the map's default. */
   width?: ChannelWidth;
   irregular?: Irregularity;
-  /** Edge 0-5 towards which a coast or mainland is biased. */
+  /** Edge 0-5 towards which a coast, mainland or lake's land is biased. */
   concentrationSide?: number;
   /** Strength of that bias, from 0 (uniform) to 100 (strongly concentrated). */
   concentration?: number;
@@ -275,10 +280,10 @@ export function hexShapeFor(
     ...(land !== undefined ? { land } : {}),
     ...(width !== undefined ? { width } : {}),
     irregular: IRREGULARITY_VALUES.includes(stored.irregular as Irregularity) ? (stored.irregular as Irregularity) : irregular,
-    ...((value === 'Coastal Land' || value === 'Mainland and islands') && Number.isInteger(stored.concentrationSide) && stored.concentrationSide! >= 0 && stored.concentrationSide! < 6
+    ...(hasLandConcentration(value) && Number.isInteger(stored.concentrationSide) && stored.concentrationSide! >= 0 && stored.concentrationSide! < 6
       ? { concentrationSide: stored.concentrationSide }
       : {}),
-    ...((value === 'Coastal Land' || value === 'Mainland and islands') && typeof stored.concentration === 'number' && Number.isFinite(stored.concentration)
+    ...(hasLandConcentration(value) && typeof stored.concentration === 'number' && Number.isFinite(stored.concentration)
       ? { concentration: Math.max(0, Math.min(100, stored.concentration)) }
       : {}),
   };
