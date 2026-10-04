@@ -152,6 +152,42 @@ export function exportComposite(
   return emit(map, visible, opts, 'composite');
 }
 
+/** A plain-text representation of the same sections used by the drawn legend. */
+export function serializeLegendText(
+  map: MapState,
+  visible: VisibleLayers,
+  elevationStyle: ElevationStyle,
+  options: LegendOptions,
+  style: MapStyle = CLASSIC_STYLE,
+): string {
+  const sections = legendSections(map, visible, elevationStyle, options, style);
+  const lines: string[] = [];
+  if (options.title) lines.push(map.name, '');
+  for (const section of sections) {
+    lines.push(section.title);
+    for (const entry of section.entries) {
+      lines.push(`${'  '.repeat(entry.indent ?? 0)}- ${entry.label}`);
+    }
+    lines.push('');
+  }
+  return `${lines.join('\n').trimEnd()}\n`;
+}
+
+export function exportLegendText(
+  map: MapState,
+  visible: VisibleLayers,
+  elevationStyle: ElevationStyle,
+  options: LegendOptions,
+  style: MapStyle = CLASSIC_STYLE,
+): void {
+  download(
+    new Blob([serializeLegendText(map, visible, elevationStyle, options, style)], {
+      type: 'text/plain;charset=utf-8',
+    }),
+    `${slug(map.name)}-legend.txt`,
+  );
+}
+
 /**
  * The decision record as a document. A generated world is only defensible if the
  * reasoning behind it survives outside the app, so this is a first-class export
