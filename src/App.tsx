@@ -206,10 +206,10 @@ export default function App() {
       const key = e.key.toLowerCase();
       if (mod && key === 'z') {
         e.preventDefault();
-        dispatch({ type: e.shiftKey ? 'redo' : 'undo', layer: activeLayer });
+        dispatch({ type: e.shiftKey ? 'redo' : 'undo' });
       } else if (mod && key === 'y') {
         e.preventDefault();
-        dispatch({ type: 'redo', layer: activeLayer });
+        dispatch({ type: 'redo' });
       } else if (mod && key === 'a' && manualMode) {
         e.preventDefault();
         setSelection(new Set(Array.from({ length: current.cols * current.rows }, (_, i) => i)));
@@ -238,7 +238,7 @@ export default function App() {
 
   /** Undo the latest change on each of these layers, newest first. */
   const undoLayers = useCallback((layers: LayerId[]) => {
-    for (const id of [...layers].reverse()) dispatch({ type: 'undo', layer: id });
+    for (const _id of [...layers].reverse()) dispatch({ type: 'undo' });
     setToast(null);
   }, []);
 
@@ -996,6 +996,14 @@ export default function App() {
         </span>
         )}
         <span className="spacer" />
+        <button
+          className="tiny"
+          disabled={(map.history?.past.length ?? 0) === 0}
+          onClick={() => dispatch({ type: 'undo' })}
+          title="Undo the last change everywhere it affected the map (Ctrl+Z)"
+        >
+          ↶ undo ({map.history?.past.length ?? 0})
+        </button>
         {aiMode && lockedKey && !apiKey && (
           <button className="tiny" onClick={() => setShowUnlock(true)}>
             unlock key
