@@ -99,6 +99,14 @@ export default function GeoNamesEditor(props: {
           const removable = selected.filter((i) => inName.has(i));
           return (
             <div key={n.id} className="entry" style={{ flexWrap: 'wrap' }}>
+              <label className="check" title="Choose whether this name appears on the rendered map">
+                <input
+                  type="checkbox"
+                  checked={!n.hidden}
+                  onChange={(e) => dispatch({ type: 'setGeoNameHidden', id: n.id, hidden: !e.target.checked })}
+                />
+                show
+              </label>
               <CommitInput
                 className="grow"
                 aria-label={`${label.singular} name`}

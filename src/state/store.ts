@@ -125,6 +125,7 @@ export type Action =
   /** Take hexes out of a name; a name left with none is removed. */
   | { type: 'unnameGeoHexes'; id: string; indices: number[] }
   | { type: 'renameGeo'; id: string; name: string }
+  | { type: 'setGeoNameHidden'; id: string; hidden: boolean }
   | { type: 'removeGeo'; id: string }
   /**
    * Change how the islands of island hexes are drawn: their counts, which
@@ -1155,6 +1156,7 @@ export function reducer(map: MapState, action: Action): MapState {
         id: action.id,
         name: existing?.name ?? name,
         kind: action.kind,
+        ...(existing?.hidden ? { hidden: true } : {}),
         hexes: [...new Set([...(existing?.hexes ?? []), ...picked])].sort((a, b) => a - b),
       };
       const what = GEO_KIND_LABEL[action.kind].singular.toLowerCase();
@@ -1205,6 +1207,20 @@ export function reducer(map: MapState, action: Action): MapState {
       return journal(
         { ...withMigratedGeoNames(map), geoNames: names.filter((n) => n.id !== action.id), updatedAt: Date.now() },
         manualEntry('base', `Removed the name "${old.name}".`),
+      );
+    }
+
+    case 'setGeoNameHidden': {
+      const names = geoNamesOf(map);
+      const old = names.find((n) => n.id === action.id);
+      if (!old || Boolean(old.hidden) === action.hidden) return map;
+      return journal(
+        {
+          ...withMigratedGeoNames(map),
+          geoNames: names.map((n) => (n.id === action.id ? { ...n, hidden: action.hidden } : n)),
+          updatedAt: Date.now(),
+        },
+        manualEntry('base', `${action.hidden ? 'Hid' : 'Showed'} the name "${old.name}" on the map.`),
       );
     }
 

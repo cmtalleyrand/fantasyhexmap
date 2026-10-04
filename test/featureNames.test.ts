@@ -31,7 +31,7 @@ function mapWithTerrain(): MapState {
 }
 
 const visible = { ...defaultVisibility(), elevation: true, rivers: true };
-const texts = (map: MapState, opts: { riverNames?: boolean; rangeNames?: boolean }) =>
+const texts = (map: MapState, opts: { riverNames?: boolean; rangeNames?: boolean; seaNames?: boolean; landNames?: boolean }) =>
   buildScene(map, { size: 32, visible, labels: false, ...opts }).prims.flatMap((p) =>
     p.kind === 'text' ? [p.text] : [],
   );
@@ -73,4 +73,19 @@ test('rename and remove', () => {
   assert.equal(map.mountainRanges?.[0]?.name, 'Uno');
   map = reducer(map, { type: 'removeMountainRange', id: 'm1' });
   assert.deepEqual(map.mountainRanges, []);
+});
+
+test('individual geographical names can be excluded from the rendered map', () => {
+  let map = mapWithTerrain();
+  map = reducer(map, { type: 'nameGeo', id: 'land-1', kind: 'land', name: 'Green Reach', indices: [20, 21, 22] });
+  map = reducer(map, { type: 'nameGeo', id: 'land-2', kind: 'land', name: 'Red Reach', indices: [30, 31, 32] });
+  assert.deepEqual(texts(map, { landNames: true }).sort(), ['GREEN REACH', 'RED REACH']);
+
+  map = reducer(map, { type: 'setGeoNameHidden', id: 'land-1', hidden: true });
+  assert.equal(map.geoNames?.find((name) => name.id === 'land-1')?.hidden, true);
+  assert.deepEqual(texts(map, { landNames: true }), ['RED REACH']);
+
+  map = reducer(map, { type: 'setGeoNameHidden', id: 'land-1', hidden: false });
+  assert.equal(map.geoNames?.find((name) => name.id === 'land-1')?.hidden, false);
+  assert.deepEqual(texts(map, { landNames: true }).sort(), ['GREEN REACH', 'RED REACH']);
 });

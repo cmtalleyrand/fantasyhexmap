@@ -2635,7 +2635,7 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
   /** The named areas of these kinds, cut down to the hexes that are still eligible. */
   const liveNames = (kinds: GeoNameKind[]) =>
     geoNames
-      .filter((n) => kinds.includes(n.kind))
+      .filter((n) => !n.hidden && kinds.includes(n.kind))
       .map((n) => ({ name: n.name, hexes: liveHexes(n, geoEligibility(n.kind, base!, cols, rows)) }))
       .filter((n) => n.hexes.length > 0);
   if (opts.seaNames && base) {

@@ -414,6 +414,8 @@ export interface GeoName {
   id: string;
   name: string;
   kind: GeoNameKind;
+  /** Do not draw this particular name, independently of the global name display settings. */
+  hidden?: boolean;
   /** Flat hex indices (`row * cols + col`). */
   hexes: number[];
 }
