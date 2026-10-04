@@ -97,8 +97,8 @@ import {
   raggedEdge,
 } from './coast.js';
 import { polygonPath, type CitySymbol, type PathCmd, type Prim } from './prims.js';
-import { capitalCrown, cityMarker, iconReach, markerExtent, riverBisects, symbolMarker } from './cityMarkers.js';
-import { pressIcon } from './riverCity.js';
+import { capitalCrown, cityMarker, iconClearance, markerExtent, symbolMarker } from './cityMarkers.js';
+import { RIVER_STANCE, riverCityScenery } from './riverCity.js';
 import { landBySide, riverCourses, type RiverCourse } from './rivers.js';
 import { citySite, resolvedSite } from './sites.js';
 import { escarpment, hillshade, reliefSymbols, vegetationSymbols, type Placed } from './symbols.js';
@@ -2263,7 +2263,7 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
             radius: markerRadius(city.population),
             // A city on its river (not a port at the shore) is set into the bank and shapes the course.
             icon: resolvedSite(city).kind === 'river'
-              ? { reach: iconReach(knobs.cityMarkers, symbol, markerRadius(city.population)), straddle: riverBisects(symbol) }
+              ? { reach: iconClearance(knobs.cityMarkers, symbol, markerRadius(city.population)), ...RIVER_STANCE[knobs.cityRiver] }
               : undefined,
           };
         }), knobs.riverWander)
@@ -2441,13 +2441,13 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
       const line = city.riverId && resolvedSite(city).kind === 'river' ? courses.get(city.riverId) : null;
       const widths = city.riverId ? widthProfiles.get(city.riverId) : null;
       if (line && widths) {
-        // The icon is pressed against the river's bank (a metropolis, standing on the river, is parted by it),
-        // so its silhouette follows the river's own bank line.
+        // The icon is drawn whole, on top of the river; the style says whether the river bows round it, runs behind it,
+        // or is given a bridge or an islet to go with it.
         const plain = knobs.cityMarkers === 'symbols'
           ? symbolMarker(symbol, c, r, colours, true)
           : cityMarker(knobs.cityMarkers, symbol, c, r, colours, (k) => unit(seed, 'city', city.id, k));
-        const bankHalf = Math.max(1, size * 0.04) / 2;
-        prims.push(...pressIcon(plain, { line, widths }, bankHalf + Math.max(0.8, r * 0.16) / 2, Math.max(0.5, r * 0.08), riverBisects(symbol) ? undefined : c));
+        prims.push(...riverCityScenery(knobs.cityRiver, c, iconClearance(knobs.cityMarkers, symbol, r), { line, widths }, { ink: palette.cityFill, paper: palette.cityRing, river: palette.river, bank: palette.riverBank }, Math.max(1, size * 0.04)));
+        prims.push(...plain);
       } else if (knobs.cityMarkers === 'symbols') {
         prims.push({ kind: 'city', c, r, onRiver: city.onRiver, symbol, riverDot: palette.river, fill: palette.cityFill, ring: palette.cityRing });
       } else {
