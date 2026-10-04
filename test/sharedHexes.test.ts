@@ -49,15 +49,18 @@ test('assigning a shared hex whole ends the sharing; water and bad ids are refus
   assert.equal(reducer(base, { type: 'shareHexes', indices: [1], first: 'a', second: 'a', share: 0.5 }), base);
 });
 
-test('removing a polity leaves its partner the whole hex; sharing undoes cleanly', () => {
-  const shared = reducer(mapWithTwoPolities(), { type: 'shareHexes', indices: [1], first: 'a', second: 'b', share: 0.4 });
+test('removing a polity leaves its partner the whole hex; global undo reverses sharing', () => {
+  const beforeShare = mapWithTwoPolities();
+  const shared = reducer(beforeShare, { type: 'shareHexes', indices: [1], first: 'a', second: 'b', share: 0.4 });
+  assert.equal(shared.history?.past.length, (beforeShare.history?.past.length ?? 0) + 1);
   const noB = reducer(shared, { type: 'removePolity', id: 'b' }).layers.polities.data!;
   assert.deepEqual(holdersOf(noB, 1), [['a', 1]]);
   const noA = reducer(shared, { type: 'removePolity', id: 'a' }).layers.polities.data!;
   assert.deepEqual(holdersOf(noA, 1), [['b', 1]]);
   assert.equal(noA.owner[0], null);
-  const undone = reducer(shared, { type: 'undo', layer: 'polities' }).layers.polities.data!;
+  const undone = reducer(shared, { type: 'undo' }).layers.polities.data!;
   assert.equal(undone.shares, undefined);
+  assert.deepEqual(undone.owner, beforeShare.layers.polities.data!.owner);
 });
 
 test('a shared hex that turns to water loses its share', () => {

@@ -702,13 +702,11 @@ export function reducer(map: MapState, action: Action): MapState {
   }
 
   const next = reduceMap(map, action);
-  if (action.type === 'load' || next === map) return next;
-  const committed = next.journal.length > map.journal.length || LAYER_ORDER.some(
-    (id) => next.layers[id].past.length > map.layers[id].past.length,
-  );
-  return committed
-    ? { ...next, history: { past: trimHistory([...history.past, mapSnapshot(map)]), future: [] } }
-    : next;
+  if (action.type === 'load') {
+    return { ...next, history: next.history ?? { past: [], future: [] } };
+  }
+  if (next === map) return next;
+  return { ...next, history: { past: trimHistory([...history.past, mapSnapshot(map)]), future: [] } };
 }
 
 function reduceMap(map: MapState, action: Action): MapState {

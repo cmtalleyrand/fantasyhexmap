@@ -145,3 +145,10 @@ test('a brush stroke that changes no hex is not recorded', () => {
   assert.equal(reducer(map, { type: 'setHexValues', layer: 'population', indices: [0], value: 100 }), map);
   assert.notEqual(reducer(map, { type: 'setHexValues', layer: 'population', indices: [0], value: 150 }), map);
 });
+
+test('global undo records non-layer map changes too', () => {
+  const map = generatedMap();
+  const renamed = reducer(map, { type: 'setMeta', name: 'A new name' });
+  assert.equal(renamed.history?.past.length, (map.history?.past.length ?? 0) + 1);
+  assert.equal(reducer(renamed, { type: 'undo' }).name, map.name);
+});
