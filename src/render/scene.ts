@@ -76,6 +76,7 @@ import {
   alike,
   coastKey,
   drawnLand,
+  evenOddTest,
   circlePath,
   coastalIslandSide,
   coastGeometryOf,
@@ -102,7 +103,7 @@ import { capitalCrown, cityMarker, iconClearance, iconDrop, markerExtent, symbol
 import { riverStance, riverThroughIcon, showsRiver } from './riverCity.js';
 import { landBySide, riverCourses, type RiverCourse } from './rivers.js';
 import { citySite, lakeEdgesOf, resolvedSite } from './sites.js';
-import { escarpment, hillshade, reliefSymbols, vegetationSymbols, type Placed } from './symbols.js';
+import { FIT_SCALES, escarpment, hillshade, keepToLand, refit, type Fitted, reliefSymbols, standsOnLand, symbolAnchor, vegetationSymbols, type Placed } from './symbols.js';
 import { ownersAtDepth, polityDepths, polityDisplayColours, toned } from './hierarchy.js';
 import { topLevelOf } from '../../shared/polityTree.js';
 import { cityStateSeats } from '../../shared/cityState.js';
@@ -171,6 +172,18 @@ export interface Scene {
   origin?: Point;
   /** Map furniture placed by `addMarginalia`, for collision checks. */
   furniture?: FurniturePlacement[];
+  /** Where the drawing could not do everything asked of it, and what it gave up. */
+  compromises?: DrawingCompromise[];
+}
+
+/**
+ * A place where the map could not satisfy every rule it draws by, so that the app can say so
+ * rather than leave the user to notice. `what` says what was given up, `why` the rule that won.
+ */
+export interface DrawingCompromise {
+  hex: number;
+  what: string;
+  why: string;
 }
 
 /** One piece of map furniture as placed: what it is, where it sits, and what surface it sits on. */
@@ -340,6 +353,9 @@ interface TracedCoast {
 }
 
 const coastCache = new WeakMap<object, TracedCoast & { key: string }>();
+
+/** Where each hex's relief and vegetation symbols were fitted to the land of a traced coast (see `keepToLand`). */
+const symbolFits = new WeakMap<object, { dry: ((p: Point) => boolean) | null; fits: Map<string, Fitted> }>();
 
 /** Hexes already cut to their shares, kept between scenes so that editing one hex does not cut the rest again. */
 const shapeMemo: ShapeMemo = new Map();
@@ -2231,20 +2247,65 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
 
   // --- drawn relief and vegetation ----------------------------------------------------
   /** Where each drawn relief or vegetation symbol sits in `prims`, so names can later fade those under them. */
-  const reliefRuns: Array<{ hex: number; from: number; to: number }> = [];
+  const reliefRuns: Array<{ hex: number; at: Point; from: number; to: number }> = [];
+  const compromises: DrawingCompromise[] = [];
   if (relief === 'illustrated' && base) {
     const vegetation = opts.visible.vegetation ? layers.vegetation.data : null;
     const placed: Placed[] = [];
+    // A symbol stands on the land as drawn (the coast as smoothed and roughened, less the lakes),
+    // never on the hex it belongs to: a hex cut back to a small land share keeps its peaks on that land.
+    // (The same shape the realm bands are clipped to; with no coast at all, every hex is whole.)
+    // Both the test and each hex's fitting are kept with the traced coast, so a redraw that leaves
+    // the coast alone (a realm recoloured, a city added) does not search for them again.
+    const memo = traced ? symbolFits.get(traced) ?? { dry: null, fits: new Map<string, Fitted>() } : null;
+    if (traced && memo && !symbolFits.has(traced)) symbolFits.set(traced, memo);
+    const drawnDry = memo?.dry
+      ?? (traced && traced.geometry.paths.length > 0
+        ? evenOddTest(pathPolylines(drawnLand(traced.geometry, width, height, size), 6), size / 8)
+        : traced ? (p: Point) => traced.onLand(p) : null);
+    if (memo) memo.dry = drawnDry;
+    const dry = (p: Point): boolean => (drawnDry ? drawnDry(p) : true) && !inLakeWater(p);
     for (let i = 0; i < cols * rows; i++) {
       if (isWater(i) || inLakeBody.has(i)) continue;
       const height = elevationData?.[i] ?? null;
       const cover = vegetation?.[i] ?? null;
       if (!height && !cover) continue;
       const firstOfHex = placed.length;
-      const centre = hexCenter(i % cols, Math.floor(i / cols), size);
+      const col = i % cols;
+      const row = Math.floor(i / cols);
+      const centre = hexCenter(col, row, size);
       const rand = (k: number) => unit(seed, 'symbol', i, k);
       const colours = { ground: groundColour(i), ink: palette.ink };
-      if (height) placed.push(...reliefSymbols(centre, size, height, rand, colours));
+      const crowded = height === 'Mountains' || height === 'Highland' || height === 'Hills' || height === 'Plateau';
+      const draw = (at: Point, s: number): Placed[] => [
+        ...(height ? reliefSymbols(at, s, height, rand, colours) : []),
+        ...(cover && height !== 'Mountains' ? vegetationSymbols(at, s, cover, rand, colours, crowded) : []),
+      ];
+      const inHex = (p: Point): boolean => {
+        const at = pixelToOffset(p.x, p.y, size);
+        return at.col === col && at.row === row;
+      };
+      const fitKey = `${i}/${height ?? ''}/${cover ?? ''}`;
+      const known = memo?.fits.get(fitKey);
+      const fitted = known ? { ...known, placed: refit(draw, known, size) } : keepToLand(draw, centre, size, dry, inHex);
+      if (!known) memo?.fits.set(fitKey, { ...fitted, placed: [] });
+      placed.push(...fitted.placed);
+      const named = [height, height !== 'Mountains' ? cover : null].filter(Boolean).join(' and ').toLowerCase();
+      if (fitted.dropped > 0) {
+        compromises.push({
+          hex: i,
+          what: fitted.placed.length === 0
+            ? `No ${named} symbols drawn`
+            : `${fitted.dropped} of ${fitted.wanted} ${named} symbols left out, the rest drawn at ${Math.round(fitted.scale * 100)}% size`,
+          why: `the land drawn in this hex is too small or narrow to hold them all even at ${Math.round(Math.min(...FIT_SCALES) * 100)}% size, and symbols are never drawn over water`,
+        });
+      } else if (fitted.scale < 1) {
+        compromises.push({
+          hex: i,
+          what: `${named[0]!.toUpperCase()}${named.slice(1)} symbols drawn at ${Math.round(fitted.scale * 100)}% size`,
+          why: 'the land drawn in this hex is too small or narrow for them at full size, and symbols are never drawn over water',
+        });
+      }
       if (height === 'Plateau') {
         // Escarpments wherever the plateau falls away to lower ground or water.
         for (let e = 0; e < 6; e++) {
@@ -2255,19 +2316,17 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
           if (isWater(j) || inLakeBody.has(j)) continue;
           const there = elevationData?.[j] ?? null;
           if (there === 'Plateau' || there === 'Highland' || there === 'Mountains') continue;
-          const [a, b] = hexEdgePoints(i % cols, Math.floor(i / cols), e, size);
-          placed.push(escarpment(a, b, centre, size, colours, (k) => rand(600 + e * 20 + k)));
+          const [a, b] = hexEdgePoints(col, row, e, size);
+          const scarp = escarpment(a, b, centre, size, colours, (k) => rand(600 + e * 20 + k));
+          // An escarpment runs along a border with land; where reshaping has put water there, it is left out.
+          if (standsOnLand(scarp, dry)) placed.push(scarp);
         }
-      }
-      if (cover) {
-        const crowded = height === 'Mountains' || height === 'Highland' || height === 'Hills' || height === 'Plateau';
-        if (height !== 'Mountains') placed.push(...vegetationSymbols(centre, size, cover, rand, colours, crowded));
       }
       for (let k = firstOfHex; k < placed.length; k++) placed[k]!.hex = i;
     }
     placed.sort((a, b) => a.y - b.y);
     for (const p of placed) {
-      if (p.hex !== undefined) reliefRuns.push({ hex: p.hex, from: prims.length, to: prims.length + p.prims.length });
+      if (p.hex !== undefined) reliefRuns.push({ hex: p.hex, at: symbolAnchor(p), from: prims.length, to: prims.length + p.prims.length });
       prims.push(...p.prims);
     }
   }
@@ -2624,7 +2683,8 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
     // Latest first, so earlier runs keep their positions as each is wrapped.
     for (let k = reliefRuns.length - 1; k >= 0; k--) {
       const run = reliefRuns[k]!;
-      const c = hexCenter(run.hex % cols, Math.floor(run.hex / cols), size);
+      // Where the symbol stands, which on a hex with little land is not the hex's middle.
+      const c = run.at;
       if (!near.some((b) => insideBox(b, c.x, c.y))) continue;
       prims.splice(run.from, run.to - run.from, { kind: 'group', opacity: RELIEF_FADE, prims: prims.slice(run.from, run.to) });
     }
@@ -2781,6 +2841,7 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
     // read as more sea rather than as a black serrated border.
     background: opts.transparentBackground ? 'transparent' : palette.sea,
     prims,
+    ...(compromises.length > 0 ? { compromises } : {}),
     markers: (cities?.cities ?? []).map((city) => {
       const c = siteOf(city);
       const reach = markerReach(city.population, city.capital);

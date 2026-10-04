@@ -735,10 +735,16 @@ function roughPath(points: Point[], closed: boolean, piece: Array<Point[] | null
 }
 
 /**
- * The land as the coast is drawn, as one shape to fill even-odd: each coast chain
- * closed up. A chain that runs off the map is closed round the edge of the
- * (`margin`-enlarged) page the way its land lies, to the right of travel, so
- * the page's edge is clockwise from where it leaves to where it returns.
+ * The land as the coast is drawn, as one shape to fill even-odd: each closed coast
+ * chain as it is, and the chains that run off the map joined into rings along the
+ * (`margin`-enlarged) page's edge. Land lies to the right of every chain, so where a
+ * chain leaves the map the ring follows the page's edge clockwise (land still on
+ * its right) to the next chain that comes back onto the map there, and on along that
+ * one, until it is back where it began.
+ *
+ * Joining each chain to its own start instead (as this once did) is right only when a
+ * single coast runs off the map: with several, the closures overlap, the even-odd fill
+ * counts the overlap twice, and land and sea swap over in part of the page.
  */
 export function drawnLand(geometry: CoastGeometry, width: number, height: number, margin: number): PathCmd[] {
   const x0 = -margin;
@@ -748,6 +754,7 @@ export function drawnLand(geometry: CoastGeometry, width: number, height: number
   const w = x1 - x0;
   const h = y1 - y0;
   const perimeter = 2 * (w + h);
+  /** The point of the page's edge nearest `p`, and how far round the edge (clockwise from the top-left corner) it lies. */
   const nearest = (p: Point): { at: Point; t: number } => {
     const gaps = [p.y - y0, x1 - p.x, y1 - p.y, p.x - x0];
     const side = gaps.indexOf(Math.min(...gaps));
@@ -756,26 +763,81 @@ export function drawnLand(geometry: CoastGeometry, width: number, height: number
     if (side === 0) return { at: { x, y: y0 }, t: x - x0 };
     if (side === 1) return { at: { x: x1, y }, t: w + (y - y0) };
     if (side === 2) return { at: { x, y: y1 }, t: w + h + (x1 - x) };
-    return { at: { x: x0, y }, t: 2 * w + h + (y1 - y) };
+    return { at: { x: x0, y }, t: (2 * w + h + (y1 - y)) % perimeter };
   };
-  const corners = [{ x: x1, y: y0, t: w }, { x: x1, y: y1, t: w + h }, { x: x0, y: y1, t: 2 * w + h }, { x: x0, y: y0, t: perimeter }];
+  const corners = [{ x: x1, y: y0, t: w }, { x: x1, y: y1, t: w + h }, { x: x0, y: y1, t: 2 * w + h }, { x: x0, y: y0, t: 0 }];
   const out: PathCmd[] = [];
+  /** The open chains, each with where on the page's edge it ends (`exit`) and begins (`entry`). */
+  const open: Array<{ path: PathCmd[]; head: Point; tail: Point; exit: { at: Point; t: number }; entry: { at: Point; t: number } }> = [];
+  /** How near the start of one chain the end of another must be for the two to be one coast. */
+  const joinTolerance = margin * 0.05;
   geometry.chains.forEach((chain, c) => {
     const path = geometry.paths[c];
     if (!path || path.length === 0) return;
-    out.push(...path);
-    if (chain.closed) return;
+    if (chain.closed) {
+      out.push(...path);
+      return;
+    }
     const first = path[0]!;
     const last = path[path.length - 1]!;
-    const from = nearest({ x: last.at(-2) as number, y: last.at(-1) as number });
-    const to = nearest({ x: first[1] as number, y: first[2] as number });
-    out.push(['L', from.at.x, from.at.y]);
-    const reach = (to.t - from.t + perimeter) % perimeter;
-    for (const corner of corners) {
-      if ((corner.t - from.t + perimeter) % perimeter < reach && corner.t !== from.t) out.push(['L', corner.x, corner.y]);
-    }
-    out.push(['L', to.at.x, to.at.y], ['Z']);
+    const head = { x: first[1] as number, y: first[2] as number };
+    const tail = { x: last.at(-2) as number, y: last.at(-1) as number };
+    open.push({ path, head, tail, exit: nearest(tail), entry: nearest(head) });
   });
+  const ahead = (from: number, to: number) => (to - from + perimeter) % perimeter;
+  /** The chains that begin where another ends: they are reached by that one, never from the page's edge. */
+  const continued = new Set(
+    open.flatMap((a, j) => (open.some((b) => Math.hypot(a.head.x - b.tail.x, a.head.y - b.tail.y) < joinTolerance) ? [j] : [])),
+  );
+  const used = new Set<number>();
+  for (let start = 0; start < open.length; start++) {
+    if (used.has(start)) continue;
+    let k = start;
+    let first = true;
+    // Each chain is joined once, so a ring can take no more steps than there are chains.
+    for (let guard = 0; guard <= open.length; guard++) {
+      used.add(k);
+      const chain = open[k]!;
+      // On along the chain (its own move-to only at the ring's start), then off the map at its end.
+      out.push(...(first ? chain.path : chain.path.slice(1)));
+      first = false;
+      const free = (j: number) => j === start || !used.has(j);
+      // A chain can stop short where the coast was cut into pieces (round a reshaped hex): it goes on
+      // as the chain that begins where it ends, with no detour round the page.
+      let next = -1;
+      let gap = joinTolerance;
+      for (let j = 0; j < open.length; j++) {
+        if (!free(j)) continue;
+        const d = Math.hypot(open[j]!.head.x - chain.tail.x, open[j]!.head.y - chain.tail.y);
+        if (d < gap) {
+          gap = d;
+          next = j;
+        }
+      }
+      if (next < 0) {
+        // Off the map: the next chain to come back onto it, clockwise round the edge from here.
+        out.push(['L', chain.exit.at.x, chain.exit.at.y]);
+        for (let j = 0; j < open.length; j++) {
+          if (!free(j) || continued.has(j)) continue;
+          if (next < 0 || ahead(chain.exit.t, open[j]!.entry.t) < ahead(chain.exit.t, open[next]!.entry.t)) next = j;
+        }
+        // (Only if the coast does not come back at all: close the ring on itself.)
+        if (next < 0) next = start;
+        const to = open[next]!.entry;
+        const reach = ahead(chain.exit.t, to.t);
+        for (const corner of corners.filter((q) => ahead(chain.exit.t, q.t) > 0 && ahead(chain.exit.t, q.t) < reach).sort((a, b) => ahead(chain.exit.t, a.t) - ahead(chain.exit.t, b.t))) {
+          out.push(['L', corner.x, corner.y]);
+        }
+        out.push(['L', to.at.x, to.at.y]);
+      }
+      if (next === start) break;
+      // Into the next chain: its first point after the move-to continues this ring.
+      const head = open[next]!.path[0]!;
+      out.push(['L', head[1] as number, head[2] as number]);
+      k = next;
+    }
+    out.push(['Z']);
+  }
   return out;
 }
 
@@ -1194,4 +1256,32 @@ export function lakeComponents(
     lakes.push(component.sort((a, b) => a - b));
   }
   return { lakes, lakeIslands };
+}
+
+/**
+ * Whether a point lies inside `rings` filled even-odd: the same test a clip of
+ * `drawnLand` makes, for placing things that must stand on the land as drawn.
+ * Segments are filed by horizontal band so a query only crosses those its row meets.
+ */
+export function evenOddTest(rings: Point[][], band: number): (p: Point) => boolean {
+  const rows = new Map<number, Array<[Point, Point]>>();
+  for (const ring of rings) {
+    for (let k = 0; k < ring.length; k++) {
+      const a = ring[k]!;
+      const b = ring[(k + 1) % ring.length]!;
+      if (a.y === b.y) continue;
+      for (let r = Math.floor(Math.min(a.y, b.y) / band); r <= Math.floor(Math.max(a.y, b.y) / band); r++) {
+        const list = rows.get(r);
+        if (list) list.push([a, b]);
+        else rows.set(r, [[a, b]]);
+      }
+    }
+  }
+  return (p) => {
+    let inside = false;
+    for (const [a, b] of rows.get(Math.floor(p.y / band)) ?? []) {
+      if ((a.y > p.y) !== (b.y > p.y) && p.x < ((b.x - a.x) * (p.y - a.y)) / (b.y - a.y) + a.x) inside = !inside;
+    }
+    return inside;
+  };
 }

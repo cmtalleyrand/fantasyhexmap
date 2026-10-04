@@ -1033,3 +1033,34 @@ split hex are painted before its land pieces so a sealing stroke never overpaint
 **What it costs.** Widths are measured between the coast lines, so the ink (about 2 to 3 px) takes up most of
 a Very narrow channel or neck at small hex sizes: a 5% strait reads as a single dark line, which is what a
 channel that thin is. Saved maps with the old 30% isthmus and 40% strait draw as Normal and differ from before.
+
+## 50. Symbols stand on the land as drawn, and the map says where it gave something up
+
+**Problem.** Drawn relief and vegetation were laid out about the middle of their hex, whatever of the hex
+was land. A Coastal Land hex cut back to a small share (decision 39), or one whose land is concentrated
+towards an edge, drew its peaks in the open sea beside the little land it had; under a realm's name they
+were faded, so the sea showed a ghost of a mountain.
+
+**Chosen.** Every symbol is tested against the land as drawn (the coast as smoothed and roughened, less
+the lake bodies: the same outline the realm bands are clipped to). Where the set as laid out does not stand
+on land, it is drawn smaller and moved towards the middle of the hex's own land, shrinking preferred to
+moving far (`keepToLand`, down to 30% size); if even that will not hold all of it, the most symbols that fit
+are kept and the rest left out. A symbol's foot stays in its own hex. Escarpments that would run over water
+are left out. A hex that is land throughout draws exactly as before.
+
+**Saying so.** The scene now lists its `compromises`: each hex where the drawing could not do what was asked
+(here, symbols drawn smaller or left out), with what was given up and the rule that won. The Inspector shows
+them for the selected hexes, or a count with a button to select them, and the hover line marks them.
+
+**Also fixed.** `drawnLand` closed each coast that runs off the map back to its own start round the page.
+With more than one such coast the closures overlapped and the even-odd fill swapped land and sea over part
+of the page; the corners passed were also visited in list order, not in order round the page, so a closure
+past the top-left corner crossed itself. It now joins rings properly: a coast that stops inside the map
+(a reshaped hex cuts the coast into pieces) runs on into the piece that starts where it ends, and one that
+leaves the map follows the page's edge clockwise to the next coast that comes back onto it. Realm bands,
+clipped to this outline, change on maps that had either fault (bands along the map's edge now show
+consistently).
+
+**What it costs.** Fitting is searched once per traced coast and remembered with it, so a redraw that
+leaves the coast alone costs about what it did. After a change to the coast, a 50 x 50 map with hundreds of
+low-share mountainous coast hexes takes about 0.15 s longer to draw.

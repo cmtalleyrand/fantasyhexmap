@@ -6,6 +6,7 @@ import { isLakeNeck, lakeEdgesOf } from '../render/sites.js';
 import { holdersOf } from '../../shared/polityShares.js';
 import type { RiverNotice, RiverTool } from '../state/riverTools.js';
 import RiverEditor from './RiverEditor.js';
+import type { DrawingCompromise } from '../render/scene.js';
 import GeoNamesEditor from './GeoNamesEditor.js';
 import { LAYER_META, missingRequirements, stalenessOf } from '../../shared/layers.js';
 import {
@@ -70,6 +71,8 @@ export interface InspectorProps {
   activeLayer: LayerId;
   selection: Set<number>;
   setSelection: (next: Set<number>) => void;
+  /** Where the map as drawn could not do everything asked of it (see `DrawingCompromise`). */
+  compromises?: DrawingCompromise[];
   brush: Record<string, string>;
   setBrush: (layer: LayerId, value: string) => void;
   brushMode: boolean;
@@ -147,6 +150,39 @@ function LayerDecisions({
   );
 }
 
+/**
+ * What the drawing gave up, and why: for the selected hexes when any of them are affected,
+ * else a count for the whole map with a way to select them.
+ */
+function CompromiseNotes({ map, compromises, selected, setSelection }: {
+  map: MapState;
+  compromises: DrawingCompromise[];
+  selected: number[];
+  setSelection: (next: Set<number>) => void;
+}) {
+  if (compromises.length === 0) return null;
+  const here = compromises.filter((c) => selected.includes(c.hex));
+  if (here.length === 0) {
+    const hexes = new Set(compromises.map((c) => c.hex));
+    return (
+      <div className="notice warn" style={{ marginBottom: 8 }}>
+        {hexes.size === 1 ? 'One hex is' : `${hexes.size} hexes are`} drawn differently from what was asked, because a drawing rule could not otherwise be kept.{' '}
+        <button className="tiny" onClick={() => setSelection(hexes)}>Select {hexes.size === 1 ? 'it' : 'them'}</button>
+      </div>
+    );
+  }
+  return (
+    <div className="notice warn" style={{ marginBottom: 8 }}>
+      <strong>Drawn differently from what was asked</strong>
+      <ul style={{ margin: '4px 0 0', paddingLeft: 18 }}>
+        {here.map((c, k) => (
+          <li key={k}>{selected.length > 1 ? `${coordLabel(map, c.hex)}: ` : ''}{c.what}, because {c.why}.</li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 function coordLabel(map: MapState, index: number): string {
   const { col, row } = indexToOffset(map.cols, index);
   return `${col},${row}`;
@@ -178,6 +214,7 @@ export default function Inspector(props: InspectorProps) {
       <div className="section">
         <h2>{meta.label}</h2>
         <p className="hint" style={{ marginTop: 0 }}>{meta.blurb}</p>
+        <CompromiseNotes map={map} compromises={props.compromises ?? []} selected={selected} setSelection={props.setSelection} />
 
         <div className="row" style={{ marginBottom: 8 }}>
           <span className="grow" />

@@ -26,6 +26,7 @@ import {
 } from './api/settings.js';
 import { decryptKey, encryptKey } from './api/keyvault.js';
 import type { PassSelection, Roster } from '../core/rosters.js';
+import type { DrawingCompromise } from './render/scene.js';
 import type { WebchatApplied } from './components/WebchatDialog.js';
 import type { MultiWebchatImportResult } from '../core/webchat.js';
 
@@ -100,6 +101,8 @@ export default function App() {
   const { labels, riverNames, rangeNames, seaNames, landNames, polityNames, cityStateMax, polityOpacity } = prefs;
   const mapStyle = useMemo(() => resolveStyle(prefs.mapStyle), [prefs.mapStyle]);
   const [selection, setSelection] = useState<Set<number>>(new Set());
+  /** Where the map as last drawn could not do everything asked of it. */
+  const [compromises, setCompromises] = useState<DrawingCompromise[]>([]);
   const [panels, setPanels] = useState<PanelVisibility>({ layers: true, inspector: true });
   const panelRestore = useRef<PanelVisibility>({ layers: true, inspector: true });
   const [mobilePane, setMobilePane] = useState<'layers' | 'inspector'>('layers');
@@ -1172,6 +1175,7 @@ export default function App() {
           paintHexes={paintHexes}
           overlay={emptyMapOverlay}
           banner={banner}
+          onCompromises={setCompromises}
         />
 
         <div className="mobile-workspace-tabs" role="tablist" aria-label="Map workspace">
@@ -1199,6 +1203,7 @@ export default function App() {
             activeLayer={activeLayer}
             selection={selection}
             setSelection={setSelection}
+            compromises={compromises}
             brush={brush}
             setBrush={setBrush}
             brushMode={brushMode}

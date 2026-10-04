@@ -343,3 +343,131 @@ export function escarpment(a: Point, b: Point, centre: Point, size: number, colo
   }
   return { y: my, prims: [{ kind: 'path', d, stroke: ink, strokeWidth: stroke, round: true }] };
 }
+
+/** Points along a symbol's drawing: every vertex and control point, and the middle of each step between them. */
+function samplePoints(placed: Placed): Point[] {
+  const out: Point[] = [];
+  const walk = (prims: Prim[]) => {
+    for (const prim of prims) {
+      if (prim.kind === 'group') walk(prim.prims);
+      if (prim.kind !== 'path') continue;
+      let last: Point | null = null;
+      for (const cmd of prim.d) {
+        if (cmd[0] === 'Z') continue;
+        for (let k = 1; k + 1 < cmd.length; k += 2) {
+          const p = { x: cmd[k] as number, y: cmd[k + 1] as number };
+          if (last && cmd[0] !== 'M') out.push({ x: (last.x + p.x) / 2, y: (last.y + p.y) / 2 });
+          out.push(p);
+          last = p;
+        }
+      }
+    }
+  };
+  walk(placed.prims);
+  return out;
+}
+
+/** Whether every part of a symbol stands on land. */
+export function standsOnLand(placed: Placed, onLand: (p: Point) => boolean): boolean {
+  return samplePoints(placed).every(onLand);
+}
+
+/** The sizes a hex's symbols are tried at, before any are left out. */
+export const FIT_SCALES = [1, 0.85, 0.72, 0.6, 0.5, 0.42, 0.35, 0.3];
+/**
+ * What drawing a set smaller costs against moving it, in hex sizes moved per unit of
+ * scale lost: low, so a set is shrunk where it stands before it is moved far.
+ */
+const SHRINK_COST = 0.25;
+/** How many places, nearest the middle of a hex's land, a set is tried at. */
+const NEAREST_SPOTS = 16;
+
+/** How a hex's symbols were fitted to its land. */
+export interface Fitted {
+  placed: Placed[];
+  /** Where the set was laid out about, and at what size (1 being its own). */
+  at: Point;
+  scale: number;
+  /** Which of the set laid out there were kept (all when absent). */
+  keep?: number[];
+  /** How many were laid out, and how many of those were left out for want of land. */
+  wanted: number;
+  dropped: number;
+}
+
+/** The same fitting drawn again (with other colours, say) without searching for it. */
+export function refit(draw: (centre: Point, size: number) => Placed[], fitted: Fitted, size: number): Placed[] {
+  const set = draw(fitted.at, size * fitted.scale);
+  return fitted.keep ? fitted.keep.map((k) => set[k]!).filter(Boolean) : set;
+}
+
+/**
+ * A hex's symbols kept to the land as drawn.
+ *
+ * `draw(centre, size)` lays the hex's symbols out about a point at a size. Where the
+ * hex is land throughout, they are drawn as laid out about its middle. Where it has
+ * less land than that (a coast cut back to its land share, a strait's banks), they
+ * are shrunk, and moved towards the middle of the hex's own land, shrinking being
+ * preferred to moving far, until every symbol stands on land with its foot in the
+ * hex. Failing that even at the smallest size, the most symbols that do fit are kept
+ * and the rest left out. A symbol is never drawn over water: no symbol at all is
+ * better than a mountain standing in the sea.
+ *
+ * `inHex(p)` says whether a point is in the hex the symbols belong to, so that a set
+ * is never moved onto a neighbour's ground.
+ */
+export function keepToLand(
+  draw: (centre: Point, size: number) => Placed[],
+  centre: Point,
+  size: number,
+  onLand: (p: Point) => boolean,
+  inHex: (p: Point) => boolean,
+): Fitted {
+  const fits = (p: Placed) => {
+    const points = samplePoints(p);
+    if (points.length === 0) return true;
+    const xs = points.map((q) => q.x);
+    return inHex({ x: (Math.min(...xs) + Math.max(...xs)) / 2, y: p.y }) && points.every(onLand);
+  };
+  const first = draw(centre, size);
+  const wanted = first.length;
+  if (first.every(fits)) return { placed: first, at: centre, scale: 1, wanted, dropped: 0 };
+  // The hex's land, on a fine grid.
+  const step = size * 0.08;
+  const spots: Point[] = [];
+  for (let dy = -11; dy <= 11; dy++) {
+    for (let dx = -11; dx <= 11; dx++) {
+      const p = { x: centre.x + dx * step, y: centre.y + dy * step };
+      if (inHex(p) && onLand(p)) spots.push(p);
+    }
+  }
+  if (spots.length === 0) return { placed: [], at: centre, scale: 1, keep: [], wanted, dropped: wanted };
+  const mid = {
+    x: spots.reduce((s, p) => s + p.x, 0) / spots.length,
+    y: spots.reduce((s, p) => s + p.y, 0) / spots.length,
+  };
+  // Every place and size, cheapest first: near the middle of the land, and as large as can be.
+  // Only the places nearest that middle are tried; a set moved further would be cheaper shrunk.
+  const near = spots
+    .sort((a, b) => Math.hypot(a.x - mid.x, a.y - mid.y) - Math.hypot(b.x - mid.x, b.y - mid.y))
+    .slice(0, NEAREST_SPOTS);
+  const tries = FIT_SCALES.flatMap((scale) =>
+    near.map((spot) => ({ spot, scale, cost: Math.hypot(spot.x - mid.x, spot.y - mid.y) / size + (1 - scale) * SHRINK_COST })),
+  ).sort((a, b) => a.cost - b.cost);
+  let best: Fitted = { placed: [], at: centre, scale: 1, keep: [], wanted, dropped: wanted };
+  for (const { spot, scale } of tries) {
+    const set = draw(spot, size * scale);
+    const keep = set.flatMap((p, k) => (fits(p) ? [k] : []));
+    if (keep.length === set.length) return { placed: set, at: spot, scale, wanted, dropped: 0 };
+    if (keep.length > best.placed.length) best = { placed: keep.map((k) => set[k]!), at: spot, scale, keep, wanted, dropped: set.length - keep.length };
+  }
+  return best;
+}
+
+/** Where a symbol stands: the middle of its drawing across, on its base line. */
+export function symbolAnchor(placed: Placed): Point {
+  const points = samplePoints(placed);
+  if (points.length === 0) return { x: 0, y: placed.y };
+  const xs = points.map((p) => p.x);
+  return { x: (Math.min(...xs) + Math.max(...xs)) / 2, y: placed.y };
+}
