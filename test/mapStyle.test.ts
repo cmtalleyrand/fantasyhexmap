@@ -419,16 +419,27 @@ test('a one-hex lake is drawn as an irregular body, not traced from its hex edge
   assert.ok(Math.max(...radii) < 20 * 1.6, 'but only a little way');
 });
 
-test('a crossing point is the same seen from either side of its edge', async () => {
+test('river irregularity winds between crossings without driving them into corners', async () => {
   const { edgeCrossing } = await import('../src/render/rivers.ts');
   const { neighbourOf: nb, oppositeEdge } = await import('../shared/hex.ts');
+  const size = 20;
   for (const [col, row] of [[2, 2], [3, 3], [4, 1]]) {
     for (let e = 0; e < 6; e++) {
       const n = nb(col!, row!, e);
-      const a = edgeCrossing(col!, row!, e, 20, 'seed');
-      const b = edgeCrossing(n.col, n.row, oppositeEdge(e), 20, 'seed');
+      const a = edgeCrossing(col!, row!, e, size, 'seed');
+      const b = edgeCrossing(n.col, n.row, oppositeEdge(e), size, 'seed');
       assert.ok(Math.hypot(a.x - b.x, a.y - b.y) < 1e-9);
+      const corners = hexEdgePoints(col!, row!, e, size);
+      assert.ok(corners.every((corner) => Math.hypot(a.x - corner.x, a.y - corner.y) >= size * 0.25 - 1e-9));
     }
+  }
+
+  const segments = [0, 1, 2, 3, 4].map((col) => ({ col, row: 2, entryEdge: col === 0 ? null : 3, exitEdge: 0, navigable: false }));
+  const river = { id: 'crossings', name: 'Crossings', terminus: 'OffMap' as const, segments };
+  const line = riverCourse(river, size, 'wild', { wander: 'wild' })!.centreline;
+  for (const segment of segments.slice(0, -1)) {
+    const crossing = edgeCrossing(segment.col, segment.row, segment.exitEdge!, size, 'wild');
+    assert.ok(line.some((p) => Math.hypot(p.x - crossing.x, p.y - crossing.y) < 1e-9), 'wild wander retains the intended edge crossing');
   }
 });
 
@@ -1542,7 +1553,7 @@ test('the river bows round the icon of a city on its bank, and the icon is press
   }
 });
 
-test('a river can be held to come no nearer, and no further, than a set distance from the centre of each hex it runs through', async () => {
+test('a river course guide affects one hex while the wander setting still shapes the result', async () => {
   const { pixelToOffset } = await import('../shared/hex.ts');
   const size = 40;
   const apothem = size * Math.sqrt(3) / 2;
@@ -1559,31 +1570,19 @@ test('a river can be held to come no nearer, and no further, than a set distance
       }
       return best;
     });
-  for (const wander of ['gentle', 'irregular', 'wild'] as const) {
-    const free = riverCourse(river, size, 'reach', { wander })!.centreline;
-    const loose = riverCourse(river, size, 'reach', { wander, reach: { min: null, max: null } })!.centreline;
-    assert.deepEqual(free, loose, 'no bounds changes nothing');
-    for (const max of [0, 0.2, 0.5]) {
-      const near = nearest(riverCourse(river, size, 'reach', { wander, reach: { min: null, max } })!.centreline);
-      for (const d of near) assert.ok(d <= max + 0.06, `${wander}: max ${max}, came no nearer than ${d.toFixed(2)}`);
-    }
-    for (const min of [0.3, 0.6, 0.9]) {
-      const near = nearest(riverCourse(river, size, 'reach', { wander, reach: { min, max: null } })!.centreline);
-      for (const d of near) assert.ok(d >= min - 0.06, `${wander}: min ${min}, came as near as ${d.toFixed(2)}`);
-    }
-    const both = nearest(riverCourse(river, size, 'reach', { wander, reach: { min: 0.4, max: 0.6 } })!.centreline);
-    for (const d of both) assert.ok(d >= 0.34 && d <= 0.66, `${wander}: between 0.4 and 0.6, got ${d.toFixed(2)}`);
-  }
-});
+  const free = riverCourse(river, size, 'reach', { wander: 'wild' })!.centreline;
+  const baseline = nearest(free);
+  river.segments[3]!.reach = { min: 0.8, max: null };
+  const adjusted = nearest(riverCourse(river, size, 'reach', { wander: 'wild' })!.centreline);
+  assert.ok(adjusted[1]! > baseline[1]! + 0.25, `selected hex moved only from ${baseline[1]!.toFixed(2)} to ${adjusted[1]!.toFixed(2)}`);
+  assert.ok(Math.abs(adjusted[3]! - baseline[3]!) < 0.03, 'distant hex stays on its generated course');
+  const gentle = riverCourse(river, size, 'reach', { wander: 'verygentle' })!.centreline;
+  const wild = riverCourse(river, size, 'reach', { wander: 'wild' })!.centreline;
+  assert.notDeepEqual(gentle, wild, 'the per-hex guide must not replace style-controlled wander');
 
-test('the river reach settings offer any distance, or 0 to 90 per cent', () => {
-  for (const knob of ['riverMin', 'riverMax'] as const) {
-    const values = KNOB_OPTIONS[knob].options.map((o) => o.value);
-    assert.deepEqual(values, ['any', 0, 10, 20, 30, 40, 50, 60, 70, 80, 90]);
-    for (const id of PRESET_ORDER) assert.equal(PRESETS[id].knobs[knob], 'any');
-    assert.equal(parseStyleChoice({ preset: 'classic', overrides: { [knob]: 40 } }).overrides[knob], 40);
-    assert.equal(parseStyleChoice({ preset: 'classic', overrides: { [knob]: 95 } }).overrides[knob], undefined);
-  }
+  river.segments[3]!.reach = { min: null, max: 0.2 };
+  const centred = nearest(riverCourse(river, size, 'reach', { wander: 'wild' })!.centreline);
+  assert.ok(centred[1]! < baseline[1]!, `selected hex did not move inward from ${baseline[1]!.toFixed(2)}`);
 });
 
 test('realm borders are cut to the drawn land, the frontier and the dashed part lines included', () => {

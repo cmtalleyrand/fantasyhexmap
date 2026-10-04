@@ -32,6 +32,9 @@ export interface RiverEditorProps {
 }
 
 type ToolButton = RiverToolKind | 'draw';
+type ReachPercent = 'any' | 0 | 10 | 20 | 30 | 40 | 50 | 60 | 70 | 80 | 90;
+
+const REACH_OPTIONS: ReachPercent[] = ['any', 0, 10, 20, 30, 40, 50, 60, 70, 80, 90];
 
 const TOOLS: { id: ToolButton; label: string; hint: string }[] = [
   {
@@ -331,9 +334,24 @@ function SelectedRiver(
   const branches = branchesOf(river, rivers);
   const parent = river.branchOf ? rivers.find((r) => r.id === river.branchOf) ?? null : null;
   const navigable = river.segments.filter((s) => s.navigable).length;
+  const pickedSegment = pickedIndex < 0 ? null : river.segments[pickedIndex]!;
 
   const setAllNavigable = (value: boolean) =>
     dispatch({ type: 'updateRiver', river: { ...river, segments: river.segments.map((s) => ({ ...s, navigable: value })) } });
+
+  const setPickedReach = (side: 'min' | 'max', value: ReachPercent) => {
+    if (!pickedSegment) return;
+    const reach = {
+      min: pickedSegment.reach?.min ?? null,
+      max: pickedSegment.reach?.max ?? null,
+      [side]: value === 'any' ? null : value / 100,
+    };
+    const segments = river.segments.slice();
+    segments[pickedIndex] = reach.min === null && reach.max === null
+      ? (({ reach: _removed, ...segment }) => segment)(pickedSegment)
+      : { ...pickedSegment, reach };
+    dispatch({ type: 'updateRiver', river: { ...river, segments } });
+  };
 
   const reverse = () => {
     if (!base) return;
@@ -423,51 +441,98 @@ function SelectedRiver(
         </button>
       </div>
 
-      {pickedIndex >= 0 && pickedOffset ? (
-        <div className="row" style={{ flexWrap: 'wrap', gap: 6 }}>
-          <span className="hint">
-            Hex {pickedOffset.col},{pickedOffset.row}:
-          </span>
-          <button
-            className="tiny"
-            title="Start a distributary that leaves this river here. Use it more than once for a delta that splits three or more ways."
-            onClick={() => {
-              setNotice(null);
-              props.setRiverDraftParent(river.id);
-              props.setRiverDraft([picked!]);
-            }}
-          >
-            branch from here
-          </button>
-          <button className="tiny danger" onClick={removePicked}>
-            remove this hex
-          </button>
+      {pickedSegment && pickedOffset ? (
+        <div className="river-hex-editor stack">
+          <div className="row river-hex-heading">
+            <b>Selected hex {pickedOffset.col},{pickedOffset.row}</b>
+            <span className="hint">in {pickedSegment.entryEdge ?? '–'} → out {pickedSegment.exitEdge ?? '–'}</span>
+          </div>
+          <div className="river-reach-fields">
+            <label>
+              Course stays at least
+              <ReachSelect value={pickedSegment.reach?.min ?? null} onChange={(value) => setPickedReach('min', value)} />
+            </label>
+            <label>
+              Course comes within
+              <ReachSelect value={pickedSegment.reach?.max ?? null} onChange={(value) => setPickedReach('max', value)} />
+            </label>
+          </div>
+          <p className="hint" style={{ margin: 0 }}>
+            Distance guides the underlying course from the centre toward the edge of this hex. The selected map
+            style still adds its own river wander; source and mouth hexes keep their endpoint positions.
+          </p>
+          <div className="row" style={{ flexWrap: 'wrap', gap: 6 }}>
+            <button
+              className="tiny"
+              title="Start a distributary that leaves this river here. Use it more than once for a delta that splits three or more ways."
+              onClick={() => {
+                setNotice(null);
+                props.setRiverDraftParent(river.id);
+                props.setRiverDraft([picked!]);
+              }}
+            >
+              branch from here
+            </button>
+            <button className="tiny danger" onClick={removePicked}>
+              remove this hex
+            </button>
+          </div>
         </div>
       ) : (
         <p className="hint" style={{ margin: 0 }}>
-          Click one of its hexes on the map to branch from it or remove it.
+          Click one of its hexes on the map to adjust its course, branch from it, or remove it.
         </p>
       )}
 
       <button className="linkish" style={{ alignSelf: 'flex-start' }} onClick={() => setShowSegments(!showSegments)}>
         {showSegments ? 'hide hex-by-hex detail' : 'hex-by-hex detail'}
       </button>
-      {showSegments && <SegmentList river={river} map={map} dispatch={dispatch} />}
+      {showSegments && (
+        <SegmentList
+          river={river}
+          map={map}
+          dispatch={dispatch}
+          pickedIndex={pickedIndex}
+          onPick={(index) => props.setSelection(new Set([hexIndex(map.cols, river.segments[index]!.col, river.segments[index]!.row)]))}
+        />
+      )}
     </div>
   );
 }
 
-function SegmentList({ river, map, dispatch }: { river: River; map: MapState; dispatch: (a: Action) => void }) {
+function ReachSelect({ value, onChange }: { value: number | null; onChange: (value: ReachPercent) => void }) {
+  const percent: ReachPercent = value === null ? 'any' : Math.round(value * 100) as ReachPercent;
+  return (
+    <select value={percent} onChange={(e) => onChange(e.target.value === 'any' ? 'any' : Number(e.target.value) as ReachPercent)}>
+      {REACH_OPTIONS.map((option) => (
+        <option key={option} value={option}>{option === 'any' ? 'Anywhere' : `${option}% from centre`}</option>
+      ))}
+    </select>
+  );
+}
+
+function SegmentList({ river, map, dispatch, pickedIndex, onPick }: {
+  river: River;
+  map: MapState;
+  dispatch: (a: Action) => void;
+  pickedIndex: number;
+  onPick: (index: number) => void;
+}) {
   return (
     <div className="segment-list">
       {river.segments.map((s, i) => {
         const elevation = map.layers.elevation.data?.[hexIndex(map.cols, s.col, s.row)];
         return (
-          <label key={`${s.col},${s.row},${i}`} className="check">
+          <label
+            key={`${s.col},${s.row},${i}`}
+            className={`check segment-row ${pickedIndex === i ? 'selected' : ''}`}
+            onClick={() => onPick(i)}
+          >
             <input
               type="checkbox"
               checked={s.navigable}
               onChange={(e) => {
+                e.stopPropagation();
                 const segments = river.segments.slice();
                 segments[i] = { ...s, navigable: e.target.checked };
                 dispatch({ type: 'updateRiver', river: { ...river, segments } });
@@ -479,6 +544,7 @@ function SegmentList({ river, map, dispatch }: { river: River; map: MapState; di
                 {' '}
                 · in {s.entryEdge ?? '–'} → out {s.exitEdge ?? '–'}
                 {elevation ? ` · ${elevation}` : ''}
+                {s.reach && (s.reach.min !== null || s.reach.max !== null) ? ' · course adjusted' : ''}
               </span>
             </span>
           </label>
