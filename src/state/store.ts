@@ -30,7 +30,7 @@ import { isLayerEnabled } from '../../shared/layers.js';
 import { detachOrphanBranches, setRiverNavigability } from '../../shared/riverEdit.js';
 import { cosmeticallyEqual, currentDepVersions, identicalData, trimHistory } from '../../shared/layers.js';
 import { LAYER_META, normaliseSelection } from '../../shared/layers.js';
-import { LAYER_ORDER, MAX_DIM, type PolitiesData } from '../../shared/types.js';
+import { MAX_DIM, type PolitiesData } from '../../shared/types.js';
 import type {
   City,
   Decision,
