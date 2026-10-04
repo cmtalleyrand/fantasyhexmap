@@ -18,6 +18,10 @@ import {
   IRREGULARITY_VALUES,
   DEFAULT_IRREGULARITY,
   hasLandShare,
+  hasChannelWidth,
+  CHANNEL_WIDTH_PERCENT,
+  CHANNEL_WIDTH_VALUES,
+  type ChannelWidth,
   hexShapeFor,
   DEFAULT_LAKE_IRREGULARITY,
   isIslandType,
@@ -43,6 +47,7 @@ import {
   baseSurfaceStatistics,
   formatArea,
   landFraction,
+  channelShareSet,
   landLayerSurfaceStatistics,
   normaliseHexDimensions,
 } from '../../shared/surfaceArea.js';
@@ -694,8 +699,18 @@ function HexShapePanel(props: SubProps) {
   const dims = normaliseHexDimensions(map.hexDimensions);
   const percentOf = (i: number, withShape: boolean) =>
     Math.round(landFraction(base![i], map.islandSpecs?.[String(i)], dims, withShape ? map.hexShapes?.[String(i)] : undefined) * 100);
-  const landHexes = hexes.filter((i) => hasLandShare(base![i]));
   const sharedOf = (values: string[]) => (new Set(values).size === 1 ? values[0]! : '');
+  const landHexes = hexes.filter((i) => hasLandShare(base![i]));
+  // An isthmus or a strait is drawn at a width, not to a land share.
+  const channelHexes = hexes.filter((i) => hasChannelWidth(base![i]));
+  // With no share set, an isthmus or strait has the natural share of its width; setting one tunes the land round it.
+  const natural = (i: number) => hasChannelWidth(base![i]) && channelShareSet(base![i], dims, map.hexShapes?.[String(i)]) === null;
+  const allNatural = landHexes.length > 0 && landHexes.every(natural);
+  const widthOf = (i: number, withShape: boolean): string =>
+    hexShapeFor(base![i], withShape ? map.hexShapes?.[String(i)] : undefined).width ?? (base![i] === 'Isthmus' ? dims.isthmusWidth : dims.straitWidth);
+  const width = sharedOf(channelHexes.map((i) => widthOf(i, true)));
+  const usualWidth = sharedOf(channelHexes.map((i) => widthOf(i, false)));
+  const bothKinds = channelHexes.some((i) => base![i] === 'Isthmus') && channelHexes.some((i) => base![i] === 'Strait');
   const land = sharedOf(landHexes.map((i) => String(percentOf(i, true))));
   const usual = sharedOf(landHexes.map((i) => String(percentOf(i, false))));
   const irregular = sharedOf(shaped.map(irregularOf));
@@ -718,15 +733,19 @@ function HexShapePanel(props: SubProps) {
           <select
             id="hex-land-share"
             aria-label="Land share"
-            value={land}
-            onChange={(e) => set({ land: Number(e.target.value) })}
+            value={allNatural ? 'natural' : land}
+            onChange={(e) => set({ land: e.target.value === 'natural' ? null : Number(e.target.value) })}
           >
-            {land === '' && <option value="">Mixed</option>}
+            {land === '' && !allNatural && <option value="">Mixed</option>}
+            {channelHexes.length > 0 && <option value="natural">Natural (from the width)</option>}
             {land !== '' && !LAND_SHARE_STEPS.includes(landValue) && <option value={land}>{land}%</option>}
             {LAND_SHARE_STEPS.map((p) => <option key={p} value={String(p)}>{p}%</option>)}
           </select>
           <p className="hint" style={{ margin: 0 }}>
             How much of the hex is drawn as land, and counted in surface areas.{usual !== '' ? ` Usually ${usual}%.` : ''}
+            {channelHexes.length > 0
+              ? ' For an isthmus or strait the width below sets how narrow it is at its thinnest; a land share as well tunes how much land there is round that, widening or narrowing the flared ends of a neck and the banks of a channel.'
+              : ''}
             {landHexes.some((i) => base![i] === 'Lake')
               ? ' In a lake hex this is land drawn in from the edges it shares with land (the lake keeps the rest); 0% leaves the lake as it is.'
               : ''}
@@ -761,6 +780,23 @@ function HexShapePanel(props: SubProps) {
           Keeps the same land share while shifting more of its mainland towards one hex side. At 0% the land remains evenly distributed; 100% gives the strongest bias.
         </p>
       </>)}
+      {channelHexes.length > 0 && (
+        <>
+          <label htmlFor="hex-channel-width" style={{ margin: 0 }}>{bothKinds ? 'Isthmus / strait width' : channelHexes.every((i) => base![i] === 'Isthmus') ? 'Isthmus width' : 'Strait width'}</label>
+          <select
+            id="hex-channel-width"
+            aria-label="Width"
+            value={width}
+            onChange={(e) => set({ width: e.target.value as ChannelWidth })}
+          >
+            {width === '' && <option value="">Mixed</option>}
+            {CHANNEL_WIDTH_VALUES.map((w) => <option key={w} value={w}>{w} ({CHANNEL_WIDTH_PERCENT[w]}% of the hex)</option>)}
+          </select>
+          <p className="hint" style={{ margin: 0 }}>
+            How narrow {channelHexes.every((i) => base![i] === 'Isthmus') ? 'the neck of land' : channelHexes.every((i) => base![i] === 'Strait') ? 'the channel of water' : 'the neck of land (isthmus) or channel of water (strait)'} is at its thinnest, as a share of the hex's width.{usualWidth !== '' ? ` Usually ${usualWidth.toLowerCase()}.` : ''}
+          </p>
+        </>
+      )}
       {shaped.length > 0 && (<>
       <label htmlFor="hex-irregularity" style={{ margin: 0 }}>Irregularity</label>
       <select

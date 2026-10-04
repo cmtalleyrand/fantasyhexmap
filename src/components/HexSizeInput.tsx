@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import type { HexDimensions } from '../../shared/types.js';
+import { CHANNEL_WIDTH_PERCENT, CHANNEL_WIDTH_VALUES, type ChannelWidth, type HexDimensions } from '../../shared/types.js';
 import {
   isRegularHex,
   measuresFromWidth,
@@ -26,8 +26,8 @@ const LAND_SHARES: Array<[keyof HexDimensions, string]> = [
   ['largeIslandPercent', 'Each large island'],
   ['smallIslandPercent', 'Each small island'],
   ['mainlandPercent', 'Mainland (with islands)'],
-  ['isthmusPercent', 'Isthmus'],
-  ['straitPercent', 'Strait'],
+  
+  
   ['glacierPercent', 'Glacier'],
 ];
 
@@ -247,8 +247,40 @@ export default function HexSizeInput({
             </select>
           </div>
         ))}
+        {([['isthmusWidth', 'isthmusPercent', 'Isthmus'], ['straitWidth', 'straitPercent', 'Strait']] as const).map(([field, shareField, label]) => (
+          <div key={field}>
+            <label>{label} width</label>
+            <select
+              aria-label={`${label} width`}
+              value={value[field]}
+              onChange={(e) => onChange({ ...value, [field]: e.target.value as ChannelWidth })}
+            >
+              {CHANNEL_WIDTH_VALUES.map((w) => (
+                <option key={w} value={w}>
+                  {w} ({CHANNEL_WIDTH_PERCENT[w]}%)
+                </option>
+              ))}
+            </select>
+            <label>{label} land percentage</label>
+            <select
+              aria-label={`${label} land percentage`}
+              value={value[shareField] ?? 'natural'}
+              onChange={(e) => {
+                const { [shareField]: _unset, ...rest } = value;
+                onChange(e.target.value === 'natural' ? rest : { ...rest, [shareField]: Number(e.target.value) });
+              }}
+            >
+              <option value="natural">Natural (from the width)</option>
+              {LAND_PERCENT_OPTIONS.map((p) => (
+                <option key={p} value={p}>
+                  {p}%
+                </option>
+              ))}
+            </select>
+          </div>
+        ))}
       </div>
-      <p className="hint">Each such hex is drawn with this share as land (a coastal hex's shore is set in from its edge; an island is drawn at its share of the hex; a lake hex is the other way round, water with this share of land drawn in from its edges against land, 0% leaving the lake as it is), and polity areas in the legend count it. An island hex adds up its islands. A single hex can override its own share in the sidebar.</p>
+      <p className="hint">An isthmus or strait is drawn at a width: how narrow the neck of land (or channel of water) is at its thinnest, as a share of the hex's width, from 5% (very narrow) to 50% (wide). Its land percentage is optional: left on Natural it is whatever the width gives; set, it tunes how much land the hex has round that width (the flared ends of a neck, the banks of a channel). Each other such hex is drawn with its share as land (a coastal hex's shore is set in from its edge; an island is drawn at its share of the hex; a lake hex is the other way round, water with this share of land drawn in from its edges against land, 0% leaving the lake as it is), and polity areas in the legend count it. An island hex adds up its islands. A single hex can override its own share in the sidebar.</p>
 
       <h3>Displayed measurement rounding</h3>
       <div className="row">

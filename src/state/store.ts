@@ -14,7 +14,7 @@
  */
 
 import { recomputeCityFacts, canHoldSettlement } from '../../shared/derive.js';
-import { hasLandShare, isIslandType, isShapedType, islandSpecFor, type HexShape, type IslandSpec, type Irregularity } from '../../shared/types.js';
+import { CHANNEL_WIDTH_VALUES, hasChannelWidth, hasLandShare, isIslandType, isShapedType, islandSpecFor, type ChannelWidth, type HexShape, type IslandSpec, type Irregularity } from '../../shared/types.js';
 import { migrateLegacyIslands } from '../../shared/islandMigration.js';
 import { GEO_KIND_LABEL, geoEligibility, geoNamesOf, withMigratedGeoNames } from '../../shared/geoNames.js';
 import { withValidParents } from '../../shared/polityTree.js';
@@ -30,7 +30,7 @@ import { isLayerEnabled } from '../../shared/layers.js';
 import { detachOrphanBranches, setRiverNavigability } from '../../shared/riverEdit.js';
 import { cosmeticallyEqual, currentDepVersions, identicalData, trimHistory } from '../../shared/layers.js';
 import { LAYER_META, normaliseSelection } from '../../shared/layers.js';
-import { MAX_DIM, type PolitiesData } from '../../shared/types.js';
+import { LAYER_ORDER, MAX_DIM, type PolitiesData } from '../../shared/types.js';
 import type {
   City,
   Decision,
@@ -58,6 +58,8 @@ export type IslandSpecChange = Partial<Omit<IslandSpec, 'side' | 'coastal'>> & {
 /** A change to shaped hexes; null on a field puts that setting back to the type's default. */
 export interface HexShapeChange {
   land?: number | null;
+  /** An isthmus or strait's width. */
+  width?: ChannelWidth | null;
   irregular?: Irregularity | null;
   concentrationSide?: number | null;
   concentration?: number | null;
@@ -1307,12 +1309,14 @@ function reduceMap(map: MapState, action: Action): MapState {
         const key = String(i);
         const before = JSON.stringify(shapes[key] ?? null);
         const kept = shapes[key]?.type === value ? shapes[key]! : undefined;
-        let next: HexShape | undefined = { type: value!, ...(kept?.land !== undefined ? { land: kept.land } : {}), ...(kept?.irregular ? { irregular: kept.irregular } : {}), ...(kept?.concentrationSide !== undefined ? { concentrationSide: kept.concentrationSide } : {}), ...(kept?.concentration !== undefined ? { concentration: kept.concentration } : {}) };
+        let next: HexShape | undefined = { type: value!, ...(kept?.land !== undefined ? { land: kept.land } : {}), ...(kept?.width ? { width: kept.width } : {}), ...(kept?.irregular ? { irregular: kept.irregular } : {}), ...(kept?.concentrationSide !== undefined ? { concentrationSide: kept.concentrationSide } : {}), ...(kept?.concentration !== undefined ? { concentration: kept.concentration } : {}) };
         const change = action.change;
         if (change === null) next = undefined;
         else {
           if (change.land === null) delete next.land;
           else if (change.land !== undefined && hasLandShare(value)) next.land = Math.max(0, Math.min(100, Math.round(change.land)));
+          if (change.width === null) delete next.width;
+          else if (change.width !== undefined && hasChannelWidth(value) && CHANNEL_WIDTH_VALUES.includes(change.width)) next.width = change.width;
           if (change.irregular === null) delete next.irregular;
           else if (change.irregular !== undefined && (isShapedType(value) || value === 'Lake')) next.irregular = change.irregular;
           if (value === 'Coastal Land' || value === 'Mainland and islands') {
@@ -1321,7 +1325,7 @@ function reduceMap(map: MapState, action: Action): MapState {
             if (change.concentration === null) delete next.concentration;
             else if (change.concentration !== undefined) next.concentration = Math.max(0, Math.min(100, Math.round(change.concentration)));
           }
-          if (next.land === undefined && next.irregular === undefined && next.concentrationSide === undefined && next.concentration === undefined) next = undefined;
+          if (next.land === undefined && next.width === undefined && next.irregular === undefined && next.concentrationSide === undefined && next.concentration === undefined) next = undefined;
         }
         if (next) shapes[key] = next;
         else delete shapes[key];
