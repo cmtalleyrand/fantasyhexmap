@@ -631,6 +631,20 @@ export function landTest(
   };
 }
 
+/** Whether a sliver is thick enough to see: one that is not would still be stroked, as a hairline. */
+function hasArea(d: PathCmd[]): boolean {
+  const pts = d.filter((c) => c[0] !== 'Z').map((c) => ({ x: c[c.length - 2] as number, y: c[c.length - 1] as number }));
+  let sum = 0;
+  let edge = 0;
+  for (let k = 0; k < pts.length; k++) {
+    const a = pts[k]!;
+    const b = pts[(k + 1) % pts.length]!;
+    sum += a.x * b.y - b.x * a.y;
+    edge += Math.hypot(b.x - a.x, b.y - a.y);
+  }
+  return edge > 0 && Math.abs(sum) / edge > 0.05;
+}
+
 /**
  * The coast along `edges` (from `surfaceEdges`, or `shapeCoast` when hexes have
  * been reshaped to their land share), traced into chains and optionally smoothed
@@ -672,6 +686,7 @@ export function coastGeometryOf(
         anchors.set(key(p), samples[ROUGH_STEPS >> 1]!);
         for (const lobe of roughLobes(a, p, b, samples)) {
           const edge = lobe.leg === 0 ? incoming : outgoing;
+          if (!hasArea(lobe.d)) continue;
           if (lobe.towardWater) toLand.push({ d: lobe.d, donor: edge.land });
           else toWater.push({ d: lobe.d, donor: edge.water });
         }
@@ -683,7 +698,7 @@ export function coastGeometryOf(
       // Straight on (pieces of a split hex meeting in line) needs neither.
       const turn = (p.x - a.x) * (b.y - p.y) - (p.y - a.y) * (b.x - p.x);
       const scale = Math.hypot(p.x - a.x, p.y - a.y) * Math.hypot(b.x - p.x, b.y - p.y) || 1;
-      if (Math.abs(turn) / scale < 1e-6) continue;
+      if (Math.abs(turn) / scale < 1e-6 || !hasArea(d)) continue;
       if (turn > 0) toWater.push({ d, donor: incoming.water });
       else toLand.push({ d, donor: incoming.land });
     }

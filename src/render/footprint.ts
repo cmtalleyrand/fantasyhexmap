@@ -210,6 +210,81 @@ function landAt(hex: Split, r: number): Poly[] {
   return clipped.flatMap((a, k) => without(a, clipped.slice(0, k)));
 }
 
+/**
+ * The land of a strait or an isthmus drawn `width` wide at its thinnest, whatever edges it meets.
+ *
+ * The hex is cut into six sectors from its middle. An isthmus is the sectors of its land-facing
+ * edges plus a neck of the set width run from the middle to each of them: it narrows to the width
+ * at the middle and opens out to the land at either end. A strait is the same turned round: the
+ * land is the sectors of its land-facing edges (its banks), less a channel of the set width run to
+ * every edge that faces water; a bank with no bank opposite it is also given the depth that leaves
+ * the width between it and the far edge. Land is always joined to an edge that faces land and water
+ * to one that faces water, so nothing is left to pinch off.
+ *
+ * `fill` tunes how much land that is, from 0 to 2: 1 is the shape above. An isthmus cannot have less
+ * land than that (cutting its flare back leaves pockets of water between it and the land beside it, and
+ * the neck is the least there is); more deepens land from the land-facing edges. For a strait, less
+ * cuts the banks back from the land-facing edges (so, below the land its width gives, the channel is
+ * wider than the width set: the share asked for wins); more deepens them.
+ */
+function fixedLand(hex: { hex: Poly; centre: Point; dry: number[]; wet: number[] }, width: number, kind: 'strait' | 'isthmus', fill = 1): Poly[] {
+  const { hex: outline, centre, dry, wet } = hex;
+  const mid = (e: number): Point => ({ x: (outline[e]!.x + outline[(e + 1) % 6]!.x) / 2, y: (outline[e]!.y + outline[(e + 1) % 6]!.y) / 2 });
+  const span = Math.hypot(mid(0).x - mid(3).x, mid(0).y - mid(3).y);
+  const band = (e: number, depth: number) => cut(outline, outline[e]!, outline[(e + 1) % 6]!, depth, 'left');
+  const scale = Math.min(1, fill);
+  const rawSectors = dry.map((e): Poly => {
+    const whole = wound([centre, outline[e]!, outline[(e + 1) % 6]!]);
+    if (scale >= 1 || kind === 'isthmus') return whole;
+    const slab = band(e, (scale * span) / 2);
+    return slab.length > 0 ? within(whole, slab) : [];
+  });
+  // (a sector cut right back has no area, and would only confuse the cutting below)
+  const sectors = solid(rawSectors);
+  const arms = (edges: number[]): Poly[] => edges.map((e) => within(arm(centre, mid(e), width / 2), outline)).filter((a) => a.length > 0);
+  const deeper = Math.max(0, fill - 1) * span;
+  if (kind === 'strait') {
+    // A bank with no bank opposite it has nothing to leave `width` against, so it is given the depth that
+    // leaves `width` between it and the hex's far edge: the strait narrows as the setting does either way.
+    const natural = Math.max(0, (span - Math.min(width, span)) / 2) * scale;
+    const lone = dry.filter((e) => !dry.includes((e + 3) % 6));
+    const bands = [
+      ...lone.map((e) => band(e, Math.max(natural, deeper))),
+      ...(deeper > 0 ? dry.filter((e) => !lone.includes(e)).map((e) => band(e, deeper)) : []),
+    ].filter((b) => b.length > 0);
+    const banks = [...sectors, ...bands];
+    const channels = arms(wet);
+    return banks.flatMap((b, k) => without(b, banks.slice(0, k))).flatMap((b) => without(b, channels));
+  }
+  const grown = deeper > 0 ? dry.map((e) => band(e, deeper)).filter((b) => b.length > 0) : [];
+  const pieces = [...sectors, ...grown, ...arms(dry)];
+  return pieces.flatMap((b, k) => without(b, pieces.slice(0, k)));
+}
+
+/** The fill (see `fixedLand`) at which an isthmus or strait of this width has `target` of the hex as land, or the nearest it can. */
+function fillFor(hex: { hex: Poly; centre: Point; dry: number[]; wet: number[] }, width: number, kind: 'strait' | 'isthmus', target: number, hexArea: number): number {
+  const share = (fill: number) => fixedLand(hex, width, kind, fill).reduce((sum, p) => sum + polyArea(p), 0) / hexArea;
+  let low = 0;
+  let high = 2;
+  if (share(low) >= target) return low;
+  if (share(high) <= target) return high;
+  for (let k = 0; k < 28 && high - low > 1e-5; k++) {
+    const mid = (low + high) / 2;
+    if (share(mid) < target) low = mid;
+    else high = mid;
+  }
+  return (low + high) / 2;
+}
+
+/** Pieces too thin to be land at all: what cutting leaves where two edges meet at a point. */
+function solid(polys: Poly[]): Poly[] {
+  return polys.filter((poly) => {
+    let edge = 0;
+    for (let k = 0; k < poly.length; k++) edge += Math.hypot(poly[(k + 1) % poly.length]!.x - poly[k]!.x, poly[(k + 1) % poly.length]!.y - poly[k]!.y);
+    return edge > 0 && (2 * polyArea(poly)) / edge > 0.05;
+  });
+}
+
 /** The piece among `pieces` that `p` is in, else the one nearest it. */
 function nearest(p: Point, pieces: Frag[]): Frag | undefined {
   let best: Frag | undefined;
@@ -437,6 +512,13 @@ export interface ShapeTarget {
   kind: 'inset' | 'neck' | 'channel';
   concentrationSide?: number;
   concentration?: number;
+  /**
+   * For a `neck` or `channel`: how wide it is, in pixels. The arm is then drawn at that width however
+   * many neighbours it runs to, and `share` is not aimed at (a fixed width has no share to find).
+   */
+  width?: number;
+  /** With `width`: also aim at `share`, tuning how much land the hex has (see `fixedLand`). Without it the share is not aimed at. */
+  fit?: boolean;
 }
 
 /**
@@ -469,7 +551,7 @@ export function shapeCoast(
   }
 
   /** One hex cut to its share: what it gives up, what it takes, and the land it is left with. */
-  const reshapeHex = (i: number, { share, kind, concentrationSide, concentration }: ShapeTarget): HexShape | null => {
+  const reshapeHex = (i: number, { share, kind, width, fit, concentrationSide, concentration }: ShapeTarget): HexShape | null => {
     const col = i % cols;
     const row = Math.floor(i / cols);
     const split = surface.split.get(i);
@@ -491,6 +573,16 @@ export function shapeCoast(
     const water = pieces.filter((p) => p.side === 'sea');
     const dry = [0, 1, 2, 3, 4, 5].filter((e) => split.sides[6 + e] === 'land');
     const wet = [0, 1, 2, 3, 4, 5].filter((e) => split.sides[6 + e] === 'sea');
+    // A strait or isthmus of a set width has no share to find (see `fixedLand`).
+    if (width !== undefined && kind !== 'inset') {
+      if (dry.length === 0 || wet.length === 0) return null;
+      const shape = { hex: corners, centre: hexCenter(col, row, size), dry, wet };
+      const type = kind === 'channel' ? 'strait' : 'isthmus';
+      const fill = fit ? fillFor(shape, width, type, share, hexArea) : 1;
+      const fixed = setAgainst(solid(fixedLand(shape, width, type, fill)), land, water, hexArea);
+      const at = (p: Point) => nearest(p, land)?.donor ?? i;
+      return { strips: fixed.strips, grown: fixed.grown, water: fixed.water.flatMap(toPath), land: fixed.land.map((poly) => ({ poly, hex: i, donor: at })) };
+    }
     // A neck to three land edges, or a channel from three sea edges, would leave the hex's
     // other kind in pockets; and a mainland has no neck to run. Those hexes are land laid
     // along their land edges instead, deeper as the share grows, so that it stays joined to them.
@@ -514,7 +606,7 @@ export function shapeCoast(
   for (const [i, target] of targets) {
     // The same hex, cut to the same share among the same neighbours, is cut the same way.
     const code = (j: number) => `${surface.whole[j]}${surface.split.get(j)?.sides.join('') ?? ''}`;
-    const sig = [target.share, target.kind, target.concentrationSide ?? '-', target.concentration ?? 0, code(i), ...[0, 1, 2, 3, 4, 5].map((e) => {
+    const sig = [target.share, target.kind, target.width ?? '', target.fit ? 'fit' : '', target.concentrationSide ?? '-', target.concentration ?? 0, code(i), ...[0, 1, 2, 3, 4, 5].map((e) => {
       const n = neighbourOf(i % cols, Math.floor(i / cols), e);
       return inBounds(cols, rows, n.col, n.row) ? code(hexIndex(cols, n.col, n.row)) : '-';
     })].join('|');
@@ -613,8 +705,14 @@ export function shapeCoast(
     }
   }
 
+  // A sliver too thin to see would still be stroked, as a hairline across the hex.
   const sliver = (f: Frag): Sliver => ({ d: toPath(f.poly), donor: f.donor });
-  return { edges, strips: strips.map(sliver), grown: grown.map(sliver), water: waterLeft, insets, land: new Map([...reshaped].map(([i, lands]) => [i, lands.map((l) => l.poly)])) };
+  const real = (f: Frag) => {
+    let edge = 0;
+    for (let k = 0; k < f.poly.length; k++) edge += Math.hypot(f.poly[(k + 1) % f.poly.length]!.x - f.poly[k]!.x, f.poly[(k + 1) % f.poly.length]!.y - f.poly[k]!.y);
+    return edge > 0 && (2 * polyArea(f.poly)) / edge > 0.05;
+  };
+  return { edges, strips: strips.filter(real).map(sliver), grown: grown.filter(real).map(sliver), water: waterLeft, insets, land: new Map([...reshaped].map(([i, lands]) => [i, lands.map((l) => l.poly)])) };
 }
 
 const centroid = (poly: Poly): Point => ({

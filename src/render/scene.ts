@@ -111,13 +111,16 @@ import { BUNDLED_FACES, LETTERINGS, type FaceRole } from './lettering.js';
 import { signed, unit } from './seed.js';
 import { ELEVATION_RANK, floeFringe, glacierEdges, glacierFlow, glacierMarginPrims, glacierShading, glacierShelf, iceSeam, nearHexes, pathPolylines, seaIcePrims } from './ice.js';
 import { coastLengthIn, coveredArea, driftOf, nearestHex, nearestOn, shapeCoast, type ShapeMemo, type ShapeTarget } from './footprint.js';
-import { drawnLandFraction, landFraction, normaliseHexDimensions } from '../../shared/surfaceArea.js';
+import { channelShareSet, channelWidthFraction, drawnLandFraction, landFraction, normaliseHexDimensions } from '../../shared/surfaceArea.js';
 import { CLASSIC_STYLE, type ElevationStyle, type MapStyle } from './styles.js';
 import { extendToRim, rimPieces } from './rim.js';
 import { grainTile } from './texture.js';
 
 export type { CitySymbol, PathCmd, Prim } from './prims.js';
 
+
+/** The mean of a polygon's corners. */
+const centroidOf = (poly: Point[]): Point => ({ x: poly.reduce((sum, q) => sum + q.x, 0) / poly.length, y: poly.reduce((sum, q) => sum + q.y, 0) / poly.length });
 
 /**
  * The part of a convex hex lying east of a vertical chord, placed so that it
@@ -379,7 +382,7 @@ function cachedCoast(
   /** Half the coastline's stroke width: what its ink adds outside the land, which counts as land (0 with no coastline). */
   inkReach: number,
 ): TracedCoast {
-  const key = `${cols}x${rows}@${size}/${smooth}/${inkReach}/${seed}/${defaultIrregularity ?? ''}/${shapesSignature(shapes)}/${dimensions.coastalLandPercent},${dimensions.lakeLandPercent},${dimensions.glacierPercent},${dimensions.isthmusPercent},${dimensions.straitPercent},${dimensions.mainlandPercent}`;
+  const key = `${cols}x${rows}@${size}/${smooth}/${inkReach}/${seed}/${defaultIrregularity ?? ''}/${shapesSignature(shapes)}/${dimensions.coastalLandPercent},${dimensions.lakeLandPercent},${dimensions.glacierPercent},${dimensions.isthmusWidth},${dimensions.straitWidth},${dimensions.isthmusPercent ?? ''},${dimensions.straitPercent ?? ''},${dimensions.mainlandPercent}`;
   const hit = coastCache.get(base);
   if (hit && hit.key === key) return hit;
   const lakeIslands = lakeIslandsOf(base, cols, rows);
@@ -391,6 +394,12 @@ function cachedCoast(
   const amplitudeOf = (i: number | undefined): number => {
     if (i === undefined || base[i] === 'Islands') return 0;
     return COAST_AMPLITUDE[hexShapeFor(base[i], shapes?.[String(i)], defaultIrregularity).irregular] * (surface.split.has(i) ? 0.5 : 1);
+  };
+  // Roughness is also kept well inside the width of a neck or channel (a quarter of it, at the most), so that a
+  // narrow isthmus is never cut through nor a narrow strait closed by the ragged line along it.
+  const narrowest = (i: number | undefined): number => {
+    const fraction = i === undefined || !surface.split.has(i) ? null : channelWidthFraction(base[i], dimensions, shapes?.[String(i)]);
+    return fraction === null ? Infinity : fraction * 0.27;
   };
   // The sea's coast: lakes count as land here, as they have bodies of their own.
   const seaEdges = surfaceEdges(surface, size, (side) => side !== 'sea');
@@ -419,8 +428,12 @@ function cachedCoast(
     if (share === null) continue;
     // The land inside the line is the share less the outer half of the ink along it.
     const aimed = inkReach > 0 ? Math.max(0, share - (((seaLength.get(i) ?? 0) + (lakeLength.get(i) ?? 0)) * inkReach) / hexAreaOf) : share;
+    const channel = channelWidthFraction(base[i], dimensions, shapes?.[String(i)]);
     if (surface.split.has(i)) {
-      targets.set(i, { share: aimed, kind: base[i] === 'Strait' ? 'channel' : base[i] === 'Isthmus' ? 'neck' : 'inset', concentrationSide: shape.concentrationSide, concentration: shape.concentration });
+      // A neck or a channel is drawn at its width, which is across the hex: its flat-to-flat span.
+      targets.set(i, channel !== null
+        ? { share: aimed, kind: base[i] === 'Strait' ? 'channel' : 'neck', width: channel * Math.sqrt(3) * size, fit: channelShareSet(base[i], dimensions, shapes?.[String(i)]) !== null }
+        : { share: aimed, kind: 'inset', concentrationSide: shape.concentrationSide, concentration: shape.concentration });
     } else if (surface.whole[i] === 'land' && aimed < 1 && (share < 1 || seaLength.has(i))) {
       // Whole hexes of land are cut back from the sea; a strait drawn whole is all water.
       targets.set(i, { share: aimed, kind: 'inset', concentrationSide: shape.concentrationSide, concentration: shape.concentration });
@@ -435,7 +448,7 @@ function cachedCoast(
   const rough: Roughness | undefined = smooth
     ? {
         size,
-        amplitude: (edge: CoastEdge) => Math.max(amplitudeOf(edge.hex), amplitudeOf(edge.across)),
+        amplitude: (edge: CoastEdge) => Math.min(Math.max(amplitudeOf(edge.hex), amplitudeOf(edge.across)), narrowest(edge.hex), narrowest(edge.across)),
         noise: (x, y, k) => unit(seed, 'coast', Math.round(x * 1000), Math.round(y * 1000), k),
       }
     : undefined;
@@ -462,10 +475,17 @@ function cachedCoast(
     let miss = 0;
     const next = new Map<number, ShapeTarget>();
     for (const [i, target] of targets) {
+      // A neck or channel with no share set is drawn as it is; with one, its fill is found like any other cut.
+      if (target.width !== undefined && !target.fit) {
+        next.set(i, target);
+        continue;
+      }
       const was = aimed.get(i)!.share;
       const shows = was + (drift.get(i) ?? 0) / hexArea + (((ink.get(i) ?? 0) + (lakeLength.get(i) ?? 0)) * inkReach) / hexArea;
       const short = wanted.get(i)! - shows;
-      miss = Math.max(miss, Math.abs(short));
+      // A neck or channel with a share set may not be able to reach it (its width allows a least and a most): that
+      // is not a coast cut badly, and must not decide which pass is kept for the hexes round it.
+      if (!target.fit) miss = Math.max(miss, Math.abs(short));
       next.set(i, { ...target, share: Math.min(1, Math.max(0, was + short * 0.8)) });
     }
     if (!best || miss < best.miss) best = { shaped, geometry, miss };
@@ -991,7 +1011,11 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
     for (const [i, split] of terrain?.split ?? []) {
       const col = i % cols;
       const row = Math.floor(i / cols);
-      split.sides.forEach((side, p) => {
+      // Water first, so that its sealing stroke never paints over land beside it: where a reshaped hex
+      // takes the water for land, a hairline of water would show along the seam.
+      const order = split.sides.map((_, p) => p).sort((a, b) => Number(split.sides[a] !== 'sea') - Number(split.sides[b] !== 'sea') || a - b);
+      order.forEach((p) => {
+        const side = split.sides[p]!;
         const points = piecePoints(col, row, p, size);
         if (side === 'sea') {
           const fill = waterColour(split.donors[p]!);
@@ -1993,6 +2017,22 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
     // the strait hex is itself owned: then its own region colours them.
     for (const [i, split] of terrain?.split ?? []) {
       if (base?.[i] === 'Strait' && polities.owner[i]) continue;
+      // A strait's banks are drawn to its width, reaching in from the edges that face land as far as that
+      // needs: the realm colours them as drawn, each bank in the colour of the land it grows from.
+      const banks = base?.[i] === 'Strait' ? traced?.geometry.land.get(i) : undefined;
+      if (banks && banks.length > 0) {
+        const pieces = split.sides
+          .map((side, p) => ({ side, p, at: centroidOf(piecePoints(i % cols, Math.floor(i / cols), p, size)) }))
+          .filter((piece) => piece.side === 'land');
+        for (const poly of banks) {
+          const c = centroidOf(poly);
+          let nearest = pieces[0];
+          for (const piece of pieces) if (!nearest || Math.hypot(piece.at.x - c.x, piece.at.y - c.y) < Math.hypot(nearest.at.x - c.x, nearest.at.y - c.y)) nearest = piece;
+          const owner = nearest ? polities.owner[split.donors[nearest.p]!] : null;
+          if (owner) addLand(owner, [...poly.map((q, k) => [k === 0 ? 'M' : 'L', q.x, q.y] as PathCmd), ['Z']]);
+        }
+        continue;
+      }
       split.sides.forEach((side, p) => {
         const owner = side === 'land' ? polities.owner[split.donors[p]!] : null;
         if (!owner || split.donors[p] === i) return;
