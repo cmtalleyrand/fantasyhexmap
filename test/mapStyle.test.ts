@@ -1628,10 +1628,21 @@ test('a river course can be adjusted in one hex without changing the other hexes
   const free = riverCourse(river, size, 'reach', { wander: 'wild' })!.centreline;
   const baseline = nearest(free);
   river.segments[3]!.reach = { min: 0.8, max: null };
-  const adjusted = nearest(riverCourse(river, size, 'reach', { wander: 'wild' })!.centreline);
+  const adjustedLine = riverCourse(river, size, 'reach', { wander: 'wild' })!.centreline;
+  const adjusted = nearest(adjustedLine);
   assert.ok(adjusted[1]! >= 0.74, `selected hex came as near as ${adjusted[1]!.toFixed(2)}`);
   assert.ok(Math.abs(adjusted[0]! - baseline[0]!) < 0.03, 'upstream neighbouring hex stays on its generated course');
   assert.ok(Math.abs(adjusted[3]! - baseline[3]!) < 0.03, 'distant hex stays on its generated course');
+  const selected = adjustedLine.filter((p) => {
+    const h = pixelToOffset(p.x, p.y, size);
+    return h.col === 3 && h.row === 3;
+  });
+  const centre = hexCenter(3, 3, size);
+  const a = selected[0]!;
+  const b = selected.at(-1)!;
+  const side = (p: { x: number; y: number }) => (b.x - a.x) * (p.y - centre.y) - (b.y - a.y) * (p.x - centre.x);
+  const signs = selected.map(side).filter((v) => Math.abs(v) > size * size * 0.01).map(Math.sign);
+  assert.ok(signs.every((v) => v === signs[0]), 'minimum reach takes one coherent side around the centre');
 
   river.segments[3]!.reach = { min: null, max: 0.2 };
   const centred = nearest(riverCourse(river, size, 'reach', { wander: 'wild' })!.centreline);
