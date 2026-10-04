@@ -374,6 +374,103 @@ function splitLabel(
   return { text, at: found.mid, size: found.font, rotation: found.angle, glyphs, width: found.span };
 }
 
+/** Largest heading change (radians) a river name may take across its length before a smaller size is tried. */
+const MAX_NAME_TURN = 0.55;
+
+/** Round the corners of a polyline (Chaikin) and resample it evenly, returning the points and cumulative lengths. */
+function smoothCourse(raw: Point[], step: number, radius: number): { pts: Point[]; cum: number[] } {
+  let line = raw;
+  for (let pass = 0; pass < 3 && line.length > 2; pass++) {
+    const next: Point[] = [line[0]!];
+    for (let i = 0; i < line.length - 1; i++) {
+      const p = line[i]!;
+      const q = line[i + 1]!;
+      next.push({ x: p.x * 0.75 + q.x * 0.25, y: p.y * 0.75 + q.y * 0.25 }, { x: p.x * 0.25 + q.x * 0.75, y: p.y * 0.25 + q.y * 0.75 });
+    }
+    next.push(line[line.length - 1]!);
+    line = next;
+  }
+  const cum0 = [0];
+  for (let i = 1; i < line.length; i++) cum0.push(cum0[i - 1]! + Math.hypot(line[i]!.x - line[i - 1]!.x, line[i]!.y - line[i - 1]!.y));
+  const length = cum0[cum0.length - 1]!;
+  const count = Math.max(2, Math.ceil(length / step) + 1);
+  let pts: Point[] = [];
+  for (let k = 0; k < count; k++) pts.push(pointAt(line, cum0, (length * k) / (count - 1)));
+  // Average out the wobble of an irregular river over about a letter's width, so
+  // the letters ride a calm line instead of jittering with every kink.
+  const half = Math.round(radius / step);
+  for (let pass = 0; pass < 3 && half > 0; pass++) {
+    const src = pts;
+    pts = src.map((_, i) => {
+      const w = Math.min(half, i, src.length - 1 - i);
+      let x = 0;
+      let y = 0;
+      for (let j = i - w; j <= i + w; j++) {
+        x += src[j]!.x;
+        y += src[j]!.y;
+      }
+      return { x: x / (2 * w + 1), y: y / (2 * w + 1) };
+    });
+  }
+  const cum = [0];
+  for (let i = 1; i < pts.length; i++) cum.push(cum[i - 1]! + Math.hypot(pts[i]!.x - pts[i - 1]!.x, pts[i]!.y - pts[i - 1]!.y));
+  return { pts, cum };
+}
+
+/** A per-point width profile of the raw course, carried onto the resampled one by position along the course. */
+function rescaleProfile(profile: number[] | undefined, raw: Point[], pts: Point[], cum: number[]): number[] | null {
+  if (!profile || profile.length !== raw.length) return null;
+  const rawCum = [0];
+  for (let i = 1; i < raw.length; i++) rawCum.push(rawCum[i - 1]! + Math.hypot(raw[i]!.x - raw[i - 1]!.x, raw[i]!.y - raw[i - 1]!.y));
+  const rawTotal = rawCum[rawCum.length - 1]! || 1;
+  const total = cum[cum.length - 1]! || 1;
+  return pts.map((_, i) => {
+    const target = (cum[i]! / total) * rawTotal;
+    let j = 1;
+    while (j < raw.length - 1 && rawCum[j]! < target) j++;
+    const span = rawCum[j]! - rawCum[j - 1]!;
+    const t = span === 0 ? 0 : Math.max(0, Math.min(1, (target - rawCum[j - 1]!) / span));
+    return profile[j - 1]! + (profile[j]! - profile[j - 1]!) * t;
+  });
+}
+
+/** The direction of each segment of a polyline, in radians. */
+function headingsOf(pts: Point[]): number[] {
+  const h: number[] = [];
+  for (let i = 1; i < pts.length; i++) h.push(Math.atan2(pts[i]!.y - pts[i - 1]!.y, pts[i]!.x - pts[i - 1]!.x));
+  return h;
+}
+
+/** The smallest signed difference between two angles. */
+function angleDiff(a: number, b: number): number {
+  let d = a - b;
+  while (d > Math.PI) d -= 2 * Math.PI;
+  while (d <= -Math.PI) d += 2 * Math.PI;
+  return d;
+}
+
+/** How far the line's direction strays from its direction at the middle of [from, to], at most, in radians. */
+function turnWithin(pts: Point[], cum: number[], headings: number[], from: number, to: number): number {
+  const at = (d: number) => {
+    let i = 1;
+    while (i < pts.length - 1 && cum[i]! < d) i++;
+    return headings[i - 1]!;
+  };
+  const centre = at((from + to) / 2);
+  let worst = 0;
+  for (let j = 0; j <= 12; j++) worst = Math.max(worst, Math.abs(angleDiff(at(from + ((to - from) * j) / 12), centre)));
+  return worst;
+}
+
+/** Whether a point lies near a stretch of the river's own line well away from `d` along it. */
+function ownReturn(pts: Point[], cum: number[], d: number, x: number, y: number, font: number): boolean {
+  for (let i = 0; i < pts.length; i++) {
+    if (Math.abs(cum[i]! - d) < font * 2.5) continue;
+    if (Math.hypot(pts[i]!.x - x, pts[i]!.y - y) < font * 0.6) return true;
+  }
+  return false;
+}
+
 /**
  * `pathFor` supplies the course as drawn when it is not the hex-centre polyline
  * (a meandering river), so the name sits on the line the reader sees.
@@ -406,79 +503,98 @@ export function placeRiverLabels(
     // size goes unnamed.
     const idealFont = Math.max(9, size * 0.44) * (1 + 0.1 * Math.min(1, drawn / (size * 0.17)));
     const minFont = Math.max(7, size * 0.3);
-    const pts = lines.get(river.id)!;
-    if (pts.length < 2) continue;
-    const profile = profileFor?.(river.id);
-    const others = rivers.filter((r) => r.id !== river.id).flatMap((r) => lines.get(r.id) ?? []);
-    const cum = [0];
-    for (let i = 1; i < pts.length; i++) {
-      cum.push(cum[i - 1]! + Math.hypot(pts[i]!.x - pts[i - 1]!.x, pts[i]!.y - pts[i - 1]!.y));
-    }
+    const raw = lines.get(river.id)!;
+    if (raw.length < 2) continue;
+    // Lettering follows a rounded copy of the course: the hex-to-hex polyline has
+    // hard corners that would throw letters sideways, and a name cannot bend that sharply.
+    const { pts, cum } = smoothCourse(raw, Math.max(2, size * 0.2), idealFont * 0.7);
     const total = cum[cum.length - 1]!;
+    const profile = rescaleProfile(profileFor?.(river.id), raw, pts, cum);
+    const others = rivers.filter((r) => r.id !== river.id).flatMap((r) => lines.get(r.id) ?? []);
     const em = glyphAdvances(text, 1, face.tracking, face.weight, face.family, face.italic).width;
-    // Shrink to fit short rivers; a name that cannot fit legibly is left off.
-    const font = Math.min(idealFont, (total * 0.95) / em);
-    if (font < minFont) continue;
-    const width = em * font;
-    // Sit just off the line (in the text's own frame), clear of its bank.
-    const lift = Math.max(font * 0.8, drawn / 2 + font * 0.45);
+    const headings = headingsOf(pts);
 
-    // Slide a window of the text's width along the course, on either side of
-    // it, and take the place whose points stray least from their own chord,
-    // preferring the middle, and which keeps off other names, city markers,
-    // lakes and other rivers.
-    const steps = 24;
-    let best: { start: number; side: 1 | -1; score: number } | null = null;
-    for (let k = 0; k <= steps; k++) {
-      const start = ((total - width) * k) / steps;
-      const a = pointAt(pts, cum, start);
-      const b = pointAt(pts, cum, start + width);
-      const chord = Math.hypot(b.x - a.x, b.y - a.y) || 1;
-      let deviation = 0;
-      for (let j = 1; j < 6; j++) {
-        const p = pointAt(pts, cum, start + (width * j) / 6);
-        deviation = Math.max(
-          deviation,
-          Math.abs((b.x - a.x) * (a.y - p.y) - (a.x - p.x) * (b.y - a.y)) / chord,
-        );
-      }
-      const centreBias = Math.abs(start + width / 2 - total / 2) / total;
-      // The widest the river is under the text: a name goes on the slim stretches.
-      let wide = 0;
-      if (profile && profile.length === pts.length) {
-        for (let i = 0; i < pts.length; i++) if (cum[i]! >= start && cum[i]! <= start + width) wide = Math.max(wide, profile[i]!);
-      }
-      for (const side of [1, -1] as const) {
-        let hits = 0;
-        let samples = 0;
-        for (let j = 0; j <= 8; j++) {
-          const d = start + (width * j) / 8;
-          const p = pointAt(pts, cum, d);
-          const q = pointAt(pts, cum, d + font * 0.3);
-          // The text frame's direction, left to right, and the way its top points.
-          let angle = Math.atan2(q.y - p.y, q.x - p.x);
-          if (Math.cos(angle) < 0) angle += Math.PI;
-          for (const off of [lift * side - font * 0.4, lift * side, lift * side + font * 0.4]) {
-            const x = p.x + Math.sin(angle) * off;
-            const y = p.y - Math.cos(angle) * off;
-            samples++;
-            if (avoid.some((box) => insideBox(box, x, y)) || placed.some((box) => insideBox(box, x, y))) hits += 2;
-            else if (inWater?.({ x, y })) hits += 2;
-            else if (others.some((o) => Math.hypot(o.x - x, o.y - y) < font * 0.45)) hits += 2;
-          }
+    interface Pick {
+      font: number;
+      lift: number;
+      start: number;
+      side: 1 | -1;
+      score: number;
+      turn: number;
+      covered: number;
+    }
+    let chosen: Pick | null = null;
+    let fallback: Pick | null = null;
+    // Largest type first; a smaller size is taken when it reaches a straighter,
+    // clearer stretch. A name that only fits across a sharp bend is shrunk
+    // before it is allowed to bend.
+    for (let font = Math.min(idealFont, (total * 0.95) / em); font >= minFont * 0.999; font *= 0.9) {
+      const width = em * font;
+      if (width > total) continue;
+      // Sit just off the line (in the text's own frame), clear of its bank.
+      const lift = Math.max(font * 0.8, drawn / 2 + font * 0.45);
+      const steps = 40;
+      let best: Pick | null = null;
+      for (let k = 0; k <= steps; k++) {
+        const start = ((total - width) * k) / steps;
+        const turn = turnWithin(pts, cum, headings, start, start + width);
+        const a = pointAt(pts, cum, start);
+        const b = pointAt(pts, cum, start + width);
+        const chord = Math.hypot(b.x - a.x, b.y - a.y) || 1;
+        let deviation = 0;
+        for (let j = 1; j < 6; j++) {
+          const p = pointAt(pts, cum, start + (width * j) / 6);
+          deviation = Math.max(deviation, Math.abs((b.x - a.x) * (a.y - p.y) - (a.x - p.x) * (b.y - a.y)) / chord);
         }
-        const covered = hits / (2 * samples);
-        // The name bends with the river, so a bend matters less than for straight type.
-        const score = (deviation / size) * 0.5 + centreBias * 0.3 + covered * 4 + (wide / size) * 1.5 + (side === 1 ? 0 : 0.02);
-        if (!best || score < best.score) best = { start, side, score };
+        const centreBias = Math.abs(start + width / 2 - total / 2) / total;
+        // The widest the river is under the text: a name goes on the slim stretches.
+        let wide = 0;
+        if (profile) {
+          for (let i = 0; i < pts.length; i++) if (cum[i]! >= start && cum[i]! <= start + width) wide = Math.max(wide, profile[i]!);
+        }
+        for (const side of [1, -1] as const) {
+          let hits = 0;
+          let samples = 0;
+          for (let j = 0; j <= 8; j++) {
+            const d = start + (width * j) / 8;
+            const p = pointAt(pts, cum, d);
+            const q = pointAt(pts, cum, d + font * 0.3);
+            // The text frame's direction, left to right, and the way its top points.
+            let angle = Math.atan2(q.y - p.y, q.x - p.x);
+            if (Math.cos(angle) < 0) angle += Math.PI;
+            for (const off of [lift * side - font * 0.4, lift * side, lift * side + font * 0.4]) {
+              const x = p.x + Math.sin(angle) * off;
+              const y = p.y - Math.cos(angle) * off;
+              samples++;
+              if (avoid.some((box) => insideBox(box, x, y)) || placed.some((box) => insideBox(box, x, y))) hits += 2;
+              else if (inWater?.({ x, y })) hits += 2;
+              else if (others.some((o) => Math.hypot(o.x - x, o.y - y) < font * 0.45)) hits += 2;
+              // The river's own line coming back round the inside of a bend.
+              else if (ownReturn(pts, cum, d, x, y, font)) hits += 2;
+            }
+          }
+          const covered = hits / (2 * samples);
+          const score = (deviation / size) * 0.5 + centreBias * 0.3 + covered * 4 + (wide / size) * 1.5 + Math.max(0, turn - 0.2) * 2.5 + (side === 1 ? 0 : 0.02);
+          if (!best || score < best.score) best = { font, lift, start, side, score, turn, covered };
+        }
+      }
+      if (!best) continue;
+      if (!fallback || best.score + (1 - best.font / idealFont) * 1.2 < fallback.score + (1 - fallback.font / idealFont) * 1.2) fallback = best;
+      if (best.turn <= MAX_NAME_TURN && best.covered < 0.2) {
+        chosen = best;
+        break;
       }
     }
-    const a = pointAt(pts, cum, best!.start);
-    const b = pointAt(pts, cum, best!.start + width);
+    const pick = chosen ?? fallback;
+    if (!pick) continue;
+    const { font, lift } = pick;
+    const width = em * font;
+    const a = pointAt(pts, cum, pick.start);
+    const b = pointAt(pts, cum, pick.start + width);
     const rotation = upright(Math.atan2(b.y - a.y, b.x - a.x));
     const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
-    const signed = lift * best!.side;
-    const glyphs = glyphsAlong(text, font, pts, best!.start, { tracking: face.tracking, lift: signed, weight: face.weight, family: face.family, italic: face.italic });
+    const signed = lift * pick.side;
+    const glyphs = glyphsAlong(text, font, pts, pick.start, { tracking: face.tracking, lift: signed, weight: face.weight, family: face.family, italic: face.italic });
     for (const g of glyphs) placed.push({ cx: g.x, cy: g.y, halfW: font * 0.4, halfH: font * 0.6, rotation: g.rotation });
     out.push({
       text,

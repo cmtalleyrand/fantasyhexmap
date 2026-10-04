@@ -364,6 +364,46 @@ test('a river name goes on the slimmer stretch of a river that widens', async ()
   assert.ok(mid.x < line[Math.floor(line.length / 2)]!.x, 'set in the upstream half');
 });
 
+test('a river name on an irregular river keeps its letters calm: no jitter, no folding back', async () => {
+  const { placeRiverLabels } = await import('../src/render/featureLabels.ts');
+  const size = 40;
+  let rnd = 7;
+  const next = () => (rnd = (rnd * 1664525 + 1013904223) % 4294967296) / 4294967296;
+  const nb = (col: number, row: number, d: number) => {
+    const odd = row & 1;
+    const off = [[1, 0], [odd ? 1 : 0, 1], [odd ? 0 : -1, 1], [-1, 0], [odd ? 0 : -1, -1], [odd ? 1 : 0, -1]][d]!;
+    return { col: col + off[0]!, row: row + off[1]! };
+  };
+  for (let n = 0; n < 12; n++) {
+    let at = { col: 10, row: 10 };
+    let prev: number | null = null;
+    const segs = [];
+    for (let k = 0; k < 14; k++) {
+      let d = Math.floor(next() * 6);
+      if (prev !== null && d === (prev + 3) % 6) d = (d + 1) % 6;
+      segs.push({ col: at.col, row: at.row, entryEdge: prev === null ? null : (prev + 3) % 6, exitEdge: k === 13 ? null : d, navigable: false });
+      at = nb(at.col, at.row, d);
+      prev = d;
+    }
+    const river = { id: 'i', name: 'Winding', terminus: 'Unresolved' as const, segments: segs };
+    for (const label of [
+      placeRiverLabels([river], size)[0],
+      placeRiverLabels([river], size, () => riverCourse(river, size, `s${n}`, { wander: 'wild' })!.centreline)[0],
+    ]) {
+      if (!label) continue;
+      const g = label.glyphs!;
+      for (let i = 1; i < g.length; i++) {
+        let t = Math.abs(g[i]!.rotation - g[i - 1]!.rotation);
+        if (t > Math.PI) t = 2 * Math.PI - t;
+        assert.ok(t < 0.6, `run ${n}: letters ${i - 1} and ${i} differ by ${(t * 180 / Math.PI).toFixed(0)} degrees`);
+      }
+      let overall = Math.abs(g[g.length - 1]!.rotation - g[0]!.rotation);
+      if (overall > Math.PI) overall = 2 * Math.PI - overall;
+      assert.ok(overall < 1.3, `run ${n}: name turns ${(overall * 180 / Math.PI).toFixed(0)} degrees end to end`);
+    }
+  }
+});
+
 test('river names keep off lakes, city markers, other rivers and each other', async () => {
   const { placeRiverLabels } = await import('../src/render/featureLabels.ts');
   const size = 40;
