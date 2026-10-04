@@ -14,7 +14,7 @@
  */
 
 import { recomputeCityFacts, canHoldSettlement } from '../../shared/derive.js';
-import { CHANNEL_WIDTH_VALUES, hasChannelWidth, hasLandShare, isIslandType, isShapedType, islandSpecFor, type ChannelWidth, type HexShape, type IslandSpec, type Irregularity } from '../../shared/types.js';
+import { CHANNEL_WIDTH_VALUES, hasChannelWidth, hasLandConcentration, hasLandShare, isIslandType, isShapedType, islandSpecFor, type ChannelWidth, type HexShape, type IslandSpec, type Irregularity } from '../../shared/types.js';
 import { migrateLegacyIslands } from '../../shared/islandMigration.js';
 import { GEO_KIND_LABEL, geoEligibility, geoNamesOf, withMigratedGeoNames } from '../../shared/geoNames.js';
 import { withValidParents } from '../../shared/polityTree.js';
@@ -1276,7 +1276,7 @@ export function reducer(map: MapState, action: Action): MapState {
           else if (change.width !== undefined && hasChannelWidth(value) && CHANNEL_WIDTH_VALUES.includes(change.width)) next.width = change.width;
           if (change.irregular === null) delete next.irregular;
           else if (change.irregular !== undefined && (isShapedType(value) || value === 'Lake')) next.irregular = change.irregular;
-          if (value === 'Coastal Land' || value === 'Mainland and islands') {
+          if (hasLandConcentration(value)) {
             if (change.concentrationSide === null) delete next.concentrationSide;
             else if (change.concentrationSide !== undefined && Number.isInteger(change.concentrationSide) && change.concentrationSide >= 0 && change.concentrationSide < 6) next.concentrationSide = change.concentrationSide;
             if (change.concentration === null) delete next.concentration;

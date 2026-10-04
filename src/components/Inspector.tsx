@@ -18,6 +18,7 @@ import {
   IRREGULARITY_VALUES,
   DEFAULT_IRREGULARITY,
   hasLandShare,
+  hasLandConcentration,
   hasChannelWidth,
   CHANNEL_WIDTH_PERCENT,
   CHANNEL_WIDTH_VALUES,
@@ -735,7 +736,7 @@ function HexShapePanel(props: SubProps) {
     return stored !== undefined && stored.type === base![i];
   });
   const set = (change: HexShapeChange | null) => dispatch({ type: 'setHexShape', indices: hexes, change });
-  const concentrated = hexes.filter((i) => base![i] === 'Coastal Land' || base![i] === 'Mainland and islands');
+  const concentrated = hexes.filter((i) => hasLandConcentration(base![i]));
   const concentrationSide = sharedOf(concentrated.map((i) => String(hexShapeFor(base![i], map.hexShapes?.[String(i)]).concentrationSide ?? -1)));
   const concentration = sharedOf(concentrated.map((i) => String(hexShapeFor(base![i], map.hexShapes?.[String(i)]).concentration ?? 0)));
   const landValue = Number(land);
@@ -792,7 +793,7 @@ function HexShapePanel(props: SubProps) {
           {[0, 25, 50, 75, 100].map((amount) => <option key={amount} value={amount}>{amount}%</option>)}
         </select>
         <p className="hint" style={{ margin: 0 }}>
-          Keeps the same land share while shifting more of its mainland towards one hex side. At 0% the land remains evenly distributed; 100% gives the strongest bias.
+          Keeps the same land share while shifting more of its land towards one hex side. At 0% the land remains evenly distributed; 100% gives the strongest bias.
         </p>
       </>)}
       {channelHexes.length > 0 && (
