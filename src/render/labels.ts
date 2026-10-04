@@ -85,6 +85,14 @@ export interface LabelInput {
    * a name may graze one (see {@link LAKE_ALLOWANCE}) rather than avoid it entirely.
    */
   lakes?: ReadonlySet<number>;
+  /**
+   * Whether a point is land as drawn. A realm owns hexes, but its name belongs on the land
+   * it actually has: where a hex is drawn as sea (a coast cut back to a small land share), a
+   * name over it is over water. Without it, every owned hex counts as land.
+   */
+  land?: (p: Point) => boolean;
+  /** Told of each realm named other than as asked, or not named, and why. */
+  notes?: PolityLabelNote[];
   /** Type size relative to a top-level realm's: the parts of a realm are named smaller. */
   scale?: number;
   /** Width of a line of the name, in em, in the face (and letter-spacing) it is set in. */
@@ -95,6 +103,13 @@ export interface LabelInput {
    * fit an awkward shape. 'fill': type grows to fill the territory.
    */
   sizing?: 'moderate' | 'fill';
+}
+
+/** A realm whose name was placed other than as asked, or not at all: what was given up, and why. */
+export interface PolityLabelNote {
+  polityId: string;
+  what: string;
+  why: string;
 }
 
 const LABEL_HEIGHT_EM = LABEL_LINE_EM;
@@ -118,6 +133,8 @@ const DEPTH_SHARE = 0.75;
 const LAKE_ALLOWANCE = 0.1;
 /** The gap between a small realm and the name set beside it, as a share of the type size. */
 const BESIDE_GAP = 0.3;
+/** The smallest share of its natural size a small realm's name is set at on its land before it is set beside it. */
+const SMALL_ON_LAND = 0.75;
 /** Tried before the fallback, so a name shrinks before it is allowed over water. */
 const SECOND_COVERAGE = 0.86;
 const FALLBACK_COVERAGE = 0.78;
@@ -256,7 +273,9 @@ export function placePolityLabels(input: LabelInput): PolityLabel[] {
     if (!inBounds(cols, rows, col, row)) return 'other';
     const i = hexIndex(width, col, row);
     if (owner[i] !== id) return 'other';
-    return lakes.has(i) ? 'lake' : 'own';
+    if (lakes.has(i)) return 'lake';
+    // Its own hex, but drawn as water there: not ground the name can claim.
+    return input.land && !input.land({ x, y }) ? 'other' : 'own';
   };
 
   const ordered = [...polities].sort(
@@ -352,14 +371,14 @@ export function placePolityLabels(input: LabelInput): PolityLabel[] {
       minCoverage: number,
       fontFloor: number,
       padScale = 1,
-    ): PolityLabel | null => {
-      let chosen: { at: Point; rotation: number; lines: string[]; score: number; font: number } | null = null;
+    ): (PolityLabel & { coverage: number }) | null => {
+      let chosen: { at: Point; rotation: number; lines: string[]; score: number; font: number; coverage: number } | null = null;
       let firstFit = 0;
       for (let font = idealSize; font >= fontFloor; font *= SIZE_STEP) {
         // Once a size fits, a somewhat smaller one may still win if it sits
         // more centrally, more level or wholly inside; below that, stop.
         if (firstFit > 0 && font < firstFit * 0.75) break;
-        let best: { at: Point; rotation: number; lines: string[]; score: number } | null = null;
+        let best: { at: Point; rotation: number; lines: string[]; score: number; coverage: number } | null = null;
         for (const layout of layouts) {
           const w = layout.em * font;
           const h = font * LABEL_HEIGHT_EM * layout.lines.length;
@@ -402,7 +421,7 @@ export function placePolityLabels(input: LabelInput): PolityLabel[] {
                 (Math.abs(rotation) / MAX_ROTATION) * 0.05 -
                 (layout.lines.length > 1 ? WRAP_PENALTY : 0) +
                 (font / idealSize) * 0.12;
-              if (!best || score > best.score) best = { at: cand.at, rotation, lines: layout.lines, score };
+              if (!best || score > best.score) best = { at: cand.at, rotation, lines: layout.lines, score, coverage };
             }
           }
         }
@@ -412,7 +431,7 @@ export function placePolityLabels(input: LabelInput): PolityLabel[] {
         }
       }
       return chosen
-        ? { polityId: polity.id, at: chosen.at, lines: chosen.lines, size: chosen.font, rotation: chosen.rotation }
+        ? { polityId: polity.id, at: chosen.at, lines: chosen.lines, size: chosen.font, rotation: chosen.rotation, coverage: chosen.coverage }
         : null;
     };
 
@@ -469,33 +488,85 @@ export function placePolityLabels(input: LabelInput): PolityLabel[] {
           if (box.left < 0 || box.top < 0 || box.right > mapW || box.bottom > mapH) continue;
           const probe = claimBox(at, w, h, 0, font);
           if (blockers.some((o) => overlapsClaimed(probe, o, 1))) continue;
-          // Clear of every other realm: only open water or its own ground lies under the name.
-          let foreign = false;
-          for (let a = 0; a < 7 && !foreign; a++) {
-            for (let b = 0; b < 3 && !foreign; b++) {
-              const { col, row } = pixelToOffset(at.x + (a / 6 - 0.5) * w, at.y + (b / 2 - 0.5) * h * 0.8, size);
+          // Beside the realm, not on it: with the land as drawn known, only open water lies under
+          // the name (not even the realm's own land, whose relief it would cover); without it,
+          // no other realm's hexes.
+          const across = Math.max(7, Math.ceil(w / (size * 0.25)));
+          let blocked = false;
+          for (let a = 0; a < across && !blocked; a++) {
+            for (let b = 0; b < 3 && !blocked; b++) {
+              const p = { x: at.x + (a / (across - 1) - 0.5) * w, y: at.y + (b / 2 - 0.5) * h * 0.8 };
+              if (input.land) {
+                blocked = input.land(p);
+                continue;
+              }
+              const { col, row } = pixelToOffset(p.x, p.y, size);
               const i = hexIndex(cols, col, row);
-              foreign = inBounds(cols, rows, col, row) && owner[i] != null && owner[i] !== polity.id;
+              blocked = inBounds(cols, rows, col, row) && owner[i] != null && owner[i] !== polity.id;
             }
           }
-          if (foreign) continue;
+          if (blocked) continue;
           return { polityId: polity.id, at, lines: layout.lines, size: font, rotation: 0 };
         }
       }
       return null;
     };
-    const label =
-      (tooLong ? beside() : null) ??
-      attempt(blockers, GOOD_COVERAGE, snug) ??
-      (small ? beside() : null) ??
-      (minHexes === 'auto' && small
-        ? null
-        : (attempt(names, GOOD_COVERAGE, snug) ??
-          attempt(names, SECOND_COVERAGE, snug) ??
-          attempt(names, FALLBACK_COVERAGE, snug) ??
-          (floor > MIN_FONT ? attempt(names, LOOSE_COVERAGE, snug) : null) ??
-          attempt(names, FALLBACK_COVERAGE, MIN_FONT, RELAXED_PAD)));
-    if (!label) continue;
+    // Each attempt in turn, with what taking it gives up (nothing, for the first ones).
+    type Found = PolityLabel & { coverage?: number; relaxed?: boolean };
+    const tries: Array<() => Found | null> = [
+      () => (tooLong ? beside() : null),
+      // A small realm is named on its land only at a readable size; failing that, beside it,
+      // and only then on its land in smaller type.
+      () => attempt(blockers, GOOD_COVERAGE, small ? Math.max(snug, idealSize * SMALL_ON_LAND) : snug),
+      () => (small ? beside() : null),
+      () => (small ? attempt(blockers, GOOD_COVERAGE, snug) : null),
+      ...(minHexes === 'auto' && small
+        ? []
+        : [
+            () => attempt(names, GOOD_COVERAGE, snug),
+            () => attempt(names, SECOND_COVERAGE, snug),
+            () => attempt(names, FALLBACK_COVERAGE, snug),
+            () => (floor > MIN_FONT ? attempt(names, LOOSE_COVERAGE, snug) : null),
+            () => {
+              const last = attempt(names, FALLBACK_COVERAGE, MIN_FONT, RELAXED_PAD);
+              return last ? { ...last, relaxed: true } : null;
+            },
+          ]),
+    ];
+    let found: Found | null = null;
+    for (const t of tries) if ((found = t())) break;
+    const realmName = polity.shortName?.trim() || polity.name;
+    if (!found) {
+      // A small realm in auto mode is named only where its name fits cleanly, by design.
+      if (!(minHexes === 'auto' && small)) {
+        input.notes?.push({
+          polityId: polity.id,
+          what: `${realmName} is not named on the map`,
+          why: 'its name fits neither on its land nor on open water beside it without covering another name',
+        });
+      }
+      continue;
+    }
+    const { coverage, relaxed, ...label } = found;
+    const em0 = Math.max(...label.lines.map((line) => (input.measure ?? ((t: string) => fantasyTextEm(t)))(line)));
+    const probe = claimBox(label.at, em0 * label.size, label.size * LABEL_HEIGHT_EM * label.lines.length, label.rotation, label.size);
+    const gaveUp: string[] = [];
+    const because: string[] = [];
+    if (coverage !== undefined && coverage < GOOD_COVERAGE) {
+      gaveUp.push(`runs ${Math.round((1 - coverage) * 100)}% off its own land`);
+      because.push('there is no room for it wholly on its land at a readable size');
+    }
+    if (input.obstacles.some((o) => !('cx' in o) && overlapsClaimed(probe, asClaimed(o), 0))) {
+      gaveUp.push('covers a city marker');
+      because.push('no place clear of the cities would hold it');
+    }
+    if (relaxed) {
+      gaveUp.push('is set closer to another name than names usually are');
+      because.push('otherwise the realm would go unnamed');
+    }
+    if (gaveUp.length > 0) {
+      input.notes?.push({ polityId: polity.id, what: `The name of ${realmName} ${gaveUp.join(', and ')}`, why: because.join(', and ') });
+    }
     placed.push(label);
     const em = Math.max(...label.lines.map((line) => (input.measure ?? ((t: string) => fantasyTextEm(t)))(line)));
     claimed.push(

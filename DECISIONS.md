@@ -8,6 +8,34 @@ later, and those are marked.
 
 ---
 
+## Drawing principles
+
+Standing rules, approved by the map's owner, that every part of the drawing keeps. A change that
+cannot keep one is a change to these rules, made here first, not an exception made in code.
+
+1. **One answer to "where is the land".** There is a single description of land and water as actually
+   drawn: after land shares, concentration, smoothing and roughening, with the islands and the lake
+   bodies. Everything that depends on land or water uses that (`landAt` in `scene.ts`, from the outline
+   `drawnLand` traces), never the hex grid or a hex's type.
+2. **Land things stay on land, water things stay on water.** Relief, vegetation, cities, realm colours,
+   borders and land names are drawn only on land; sea colour, ripples, sea ice and water names only on
+   water. Nothing crosses the coastline except where that is the point: a river's mouth, the coastline's
+   own ink. A small realm's name set beside it lies on open water and touches no land.
+3. **Things belong to their own hex's land.** A hex's symbols, its city and its colour sit on that hex's
+   own land; they are not moved onto a neighbour's ground to find room.
+4. **What is set is what is drawn.** A land share, width or concentration someone sets is drawn as set.
+   Decoration bends to fit the land; the land never bends to fit the decoration.
+5. **When something will not fit, it gives way in this order:** first drawn smaller, then moved within
+   its own hex, then left out. It is never drawn in the wrong place.
+6. **Every compromise is reported.** Whenever the map gives something up to keep these rules, it says
+   which hexes, what was given up, and which rule won (`Scene.compromises`, shown in the Inspector and on
+   hover). Nothing is changed silently.
+7. **Each rule is checked independently.** Each rule has a check that reads the finished picture, not the
+   code that drew it (`auditScene`), and a test that runs that check, so a change that breaks a rule fails
+   a test rather than reaching a map.
+
+---
+
 ## 1. Grid: pointy-top hexes, odd-r offset coordinates
 
 **Chosen.** Pointy-top hexes addressed as `(col, row)` with odd rows shifted half a hex east; flat
@@ -1033,3 +1061,69 @@ split hex are painted before its land pieces so a sealing stroke never overpaint
 **What it costs.** Widths are measured between the coast lines, so the ink (about 2 to 3 px) takes up most of
 a Very narrow channel or neck at small hex sizes: a 5% strait reads as a single dark line, which is what a
 channel that thin is. Saved maps with the old 30% isthmus and 40% strait draw as Normal and differ from before.
+
+## 50. Symbols stand on the land as drawn, and the map says where it gave something up
+
+**Problem.** Drawn relief and vegetation were laid out about the middle of their hex, whatever of the hex
+was land. A Coastal Land hex cut back to a small share (decision 39), or one whose land is concentrated
+towards an edge, drew its peaks in the open sea beside the little land it had; under a realm's name they
+were faded, so the sea showed a ghost of a mountain.
+
+**Chosen.** Every symbol is tested against the land as drawn (the coast as smoothed and roughened, less
+the lake bodies: the same outline the realm bands are clipped to). Where the set as laid out does not stand
+on land, it is drawn smaller and moved towards the middle of the hex's own land, shrinking preferred to
+moving far (`keepToLand`, down to 30% size); if even that will not hold all of it, the most symbols that fit
+are kept and the rest left out. A symbol's foot stays in its own hex. Escarpments that would run over water
+are left out. A hex that is land throughout draws exactly as before.
+
+**Saying so.** The scene now lists its `compromises`: each hex where the drawing could not do what was asked
+(here, symbols drawn smaller or left out), with what was given up and the rule that won. The Inspector shows
+them for the selected hexes, or a count with a button to select them, and the hover line marks them.
+
+**Also fixed.** `drawnLand` closed each coast that runs off the map back to its own start round the page.
+With more than one such coast the closures overlapped and the even-odd fill swapped land and sea over part
+of the page; the corners passed were also visited in list order, not in order round the page, so a closure
+past the top-left corner crossed itself. It now joins rings properly: a coast that stops inside the map
+(a reshaped hex cuts the coast into pieces) runs on into the piece that starts where it ends, and one that
+leaves the map follows the page's edge clockwise to the next coast that comes back onto it. Realm bands,
+clipped to this outline, change on maps that had either fault (bands along the map's edge now show
+consistently).
+
+**What it costs.** Fitting is searched once per traced coast and remembered with it, so a redraw that
+leaves the coast alone costs about what it did. After a change to the coast, a 50 x 50 map with hundreds of
+low-share mountainous coast hexes takes about 0.15 s longer to draw.
+
+## 51. The drawing principles applied: names, islands, elevation marks, and the audit
+
+The drawing principles at the head of this record were adopted after decision 50. This brings the rest
+of the drawing into line with them.
+
+**One land test.** `landAt` is now the drawn land: inside the sea coast as `drawnLand` traces it, or on an
+island, and not in a lake's water. Before, it was the hexes and pieces the coast was traced from
+(`traced.onLand`), which ignores smoothing and roughening by up to a third of a hex. City sites, realm
+names, relief and the audit all use it, so a city near a roughened coast may sit a little differently.
+For searches that test many points, hexes that are plain Land with plain Land all round, or open sea with
+open sea all round, are answered without testing.
+
+**Islands and straits.** An island hex's relief was not drawn at all, nor a strait's banks'. Both now are,
+fitted to the island or the banks like any other symbols.
+
+**Elevation marks.** The stacked marks of the marks relief style were drawn at the hex's middle and cut off
+by the water drawn over a cut-back coast. They are fitted to the land like drawn relief and reported the
+same way.
+
+**Realm names.** A realm owns hexes, but its name is placed on the land it actually has: a point of an owned
+hex that is drawn as sea is not the realm's ground. A small realm is named on its land only at a readable
+size (three quarters of its natural size or more); failing that it is named beside its land, on open water
+touching no land at all (before, only no other realm's hexes), and only then on its land in smaller type.
+Every realm named other than as asked is reported against its hexes: its name running off its land, over a
+city marker, or set closer to another name than usual, or the realm left unnamed (except a small realm in
+auto mode, which is named only where its name fits cleanly, by design).
+
+**The audit.** Each scene records the symbols it drew on land (`symbolsOf`), and `auditScene` reports any
+point of one over water (`symbol-over-water`). A test runs it over ragged, cut-back coasts in both relief
+styles.
+
+**What it costs.** Re-placing realm names (after a change to who owns what) on a 50 x 50 map that is almost
+all low-share coast took 0.44 s against 0.24 s; maps with more inland or open sea cost less. Other redraws
+are unchanged.

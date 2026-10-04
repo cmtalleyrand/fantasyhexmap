@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { hexIndex, pixelToOffset, gridPixelSize, inBounds } from '../../shared/hex.js';
 import type { LayerId, MapState } from '../../shared/types.js';
 import { drawPrims, drawScene } from '../render/canvas.js';
-import { buildStaticScene, decorationPrims, type VisibleLayers } from '../render/scene.js';
+import { buildStaticScene, decorationPrims, type DrawingCompromise, type VisibleLayers } from '../render/scene.js';
 import type { MapStyle } from '../render/styles.js';
 import { MAP_COLOURS } from '../render/palette.js';
 import { riversThroughHex } from '../../shared/derive.js';
@@ -59,6 +59,8 @@ export interface MapViewProps {
   overlay?: React.ReactNode;
   /** Messages pinned to the top of the map: errors and the outcome of the last action. */
   banner?: React.ReactNode;
+  /** Told, each time the map is drawn, where the drawing could not do everything asked of it. */
+  onCompromises?: (compromises: DrawingCompromise[]) => void;
 }
 
 export default function MapView(props: MapViewProps) {
@@ -141,6 +143,10 @@ export default function MapView(props: MapViewProps) {
       }),
     [map, visible, labels, riverNames, rangeNames, seaNames, landNames, polityNames, cityStateMax, polityOpacity, mapStyle, props.riverTool?.selectedId, fontsVersion],
   );
+  const onCompromises = props.onCompromises;
+  useEffect(() => {
+    onCompromises?.(scene.compromises ?? []);
+  }, [scene, onCompromises]);
   const decoration = useMemo(() => {
     const riverDraftSelection = props.riverDraft ? new Set(props.riverDraft) : null;
     return decorationPrims(map, {
@@ -439,6 +445,7 @@ export default function MapView(props: MapViewProps) {
     }
     const cities = map.layers.cities.data?.cities.filter((c) => hexIndex(map.cols, c.col, c.row) === hover) ?? [];
     for (const city of cities) bits.push(`${city.name} (${city.population.toLocaleString()})`);
+    for (const c of scene.compromises ?? []) if (c.hexes.includes(hover)) bits.push(`⚠ ${c.what}`);
     return bits.join(' · ');
   };
 

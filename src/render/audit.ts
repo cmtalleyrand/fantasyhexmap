@@ -20,7 +20,7 @@ import { descendantsOf } from '../../shared/polityTree.js';
 import type { MapState } from '../../shared/types.js';
 import { boxBounds, boxesOverlap, boxContains, rectBox, textBoxes, textPrims, type TextPrim } from './collide.js';
 import type { OrientedBox } from './labels.js';
-import { landTestOf, type Scene } from './scene.js';
+import { landTestOf, symbolsOf, type Scene } from './scene.js';
 
 export type AuditKind =
   | 'name-overlaps-name'
@@ -33,7 +33,8 @@ export type AuditKind =
   | 'furniture-overlaps-marker'
   | 'furniture-over-land'
   | 'furniture-off-page'
-  | 'band-furniture-over-map';
+  | 'band-furniture-over-map'
+  | 'symbol-over-water';
 
 export interface AuditIssue {
   kind: AuditKind;
@@ -141,6 +142,17 @@ export function auditScene(map: MapState, scene: Scene, size: number): AuditIssu
     const type = i === null || !base ? null : base[i];
     return !!type && type !== 'Sea' && type !== 'Lake' && type !== 'Sea Ice';
   };
+
+  // Relief, vegetation and elevation marks stand on land: no part of one is drawn over water.
+  if (drawn) {
+    for (const symbol of symbolsOf(scene) ?? []) {
+      const wet = symbol.points.find((p) => !drawn(p));
+      if (!wet) continue;
+      const col = symbol.hex % cols;
+      const row = Math.floor(symbol.hex / cols);
+      issues.push({ kind: 'symbol-over-water', message: `A symbol of hex ${col},${row} is drawn over water`, at: wet });
+    }
+  }
 
   // Sea names over land.
   if (base) {

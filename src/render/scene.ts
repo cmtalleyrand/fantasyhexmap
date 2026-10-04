@@ -68,6 +68,7 @@ import {
   type OrientedBox,
   type LabelObstacle,
   type PolityLabel,
+  type PolityLabelNote,
   type PolityNameMin,
 } from './labels.js';
 import {
@@ -76,6 +77,7 @@ import {
   alike,
   coastKey,
   drawnLand,
+  evenOddTest,
   circlePath,
   coastalIslandSide,
   coastGeometryOf,
@@ -102,7 +104,7 @@ import { capitalCrown, cityMarker, iconClearance, iconDrop, markerExtent, symbol
 import { riverStance, riverThroughIcon, showsRiver } from './riverCity.js';
 import { landBySide, riverCourses, type RiverCourse } from './rivers.js';
 import { citySite, lakeEdgesOf, resolvedSite } from './sites.js';
-import { escarpment, hillshade, reliefSymbols, vegetationSymbols, type Placed } from './symbols.js';
+import { FIT_SCALES, escarpment, hillshade, keepToLand, refit, samplePoints, type Fitted, reliefSymbols, standsOnLand, symbolAnchor, vegetationSymbols, type Placed } from './symbols.js';
 import { ownersAtDepth, polityDepths, polityDisplayColours, toned } from './hierarchy.js';
 import { topLevelOf } from '../../shared/polityTree.js';
 import { cityStateSeats } from '../../shared/cityState.js';
@@ -110,6 +112,7 @@ import { measureEpoch, textEm } from './fonts.js';
 import { glyphAdvances, glyphsStraight } from './glyphs.js';
 import { BUNDLED_FACES, LETTERINGS, type FaceRole } from './lettering.js';
 import { signed, unit } from './seed.js';
+import { descendantsOf } from '../../shared/polityTree.js';
 import { ELEVATION_RANK, floeFringe, glacierEdges, glacierFlow, glacierMarginPrims, glacierShading, glacierShelf, iceSeam, nearHexes, pathPolylines, seaIcePrims } from './ice.js';
 import { coastLengthIn, coveredArea, driftOf, nearestHex, nearestOn, shapeCoast, type ShapeMemo, type ShapeTarget } from './footprint.js';
 import { channelShareSet, channelWidthFraction, drawnLandFraction, landFraction, normaliseHexDimensions } from '../../shared/surfaceArea.js';
@@ -171,6 +174,19 @@ export interface Scene {
   origin?: Point;
   /** Map furniture placed by `addMarginalia`, for collision checks. */
   furniture?: FurniturePlacement[];
+  /** Where the drawing could not do everything asked of it, and what it gave up. */
+  compromises?: DrawingCompromise[];
+}
+
+/**
+ * A place where the map could not satisfy every rule it draws by, so that the app can say so
+ * rather than leave the user to notice. `what` says what was given up, `why` the rule that won.
+ */
+export interface DrawingCompromise {
+  /** The hexes it concerns: one hex's symbols, or every hex of a realm whose name it is. */
+  hexes: number[];
+  what: string;
+  why: string;
 }
 
 /** One piece of map furniture as placed: what it is, where it sits, and what surface it sits on. */
@@ -189,6 +205,19 @@ export interface FurniturePlacement {
  */
 const landTests = new WeakMap<object, (p: Point) => boolean>();
 
+/** A symbol drawn on the land (relief, vegetation, an elevation mark): its hex and the points along its drawing. */
+export interface SymbolTrace {
+  hex: number;
+  points: Point[];
+}
+/** The symbols each scene drew, kept beside it like its land test, for the audit to check against the land. */
+const symbolTraces = new WeakMap<object, SymbolTrace[]>();
+
+/** The symbols `scene` drew on the land, where it recorded them. */
+export function symbolsOf(scene: Scene): SymbolTrace[] | undefined {
+  return symbolTraces.get(scene);
+}
+
 export function landTestOf(scene: Scene): ((p: Point) => boolean) | undefined {
   return landTests.get(scene);
 }
@@ -197,6 +226,8 @@ export function landTestOf(scene: Scene): ((p: Point) => boolean) | undefined {
 export function withLandOf<T extends Scene>(scene: T, source: Scene): T {
   const test = landTests.get(source);
   if (test) landTests.set(scene, test);
+  const symbols = symbolTraces.get(source);
+  if (symbols) symbolTraces.set(scene, symbols);
   return scene;
 }
 
@@ -264,7 +295,7 @@ export function thematicLayer(
  */
 const labelCache = new WeakMap<
   object,
-  { cities: object | null; polities: object; key: string; labels: PolityLabel[] }
+  { cities: object | null; polities: object; key: string; land: unknown[]; labels: PolityLabel[]; notes: PolityLabelNote[] }
 >();
 
 /** Width in em of `text` set in a lettering role, tracking included. */
@@ -296,11 +327,19 @@ function cachedPolityLabels(
   lakes: ReadonlySet<number>,
   /** Polities named by their capital instead: they get no name of their own. */
   unnamed: ReadonlySet<string>,
-): PolityLabel[] {
+  /** Land as drawn (see `LabelInput.land`), and what it was drawn from, which the cache compares. */
+  land: (p: Point) => boolean,
+  landKey: unknown[],
+): { labels: PolityLabel[]; notes: PolityLabelNote[] } {
   const key = `${cols}x${rows}@${size}/${minHexes ?? ''}/${sizing}/${letteringId}/${measureEpoch}/${[...unnamed].sort().join(',')}`;
   const hit = labelCache.get(data.owner);
-  if (hit && hit.key === key && hit.cities === cities && hit.polities === data.polities) return hit.labels;
+  if (hit && hit.key === key && hit.cities === cities && hit.polities === data.polities && hit.land.length === landKey.length && hit.land.every((v, k) => v === landKey[k])) {
+    return { labels: hit.labels, notes: hit.notes };
+  }
+  const notes: PolityLabelNote[] = [];
   const labels = placePolityLabels({
+    land,
+    notes,
     cols,
     rows,
     size,
@@ -312,8 +351,8 @@ function cachedPolityLabels(
     lakes,
     measure: (text) => roleEm(role, text),
   });
-  labelCache.set(data.owner, { cities, polities: data.polities, key, labels });
-  return labels;
+  labelCache.set(data.owner, { cities, polities: data.polities, key, land: landKey, labels, notes });
+  return { labels, notes };
 }
 
 /**
@@ -340,6 +379,9 @@ interface TracedCoast {
 }
 
 const coastCache = new WeakMap<object, TracedCoast & { key: string }>();
+
+/** Where each hex's relief and vegetation symbols were fitted to the land of a traced coast (see `keepToLand`). */
+const symbolFits = new WeakMap<object, { dry: ((p: Point) => boolean) | null; fits: Map<string, Fitted> }>();
 
 /** Hexes already cut to their shares, kept between scenes so that editing one hex does not cut the rest again. */
 const shapeMemo: ShapeMemo = new Map();
@@ -660,6 +702,58 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
   // Half the coastline's stroke width: what its ink adds outside the land, which counts as land (0 with no coastline).
   const inkReachOf = knobs.coast === 'none' ? 0 : Math.max(0.8, size * palette.coastWidth * knobs.lineWeight) / 2;
   const traced = base ? cachedCoast(base, cols, rows, size, knobs.coast === 'smooth', map.hexShapes, map.defaultIrregularity, normaliseHexDimensions(map.hexDimensions), seed, inkReachOf) : null;
+  // The one answer to "is this point land?" for everything placed on the map (with the islands
+  // and lake bodies added once they are laid out: see `landAt`): inside the sea coast as drawn,
+  // smoothed and roughened, the outline the realm bands are clipped to. It and each hex's symbol
+  // fitting are kept with the traced coast, so a redraw that leaves the coast alone reuses them.
+  const memo = traced ? symbolFits.get(traced) ?? { dry: null, fits: new Map<string, Fitted>() } : null;
+  if (traced && memo && !symbolFits.has(traced)) symbolFits.set(traced, memo);
+  const seaCoastLand: ((p: Point) => boolean) | null = memo?.dry
+    ?? (traced && traced.geometry.paths.length > 0
+      ? evenOddTest(pathPolylines(drawnLand(traced.geometry, width, height, size), 6), size / 8)
+      : traced ? (p: Point) => traced.onLand(p) : null);
+  if (memo) memo.dry = seaCoastLand;
+  /** Where the drawing could not do everything asked of it. */
+  const compromises: DrawingCompromise[] = [];
+  /** Every symbol drawn on the land, for the audit (see `symbolsOf`). */
+  const traces: SymbolTrace[] = [];
+  const trace = (hex: number, placed: Placed[]) => {
+    for (const p of placed) traces.push({ hex, points: samplePoints(p) });
+  };
+  /** A hex's symbols fitted to its land (see `keepToLand`), searched once per traced coast. */
+  const fitSymbols = (
+    key: string,
+    draw: (at: Point, s: number) => Placed[],
+    centre: Point,
+    onLand: (p: Point) => boolean,
+    inHex: (p: Point) => boolean,
+  ): Fitted => {
+    const known = memo?.fits.get(key);
+    if (known) return { ...known, placed: refit(draw, known, size) };
+    const fitted = keepToLand(draw, centre, size, onLand, inHex);
+    memo?.fits.set(key, { ...fitted, placed: [] });
+    return fitted;
+  };
+  /** Records a hex whose symbols (`what`, such as "hills symbols") were drawn smaller than asked, or left out. */
+  const noteFit = (i: number, what: string, fitted: Fitted) => {
+    const smallest = Math.round(Math.min(...FIT_SCALES) * 100);
+    const scale = Math.round(fitted.scale * 100);
+    if (fitted.dropped > 0) {
+      compromises.push({
+        hexes: [i],
+        what: fitted.placed.length === 0
+          ? `No ${what} drawn`
+          : `${fitted.dropped} of ${fitted.wanted} ${what} left out, the rest drawn at ${scale}% size`,
+        why: `the land drawn in this hex is too small or narrow to hold them all even at ${smallest}% size, and symbols are never drawn over water`,
+      });
+    } else if (fitted.scale < 1) {
+      compromises.push({
+        hexes: [i],
+        what: `${what[0]!.toUpperCase()}${what.slice(1)} drawn at ${scale}% size`,
+        why: 'the land drawn in this hex is too small or narrow for them at full size, and symbols are never drawn over water',
+      });
+    }
+  };
   const rawPolities = opts.visible.polities ? layers.polities.data : null;
   // Realm colour is drawn on land only; see landOwners.
   const polities = rawPolities && base
@@ -856,7 +950,24 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
 
       if (relief === 'marks' && showElevation) {
         const elevation = layers.elevation.data?.[i];
-        if (elevation) prims.push(...elevationMarks(hexCenter(col, row, size), size, elevation));
+        if (elevation) {
+          // Kept to the land as drawn, like drawn relief: the lakes and islands are not laid out
+          // yet, so a lake hex's ground counts as water and nothing else does.
+          const dry = (p: Point) => {
+            if (seaCoastLand && !seaCoastLand(p)) return false;
+            const at = pixelToOffset(p.x, p.y, size);
+            return !inBounds(cols, rows, at.col, at.row) || !isLakeHex(hexIndex(cols, at.col, at.row));
+          };
+          const inHex = (p: Point) => {
+            const at = pixelToOffset(p.x, p.y, size);
+            return at.col === col && at.row === row;
+          };
+          const draw = (at: Point, s: number): Placed[] => [{ y: at.y, prims: elevationMarks(at, s, elevation) }];
+          const fitted = fitSymbols(`marks/${i}/${elevation}`, draw, hexCenter(col, row, size), dry, inHex);
+          for (const p of fitted.placed) prims.push(...p.prims);
+          trace(i, fitted.placed);
+          noteFit(i, `${elevation.toLowerCase()} marks`, fitted);
+        }
       }
 
       for (const overlay of overlays(own)) prims.push({ kind: 'polygon', points: corners, fill: overlay });
@@ -1616,7 +1727,34 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
     }
     return false;
   };
-  const landAt = (p: Point): boolean => (base ? Boolean(traced?.onLand(p)) || isleAt(p) : false);
+  /** Land as drawn: inside the sea coast, or on an island, and not in a lake's water (see `seaCoastLand`). */
+  const landAt = (p: Point): boolean =>
+    base ? (Boolean(seaCoastLand?.(p)) || isleAt(p)) && !inLakeWater(p) : false;
+  /**
+   * Where the answer is the same throughout a hex: plain Land with plain Land all round (1), or
+   * open sea with open sea all round (2). A coast's smoothing, roughening or cutting back, and an
+   * island, never reach either, so a point in one need not be tested.
+   */
+  const settled = new Uint8Array(cols * rows);
+  if (base) {
+    const kind = (j: number) => (inLakeBody.has(j) ? 0 : base[j] === 'Land' ? 1 : base[j] === 'Sea' || base[j] === 'Sea Ice' ? 2 : 0);
+    for (let i = 0; i < cols * rows; i++) {
+      const k = kind(i);
+      if (k === 0) continue;
+      let same = true;
+      for (let e = 0; e < 6 && same; e++) {
+        const n = neighbourOf(i % cols, Math.floor(i / cols), e);
+        if (inBounds(cols, rows, n.col, n.row)) same = kind(hexIndex(cols, n.col, n.row)) === k;
+      }
+      if (same) settled[i] = k;
+    }
+  }
+  /** `landAt`, answered at once where a hex is wholly land or wholly sea: for searches that test many points, such as names. */
+  const quickLandAt = (p: Point): boolean => {
+    const { col, row } = pixelToOffset(p.x, p.y, size);
+    const k = inBounds(cols, rows, col, row) ? settled[hexIndex(cols, col, row)] : 0;
+    return k === 1 ? true : k === 2 ? false : landAt(p);
+  };
 
   /** The coast's paths, those that run off the map carried on to the page's edge. */
   const coastPaths = coast?.paths.map((d, c) => extendToRim(d, coast.chains[c]?.closed ?? true, rimBounds, size)) ?? [];
@@ -2231,20 +2369,39 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
 
   // --- drawn relief and vegetation ----------------------------------------------------
   /** Where each drawn relief or vegetation symbol sits in `prims`, so names can later fade those under them. */
-  const reliefRuns: Array<{ hex: number; from: number; to: number }> = [];
+  const reliefRuns: Array<{ hex: number; at: Point; from: number; to: number }> = [];
   if (relief === 'illustrated' && base) {
     const vegetation = opts.visible.vegetation ? layers.vegetation.data : null;
     const placed: Placed[] = [];
+    // A symbol stands on the land as drawn, not on the hex it belongs to: a hex cut back to a
+    // small land share keeps its peaks on that land, and an island's or a strait's bank's
+    // relief stands on the island or the bank.
+    const dry = landAt;
     for (let i = 0; i < cols * rows; i++) {
-      if (isWater(i) || inLakeBody.has(i)) continue;
+      if (inLakeBody.has(i)) continue;
+      if (isWater(i) && !(isIslandType(base[i]) || base[i] === 'Strait')) continue;
       const height = elevationData?.[i] ?? null;
       const cover = vegetation?.[i] ?? null;
       if (!height && !cover) continue;
       const firstOfHex = placed.length;
-      const centre = hexCenter(i % cols, Math.floor(i / cols), size);
+      const col = i % cols;
+      const row = Math.floor(i / cols);
+      const centre = hexCenter(col, row, size);
       const rand = (k: number) => unit(seed, 'symbol', i, k);
       const colours = { ground: groundColour(i), ink: palette.ink };
-      if (height) placed.push(...reliefSymbols(centre, size, height, rand, colours));
+      const crowded = height === 'Mountains' || height === 'Highland' || height === 'Hills' || height === 'Plateau';
+      const draw = (at: Point, s: number): Placed[] => [
+        ...(height ? reliefSymbols(at, s, height, rand, colours) : []),
+        ...(cover && height !== 'Mountains' ? vegetationSymbols(at, s, cover, rand, colours, crowded) : []),
+      ];
+      const inHex = (p: Point): boolean => {
+        const at = pixelToOffset(p.x, p.y, size);
+        return at.col === col && at.row === row;
+      };
+      const fitted = fitSymbols(`${i}/${height ?? ''}/${cover ?? ''}`, draw, centre, dry, inHex);
+      placed.push(...fitted.placed);
+      trace(i, fitted.placed);
+      noteFit(i, `${[height, height !== 'Mountains' ? cover : null].filter(Boolean).join(' and ')} symbols`, fitted);
       if (height === 'Plateau') {
         // Escarpments wherever the plateau falls away to lower ground or water.
         for (let e = 0; e < 6; e++) {
@@ -2255,19 +2412,20 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
           if (isWater(j) || inLakeBody.has(j)) continue;
           const there = elevationData?.[j] ?? null;
           if (there === 'Plateau' || there === 'Highland' || there === 'Mountains') continue;
-          const [a, b] = hexEdgePoints(i % cols, Math.floor(i / cols), e, size);
-          placed.push(escarpment(a, b, centre, size, colours, (k) => rand(600 + e * 20 + k)));
+          const [a, b] = hexEdgePoints(col, row, e, size);
+          const scarp = escarpment(a, b, centre, size, colours, (k) => rand(600 + e * 20 + k));
+          // An escarpment runs along a border with land; where reshaping has put water there, it is left out.
+          if (standsOnLand(scarp, dry)) {
+            placed.push(scarp);
+            trace(i, [scarp]);
+          }
         }
-      }
-      if (cover) {
-        const crowded = height === 'Mountains' || height === 'Highland' || height === 'Hills' || height === 'Plateau';
-        if (height !== 'Mountains') placed.push(...vegetationSymbols(centre, size, cover, rand, colours, crowded));
       }
       for (let k = firstOfHex; k < placed.length; k++) placed[k]!.hex = i;
     }
     placed.sort((a, b) => a.y - b.y);
     for (const p of placed) {
-      if (p.hex !== undefined) reliefRuns.push({ hex: p.hex, from: prims.length, to: prims.length + p.prims.length });
+      if (p.hex !== undefined) reliefRuns.push({ hex: p.hex, at: symbolAnchor(p), from: prims.length, to: prims.length + p.prims.length });
       prims.push(...p.prims);
     }
   }
@@ -2535,6 +2693,8 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
   const seats = polities && cities ? cityStateSeats(polities.polities, polities.owner, cities.cities, cols, opts.cityStateMax) : new Map<string, string>();
   const seatIds = new Set(seats.values());
   const unnamed = new Set(seats.keys());
+  /** Realms named other than as asked, or not at all. */
+  const nameNotesOut: PolityLabelNote[] = [];
   if (opts.labels && polities) {
     const labelLakes =new Set<number>((traced?.lakes ?? []).flat());
     const obstacles: LabelObstacle[] = [];
@@ -2549,8 +2709,13 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
     const depths = polityDepths(polities.polities);
     const maxDepth = Math.max(0, ...depths.values());
     const levels: Array<{ labels: PolityLabel[]; depth: number }> = [];
+    const nameNotes = nameNotesOut;
     if (maxDepth === 0) {
-      levels.push({ labels: cachedPolityLabels(namingPolities!, cities, cols, rows, size, obstacles, opts.polityNames, knobs.realmNames, realmRole, lettering.id, labelLakes, unnamed), depth: 0 });
+      // The land as drawn depends on the traced coast and on how the islands are laid out.
+      const landKey = [traced, map.islandSpecs, map.hexDimensions, knobs.islands, knobs.coast];
+      const named = cachedPolityLabels(namingPolities!, cities, cols, rows, size, obstacles, opts.polityNames, knobs.realmNames, realmRole, lettering.id, labelLakes, unnamed, quickLandAt, landKey);
+      nameNotes.push(...named.notes);
+      levels.push({ labels: named.labels, depth: 0 });
     } else {
       const claimed: LabelObstacle[] = [...obstacles];
       for (let depth = 0; depth <= maxDepth; depth++) {
@@ -2565,6 +2730,8 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
           scale: depth === 0 ? 1 : 0.62 ** depth,
           sizing: knobs.realmNames,
           lakes: labelLakes,
+          land: quickLandAt,
+          notes: nameNotes,
           measure: (text) => roleEm(realmRole, text, depth === 0 ? realmRole.weight : subWeight),
         });
         for (const label of labels) {
@@ -2615,6 +2782,15 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
     }
   }
 
+  // Names given up or set awkwardly are reported against every hex of their realm (and its parts).
+  if (polities && nameNotesOut.length > 0) {
+    for (const note of nameNotesOut) {
+      const own = new Set([note.polityId, ...descendantsOf(polities.polities, note.polityId)]);
+      const hexes = polities.owner.flatMap((o, i) => (o && own.has(o) ? [i] : []));
+      compromises.push({ hexes, what: note.what, why: note.why });
+    }
+  }
+
   // Relief under a realm's name is faded, not removed: the name stays legible
   // over mountains and woods while the ground still shows through. The `taken`
   // list holds only realm names at this point.
@@ -2624,7 +2800,8 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
     // Latest first, so earlier runs keep their positions as each is wrapped.
     for (let k = reliefRuns.length - 1; k >= 0; k--) {
       const run = reliefRuns[k]!;
-      const c = hexCenter(run.hex % cols, Math.floor(run.hex / cols), size);
+      // Where the symbol stands, which on a hex with little land is not the hex's middle.
+      const c = run.at;
       if (!near.some((b) => insideBox(b, c.x, c.y))) continue;
       prims.splice(run.from, run.to - run.from, { kind: 'group', opacity: RELIEF_FADE, prims: prims.slice(run.from, run.to) });
     }
@@ -2781,6 +2958,7 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
     // read as more sea rather than as a black serrated border.
     background: opts.transparentBackground ? 'transparent' : palette.sea,
     prims,
+    ...(compromises.length > 0 ? { compromises } : {}),
     markers: (cities?.cities ?? []).map((city) => {
       const c = siteOf(city);
       const reach = markerReach(city.population, city.capital);
@@ -2788,6 +2966,7 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
     }),
   };
   landTests.set(scene, landAt);
+  symbolTraces.set(scene, traces);
   return scene;
 }
 
