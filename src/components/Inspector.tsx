@@ -14,6 +14,7 @@ import {
   ELEVATION_VALUES,
   BASE_DESCRIPTIONS,
   VEGETATION_GROUPS,
+  VEGETATION_VALUES,
   IRREGULARITY_VALUES,
   DEFAULT_IRREGULARITY,
   hasLandShare,
@@ -38,7 +39,13 @@ import {
 import { planMultiLayerEdit } from '../../shared/multiEdit.js';
 import { canSplit, passLabel, type PassSelection } from '../../core/rosters.js';
 import { type Action, type HexShapeChange, type IslandSpecChange } from '../state/store.js';
-import { landFraction, normaliseHexDimensions } from '../../shared/surfaceArea.js';
+import {
+  baseSurfaceStatistics,
+  formatArea,
+  landFraction,
+  landLayerSurfaceStatistics,
+  normaliseHexDimensions,
+} from '../../shared/surfaceArea.js';
 import { descendantsOf, polityOutline, wouldCycle } from '../../shared/polityTree.js';
 import { contrastingRealmColours } from '../render/hierarchy.js';
 import Legend from './Legend.js';
@@ -351,10 +358,58 @@ export default function Inspector(props: InspectorProps) {
         </div>
       )}
 
+      {hasData && ['base', 'elevation', 'climate', 'vegetation'].includes(activeLayer) && (
+        <SurfaceTotals map={map} layer={activeLayer} />
+      )}
+
       <div className="section">
         <h2>Legend</h2>
         <Legend layer={activeLayer} map={map} />
       </div>
+    </div>
+  );
+}
+
+function SurfaceTotals({ map, layer }: { map: MapState; layer: LayerId }) {
+  const dimensions = normaliseHexDimensions(map.hexDimensions);
+  const base = map.layers.base.data!;
+  const values = layer === 'elevation'
+    ? ELEVATION_VALUES
+    : layer === 'climate'
+      ? CLIMATE_VALUES
+      : VEGETATION_VALUES;
+  const statistics = layer === 'base'
+    ? baseSurfaceStatistics(base, dimensions, map.islandSpecs, map.hexShapes)
+    : landLayerSurfaceStatistics(
+        map.layers[layer].data as (string | null)[],
+        values,
+        base,
+        dimensions,
+        map.islandSpecs,
+        map.hexShapes,
+      );
+  return (
+    <div className="section">
+      <h2>Surface totals</h2>
+      <table className="surface-totals">
+        <thead>
+          <tr><th>Type</th><th>Hexes{layer === 'base' ? ' containing' : ''}</th><th>Surface area</th></tr>
+        </thead>
+        <tbody>
+          {statistics.map((stat) => (
+            <tr key={stat.label}>
+              <td>{stat.label}</td>
+              <td>{stat.hexCount.toLocaleString()}</td>
+              <td>{formatArea(stat.area, dimensions.unit, dimensions.areaRounding)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {layer === 'base' && (
+        <p className="hint" style={{ margin: '6px 0 0' }}>
+          A shore hex appears in every surface it contains; its area is divided by its land share.
+        </p>
+      )}
     </div>
   );
 }

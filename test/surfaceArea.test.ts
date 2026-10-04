@@ -2,7 +2,12 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createMapState } from '../shared/layers.ts';
 import { DEFAULT_HEX_DIMENSIONS } from '../shared/types.ts';
-import { formatArea, politySurfaceAreas } from '../shared/surfaceArea.ts';
+import {
+  baseSurfaceStatistics,
+  formatArea,
+  landLayerSurfaceStatistics,
+  politySurfaceAreas,
+} from '../shared/surfaceArea.ts';
 import { reducer } from '../src/state/store.ts';
 
 test('polity surface area weights coast and island land shares', () => {
@@ -87,6 +92,33 @@ test('surface areas round to the configured display increment', () => {
   assert.equal(formatArea(1249, 'km'), '1,200 km²');
   assert.equal(formatArea(1249, 'km', 50), '1,250 km²');
   assert.equal(formatArea(12.34, 'mi', 0.5), '12.5 mi²');
+});
+
+test('base surface totals partition shore hexes while counting every surface they contain', () => {
+  const dimensions = { ...DEFAULT_HEX_DIMENSIONS, width: 10, height: 8, coastalLandPercent: 60, lakeLandPercent: 25 };
+  const stats = baseSurfaceStatistics(['Land', 'Coastal Land', 'Sea', 'Lake'], dimensions);
+
+  assert.deepEqual(stats, [
+    { label: 'Land', hexCount: 3, area: 111 },
+    { label: 'Sea', hexCount: 2, area: 84 },
+    { label: 'Lake', hexCount: 1, area: 45 },
+  ]);
+  assert.equal(stats.reduce((sum, stat) => sum + stat.area, 0), 4 * 60);
+});
+
+test('land-layer totals count assigned hexes and weight their areas by land share', () => {
+  const stats = landLayerSurfaceStatistics(
+    ['Lowland', 'Lowland', 'Hills', null],
+    ['Lowland', 'Hills', 'Mountains'],
+    ['Land', 'Coastal Land', 'Islands', 'Sea'],
+    { ...DEFAULT_HEX_DIMENSIONS, width: 10, height: 8, coastalLandPercent: 50, smallIslandPercent: 25 },
+    { '2': { large: 0, small: 1 } },
+  );
+
+  assert.deepEqual(stats, [
+    { label: 'Lowland', hexCount: 2, area: 90 },
+    { label: 'Hills', hexCount: 1, area: 15 },
+  ]);
 });
 
 test('an unowned strait is shared between the realms on its banks; an owned one is not', async () => {

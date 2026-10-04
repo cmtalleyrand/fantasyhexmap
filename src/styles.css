@@ -125,6 +125,10 @@ label { display: block; font-size: 11px; text-transform: uppercase; letter-spaci
 .mobile-workspace-tabs { display: none; }
 
 .section { margin-bottom: 18px; }
+.surface-totals { width: 100%; border-collapse: collapse; font-size: 12px; font-variant-numeric: tabular-nums; }
+.surface-totals th { color: var(--ink-dim); font-size: 10px; text-transform: uppercase; letter-spacing: .06em; }
+.surface-totals th, .surface-totals td { padding: 5px 4px; border-bottom: 1px solid var(--line); text-align: right; }
+.surface-totals th:first-child, .surface-totals td:first-child { text-align: left; }
 .card {
   background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px;
 }
