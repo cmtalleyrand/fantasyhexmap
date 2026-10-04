@@ -990,3 +990,46 @@ Inspector offers it only where it applies; an explicit `'neck'` on a hex that is
 ordinary resolution. Lakes on neighbouring edges are one bay and stay a coast. The lake edges are found from
 the base layer in `citySite` (`lakeEdgesOf`), so `City` needs no new field and nothing is marked stale.
 Only lake-lake necks are recognised; a strip between a lake and the sea is still a coast.
+
+## 49. Isthmuses and straits are drawn at a width, and a land share tunes them
+
+**Chosen.** An Isthmus and a Strait are set by how narrow they are at their thinnest, as a share of the
+hex's flat-to-flat width: Very narrow 5%, Narrow 15%, Normal 30%, Wide 50% (`ChannelWidth`,
+`CHANNEL_WIDTH_PERCENT`). The map-wide defaults are `HexDimensions.isthmusWidth` and `straitWidth` (Normal
+both) and a hex overrides them with `HexShape.width`. The land share of decision 42 stays, as an
+optional second setting (`HexShape.land`; map-wide `isthmusPercent` and `straitPercent`, absent by default):
+the width fixes the shape, and a share set beside it tunes how much land the hex has, since the natural shape
+for a width does not always look right. Unset, a hex's share for polity areas is that of a straight neck or
+channel of its width (`channelAreaFraction`: 2/sqrt(3) of the width fraction; an isthmus counts that as land,
+a strait counts the rest as its banks). Old saves' 70%/30% isthmus and 40% strait defaults were never chosen
+and load as unset.
+
+**Tuning** (`fill` in `fixedLand`, solved by `fillFor` to the share). An isthmus cannot go below the land its width gives (cutting its flare back left pockets of water, a second
+coast loop, and spilled land colour on some seeds); for a strait, less land cuts the banks back from the land-facing edges, so below the
+land its width gives the channel is wider than set (the share asked for wins). More land deepens the land from
+the land-facing edges. The share is exact within about a fifth of a percent in the range the width allows.
+
+**Why.** A share cannot be drawn well for a hex whose neighbours vary. Solving the width that gave 40% land
+for a strait with three sea edges (decision 42's fall-back to land "bands") drew the strait as land with a
+bite out of it, or, with banks only on thin rims, as an all-water hex with polity colour stopping at its edge
+(the bug that prompted this). A width is the same picture whatever the neighbours.
+
+**Drawing** (`fixedLand` in `footprint.ts`). The hex is cut into six sectors from its middle. An isthmus is the
+sectors of its land-facing edges plus a neck of the set width run from the middle to each of them: it narrows
+to the width at the middle and opens out to the land at either end. A strait is the sectors of its land-facing
+edges (its banks) less a channel of the set width run to every sea-facing edge, so that it narrows to the width
+at the middle and opens to the sea; a bank with no bank opposite it is also given the depth that leaves the
+width between it and the far edge, so the setting still shows. Nothing is left to pinch off: land is always
+attached to a land-facing edge and water to a sea-facing one. The coast is traced round the result as before;
+these hexes are no longer corrected towards a share by the ink/smoothing passes. Roughness along a neck or
+channel is held to a quarter of its width (`narrowest` in `scene.ts`) so that a Very narrow isthmus is not
+cut through nor a Very narrow strait closed. A strait's banks are coloured by the realm each bank grows from,
+at the shape drawn rather than at the thin rim they used to cover.
+
+**Also fixed.** Zero-thickness slivers left where cut polygons meet (`strips`, `grown`, smoothing corners)
+were stroked in the sea colour and showed as a hairline across land; they are dropped. The water pieces of a
+split hex are painted before its land pieces so a sealing stroke never overpaints land.
+
+**What it costs.** Widths are measured between the coast lines, so the ink (about 2 to 3 px) takes up most of
+a Very narrow channel or neck at small hex sizes: a 5% strait reads as a single dark line, which is what a
+channel that thin is. Saved maps with the old 30% isthmus and 40% strait draw as Normal and differ from before.

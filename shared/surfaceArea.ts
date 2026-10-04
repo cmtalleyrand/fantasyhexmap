@@ -1,5 +1,7 @@
 import { holdersOf } from './polityShares.js';
 import {
+  CHANNEL_WIDTH_PERCENT,
+  CHANNEL_WIDTH_VALUES,
   DEFAULT_HEX_DIMENSIONS,
   hexShapeFor,
   islandSpecFor,
@@ -18,6 +20,11 @@ type StoredHexDimensions = Partial<HexDimensions> & { islandLandPercent?: number
 export function normaliseHexDimensions(value?: StoredHexDimensions): HexDimensions {
   const { islandLandPercent, ...rest } = value ?? {};
   const out = { ...DEFAULT_HEX_DIMENSIONS, ...rest };
+  // The old defaults (70% and 30% for an isthmus, 40% for a strait) were not chosen: those maps take the natural shape.
+  if (out.isthmusPercent === 70 || out.isthmusPercent === 30 || typeof out.isthmusPercent !== 'number') delete out.isthmusPercent;
+  if (out.straitPercent === 40 || typeof out.straitPercent !== 'number') delete out.straitPercent;
+  if (!CHANNEL_WIDTH_VALUES.includes(out.isthmusWidth)) out.isthmusWidth = DEFAULT_HEX_DIMENSIONS.isthmusWidth;
+  if (!CHANNEL_WIDTH_VALUES.includes(out.straitWidth)) out.straitWidth = DEFAULT_HEX_DIMENSIONS.straitWidth;
   if (islandLandPercent !== undefined && rest.smallIslandPercent === undefined && rest.largeIslandPercent === undefined) {
     // The old defaults (60% coast, 40% island) take the current defaults; a share
     // someone chose becomes the same ratio of small to large islands as before.
@@ -30,6 +37,44 @@ export function normaliseHexDimensions(value?: StoredHexDimensions): HexDimensio
   }
   out.smallIslandPercent = Math.max(2.5, out.smallIslandPercent);
   return out;
+}
+
+/**
+ * How narrow the isthmus or strait in a hex is at its thinnest, as a share (0 to 1) of the hex's
+ * flat-to-flat width: the hex's own setting, else the map's. Null for any other type.
+ */
+export function channelWidthFraction(
+  value: BaseGeo | null | undefined,
+  dimensions: HexDimensions,
+  shape?: HexShape,
+): number | null {
+  if (value !== 'Isthmus' && value !== 'Strait') return null;
+  const width = hexShapeFor(value, shape).width ?? (value === 'Isthmus' ? dimensions.isthmusWidth : dimensions.straitWidth);
+  return CHANNEL_WIDTH_PERCENT[width] / 100;
+}
+
+/**
+ * The land share a person has set on an isthmus or strait, from 0 to 1: the hex's own, else the map's.
+ * Null when neither is set (or for any other type): the shape is then the natural one for its width.
+ */
+export function channelShareSet(
+  value: BaseGeo | null | undefined,
+  dimensions: HexDimensions,
+  shape?: HexShape,
+): number | null {
+  if (value !== 'Isthmus' && value !== 'Strait') return null;
+  const own = hexShapeFor(value, shape).land;
+  const mapWide = value === 'Isthmus' ? dimensions.isthmusPercent : dimensions.straitPercent;
+  const percent = own ?? mapWide;
+  return percent === undefined ? null : Math.min(100, Math.max(0, percent)) / 100;
+}
+
+/**
+ * The part of a hex a straight neck or channel through it, of width `fraction` of the hex's
+ * flat-to-flat width, covers: the width times the flat-to-flat span over the hex's area.
+ */
+export function channelAreaFraction(fraction: number): number {
+  return Math.min(1, (2 / Math.sqrt(3)) * fraction);
 }
 
 /**
@@ -48,6 +93,11 @@ export function landFraction(
   const set = hexShapeFor(value, shape).land;
   if (set !== undefined) return set / 100;
   const percent = (n: number) => Math.min(100, Math.max(0, n)) / 100;
+  // With no share set, an isthmus or strait counts the share of a straight neck or channel of its width.
+  const mapWide = value === 'Isthmus' ? dimensions.isthmusPercent : value === 'Strait' ? dimensions.straitPercent : undefined;
+  if (mapWide !== undefined) return percent(mapWide);
+  const width = channelWidthFraction(value, dimensions, shape);
+  if (width !== null) return value === 'Isthmus' ? channelAreaFraction(width) : 1 - channelAreaFraction(width);
   switch (value) {
     case 'Land':
       return 1;
@@ -57,10 +107,6 @@ export function landFraction(
       return percent(dimensions.coastalLandPercent);
     case 'Lake':
       return percent(dimensions.lakeLandPercent);
-    case 'Isthmus':
-      return percent(dimensions.isthmusPercent);
-    case 'Strait':
-      return percent(dimensions.straitPercent);
     case 'Islands':
     case 'Mainland and islands': {
       const spec = islandSpecFor(value, stored);

@@ -202,6 +202,22 @@ export function hasLandShare(value: BaseGeo | null | undefined): boolean {
 }
 
 /**
+ * How narrow a neck of land (an Isthmus) or a channel of water (a Strait) is at its
+ * thinnest, as a share of the hex's flat-to-flat width. The thinnest isthmus is 5% of
+ * the hex's width.
+ */
+export type ChannelWidth = 'Very narrow' | 'Narrow' | 'Normal' | 'Wide';
+export const CHANNEL_WIDTH_VALUES: ChannelWidth[] = ['Very narrow', 'Narrow', 'Normal', 'Wide'];
+export const CHANNEL_WIDTH_PERCENT: Record<ChannelWidth, number> = { 'Very narrow': 5, Narrow: 15, Normal: 30, Wide: 50 };
+
+/** Types drawn at a width (see `ChannelWidth`) rather than to a land share. */
+export function hasChannelWidth(value: BaseGeo | null | undefined): boolean {
+  return value === 'Isthmus' || value === 'Strait';
+}
+
+export const DEFAULT_CHANNEL_WIDTH: Record<'Isthmus' | 'Strait', ChannelWidth> = { Isthmus: 'Normal', Strait: 'Normal' };
+
+/**
  * The irregularity a type is drawn with when none is set: Ragged for every shaped
  * type (coasts, islands, isthmuses, straits, ice). Land, Sea and Lake are not shaped,
  * so theirs is not used.
@@ -229,6 +245,8 @@ export const DEFAULT_IRREGULARITY: Record<BaseGeo, Irregularity> = {
 export interface HexShape {
   type: BaseGeo;
   land?: number;
+  /** An Isthmus or Strait: how narrow it is at its thinnest, replacing the map's default. */
+  width?: ChannelWidth;
   irregular?: Irregularity;
   /** Edge 0-5 towards which a coast or mainland is biased. */
   concentrationSide?: number;
@@ -245,15 +263,17 @@ export function hexShapeFor(
   value: BaseGeo | null | undefined,
   stored: HexShape | undefined,
   mapDefault?: Irregularity | null,
-): { land?: number; irregular: Irregularity; concentrationSide?: number; concentration?: number } {
+): { land?: number; width?: ChannelWidth; irregular: Irregularity; concentrationSide?: number; concentration?: number } {
   const fallback = mapDefault && IRREGULARITY_VALUES.includes(mapDefault) && isShapedType(value) ? mapDefault : undefined;
   const irregular = fallback ?? (value ? DEFAULT_IRREGULARITY[value] : 'Smooth');
   if (!value || !stored || stored.type !== value || !(isShapedType(value) || value === 'Lake')) return { irregular };
   const land = hasLandShare(value) && typeof stored.land === 'number' && Number.isFinite(stored.land)
     ? Math.max(0, Math.min(100, stored.land))
     : undefined;
+  const width = hasChannelWidth(value) && CHANNEL_WIDTH_VALUES.includes(stored.width as ChannelWidth) ? (stored.width as ChannelWidth) : undefined;
   return {
     ...(land !== undefined ? { land } : {}),
+    ...(width !== undefined ? { width } : {}),
     irregular: IRREGULARITY_VALUES.includes(stored.irregular as Irregularity) ? (stored.irregular as Irregularity) : irregular,
     ...((value === 'Coastal Land' || value === 'Mainland and islands') && Number.isInteger(stored.concentrationSide) && stored.concentrationSide! >= 0 && stored.concentrationSide! < 6
       ? { concentrationSide: stored.concentrationSide }
@@ -691,8 +711,15 @@ export interface HexDimensions {
   smallIslandPercent: number;
   /** The mainland part of a Mainland and islands hex, before its islands are added. */
   mainlandPercent: number;
-  isthmusPercent: number;
-  straitPercent: number;
+  /** How narrow an Isthmus or a Strait is at its thinnest, unless a hex sets its own (`MapState.hexShapes`). */
+  isthmusWidth: ChannelWidth;
+  straitWidth: ChannelWidth;
+  /**
+   * Land share of an Isthmus or Strait, tuning how much land the hex has once its width is set (the
+   * flared ends of a neck, the banks of a channel). Absent: the natural shape for the width.
+   */
+  isthmusPercent?: number;
+  straitPercent?: number;
   /** Glacier is land under ice; less than all of it for a hex at the edge of an ice sheet. */
   glacierPercent: number;
   /** Increment used when displaying areas (in square `unit`s). */
@@ -711,8 +738,8 @@ export const DEFAULT_HEX_DIMENSIONS: HexDimensions = {
   largeIslandPercent: 20,
   smallIslandPercent: 5,
   mainlandPercent: 30,
-  isthmusPercent: 70,
-  straitPercent: 40,
+  isthmusWidth: DEFAULT_CHANNEL_WIDTH.Isthmus,
+  straitWidth: DEFAULT_CHANNEL_WIDTH.Strait,
   glacierPercent: 100,
   areaRounding: 100,
   lengthRounding: 10,

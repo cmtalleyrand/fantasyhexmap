@@ -191,10 +191,14 @@ distinct from ordinary inland `Land` in the base grid.
 
 **Hexes with a shoreline or an ice edge carry a land share and an irregularity.** Select Coastal Land,
 Islands, Mainland and islands, Isthmus, Strait, Glacier or Sea Ice hexes on the Base layer and the
-sidebar offers both. The land share (defaults: Coastal Land 90%, Isthmus 30%, Strait 40%, each small
+sidebar offers both. The land share (defaults: Coastal Land 90%, each small
 island 10%, each large island 20%, any mainland 30%) is the share of the hex drawn as land (a coastal
 hex's shore is set in from its edge, an island is drawn at its share) and counts towards polity surface
-areas; the map-wide defaults are in Settings. Irregularity (Smooth, Wavy, Ragged, Fractured) controls how broken
+areas; the map-wide defaults are in Settings. An Isthmus and a Strait are drawn at
+a width (Very narrow 5%, Narrow 15%, Normal 30% or Wide 50% of the hex's width), the neck of land
+at its thinnest or the channel of water between its banks, set per hex in the sidebar and map-wide in
+Settings (both default to Normal). They also take a land share, left on Natural by default, which tunes how
+much land the hex has round that width when the natural shape does not look right. Irregularity (Smooth, Wavy, Ragged, Fractured) controls how broken
 the outline is: shore detail on a smoothed coast, skerries round an island, floes and icebergs round
 ice. Lake shores are irregular too (Ragged by default); Settings → Map has a separate default for
 them, and a Coastal Land hex you set by hand overrides it along its own shore. Sea ice is drawn as one
