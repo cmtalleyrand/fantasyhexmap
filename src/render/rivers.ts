@@ -307,6 +307,7 @@ function holdToReach(
     const key = `${s.col},${s.row}`;
     const c = hexCenter(s.col, s.row, size);
     const dist = (p: Point) => Math.hypot(p.x - c.x, p.y - c.y);
+    let preferred: Point | null = null;
     for (let pass = 0; pass < 6; pass++) {
       // The run of the line inside this hex that comes nearest the centre.
       let best = -1;
@@ -322,14 +323,34 @@ function holdToReach(
       while (from > 1 && hexOf(line[from - 1]!) === key) from--;
       while (to < line.length - 2 && hexOf(line[to + 1]!) === key) to++;
       const p = line[best]!;
-      let ux = d < 1e-6 ? 0 : (p.x - c.x) / d;
-      let uy = d < 1e-6 ? 0 : (p.y - c.y) / d;
-      if (d < 1e-6) {
-        const a = line[Math.max(0, best - 1)]!;
-        const b = line[Math.min(line.length - 1, best + 1)]!;
-        const len = Math.hypot(b.x - a.x, b.y - a.y) || 1;
-        ux = -(b.y - a.y) / len;
-        uy = (b.x - a.x) / len;
+      if (!preferred) {
+        // A minimum reach is a circular obstacle. Choose one side of it once for
+        // the whole in-hex run; independently pushing successive nearest samples
+        // radially can put them on opposite sides and manufacture an S-shaped
+        // hairpin. The existing course chooses the side, so its seeded character
+        // is retained rather than replaced with another random decision.
+        let px = p.x - c.x;
+        let py = p.y - c.y;
+        if (Math.hypot(px, py) < apothem * 0.02) {
+          const a = line[from]!;
+          const b = line[to]!;
+          px = (a.x + b.x) / 2 - c.x;
+          py = (a.y + b.y) / 2 - c.y;
+        }
+        if (Math.hypot(px, py) < apothem * 0.02) {
+          const a = line[Math.max(0, best - 1)]!;
+          const b = line[Math.min(line.length - 1, best + 1)]!;
+          px = -(b.y - a.y);
+          py = b.x - a.x;
+        }
+        const pl = Math.hypot(px, py) || 1;
+        preferred = { x: px / pl, y: py / pl };
+      }
+      let ux = d < 1e-6 ? preferred.x : (p.x - c.x) / d;
+      let uy = d < 1e-6 ? preferred.y : (p.y - c.y) / d;
+      if (want > d && ux * preferred.x + uy * preferred.y < 0) {
+        ux = preferred.x;
+        uy = preferred.y;
       }
       const shift = { x: c.x + ux * want - p.x, y: c.y + uy * want - p.y };
       // Take the whole shift if the apex may go there, else as much of it as may.
