@@ -16,7 +16,7 @@ export const GEO_NAME_KINDS: GeoNameKind[] = ['sea', 'lake', 'land', 'island'];
 export const GEO_KIND_LABEL: Record<GeoNameKind, { singular: string; plural: string; accepts: string }> = {
   sea: {
     singular: 'Sea',
-    plural: 'Seas',
+    plural: 'Seas and oceans',
     accepts: 'Sea, Strait and island hexes (open water with islands in it). Coastal land is excluded.',
   },
   lake: { singular: 'Lake', plural: 'Lakes', accepts: 'Lake hexes.' },
