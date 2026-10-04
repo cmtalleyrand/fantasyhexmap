@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createMapState } from '../shared/layers.ts';
 import type { MapState } from '../shared/types.ts';
-import { buildExportScene } from '../src/render/export.ts';
+import { buildExportScene, serializeLegendText } from '../src/render/export.ts';
 import {
   appendLegend,
   DEFAULT_LEGEND_OPTIONS,
@@ -143,6 +143,33 @@ test('the legend title can be omitted', () => {
   const texts = scene.prims.filter((p) => p.kind === 'text').map((p) => (p as { text: string }).text);
   assert.ok(!texts.includes('Test Realm'));
   assert.ok(texts.includes('Base Geography'));
+});
+
+test('text legend contains the same selected sections, entries and polity nesting', () => {
+  const map = sampleMap();
+  map.layers.polities.data!.polities.push({
+    id: 'p3', name: 'Northmark March', colour: '#990000', parentId: 'p1',
+  });
+  map.layers.polities.data!.owner[3] = 'p3';
+  const text = serializeLegendText(
+    map,
+    visibility('rivers', 'polities'),
+    'colour',
+    opts({ exclude: ['base'], riverLengths: true }),
+  );
+
+  assert.equal(text, [
+    'Test Realm',
+    '',
+    'Rivers',
+    '- Non-navigable river',
+    '- Aln - 10 km',
+    '',
+    'Polities',
+    '- Northmark',
+    '  - Northmark March',
+    '',
+  ].join('\n'));
 });
 
 test('a long legend continues in a further column rather than growing without bound', () => {

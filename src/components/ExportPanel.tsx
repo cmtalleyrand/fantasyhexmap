@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { LAYER_META, plannedLayers } from '../../shared/layers.js';
 import { type LayerId, type MapState } from '../../shared/types.js';
 import type { AuditIssue } from '../render/audit.js';
-import { auditExport, exportComposite, exportLayer } from '../render/export.js';
+import { auditExport, exportComposite, exportLayer, exportLegendText } from '../render/export.js';
 import type { PolityNameMin } from '../render/labels.js';
 import { DEFAULT_LEGEND_OPTIONS, legendLayers } from '../render/legend.js';
 import type { MarginaliaOptions } from '../render/marginalia.js';
@@ -206,6 +206,19 @@ export default function ExportPanel({
                 that layer and its base geography.
               </p>
             </div>
+            <button
+              onClick={() =>
+                exportLegendText(
+                  map,
+                  visible,
+                  elevationStyle,
+                  { exclude: legendExclude, onlyUsed, polityAreas, riverLengths, title: legendTitle },
+                  mapStyle,
+                )
+              }
+            >
+              Export legend as text
+            </button>
           </div>
         )}
 
