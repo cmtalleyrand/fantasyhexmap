@@ -57,7 +57,7 @@ export interface StyleKnobs {
   lettering: LetteringId;
   /** City markers: the app's symbols, the atlas convention of dots and rings, or drawn buildings. */
   cityMarkers: CityMarkerSet;
-  /** How a city's icon sits with the river it stands on: beside it, over its bank, beside it with a bridge, or on an islet. */
+  /** How a city's icon sits with the river it stands on: beside it, over its bank, or (the larger icons) standing on it with its course shown through them. */
   cityRiver: CityRiver;
   /** The dashed water-coloured marks on a city's coastal edges. */
   cityCoastMarks: boolean;
@@ -566,8 +566,8 @@ export const KNOB_OPTIONS: {
     options: [
       { value: 'beside', label: 'Beside the river (river bows round the icon)' },
       { value: 'overlay', label: 'Over the bank (river runs behind the icon)' },
-      { value: 'bridge', label: 'Beside the river, with a bridge' },
-      { value: 'islet', label: 'On an islet (river splits round the icon)' },
+      { value: 'outline', label: 'Larger icons on the river, its banks faint through them' },
+      { value: 'wash', label: 'Larger icons on the river, a wash of water through them' },
     ],
   },
   cityCoastMarks: {

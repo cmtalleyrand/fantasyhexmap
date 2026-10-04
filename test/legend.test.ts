@@ -172,7 +172,7 @@ test('the river city swatch follows how the style sits a city with its river', a
   const { createMapState } = await import('../shared/layers.ts');
   const { resolveStyle } = await import('../src/render/styles.ts');
   const labels = new Set<string>();
-  for (const cityRiver of ['beside', 'overlay', 'bridge', 'islet'] as const) {
+  for (const cityRiver of ['beside', 'overlay', 'outline', 'wash'] as const) {
     const map = createMapState('L', 4, 4);
     map.layers.cities.data = { cities: [{ id: 'a', col: 1, row: 1, name: 'A', population: 5000, onRiver: true, riverId: 'r', coastal: false, coastalEdges: [] }] } as never;
     const style = resolveStyle({ preset: 'parchment', overrides: { cityRiver } });
@@ -184,8 +184,8 @@ test('the river city swatch follows how the style sits a city with its river', a
     const before = scene.prims.length;
     const drawn = appendLegend(scene, [section], null, 20);
     assert.ok(drawn.prims.length > before, `${cityRiver}: the legend is drawn`);
-    if (cityRiver === 'bridge' || cityRiver === 'islet') {
-      assert.ok(drawn.prims.slice(before).some((p) => p.kind === 'polygon' && (p.fill === style.palette.cityRing)), `${cityRiver}: the swatch shows its bridge or islet`);
+    if (cityRiver === 'outline' || cityRiver === 'wash') {
+      assert.ok(drawn.prims.slice(before).some((p) => p.kind === 'group' && p.clip), `${cityRiver}: the swatch shows the river through its icon`);
     }
   }
   assert.equal(labels.size, 4, 'each mode has its own legend line');

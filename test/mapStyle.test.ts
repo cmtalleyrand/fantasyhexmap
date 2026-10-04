@@ -1543,55 +1543,66 @@ test('the river bows round the icon of a city on its bank, and the icon is press
 });
 
 test('a city on a river keeps its whole icon, however the style sits it with the river', async () => {
-  const { RIVER_STANCE, riverCityScenery } = await import('../src/render/riverCity.ts');
-  const { cityMarker, iconClearance } = await import('../src/render/cityMarkers.ts');
+  const { riverStance, riverThroughIcon, showsRiver } = await import('../src/render/riverCity.ts');
+  const { iconClearance, iconDrop } = await import('../src/render/cityMarkers.ts');
   const size = 40;
   const reachR = 10;
   const line = Array.from({ length: 41 }, (_, i) => ({ x: i * 2, y: 40 }));
   const reach = { line, widths: line.map(() => 3) };
-  const colours = { ink: '#111', paper: '#eee', river: '#37a', bank: '#258' };
-  assert.deepEqual(riverCityScenery('beside', { x: 40, y: 20 }, reachR, reach, colours, 1), [], 'beside draws no scenery');
-  assert.deepEqual(riverCityScenery('overlay', { x: 40, y: 30 }, reachR, reach, colours, 1), [], 'over the bank draws no scenery');
-  const bridge = riverCityScenery('bridge', { x: 40, y: 20 }, reachR, reach, colours, 1);
-  assert.equal(bridge.length, 1);
-  const deck = (bridge[0] as { points: Array<{ x: number; y: number }> }).points;
-  assert.ok(deck.some((p) => p.y > 40 + 1.5) && deck.some((p) => p.y < 40 - 1.5), 'the bridge crosses the river');
-  const islet = riverCityScenery('islet', { x: 40, y: 40 }, reachR, reach, colours, 1);
-  const land = islet.at(-1) as { kind: string; points: Array<{ x: number; y: number }>; fill?: string };
-  assert.equal(land.kind, 'polygon');
-  assert.equal(land.fill, colours.paper, 'an islet of paper under the icon');
-  assert.ok(land.points.some((p) => p.y < 40 - reachR * 0.5) && land.points.some((p) => p.y > 40 + reachR * 0.5), 'the islet is wide enough for the icon');
-  assert.equal(RIVER_STANCE.islet.straddle, true);
-  assert.ok(RIVER_STANCE.beside.setIn >= 1 && RIVER_STANCE.beside.press === 0, 'beside sets the whole icon on the bank');
+  const icon = [{ kind: 'path', d: [['M', 30, 32], ['L', 50, 32], ['L', 50, 48], ['L', 30, 48], ['Z']], fill: '#111' }] as Prim[];
+  assert.deepEqual(riverThroughIcon('beside', icon, { x: 40, y: 40 }, reachR, reach, { river: '#9bd' }, 1), [], 'beside shows no river through the icon');
+  assert.deepEqual(riverThroughIcon('overlay', icon, { x: 40, y: 40 }, reachR, reach, { river: '#9bd' }, 1), [], 'over the bank shows none either');
+  for (const mode of ['outline', 'wash'] as const) {
+    const [through] = riverThroughIcon(mode, icon, { x: 40, y: 40 }, reachR, reach, { river: '#9bd' }, 1) as Array<Extract<Prim, { kind: 'group' }>>;
+    assert.equal(through!.kind, 'group');
+    assert.deepEqual(through!.clip, icon[0]!.kind === 'path' ? icon[0]!.d : [], 'the river is clipped to the icon, so the icon stays whole');
+    const ys = through!.prims.flatMap((p) => (p.kind === 'polyline' || p.kind === 'polygon' ? p.points.map((q) => q.y) : []));
+    assert.ok(ys.some((y) => y < 40) && ys.some((y) => y > 40), `${mode}: the river's two banks are drawn`);
+  }
+  // Only the two larger icons stand on the river and show it; the others stand beside it.
+  assert.equal(showsRiver('village'), false);
+  assert.equal(showsRiver('town'), false);
+  assert.equal(showsRiver('city'), true);
+  assert.equal(showsRiver('metropolis'), true);
+  assert.equal(riverStance('outline', 'city').straddle, true);
+  assert.equal(riverStance('wash', 'metropolis').straddle, true);
+  assert.equal(riverStance('outline', 'town').straddle, false);
+  assert.equal(riverStance('beside', 'metropolis').straddle, false, 'beside keeps even the largest icon on the bank');
+  assert.ok(riverStance('beside', 'city').setIn >= 1 && riverStance('beside', 'city').press === 0, 'beside sets the whole icon on the bank');
   assert.ok(iconClearance('illustrated', 'metropolis', 10) >= 9.5, 'the clearance covers the drawn icon');
+  assert.ok(iconDrop('illustrated', 'city', 10) > 0, 'drawn buildings stand below their site, so the river is aimed at their middle');
 
   const map = islandMap();
   const river = map.layers.rivers.data!.rivers[0]!;
   const at = hexCenter(river.segments[1]!.col, river.segments[1]!.row, size);
   const bare = riverCourse(river, size, 'seed')!;
-  const near = (cityRiver: 'beside' | 'overlay') => {
-    const stance = RIVER_STANCE[cityRiver];
-    const course = riverCourse(river, size, 'seed', { cities: [{ at, radius: 12, id: 'c', icon: { reach: reachR, ...stance } }] })!;
+  const near = (mode: 'beside' | 'overlay' | 'wash') => {
+    const course = riverCourse(river, size, 'seed', { cities: [{ at, radius: 12, id: 'c', icon: { reach: reachR, ...riverStance(mode, 'city') } }] })!;
     const m = course.icons[0]!.at;
     return { course, d: Math.min(...course.centreline.map((p) => Math.hypot(p.x - m.x, p.y - m.y))) };
   };
   assert.ok(near('beside').d >= reachR - 1e-6, 'the river keeps clear of the whole icon');
   assert.deepEqual(near('overlay').course.centreline, bare.centreline, 'over the bank the river is not bowed');
+  assert.deepEqual(near('wash').course.centreline, bare.centreline, 'a river shown through the icon is not bowed');
 
-  for (const cityRiver of ['beside', 'overlay', 'bridge', 'islet'] as const) {
+  for (const cityRiver of ['beside', 'overlay', 'outline', 'wash'] as const) {
     for (const cityMarkers of ['symbols', 'classic', 'illustrated'] as const) {
       const style = resolveStyle({ preset: 'parchment', overrides: { cityMarkers, cityRiver } });
       for (const population of [5_000, 30_000, 120_000, 1_000_000]) {
         const sceneMap = islandMap();
         sceneMap.layers.cities.data = { cities: [{ id: 'a', col: 2, row: 2, name: 'Wet', population, onRiver: true, riverId: 'r', coastal: false, coastalEdges: [] }] } as never;
-        const prims = buildScene(sceneMap, { size: 20, visible: { ...allLayers(), cities: true }, labels: false, style }).prims;
+        const draw = (cityRiverMode: 'beside' | typeof cityRiver) => buildScene(sceneMap, { size: 20, visible: { ...allLayers(), cities: true }, labels: false, style: resolveStyle({ preset: 'parchment', overrides: { cityMarkers, cityRiver: cityRiverMode } }) }).prims;
+        const prims = draw(cityRiver);
         const icon = (p: Prim) => (p.kind === 'path' || p.kind === 'circle') && p.fill === style.palette.cityFill;
-        assert.ok(prims.some(icon), `${cityRiver}/${cityMarkers}/${population}: the icon is drawn`);
+        const tag = `${cityRiver}/${cityMarkers}/${population}`;
+        assert.ok(prims.some(icon), `${tag}: the icon is drawn`);
         // The icon is whole: the same shapes the marker draws on its own, never reshaped into polygons.
-        assert.equal(prims.filter((p) => p.kind === 'polygon' && p.fill === style.palette.cityFill).length, 0, `${cityRiver}/${cityMarkers}/${population}: the icon is not reshaped`);
-        // And it is drawn after the river and its scenery, so nothing covers it.
-        const last = prims.findLastIndex((p) => p.kind === 'polygon' && (p.fill === style.palette.cityRing || p.fill === style.palette.river));
-        assert.ok(last < prims.findLastIndex(icon), `${cityRiver}/${cityMarkers}/${population}: nothing is drawn over the icon`);
+        assert.equal(prims.filter((p) => p.kind === 'polygon' && p.fill === style.palette.cityFill).length, 0, `${tag}: the icon is not reshaped`);
+        // The river shows through the larger icons in the two modes that ask for it, and only there: a clipped,
+        // translucent group beyond those a plain scene has.
+        const clipped = (list: Prim[]) => list.filter((p) => p.kind === 'group' && p.clip && p.opacity !== undefined).length;
+        const expected = (cityRiver === 'outline' || cityRiver === 'wash') && population > 50_000;
+        assert.equal(clipped(prims) - clipped(draw('beside')), expected ? 1 : 0, `${tag}: the river ${expected ? 'shows' : 'does not show'} through the icon`);
       }
     }
   }

@@ -97,8 +97,8 @@ import {
   raggedEdge,
 } from './coast.js';
 import { polygonPath, type CitySymbol, type PathCmd, type Prim } from './prims.js';
-import { capitalCrown, cityMarker, iconClearance, markerExtent, symbolMarker } from './cityMarkers.js';
-import { RIVER_STANCE, riverCityScenery } from './riverCity.js';
+import { capitalCrown, cityMarker, iconClearance, iconDrop, markerExtent, symbolMarker } from './cityMarkers.js';
+import { riverStance, riverThroughIcon, showsRiver } from './riverCity.js';
 import { landBySide, riverCourses, type RiverCourse } from './rivers.js';
 import { citySite, resolvedSite } from './sites.js';
 import { escarpment, hillshade, reliefSymbols, vegetationSymbols, type Placed } from './symbols.js';
@@ -2263,7 +2263,7 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
             radius: markerRadius(city.population),
             // A city on its river (not a port at the shore) is set into the bank and shapes the course.
             icon: resolvedSite(city).kind === 'river'
-              ? { reach: iconClearance(knobs.cityMarkers, symbol, markerRadius(city.population)), ...RIVER_STANCE[knobs.cityRiver] }
+              ? { reach: iconClearance(knobs.cityMarkers, symbol, markerRadius(city.population)), ...riverStance(knobs.cityRiver, symbol), dy: iconDrop(knobs.cityMarkers, symbol, markerRadius(city.population)) }
               : undefined,
           };
         }), knobs.riverWander)
@@ -2442,12 +2442,12 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
       const widths = city.riverId ? widthProfiles.get(city.riverId) : null;
       if (line && widths) {
         // The icon is drawn whole, on top of the river; the style says whether the river bows round it, runs behind it,
-        // or is given a bridge or an islet to go with it.
+        // or (a larger icon) is shown through it.
         const plain = knobs.cityMarkers === 'symbols'
           ? symbolMarker(symbol, c, r, colours, true)
           : cityMarker(knobs.cityMarkers, symbol, c, r, colours, (k) => unit(seed, 'city', city.id, k));
-        prims.push(...riverCityScenery(knobs.cityRiver, c, iconClearance(knobs.cityMarkers, symbol, r), { line, widths }, { ink: palette.cityFill, paper: palette.cityRing, river: palette.river, bank: palette.riverBank }, Math.max(1, size * 0.04)));
         prims.push(...plain);
+        if (showsRiver(symbol)) prims.push(...riverThroughIcon(knobs.cityRiver, plain, c, iconClearance(knobs.cityMarkers, symbol, r), { line, widths }, { river: knobs.cityMarkers === 'classic' ? palette.river : mix(palette.river, palette.cityRing, 0.4) }, Math.max(1, size * 0.04)));
       } else if (knobs.cityMarkers === 'symbols') {
         prims.push({ kind: 'city', c, r, onRiver: city.onRiver, symbol, riverDot: palette.river, fill: palette.cityFill, ring: palette.cityRing });
       } else {

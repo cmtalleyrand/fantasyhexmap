@@ -25,6 +25,12 @@ export interface MarkerColours {
   river: string;
 }
 
+/** How far below its site the middle of the drawn icon lies (drawn buildings stand on a ground line below the site). */
+export function iconDrop(set: CityMarkerSet, symbol: CitySymbol, r: number): number {
+  const { up, down } = markerExtent(set, symbol);
+  return (r * (up - down)) / 2;
+}
+
 /** How much room the whole icon needs round its site: the river keeps this clear of it (a capital's crown is not counted). */
 export function iconClearance(set: CityMarkerSet, symbol: CitySymbol, r: number): number {
   const { up, down, half } = markerExtent(set, symbol);

@@ -915,15 +915,19 @@ at its shore.
 treatment pressed every point of the icon that lay in the water onto the bank, which turned small icons into
 slivers and notched a metropolis). How it sits with the river is the style knob `cityRiver` ("Cities on rivers"):
 `beside` (default: the icon is set so its edge just touches the bank and the river bows round all of it), `overlay`
-(set a third into the bank, the river not bowed and running behind the icon), `bridge` (as beside, with a paper deck
-outlined in ink across the river in front of the icon) and `islet` (the icon stands on the river's own line, on an
-islet of paper; the river swells into a lens and splits round it, following the river's bends). The first two only
-change where the icon is set and how far the river bows (`RIVER_STANCE`); the other two add scenery under the icon
-(`riverCityScenery`). The river keeps clear of the icon's whole drawn extent (`iconClearance`, from `markerExtent`),
-not just its body. The legend swatch follows the mode. `pressIcon` remains, unused by the renderers, for its tests.
+(set a third into the bank, the river not bowed and running behind the icon), and two that show the river through
+the two larger icons (city, metropolis; smaller icons stand beside the river as in `beside`): `outline` and `wash`.
+In both the larger icon stands on the river's own line (the river is left as it is, and the icon is dropped so the
+middle of the drawn icon, not its site, is on the river: `iconDrop`) and the river's course through it is drawn over
+the icon, clipped to the icon's silhouette so the icon stays whole: its two banks as faint lines (`outline`), or a
+translucent band of water (`wash`), in a water colour lightened toward the paper on the dark-bodied marker sets so it
+shows (`riverThroughIcon`). The placing is `riverStance`. The river keeps clear of the icon's whole drawn extent
+(`iconClearance`, from `markerExtent`), not just its body. The legend swatch follows the mode (a city, not a town,
+for the two see-through modes). `pressIcon` remains, unused by the renderers, for its tests.
 Tried and dropped: a straight band over the icon, a clip cutting the icon along the river, icons rebuilt as parts laid
-along the bank, sliding points radially to the nearest bank point (it folded tips into stalks and flaps), and pressing
-the icon against the bank (distorts small icons).
+along the bank, sliding points radially to the nearest bank point (it folded tips into stalks and flaps), pressing
+the icon against the bank (distorts small icons), and, among the placements offered and dropped, a bridge deck
+across the river and an islet the river splits round.
 
 **River irregularity is a setting.** Style knob `riverWander` (Very gentle, Gentle, Normal, Irregular, Wild; Normal by
 default) sets the swing of the wander, how many passes pull the hex-edge crossings taut (fewer leaves the hex walk's

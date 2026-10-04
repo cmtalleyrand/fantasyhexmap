@@ -15,7 +15,7 @@
  */
 
 import type { Point } from '../../shared/hex.js';
-import type { PathCmd, Prim } from './prims.js';
+import { polygonPath, type CitySymbol, type PathCmd, type Prim } from './prims.js';
 
 export interface Reach {
   /** The river's drawn centreline, and its width at each point. */
@@ -123,8 +123,13 @@ export const SET_IN = 0.4;
 /** How much of its reach an icon yields to the river that bows round it. */
 export const PRESS = 0.12;
 
-/** How a city's icon sits with the river it stands on. */
-export type CityRiver = 'beside' | 'overlay' | 'bridge' | 'islet';
+/**
+ * How a city's icon sits with the river it stands on: beside it (the river bows round the whole icon), over the
+ * bank (the river runs unbowed behind the icon), or, for the two larger icons, standing on the river with its
+ * course shown through the icon: as a faint outline (`outline`) or as a translucent band of water (`wash`). The
+ * smaller icons stand beside the river in those two modes.
+ */
+export type CityRiver = 'beside' | 'overlay' | 'outline' | 'wash';
 
 export interface RiverStance {
   /** Whether the icon stands on the river's own line (the river is left as it is) rather than on a bank. */
@@ -135,12 +140,17 @@ export interface RiverStance {
   press: number;
 }
 
-export const RIVER_STANCE: Record<CityRiver, RiverStance> = {
-  beside: { straddle: false, setIn: 1, press: 0 },
-  overlay: { straddle: false, setIn: 0.35, press: 1 },
-  bridge: { straddle: false, setIn: 1, press: 0 },
-  islet: { straddle: true, setIn: 0, press: 0 },
-};
+const BESIDE: RiverStance = { straddle: false, setIn: 1, press: 0 };
+const ON_RIVER: RiverStance = { straddle: true, setIn: 0, press: 0 };
+
+/** Whether an icon of this size is large enough to show the river through it. */
+export const showsRiver = (symbol: CitySymbol): boolean => symbol === 'city' || symbol === 'metropolis';
+
+export function riverStance(mode: CityRiver, symbol: CitySymbol): RiverStance {
+  if (mode === 'overlay') return { straddle: false, setIn: 0.35, press: 1 };
+  if ((mode === 'outline' || mode === 'wash') && showsRiver(symbol)) return ON_RIVER;
+  return BESIDE;
+}
 
 /** The part of `reach` within `half` of the river along its length of `p`: each point with its unit normal and signed distance along. */
 function slice(reach: Reach, p: Point, half: number): Array<{ p: Point; n: Point; s: number; w: number }> {
@@ -174,55 +184,48 @@ function slice(reach: Reach, p: Point, half: number): Array<{ p: Point; n: Point
   return out.sort((a, b) => a.s - b.s);
 }
 
+/** The outline of everything an icon fills, as one path (circles as polygons), to clip the river to it. */
+function silhouette(prims: Prim[]): PathCmd[] {
+  const out: PathCmd[] = [];
+  for (const prim of prims) {
+    if (prim.kind === 'path' && prim.fill !== undefined) out.push(...prim.d);
+    else if (prim.kind === 'polygon' && prim.fill !== undefined) out.push(...polygonPath(prim.points));
+    else if (prim.kind === 'circle' && prim.fill !== undefined) {
+      out.push(...polygonPath(Array.from({ length: 24 }, (_, k) => ({ x: prim.c.x + Math.cos((k * Math.PI) / 12) * prim.r, y: prim.c.y + Math.sin((k * Math.PI) / 12) * prim.r }))));
+    }
+  }
+  return out;
+}
+
 /**
- * What is drawn under a city's icon, over the river: nothing for the modes that only place the icon; for a bridge,
- * a deck across the river in front of the icon; for an islet, the river parted round an island under the icon.
- * `c` is the icon's site, `reachR` how far the icon reaches, `bankW` the width of the bank line.
+ * The river's course through a larger icon, drawn over it and clipped to its silhouette, so the icon stays whole:
+ * `outline` draws the river's two banks as faint lines, `wash` a translucent band of water, both in `tone` (a
+ * water colour that shows against the icon). `icon` is the icon's primitives, `c` its site and `reachR` how far it
+ * reaches. Nothing for the other modes or for a smaller icon.
  */
-export function riverCityScenery(
+export function riverThroughIcon(
   mode: CityRiver,
+  icon: Prim[],
   c: Point,
   reachR: number,
   reach: Reach,
-  colours: { ink: string; paper: string; river: string; bank: string },
+  tone: { river: string },
   bankW: number,
 ): Prim[] {
-  if (mode === 'bridge') {
-    const near = nearest(reach, c);
-    const t = { x: near.n.y, y: -near.n.x };
-    // From the icon's bank across to a little way past the far one, a paper deck outlined in ink, as a map draws a bridge.
-    const out = near.half + reachR * 0.6;
-    const back = near.side * (near.half + reachR * 0.3);
-    const half = Math.max(1.2, reachR * 0.2);
-    const corner = (across: number, along: number): Point => ({ x: near.q.x + near.n.x * across + t.x * along, y: near.q.y + near.n.y * across + t.y * along });
-    return [{
-      kind: 'polygon',
-      points: [corner(back, -half), corner(-near.side * out, -half), corner(-near.side * out, half), corner(back, half)],
-      fill: colours.paper,
-      stroke: colours.ink,
-      strokeWidth: Math.max(0.7, reachR * 0.08),
-    }];
+  if (mode !== 'outline' && mode !== 'wash') return [];
+  const clip = silhouette(icon);
+  const bank = slice(reach, c, reachR * 1.8);
+  if (clip.length === 0 || bank.length < 2) return [];
+  const edge = (sign: 1 | -1): Point[] => bank.map((b) => ({ x: b.p.x + b.n.x * sign * (b.w / 2), y: b.p.y + b.n.y * sign * (b.w / 2) }));
+  const left = edge(1);
+  const right = edge(-1);
+  if (mode === 'wash') {
+    return [{ kind: 'group', clip, opacity: 0.8, prims: [{ kind: 'polygon', points: [...left, ...right.reverse()], fill: tone.river }] }];
   }
-  if (mode !== 'islet') return [];
-  // The water swells into a lens, along the river's own line, round an island of paper under the icon.
-  const lens = 1.8 * reachR;
-  const isle = 1.25 * reachR;
-  const bank = slice(reach, c, lens);
-  if (bank.length < 3) return [];
-  const swell = (s: number, l: number) => Math.max(0, 1 - (s / l) ** 2) ** 0.6;
-  const channel = (w: number) => Math.max(w * 0.6, reachR * 0.2);
-  const side = (sign: 1 | -1, width: (b: (typeof bank)[number]) => number): Point[] => bank.map((b) => ({ x: b.p.x + b.n.x * sign * width(b), y: b.p.y + b.n.y * sign * width(b) }));
-  const water = (b: (typeof bank)[number]) => b.w / 2 + (reachR * 0.85 + channel(b.w) - b.w / 2) * swell(b.s, lens);
-  const left = side(1, water);
-  const right = side(-1, water);
-  const isleOf = bank.filter((b) => Math.abs(b.s) < isle);
-  const land = (b: (typeof bank)[number]) => reachR * 0.85 * swell(b.s, isle);
-  const isleLeft = isleOf.map((b) => ({ x: b.p.x + b.n.x * land(b), y: b.p.y + b.n.y * land(b) }));
-  const isleRight = isleOf.map((b) => ({ x: b.p.x - b.n.x * land(b), y: b.p.y - b.n.y * land(b) }));
-  return [
-    { kind: 'polyline', points: left, stroke: colours.bank, strokeWidth: bankW, round: true },
-    { kind: 'polyline', points: right, stroke: colours.bank, strokeWidth: bankW, round: true },
-    { kind: 'polygon', points: [...left, ...right.reverse()], fill: colours.river },
-    { kind: 'polygon', points: [...isleLeft, ...isleRight.reverse()], fill: colours.paper, stroke: colours.bank, strokeWidth: bankW },
-  ];
+  return [{
+    kind: 'group',
+    clip,
+    opacity: 0.85,
+    prims: [left, right].map((points): Prim => ({ kind: 'polyline', points, stroke: tone.river, strokeWidth: Math.max(0.8, bankW), round: true })),
+  }];
 }

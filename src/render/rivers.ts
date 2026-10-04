@@ -162,7 +162,7 @@ export interface CourseEnds {
     radius: number;
     id?: string;
     /** The icon: how far it reaches, and whether it stands across the river (the largest size) rather than on its bank. */
-    icon?: { reach: number; straddle: boolean; setIn?: number; press?: number };
+    icon?: { reach: number; straddle: boolean; setIn?: number; press?: number; dy?: number };
   }>;
   /** How irregular the course is (see `WANDER`); 'normal' when omitted. */
   wander?: RiverWander;
@@ -638,7 +638,7 @@ export function riverCourse(river: River, size: number, seed: string, ends: Cour
   });
 
   // The river and the icons of the cities on its bank shape each other. An icon is set into the bank (how far
-  // depends on the city's stance, `RIVER_STANCE`), and the river bows out round it, keeping clear of all but a
+  // depends on the city's stance, `riverStance`), and the river bows out round it, keeping clear of all but a
   // fraction of its reach, so the course curves with the icon's rim; the icon itself is drawn whole. The icon of a
   // city that straddles the river stands on the line, and the river is left as it is.
   const icons: Array<{ id: string; at: Point }> = [];
@@ -655,7 +655,8 @@ export function riverCourse(river: River, size: number, seed: string, ends: Cour
     });
     if (k < 1 || k > line.length - 2) continue;
     if (city.icon.straddle) {
-      icons.push({ id: city.id, at: line[k]! });
+      // Stood so the middle of the icon, not its site, is on the river.
+      icons.push({ id: city.id, at: { x: line[k]!.x, y: line[k]!.y + (city.icon.dy ?? 0) } });
       continue;
     }
     const a = line[k - 1]!;
@@ -815,7 +816,7 @@ export function riverCourses(
   size: number,
   seed: string,
   lakeEnds: (river: River) => Pick<CourseEnds, 'before' | 'beyond' | 'inWater' | 'onLand'> = () => ({}),
-  cities: Array<{ riverId: string; at: Point; radius: number; id?: string; icon?: { reach: number; straddle: boolean; setIn?: number; press?: number } }> = [],
+  cities: Array<{ riverId: string; at: Point; radius: number; id?: string; icon?: { reach: number; straddle: boolean; setIn?: number; press?: number; dy?: number } }> = [],
   wander: RiverWander = 'normal',
 ): Map<string, RiverCourse> {
   const out = new Map<string, RiverCourse>();

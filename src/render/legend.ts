@@ -12,7 +12,7 @@
 
 import type { Point } from '../../shared/hex.js';
 import { capitalCrown, cityMarker, iconClearance, symbolMarker, type CityMarkerSet } from './cityMarkers.js';
-import { RIVER_STANCE, riverCityScenery, type CityRiver } from './riverCity.js';
+import { riverStance, riverThroughIcon, showsRiver, type CityRiver } from './riverCity.js';
 import { fantasyTextEm } from './fonts.js';
 import {
   BASE_COLOURS,
@@ -25,7 +25,7 @@ import {
 import { CLASSIC_STYLE, type ElevationStyle, type MapStyle } from './styles.js';
 import { polityDisplayColours } from './hierarchy.js';
 import { descendantsOf } from '../../shared/polityTree.js';
-import { thematicLayer, withLandOf, type CitySymbol, type Prim, type Scene, type VisibleLayers } from './scene.js';
+import { mix, thematicLayer, withLandOf, type CitySymbol, type Prim, type Scene, type VisibleLayers } from './scene.js';
 import { LAYER_META } from '../../shared/layers.js';
 import { formatLength, riverLength } from '../../shared/riverLength.js';
 import { riverLabel } from '../../shared/riverEdit.js';
@@ -89,8 +89,8 @@ export interface LegendSection {
 const CITY_RIVER_LABEL: Record<CityRiver, string> = {
   beside: 'On a river (the river bows round the icon)',
   overlay: 'On a river (the river runs behind the icon)',
-  bridge: 'On a river (a bridge crosses to the far bank)',
-  islet: 'On a river (the river splits round the icon)',
+  outline: 'On a river (larger icons show its banks faintly through them)',
+  wash: 'On a river (larger icons show a wash of water through them)',
 };
 
 const CITY_ENTRIES: Array<{ symbol: CitySymbol; label: string }> = [
@@ -248,7 +248,7 @@ export function legendSections(
         // A river city stands on its river's bank; the largest sit astride it.
         if (!options.onlyUsed || cities.some((c) => c.onRiver)) {
           entries.push({
-            swatch: { kind: 'city', symbol: 'town', onRiver: true, cityRiver: style.knobs.cityRiver, set: style.knobs.cityMarkers, ink: style.palette.cityFill, paper: style.palette.cityRing, river: style.palette.river, bank: style.palette.riverBank },
+            swatch: { kind: 'city', symbol: style.knobs.cityRiver === 'outline' || style.knobs.cityRiver === 'wash' ? 'city' : 'town', onRiver: true, cityRiver: style.knobs.cityRiver, set: style.knobs.cityMarkers, ink: style.palette.cityFill, paper: style.palette.cityRing, river: style.palette.river, bank: style.palette.riverBank },
             label: CITY_RIVER_LABEL[style.knobs.cityRiver],
           });
         }
@@ -389,7 +389,7 @@ function swatchPrims(swatch: LegendSwatch, x: number, cy: number, m: ReturnType<
       const R = swatch.capital ? 6 * k : swatch.onRiver ? 6 * k : 8 * k;
       const riverWidth = 3 * k;
       // A river city stands as the style says beside (or on) a river running across the swatch, as on the map.
-      const stance = RIVER_STANCE[swatch.cityRiver ?? 'beside'];
+      const stance = riverStance(swatch.cityRiver ?? 'beside', swatch.symbol);
       const reach = iconClearance(set, swatch.symbol, R);
       const setIn = swatch.onRiver && !stance.straddle ? riverWidth / 2 + reach * stance.setIn : 0;
       const at = { x: cx, y: cy + (swatch.capital ? 3 * k : 0) - setIn / 2 };
@@ -410,10 +410,10 @@ function swatchPrims(swatch: LegendSwatch, x: number, cy: number, m: ReturnType<
         : swatch.onRiver
           ? symbolMarker(swatch.symbol, at, R, colours, true)
           : [{ kind: 'city', c: at, r: R, onRiver: false, symbol: swatch.symbol }];
-      const scenery = swatch.onRiver
-        ? riverCityScenery(swatch.cityRiver ?? 'beside', site, reach, { line: course, widths: course.map(() => riverWidth) }, { ink, paper, river: colours.river, bank: swatch.bank ?? colours.river }, 0.6 * k)
+      const scenery = swatch.onRiver && showsRiver(swatch.symbol)
+        ? riverThroughIcon(swatch.cityRiver ?? 'beside', plain, site, reach, { line: course, widths: course.map(() => riverWidth) }, { river: set === 'classic' ? colours.river : mix(colours.river, paper, 0.4) }, 0.6 * k)
         : [];
-      return [...water, ...scenery, ...plain, ...crown];
+      return [...water, ...plain, ...scenery, ...crown];
     }
     case 'contour': {
       const prims: Prim[] = [box(ELEVATION_COLOURS.Rolling)];
