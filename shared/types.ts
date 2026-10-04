@@ -327,6 +327,11 @@ export const ELEVATION_VALUES: Elevation[] = [
   'Plateau',
 ];
 
+/** Elevations that can belong to a named mountain range. */
+export function isRangeElevation(e: Elevation | null | undefined): boolean {
+  return e === 'Mountains' || e === 'Highland';
+}
+
 export type Climate =
   | 'Af' | 'Am' | 'Aw'
   | 'BWh' | 'BWk' | 'BSh' | 'BSk'
@@ -431,9 +436,10 @@ export interface River {
 }
 
 /**
- * A named group of Mountains hexes. Elevation is a flat per-hex array with no
- * room for identity, so ranges are kept beside the layers rather than in one.
- * Hexes that stop being Mountains are ignored when drawing, not deleted.
+ * A named group of Mountains and Highland hexes. Elevation is a flat per-hex
+ * array with no room for identity, so ranges are kept beside the layers rather
+ * than in one. Hexes that stop being Mountains or Highland are ignored when
+ * drawing, not deleted.
  */
 export interface MountainRange {
   id: string;

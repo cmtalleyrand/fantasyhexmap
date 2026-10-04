@@ -7,7 +7,7 @@
  */
 
 import { hexCenter, hexEdgeMidpoint, hexIndex, inBounds, pixelToOffset, type Point } from '../../shared/hex.js';
-import type { BaseGeo, Elevation, MountainRange, River } from '../../shared/types.js';
+import { isRangeElevation, type BaseGeo, type Elevation, type MountainRange, type River } from '../../shared/types.js';
 import type { FaceRole } from './lettering.js';
 import { LETTERINGS } from './lettering.js';
 import { insideBox, type OrientedBox } from './labels.js';
@@ -503,7 +503,7 @@ export function placeRangeLabels(
   for (const range of ranges) {
     const text = range.name.trim().toUpperCase();
     if (!text) continue;
-    const live = range.hexes.filter((i) => elevation[i] === 'Mountains');
+    const live = range.hexes.filter((i) => isRangeElevation(elevation[i]));
     if (live.length === 0) continue;
     const centres = live.map((i) => hexCenter(i % cols, Math.floor(i / cols), size));
     const mean = centres.reduce((s, c) => ({ x: s.x + c.x, y: s.y + c.y }), { x: 0, y: 0 });
