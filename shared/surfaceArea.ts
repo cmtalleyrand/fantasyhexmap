@@ -158,6 +158,69 @@ export function formatArea(value: number, unit: string, rounding = 100): string 
   return `${rounded.toLocaleString(undefined, { maximumFractionDigits: 10 })} ${unit}²`;
 }
 
+export interface SurfaceStatistic {
+  label: string;
+  /** Number of hexes containing any of this surface or carrying this layer value. */
+  hexCount: number;
+  area: number;
+}
+
+/**
+ * Split the complete grid into land, salt water, and lake-water surface. Shore
+ * hexes can contribute to two rows, so hex counts describe containing hexes;
+ * areas, unlike those counts, partition the grid exactly.
+ */
+export function baseSurfaceStatistics(
+  base: BaseData,
+  dimensions: HexDimensions,
+  specs?: Record<string, IslandSpec>,
+  shapes?: Record<string, HexShape>,
+): SurfaceStatistic[] {
+  const hexArea = dimensions.width * dimensions.height * 0.75;
+  const stats = new Map(['Land', 'Sea', 'Lake'].map((label) => [label, { label, hexCount: 0, area: 0 }]));
+  for (let index = 0; index < base.length; index++) {
+    const value = base[index]!;
+    const land = landFraction(value, specs?.[String(index)], dimensions, shapes?.[String(index)]);
+    const water = 1 - land;
+    if (land > 0) {
+      const stat = stats.get('Land')!;
+      stat.hexCount++;
+      stat.area += hexArea * land;
+    }
+    if (water > 0) {
+      const stat = stats.get(value === 'Lake' ? 'Lake' : 'Sea')!;
+      stat.hexCount++;
+      stat.area += hexArea * water;
+    }
+  }
+  return [...stats.values()];
+}
+
+/**
+ * Count each non-null value in a land-only layer and weight its area by the
+ * actual land share of the corresponding base hex.
+ */
+export function landLayerSurfaceStatistics(
+  values: readonly (string | null)[],
+  orderedValues: readonly string[],
+  base: BaseData,
+  dimensions: HexDimensions,
+  specs?: Record<string, IslandSpec>,
+  shapes?: Record<string, HexShape>,
+): SurfaceStatistic[] {
+  const hexArea = dimensions.width * dimensions.height * 0.75;
+  const stats = new Map(orderedValues.map((label) => [label, { label, hexCount: 0, area: 0 }]));
+  for (let index = 0; index < values.length; index++) {
+    const value = values[index];
+    if (value === null || value === undefined) continue;
+    const stat = stats.get(value);
+    if (!stat) continue;
+    stat.hexCount++;
+    stat.area += hexArea * landFraction(base[index], specs?.[String(index)], dimensions, shapes?.[String(index)]);
+  }
+  return [...stats.values()].filter((stat) => stat.hexCount > 0);
+}
+
 /** Which single measurement of a regular pointy-top hex the user supplies. */
 export type HexMeasure = 'width' | 'corners' | 'side' | 'area';
 
