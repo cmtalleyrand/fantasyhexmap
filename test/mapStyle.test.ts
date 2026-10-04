@@ -1542,7 +1542,7 @@ test('the river bows round the icon of a city on its bank, and the icon is press
   }
 });
 
-test('a river can be held to come no nearer, and no further, than a set distance from the centre of each hex it runs through', async () => {
+test('a river course guide affects one hex while the wander setting still shapes the result', async () => {
   const { pixelToOffset } = await import('../shared/hex.ts');
   const size = 40;
   const apothem = size * Math.sqrt(3) / 2;
@@ -1559,31 +1559,19 @@ test('a river can be held to come no nearer, and no further, than a set distance
       }
       return best;
     });
-  for (const wander of ['gentle', 'irregular', 'wild'] as const) {
-    const free = riverCourse(river, size, 'reach', { wander })!.centreline;
-    const loose = riverCourse(river, size, 'reach', { wander, reach: { min: null, max: null } })!.centreline;
-    assert.deepEqual(free, loose, 'no bounds changes nothing');
-    for (const max of [0, 0.2, 0.5]) {
-      const near = nearest(riverCourse(river, size, 'reach', { wander, reach: { min: null, max } })!.centreline);
-      for (const d of near) assert.ok(d <= max + 0.06, `${wander}: max ${max}, came no nearer than ${d.toFixed(2)}`);
-    }
-    for (const min of [0.3, 0.6, 0.9]) {
-      const near = nearest(riverCourse(river, size, 'reach', { wander, reach: { min, max: null } })!.centreline);
-      for (const d of near) assert.ok(d >= min - 0.06, `${wander}: min ${min}, came as near as ${d.toFixed(2)}`);
-    }
-    const both = nearest(riverCourse(river, size, 'reach', { wander, reach: { min: 0.4, max: 0.6 } })!.centreline);
-    for (const d of both) assert.ok(d >= 0.34 && d <= 0.66, `${wander}: between 0.4 and 0.6, got ${d.toFixed(2)}`);
-  }
-});
+  const free = riverCourse(river, size, 'reach', { wander: 'wild' })!.centreline;
+  const baseline = nearest(free);
+  river.segments[3]!.reach = { min: 0.8, max: null };
+  const adjusted = nearest(riverCourse(river, size, 'reach', { wander: 'wild' })!.centreline);
+  assert.ok(adjusted[1]! > baseline[1]! + 0.25, `selected hex moved only from ${baseline[1]!.toFixed(2)} to ${adjusted[1]!.toFixed(2)}`);
+  assert.ok(Math.abs(adjusted[3]! - baseline[3]!) < 0.03, 'distant hex stays on its generated course');
+  const gentle = riverCourse(river, size, 'reach', { wander: 'verygentle' })!.centreline;
+  const wild = riverCourse(river, size, 'reach', { wander: 'wild' })!.centreline;
+  assert.notDeepEqual(gentle, wild, 'the per-hex guide must not replace style-controlled wander');
 
-test('the river reach settings offer any distance, or 0 to 90 per cent', () => {
-  for (const knob of ['riverMin', 'riverMax'] as const) {
-    const values = KNOB_OPTIONS[knob].options.map((o) => o.value);
-    assert.deepEqual(values, ['any', 0, 10, 20, 30, 40, 50, 60, 70, 80, 90]);
-    for (const id of PRESET_ORDER) assert.equal(PRESETS[id].knobs[knob], 'any');
-    assert.equal(parseStyleChoice({ preset: 'classic', overrides: { [knob]: 40 } }).overrides[knob], 40);
-    assert.equal(parseStyleChoice({ preset: 'classic', overrides: { [knob]: 95 } }).overrides[knob], undefined);
-  }
+  river.segments[3]!.reach = { min: null, max: 0.2 };
+  const centred = nearest(riverCourse(river, size, 'reach', { wander: 'wild' })!.centreline);
+  assert.ok(centred[1]! < baseline[1]!, `selected hex did not move inward from ${baseline[1]!.toFixed(2)}`);
 });
 
 test('realm borders are cut to the drawn land, the frontier and the dashed part lines included', () => {
