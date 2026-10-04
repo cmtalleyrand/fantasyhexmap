@@ -842,11 +842,15 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
 
       // A hex shared between two polities: the second holder's part, cut off
       // by a straight chord so that it covers the fraction chosen.
-      const shared = knobs.polityStyle === 'fill' || knobs.polityStyle === 'tint' ? polities?.shares?.[String(i)] : undefined;
+      const shared = knobs.polityStyle === 'outline' ? undefined : polities?.shares?.[String(i)];
       if (shared && polities?.owner[i]) {
         const piece = shareRegion(corners, shared.share);
         const solid = polityColour.get(shared.polityId) ?? '#777777';
-        const alpha = knobs.polityStyle === 'tint' ? TINT_ALPHA * polityOpacity : polityOpacity;
+        const alpha = knobs.polityStyle === 'tint'
+          ? TINT_ALPHA * polityOpacity
+          : knobs.polityStyle === 'wash'
+            ? 0.55 * polityOpacity
+            : polityOpacity;
         // Over the bare ground, not over the first holder's colour.
         prims.push({ kind: 'polygon', points: piece, fill: hexFill(own) });
         prims.push({ kind: 'polygon', points: piece, fill: alpha < 1 ? withAlpha(solid, alpha) : solid });
