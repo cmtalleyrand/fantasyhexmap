@@ -161,13 +161,13 @@ function CompromiseNotes({ map, compromises, selected, setSelection }: {
   setSelection: (next: Set<number>) => void;
 }) {
   if (compromises.length === 0) return null;
-  const here = compromises.filter((c) => selected.includes(c.hex));
+  const here = compromises.filter((c) => c.hexes.some((i) => selected.includes(i)));
   if (here.length === 0) {
-    const hexes = new Set(compromises.map((c) => c.hex));
+    const hexes = new Set(compromises.flatMap((c) => c.hexes));
     return (
       <div className="notice warn" style={{ marginBottom: 8 }}>
-        {hexes.size === 1 ? 'One hex is' : `${hexes.size} hexes are`} drawn differently from what was asked, because a drawing rule could not otherwise be kept.{' '}
-        <button className="tiny" onClick={() => setSelection(hexes)}>Select {hexes.size === 1 ? 'it' : 'them'}</button>
+        {compromises.length === 1 ? 'One thing is' : `${compromises.length} things are`} drawn differently from what was asked, because a drawing rule could not otherwise be kept.{' '}
+        <button className="tiny" onClick={() => setSelection(hexes)}>Select the hexes</button>
       </div>
     );
   }
@@ -176,7 +176,7 @@ function CompromiseNotes({ map, compromises, selected, setSelection }: {
       <strong>Drawn differently from what was asked</strong>
       <ul style={{ margin: '4px 0 0', paddingLeft: 18 }}>
         {here.map((c, k) => (
-          <li key={k}>{selected.length > 1 ? `${coordLabel(map, c.hex)}: ` : ''}{c.what}, because {c.why}.</li>
+          <li key={k}>{selected.length > 1 && c.hexes.length === 1 ? `${coordLabel(map, c.hexes[0]!)}: ` : ''}{c.what}, because {c.why}.</li>
         ))}
       </ul>
     </div>

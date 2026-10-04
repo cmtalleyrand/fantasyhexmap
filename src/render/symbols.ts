@@ -345,11 +345,18 @@ export function escarpment(a: Point, b: Point, centre: Point, size: number, colo
 }
 
 /** Points along a symbol's drawing: every vertex and control point, and the middle of each step between them. */
-function samplePoints(placed: Placed): Point[] {
+export function samplePoints(placed: Placed): Point[] {
   const out: Point[] = [];
   const walk = (prims: Prim[]) => {
     for (const prim of prims) {
       if (prim.kind === 'group') walk(prim.prims);
+      if (prim.kind === 'polyline' || prim.kind === 'polygon') {
+        prim.points.forEach((p, k) => {
+          const last = k > 0 ? prim.points[k - 1]! : prim.kind === 'polygon' ? prim.points[prim.points.length - 1]! : null;
+          if (last) out.push({ x: (last.x + p.x) / 2, y: (last.y + p.y) / 2 });
+          out.push(p);
+        });
+      }
       if (prim.kind !== 'path') continue;
       let last: Point | null = null;
       for (const cmd of prim.d) {

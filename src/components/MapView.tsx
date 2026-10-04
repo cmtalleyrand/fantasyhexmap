@@ -445,7 +445,7 @@ export default function MapView(props: MapViewProps) {
     }
     const cities = map.layers.cities.data?.cities.filter((c) => hexIndex(map.cols, c.col, c.row) === hover) ?? [];
     for (const city of cities) bits.push(`${city.name} (${city.population.toLocaleString()})`);
-    for (const c of scene.compromises ?? []) if (c.hex === hover) bits.push(`⚠ ${c.what}`);
+    for (const c of scene.compromises ?? []) if (c.hexes.includes(hover)) bits.push(`⚠ ${c.what}`);
     return bits.join(' · ');
   };
 

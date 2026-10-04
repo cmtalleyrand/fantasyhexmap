@@ -82,12 +82,102 @@ test('a coast hex with a small land share draws its peaks smaller and says so', 
   visible.elevation = true;
   const style = resolveStyle({ preset: 'parchment' });
   const small = buildScene(coastWithMountains(20), { size: 40, visible, labels: false, style });
-  const here = (small.compromises ?? []).filter((c) => c.hex === 12);
+  const here = (small.compromises ?? []).filter((c) => c.hexes.includes(12));
   assert.equal(here.length, 1, 'the hex is reported');
   // Smaller, or (where even the smallest size will not take them all) some of them left out.
   assert.match(here[0]!.what, /^(Mountains symbols drawn at \d+% size|\d of \d mountains symbols left out, the rest drawn at \d+% size)$/);
   assert.match(here[0]!.why, /never drawn over water/);
   // Whole land hexes away from the coast are drawn as laid out, and not reported.
   const centre = hexCenter(2, 0, 40);
-  assert.ok(!(small.compromises ?? []).some((c) => c.hex === 2), `hex at ${centre.x},${centre.y} is whole land`);
+  assert.ok(!(small.compromises ?? []).some((c) => c.hexes.includes(2)), `hex at ${centre.x},${centre.y} is whole land`);
+});
+
+/** A 24 x 24 map of winding coasts, every coast hex at a low land share, and relief everywhere. */
+function ruggedCoasts(id: string): MapState {
+  const n = 24;
+  const map = createMapState('Rugged', n, n);
+  map.id = id;
+  const land = (c: number, r: number) => Math.sin(c * 0.5) + Math.cos(r * 0.45) + Math.sin((c + r) * 0.23) > 0.2;
+  const base: BaseGeo[] = [];
+  for (let r = 0; r < n; r++) {
+    for (let c = 0; c < n; c++) {
+      const l = land(c, r);
+      const edge = l && [[-1, 0], [1, 0], [0, -1], [0, 1]].some(([dc, dr]) => !land(c + dc!, r + dr!));
+      base.push(!l ? 'Sea' : edge ? 'Coastal Land' : 'Land');
+    }
+  }
+  map.layers.base.data = base;
+  map.hexShapes = Object.fromEntries(
+    base.flatMap((b, i) => (b === 'Coastal Land' ? [[String(i), { type: 'Coastal Land' as BaseGeo, land: 15 + (i % 6) * 12 }]] : [])),
+  );
+  map.layers.elevation.data = base.map((b, i) => (b === 'Sea' ? null : (['Mountains', 'Hills', 'Highland'] as const)[i % 3]));
+  return map;
+}
+
+test('the audit finds no symbol over water on a map of ragged, cut-back coasts, in either relief style', async () => {
+  const { auditScene } = await import('../src/render/audit.ts');
+  const { symbolsOf } = await import('../src/render/scene.ts');
+  const visible = defaultVisibility();
+  visible.elevation = true;
+  for (const relief of ['illustrated', 'marks'] as const) {
+    for (const id of ['one', 'two']) {
+      const map = ruggedCoasts(id);
+      const scene = buildScene(map, { size: 24, visible, labels: false, style: resolveStyle({ preset: 'parchment', overrides: { relief } }) });
+      assert.ok((symbolsOf(scene) ?? []).length > 50, 'symbols were drawn and recorded');
+      const wet = auditScene(map, scene, 24).filter((i) => i.kind === 'symbol-over-water');
+      assert.deepEqual(wet.map((i) => i.message), [], `${relief}, map ${id}`);
+    }
+  }
+});
+
+test('the audit reports a symbol drawn over water', async () => {
+  const { auditScene } = await import('../src/render/audit.ts');
+  const { symbolsOf } = await import('../src/render/scene.ts');
+  const visible = defaultVisibility();
+  visible.elevation = true;
+  const map = coastWithMountains(60);
+  const scene = buildScene(map, { size: 40, visible, labels: false, style: resolveStyle({ preset: 'parchment' }) });
+  // A symbol in the open sea at the bottom of the map, as a regression would draw it.
+  symbolsOf(scene)!.push({ hex: 17, points: [hexCenter(5, 3, 40)] });
+  assert.ok(auditScene(map, scene, 40).some((i) => i.kind === 'symbol-over-water'));
+});
+
+test('an island hex with mountains draws them on the island', async () => {
+  const { symbolsOf } = await import('../src/render/scene.ts');
+  const map = createMapState('Isle', 3, 3);
+  map.id = 'isle';
+  map.layers.base.data = ['Sea', 'Sea', 'Sea', 'Sea', 'Islands', 'Sea', 'Sea', 'Sea', 'Sea'];
+  map.islandSpecs = { '4': { large: 1, small: 0 } };
+  map.layers.elevation.data = [null, null, null, null, 'Mountains', null, null, null, null];
+  const visible = defaultVisibility();
+  visible.elevation = true;
+  const scene = buildScene(map, { size: 40, visible, labels: false, style: resolveStyle({ preset: 'parchment' }) });
+  assert.ok((symbolsOf(scene) ?? []).some((s) => s.hex === 4), 'the island has relief');
+});
+
+test('a small realm whose name will not fit on its land is named on open water beside it, touching no land', async () => {
+  const { landTestOf } = await import('../src/render/scene.ts');
+  const { textPrims, textBoxes } = await import('../src/render/collide.ts');
+  const map = coastWithMountains(20);
+  map.layers.polities.data = {
+    polities: [{ id: 'a', name: 'Ahnver', colour: '#c03030' }, { id: 'b', name: 'Hillmark', colour: '#5050c0' }],
+    owner: map.layers.base.data!.map((b, i) => (b === 'Sea' ? null : i === 12 ? 'a' : 'b')),
+  };
+  const visible = defaultVisibility();
+  visible.elevation = true;
+  visible.polities = true;
+  const scene = buildScene(map, { size: 40, visible, labels: true, polityNames: 1, style: resolveStyle({ preset: 'parchment' }) });
+  const name = textPrims(scene.prims).find((t) => t.tag?.kind === 'polity' && t.tag.owner === 'a');
+  assert.ok(name, 'the realm is named');
+  const land = landTestOf(scene)!;
+  for (const box of textBoxes(name)) {
+    for (let u = -1; u <= 1; u += 0.25) {
+      for (let v = -1; v <= 1; v += 0.5) {
+        const c = Math.cos(box.rotation);
+        const s = Math.sin(box.rotation);
+        const p = { x: box.cx + u * box.halfW * c - v * box.halfH * s, y: box.cy + u * box.halfW * s + v * box.halfH * c };
+        assert.ok(!land(p), `the name touches land at ${p.x.toFixed(0)},${p.y.toFixed(0)}`);
+      }
+    }
+  }
 });
