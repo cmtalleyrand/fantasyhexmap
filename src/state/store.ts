@@ -30,7 +30,7 @@ import { isLayerEnabled } from '../../shared/layers.js';
 import { detachOrphanBranches, setRiverNavigability } from '../../shared/riverEdit.js';
 import { cosmeticallyEqual, currentDepVersions, identicalData, trimHistory } from '../../shared/layers.js';
 import { LAYER_META, normaliseSelection } from '../../shared/layers.js';
-import { MAX_DIM, type PolitiesData } from '../../shared/types.js';
+import { MAX_DIM, isRangeElevation, type PolitiesData } from '../../shared/types.js';
 import type {
   City,
   CitySite,
@@ -120,7 +120,7 @@ export type Action =
   /** Replace several rivers by one built from them (see `mergeRivers`): one undo entry. */
   | { type: 'mergeRivers'; river: River; absorbed: string[] }
   | { type: 'setRiverNavigability'; indices: number[]; navigable: boolean; downstream: boolean }
-  /** Put Mountains hexes in the range `id`, creating it if it does not exist. */
+  /** Put Mountains and Highland hexes in the range `id`, creating it if it does not exist. */
   | { type: 'nameMountainRange'; id: string; name: string; indices: number[] }
   | { type: 'renameMountainRange'; id: string; name: string }
   | { type: 'removeMountainRange'; id: string }
@@ -1151,7 +1151,7 @@ function reduceMap(map: MapState, action: Action): MapState {
       const name = action.name.trim();
       const elevation = map.layers.elevation.data;
       if (!name || !elevation) return map;
-      const picked = new Set(action.indices.filter((i) => elevation[i] === 'Mountains'));
+      const picked = new Set(action.indices.filter((i) => isRangeElevation(elevation[i])));
       if (picked.size === 0) return map;
       const ranges = map.mountainRanges ?? [];
       const existing = ranges.find((r) => r.id === action.id);

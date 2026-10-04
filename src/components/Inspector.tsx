@@ -28,6 +28,7 @@ import {
   isIslandType,
   isShapedType,
   islandSpecFor,
+  isRangeElevation,
   ISLAND_ARRANGEMENTS,
   ISLAND_ORIENTATIONS,
   type IslandArrangement,
@@ -968,15 +969,15 @@ function IslandSidePanel(props: SubProps) {
   );
 }
 
-/** Name groups of Mountains hexes so they can be labelled as ranges. */
+/** Name groups of Mountains and Highland hexes so they can be labelled as ranges. */
 function MountainRangePanel(props: SubProps) {
   const { map, dispatch, selected } = props;
   const [name, setName] = useState('');
   const [target, setTarget] = useState('');
   const ranges = map.mountainRanges ?? [];
   const elevation = map.layers.elevation.data;
-  const mountains = selected.filter((i) => elevation?.[i] === 'Mountains');
-  const liveCount = (hexes: number[]) => hexes.filter((i) => elevation?.[i] === 'Mountains').length;
+  const mountains = selected.filter((i) => isRangeElevation(elevation?.[i]));
+  const liveCount = (hexes: number[]) => hexes.filter((i) => isRangeElevation(elevation?.[i])).length;
   const existing = ranges.find((r) => r.id === target) ?? null;
 
   const assign = () => {
@@ -996,7 +997,7 @@ function MountainRangePanel(props: SubProps) {
     <div className="stack" style={{ marginTop: 8 }}>
       <h2>Mountain ranges</h2>
       <p className="hint" style={{ marginTop: 0 }}>
-        Select Mountains hexes on the map, then name them as a range. Turn on{' '}
+        Select Mountains or Highland hexes on the map, then name them as a range. Turn on{' '}
         <b>Show mountain range names</b> in Settings → Display to see the names.
       </p>
       <div className="row">
@@ -1022,11 +1023,11 @@ function MountainRangePanel(props: SubProps) {
         disabled={mountains.length === 0 || (!existing && name.trim().length === 0)}
         onClick={assign}
       >
-        {existing ? `Add ${mountains.length} hexes to ${existing.name}` : `Name ${mountains.length} selected Mountains hexes`}
+        {existing ? `Add ${mountains.length} hexes to ${existing.name}` : `Name ${mountains.length} selected hexes`}
       </button>
       {selected.length > 0 && mountains.length < selected.length && (
         <p className="hint" style={{ margin: 0 }}>
-          {selected.length - mountains.length} selected hex(es) are not Mountains and are ignored.
+          {selected.length - mountains.length} selected hex(es) are not Mountains or Highland and are ignored.
         </p>
       )}
       <div className="list">
@@ -1042,7 +1043,7 @@ function MountainRangePanel(props: SubProps) {
             <button
               className="tiny"
               title="Select this range's hexes"
-              onClick={() => props.setSelection(new Set(r.hexes.filter((i) => elevation?.[i] === 'Mountains')))}
+              onClick={() => props.setSelection(new Set(r.hexes.filter((i) => isRangeElevation(elevation?.[i]))))}
             >
               select
             </button>

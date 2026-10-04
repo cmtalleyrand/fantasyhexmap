@@ -260,7 +260,7 @@ export default function SettingsDialog(props: SettingsDialogProps) {
               Show land feature and island names
             </label>
             <p className="hint">
-              Name a range by selecting its Mountains hexes with the Elevation layer active. Name seas, lakes, land features and islands in the Base geography layer's “Name places” section.
+              Name a range by selecting its Mountains or Highland hexes with the Elevation layer active. Name seas, lakes, land features and islands in the Base geography layer's “Name places” section.
             </p>
             <label>Polity names</label>
             <select

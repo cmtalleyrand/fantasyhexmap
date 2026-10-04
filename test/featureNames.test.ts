@@ -55,6 +55,17 @@ test('river and range names are drawn when enabled', () => {
   assert.deepEqual(texts(map, { rangeNames: true }), ['KELDER SPINE']);
 });
 
+test('Highland hexes can be part of a range', () => {
+  let map = mapWithTerrain();
+  const flank = 2 * COLS + 1;
+  const hills = 2 * COLS + 7;
+  map = reducer(map, { type: 'setHexValues', layer: 'elevation', indices: [flank], value: 'Highland' });
+  map = reducer(map, { type: 'setHexValues', layer: 'elevation', indices: [hills], value: 'Hills' });
+  map = reducer(map, { type: 'nameMountainRange', id: 'm1', name: 'Kelder Spine', indices: [flank, 2 * COLS + 2, hills] });
+  assert.deepEqual(map.mountainRanges?.[0]?.hexes, [flank, 2 * COLS + 2]);
+  assert.deepEqual(texts(map, { rangeNames: true }), ['KELDER SPINE']);
+});
+
 test('a hex belongs to one range, and ranges that stop being mountains vanish', () => {
   let map = mapWithTerrain();
   const a = 2 * COLS + 2;
