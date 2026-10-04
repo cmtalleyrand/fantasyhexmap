@@ -30,6 +30,7 @@ import {
   type HexDimensions,
   LAYER_ORDER,
   hexShapeFor,
+  hasLandConcentration,
   isIslandType,
   islandSpecFor,
   type HexShape,
@@ -1789,7 +1790,15 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
       }
     }
     const grown0 = lake >= 0 ? traced?.lakeInsets.get(lake) ?? null : null;
-    const grown = grown0 === null ? null : grown0 + (lakeFix.get(lake) ?? 0);
+    let grown = grown0 === null ? null : grown0 + (lakeFix.get(lake) ?? 0);
+    const shape = lake >= 0 ? hexShapeFor(base?.[lake], map.hexShapes?.[String(lake)]) : null;
+    if (grown !== null && shape && hasLandConcentration(base?.[lake]) && shape.concentrationSide !== undefined) {
+      const centre = hexCenter(lake % cols, Math.floor(lake / cols), size);
+      const midpoint = hexEdgeMidpoint(lake % cols, Math.floor(lake / cols), shape.concentrationSide, size);
+      const chosenAngle = Math.atan2(midpoint.y - centre.y, midpoint.x - centre.x);
+      const pointAngle = Math.atan2(p.y - centre.y, p.x - centre.x);
+      grown *= 1 + 0.9 * ((shape.concentration ?? 0) / 100) * Math.cos(pointAngle - chosenAngle);
+    }
     if (grown === null) return cut;
     return (cut ?? 0) - grown;
   };
