@@ -720,6 +720,9 @@ function HexShapePanel(props: SubProps) {
     return stored !== undefined && stored.type === base![i];
   });
   const set = (change: HexShapeChange | null) => dispatch({ type: 'setHexShape', indices: hexes, change });
+  const concentrated = hexes.filter((i) => base![i] === 'Coastal Land' || base![i] === 'Mainland and islands');
+  const concentrationSide = sharedOf(concentrated.map((i) => String(hexShapeFor(base![i], map.hexShapes?.[String(i)]).concentrationSide ?? -1)));
+  const concentration = sharedOf(concentrated.map((i) => String(hexShapeFor(base![i], map.hexShapes?.[String(i)]).concentration ?? 0)));
   const landValue = Number(land);
   return (
     <div className="stack" style={{ marginTop: 8 }}>
@@ -748,6 +751,31 @@ function HexShapePanel(props: SubProps) {
           </p>
         </>
       )}
+      {concentrated.length > 0 && (<>
+        <label htmlFor="land-concentration-side" style={{ margin: 0 }}>Land concentrated towards</label>
+        <select
+          id="land-concentration-side"
+          value={concentrationSide}
+          onChange={(e) => set({ concentrationSide: e.target.value === '-1' ? null : Number(e.target.value) })}
+        >
+          {concentrationSide === '' && <option value="">Mixed</option>}
+          <option value="-1">No chosen side</option>
+          {SIDE_NAMES.map((name, side) => <option key={side} value={side}>The {name} side</option>)}
+        </select>
+        <label htmlFor="land-concentration" style={{ margin: 0 }}>Extent of concentration</label>
+        <select
+          id="land-concentration"
+          value={concentration}
+          disabled={concentrationSide === '-1'}
+          onChange={(e) => set({ concentration: Number(e.target.value) })}
+        >
+          {concentration === '' && <option value="">Mixed</option>}
+          {[0, 25, 50, 75, 100].map((amount) => <option key={amount} value={amount}>{amount}%</option>)}
+        </select>
+        <p className="hint" style={{ margin: 0 }}>
+          Keeps the same land share while shifting more of its mainland towards one hex side. At 0% the land remains evenly distributed; 100% gives the strongest bias.
+        </p>
+      </>)}
       {shaped.length > 0 && (<>
       <label htmlFor="hex-irregularity" style={{ margin: 0 }}>Irregularity</label>
       <select
@@ -765,7 +793,7 @@ function HexShapePanel(props: SubProps) {
       </p>
       </>)}
       {customised && (
-        <button className="tiny" onClick={() => set(null)}>Use the usual land share and irregularity</button>
+        <button className="tiny" onClick={() => set(null)}>Use the usual shape settings</button>
       )}
     </div>
   );

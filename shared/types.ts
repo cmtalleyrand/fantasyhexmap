@@ -222,13 +222,18 @@ export const DEFAULT_IRREGULARITY: Record<BaseGeo, Irregularity> = {
 /**
  * What a person has set on one shaped hex. `land` is the percentage of the hex
  * that is land, replacing the share its type would give it; `irregular` is how
- * ragged its outline is. `type` is the base type the settings were made for: they
- * are ignored once the hex becomes something else.
+ * ragged its outline is. A coast or mainland may also concentrate its land towards
+ * one side. `type` is the base type the settings were made for: they are ignored
+ * once the hex becomes something else.
  */
 export interface HexShape {
   type: BaseGeo;
   land?: number;
   irregular?: Irregularity;
+  /** Edge 0-5 towards which a coast or mainland is biased. */
+  concentrationSide?: number;
+  /** Strength of that bias, from 0 (uniform) to 100 (strongly concentrated). */
+  concentration?: number;
 }
 
 /**
@@ -240,7 +245,7 @@ export function hexShapeFor(
   value: BaseGeo | null | undefined,
   stored: HexShape | undefined,
   mapDefault?: Irregularity | null,
-): { land?: number; irregular: Irregularity } {
+): { land?: number; irregular: Irregularity; concentrationSide?: number; concentration?: number } {
   const fallback = mapDefault && IRREGULARITY_VALUES.includes(mapDefault) && isShapedType(value) ? mapDefault : undefined;
   const irregular = fallback ?? (value ? DEFAULT_IRREGULARITY[value] : 'Smooth');
   if (!value || !stored || stored.type !== value || !(isShapedType(value) || value === 'Lake')) return { irregular };
@@ -250,6 +255,12 @@ export function hexShapeFor(
   return {
     ...(land !== undefined ? { land } : {}),
     irregular: IRREGULARITY_VALUES.includes(stored.irregular as Irregularity) ? (stored.irregular as Irregularity) : irregular,
+    ...((value === 'Coastal Land' || value === 'Mainland and islands') && Number.isInteger(stored.concentrationSide) && stored.concentrationSide! >= 0 && stored.concentrationSide! < 6
+      ? { concentrationSide: stored.concentrationSide }
+      : {}),
+    ...((value === 'Coastal Land' || value === 'Mainland and islands') && typeof stored.concentration === 'number' && Number.isFinite(stored.concentration)
+      ? { concentration: Math.max(0, Math.min(100, stored.concentration)) }
+      : {}),
   };
 }
 

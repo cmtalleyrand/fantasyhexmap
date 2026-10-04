@@ -165,6 +165,8 @@ interface Split {
    * what they leave. `bands`: land along each edge, the water being what it leaves.
    */
   mode: 'neck' | 'channel' | 'bands';
+  concentrationSide?: number;
+  concentration?: number;
 }
 
 interface Reshaped {
@@ -190,7 +192,12 @@ function landAt(hex: Split, r: number): Poly[] {
   const { centre, edges, hex: outline } = hex;
   const mid = (e: number): Point => ({ x: (outline[e]!.x + outline[(e + 1) % 6]!.x) / 2, y: (outline[e]!.y + outline[(e + 1) % 6]!.y) / 2 });
   if (hex.mode === 'bands') {
-    const bands = edges.map((e) => cut(outline, outline[e]!, outline[(e + 1) % 6]!, r, 'left')).filter((b) => b.length > 0);
+    const strength = (hex.concentration ?? 0) / 100;
+    const bands = edges.map((e) => {
+      const delta = hex.concentrationSide === undefined ? 0 : ((e - hex.concentrationSide + 9) % 6) - 3;
+      const depth = r * (1 + strength * Math.cos(delta * Math.PI / 3) * 0.9);
+      return cut(outline, outline[e]!, outline[(e + 1) % 6]!, depth, 'left');
+    }).filter((b) => b.length > 0);
     return bands.flatMap((b, k) => without(b, bands.slice(0, k)));
   }
   const shapes: Poly[] = edges.map((e) => arm(centre, mid(e), r));
@@ -322,17 +329,53 @@ function setAgainst(shaped: Poly[], was: Frag[], water: Frag[], hexArea: number)
  * the hex with each edge in `wet` moved in by one depth. The water it gives up is
  * returned edge by edge, each strip in the water of the edge it came from.
  */
-function reshapeCoastHex(corners: Poly, wet: CoastEdge[], target: number, lake: CoastEdge[] = []): Reshaped | null {
+function reshapeCoastHex(
+  corners: Poly,
+  wet: CoastEdge[],
+  target: number,
+  lake: CoastEdge[] = [],
+  concentrationSide?: number,
+  concentration = 0,
+): Reshaped | null {
   if (wet.length === 0 && lake.length === 0) return null;
   if (target >= 1) return null;
   // Edges against a lake count towards the depth but are not cut: the lake is drawn over the hex.
-  const depth = landInsetDepth(corners, [...wet, ...lake], target);
+  const allWet = [...wet, ...lake];
+  const strength = concentration / 100;
+  const multiplier = (edge: CoastEdge): number => {
+    if (concentrationSide === undefined || strength === 0) return 1;
+    const centre = centroid(corners);
+    const midpoint = { x: (edge.from.x + edge.to.x) / 2, y: (edge.from.y + edge.to.y) / 2 };
+    const chosen = {
+      x: ((corners[concentrationSide]!.x + corners[(concentrationSide + 1) % 6]!.x) / 2) - centre.x,
+      y: ((corners[concentrationSide]!.y + corners[(concentrationSide + 1) % 6]!.y) / 2) - centre.y,
+    };
+    const facing = ((midpoint.x - centre.x) * chosen.x + (midpoint.y - centre.y) * chosen.y)
+      / (Math.hypot(midpoint.x - centre.x, midpoint.y - centre.y) * Math.hypot(chosen.x, chosen.y));
+    // Cut least at the chosen edge and most at its opposite, keeping every multiplier positive.
+    return 1 - 0.9 * strength * facing;
+  };
+  const full = polyArea(corners);
+  const share = Math.max(0, Math.min(1, target));
+  let low = 0;
+  let high = Math.hypot(corners[0]!.x - corners[3]!.x, corners[0]!.y - corners[3]!.y);
+  for (let k = 0; k < 24; k++) {
+    const middle = (low + high) / 2;
+    let shape = corners;
+    for (const edge of allWet) shape = cut(shape, edge.from, edge.to, middle * multiplier(edge), 'right');
+    if (shape.length >= 3 && polyArea(shape) / full > share) low = middle;
+    else high = middle;
+  }
+  const depth = concentrationSide === undefined || strength === 0
+    ? landInsetDepth(corners, allWet, target)
+    : (low + high) / 2;
   const strips: Frag[] = [];
   let rest: Poly = corners;
   for (const e of wet) {
-    const away = cut(rest, e.from, e.to, depth, 'left');
+    const edgeDepth = depth * multiplier(e);
+    const away = cut(rest, e.from, e.to, edgeDepth, 'left');
     if (away.length > 0) strips.push({ poly: away, donor: e.water });
-    rest = cut(rest, e.from, e.to, depth, 'right');
+    rest = cut(rest, e.from, e.to, edgeDepth, 'right');
   }
   return { land: rest.length > 0 ? [rest] : [], strips, grown: [], water: [], depth };
 }
@@ -392,6 +435,8 @@ export interface ShapedCoast {
 export interface ShapeTarget {
   share: number;
   kind: 'inset' | 'neck' | 'channel';
+  concentrationSide?: number;
+  concentration?: number;
 }
 
 /**
@@ -424,13 +469,13 @@ export function shapeCoast(
   }
 
   /** One hex cut to its share: what it gives up, what it takes, and the land it is left with. */
-  const reshapeHex = (i: number, { share, kind }: ShapeTarget): HexShape | null => {
+  const reshapeHex = (i: number, { share, kind, concentrationSide, concentration }: ShapeTarget): HexShape | null => {
     const col = i % cols;
     const row = Math.floor(i / cols);
     const split = surface.split.get(i);
     const corners = hexCorners(col, row, size);
     if (!split) {
-      const result = reshapeCoastHex(corners, wetEdges.get(i) ?? [], share, lakeWet.get(i) ?? []);
+      const result = reshapeCoastHex(corners, wetEdges.get(i) ?? [], share, lakeWet.get(i) ?? [], concentrationSide, concentration);
       return result ? { depth: result.depth, strips: result.strips, grown: [], land: result.land.map((poly) => ({ poly, hex: i, donor: i })) } : null;
     }
     const pieces = split.sides.map((side, p) => ({ side, poly: piecePoints(col, row, p, size), donor: split.donors[p]! }));
@@ -452,7 +497,7 @@ export function shapeCoast(
     const mode = kind === 'channel' ? (wet.length >= 3 ? 'bands' : 'channel') : kind === 'neck' && dry.length < 3 ? 'neck' : 'bands';
     const arms = mode === 'channel' ? wet : dry;
     if (arms.length === 0) return null;
-    const result = reshapeSplit({ land, water, hex: corners, centre: hexCenter(col, row, size), edges: arms, mode }, share, hexArea);
+    const result = reshapeSplit({ land, water, hex: corners, centre: hexCenter(col, row, size), edges: arms, mode, concentrationSide, concentration }, share, hexArea);
     const donorAt = (at: Point) => nearest(at, land)?.donor ?? i;
     return {
       strips: result.strips,
@@ -469,7 +514,7 @@ export function shapeCoast(
   for (const [i, target] of targets) {
     // The same hex, cut to the same share among the same neighbours, is cut the same way.
     const code = (j: number) => `${surface.whole[j]}${surface.split.get(j)?.sides.join('') ?? ''}`;
-    const sig = [target.share, target.kind, code(i), ...[0, 1, 2, 3, 4, 5].map((e) => {
+    const sig = [target.share, target.kind, target.concentrationSide ?? '-', target.concentration ?? 0, code(i), ...[0, 1, 2, 3, 4, 5].map((e) => {
       const n = neighbourOf(i % cols, Math.floor(i / cols), e);
       return inBounds(cols, rows, n.col, n.row) ? code(hexIndex(cols, n.col, n.row)) : '-';
     })].join('|');

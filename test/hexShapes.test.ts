@@ -112,6 +112,31 @@ test('shape settings are applied to shaped hexes only, and can be cleared', () =
   assert.equal(reducer(map, { type: 'setHexShape', indices: [0, 4], change: { land: 10 } }), map);
 });
 
+test('coastal and mainland hexes store a bounded directional concentration', () => {
+  const map = mapWith(['Coastal Land', 'Mainland and islands', 'Islands', 'Strait']);
+  const changed = reducer(map, {
+    type: 'setHexShape',
+    indices: [0, 1, 2, 3],
+    change: { concentrationSide: 2, concentration: 140 },
+  });
+  assert.deepEqual(changed.hexShapes, {
+    '0': { type: 'Coastal Land', concentrationSide: 2, concentration: 100 },
+    '1': { type: 'Mainland and islands', concentrationSide: 2, concentration: 100 },
+  });
+  assert.equal(hexShapeFor('Coastal Land', changed.hexShapes?.['0']).concentration, 100);
+  const cleared = reducer(changed, { type: 'setHexShape', indices: [0], change: { concentrationSide: null, concentration: null } });
+  assert.equal(cleared.hexShapes?.['0'], undefined);
+});
+
+test('land concentration changes coast geometry without changing its requested area', () => {
+  const base: BaseGeo[] = ['Sea', 'Coastal Land', 'Sea', 'Sea', 'Sea', 'Sea', 'Sea', 'Sea', 'Sea'];
+  const map = mapWith(base, 3, 3);
+  const plain = scene({ ...map, hexShapes: { '1': { type: 'Coastal Land', land: 45 } } });
+  const biased = scene({ ...map, hexShapes: { '1': { type: 'Coastal Land', land: 45, concentrationSide: 0, concentration: 100 } } });
+  assert.notDeepEqual(biased.prims, plain.prims);
+  assert.equal(landFraction('Coastal Land', undefined, dims, { type: 'Coastal Land', land: 45, concentrationSide: 0, concentration: 100 }), 0.45);
+});
+
 test('island specs allow six small islands and a new random layout without changing land share', () => {
   const map = mapWith(['Islands']);
   const changed = reducer(map, { type: 'setIslandSpec', indices: [0], change: { large: 0, small: 6, layoutSeed: 12345 } });

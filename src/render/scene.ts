@@ -412,6 +412,7 @@ function cachedCoast(
   }
   const hexAreaOf = 1.5 * Math.sqrt(3) * size * size;
   for (let i = 0; i < base.length; i++) {
+    const shape = hexShapeFor(base[i], shapes?.[String(i)], defaultIrregularity);
     const own = drawnLandFraction(base[i], dimensions, shapes?.[String(i)]);
     // Plain land with a sea edge is a whole hex of land like any other: its ink counts too.
     const share = own ?? (base[i] === 'Land' && inkReach > 0 && seaLength.has(i) ? 1 : null);
@@ -419,10 +420,10 @@ function cachedCoast(
     // The land inside the line is the share less the outer half of the ink along it.
     const aimed = inkReach > 0 ? Math.max(0, share - (((seaLength.get(i) ?? 0) + (lakeLength.get(i) ?? 0)) * inkReach) / hexAreaOf) : share;
     if (surface.split.has(i)) {
-      targets.set(i, { share: aimed, kind: base[i] === 'Strait' ? 'channel' : base[i] === 'Isthmus' ? 'neck' : 'inset' });
+      targets.set(i, { share: aimed, kind: base[i] === 'Strait' ? 'channel' : base[i] === 'Isthmus' ? 'neck' : 'inset', concentrationSide: shape.concentrationSide, concentration: shape.concentration });
     } else if (surface.whole[i] === 'land' && aimed < 1 && (share < 1 || seaLength.has(i))) {
       // Whole hexes of land are cut back from the sea; a strait drawn whole is all water.
-      targets.set(i, { share: aimed, kind: 'inset' });
+      targets.set(i, { share: aimed, kind: 'inset', concentrationSide: shape.concentrationSide, concentration: shape.concentration });
     }
   }
   /** What each hex is to show, before its ink: the share the loop below aims at once the ink is measured. */
