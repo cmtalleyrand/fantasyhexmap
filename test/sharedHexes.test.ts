@@ -5,6 +5,7 @@ import { holdersOf } from '../shared/polityShares.ts';
 import { politySurfaceAreas, normaliseHexDimensions } from '../shared/surfaceArea.ts';
 import type { LayerDataMap, LayerId, MapState } from '../shared/types.ts';
 import { buildScene, defaultVisibility } from '../src/render/scene.ts';
+import { resolveStyle } from '../src/render/styles.ts';
 import { reducer, type Action } from '../src/state/store.ts';
 
 function mapWithTwoPolities(): MapState {
@@ -79,4 +80,21 @@ test('a shared hex is drawn with a piece in the second holder\'s colour', () => 
   const scene = buildScene(map, { size: 20, visible, labels: false });
   const pieces = scene.prims.filter((p) => p.kind === 'polygon' && p.points.length < 6);
   assert.ok(pieces.length >= 2, 'expected a clipped polygon for the shared part');
+});
+
+test('a shared hex is visible with the parchment wash polity style', () => {
+  const map = mapWithTwoPolities();
+  map.layers.polities.data!.shares = { '1': { polityId: 'b', share: 0.3 } };
+  const visible = defaultVisibility();
+  visible.polities = true;
+  const scene = buildScene(map, {
+    size: 20,
+    visible,
+    labels: false,
+    style: resolveStyle({ preset: 'parchment', overrides: {} }),
+  });
+  assert.ok(
+    scene.prims.some((p) => p.kind === 'polygon' && p.points.length < 6 && p.fill === 'rgba(0, 0, 170, 0.55)'),
+    'expected the second polity share to be painted over the wash-style map',
+  );
 });
