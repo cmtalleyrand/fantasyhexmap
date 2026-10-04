@@ -217,6 +217,7 @@ export function serializeMapExport(map: MapState, includeHistory: boolean): stri
     ? map
     : {
         ...map,
+        history: { past: [], future: [] },
         layers: Object.fromEntries(
           Object.entries(map.layers).map(([id, layer]) => [id, { ...layer, past: [], future: [] }]),
         ),
@@ -242,7 +243,7 @@ export function serializeParseFriendlyExport(map: MapState): string {
       return [id, { data: layer.data, version: layer.version }];
     }),
   );
-  const { journal: _journal, ...rest } = map;
+  const { journal: _journal, history: _history, ...rest } = map;
   void _journal;
 
   const perHex = layerIds.filter((id) => LAYER_META[id].perHex && map.layers[id].data !== null);

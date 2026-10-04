@@ -39,6 +39,7 @@ export function parseMapImport(text: string): MapState {
 /** Fill in fields that older exports or saves may lack. Throws if a layer is missing. */
 export function prepareLoadedMap(map: MapState): MapState {
   map.journal ??= [];
+  map.history ??= { past: [], future: [] };
   map.enabledLayers ??= [...LAYER_ORDER];
   map.allowUnderwater ??= false;
   map.mountainRanges ??= [];

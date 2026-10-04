@@ -109,7 +109,7 @@ test('an edit that changes nothing is not recorded at all', () => {
   assert.equal(reducer(map, { type: 'setPolityColours', colours: {} }), map);
 });
 
-test('undoing a real edit made before a rename still marks its dependants stale', () => {
+test('whole-map undo restores the exact dependency version from before an edit', () => {
   const map = generatedMap();
   const moved = reducer(map, { type: 'setPolityOwner', indices: [1], polityId: null });
   assert.equal(moved.layers.polities.version, map.layers.polities.version + 1);
@@ -119,8 +119,8 @@ test('undoing a real edit made before a rename still marks its dependants stale'
   assert.equal(undoRename.layers.polities.version, moved.layers.polities.version);
   const undoMove = reducer(undoRename, { type: 'undo', layer: 'polities' });
   assert.equal(undoMove.layers.polities.data!.owner[1], 'realm');
-  assert.equal(undoMove.layers.polities.version, moved.layers.polities.version + 1);
-  assert.deepEqual(staleLayers(undoMove), ['population']);
+  assert.equal(undoMove.layers.polities.version, map.layers.polities.version);
+  assert.deepEqual(staleLayers(undoMove), []);
 });
 
 test('a generation that only renames polities, such as short names, marks nothing stale', () => {
@@ -144,4 +144,11 @@ test('a brush stroke that changes no hex is not recorded', () => {
   assert.equal(reducer(map, { type: 'setPolityOwner', indices: [0], polityId: 'realm' }), map);
   assert.equal(reducer(map, { type: 'setHexValues', layer: 'population', indices: [0], value: 100 }), map);
   assert.notEqual(reducer(map, { type: 'setHexValues', layer: 'population', indices: [0], value: 150 }), map);
+});
+
+test('global undo records non-layer map changes too', () => {
+  const map = generatedMap();
+  const renamed = reducer(map, { type: 'setMeta', name: 'A new name' });
+  assert.equal(renamed.history?.past.length, (map.history?.past.length ?? 0) + 1);
+  assert.equal(reducer(renamed, { type: 'undo' }).name, map.name);
 });
