@@ -315,6 +315,21 @@ test('a meandering river never folds back on itself, even through tight bends', 
   assert.ok(sharp < runs * 0.2, `${sharp} sharp turns in ${runs} rivers`);
 });
 
+test('river irregularity changes a bend without inserting a hex-centre waypoint', () => {
+  const river = {
+    id: 'corner', name: 'Corner', terminus: 'OffMap' as const,
+    segments: [
+      { col: 2, row: 3, entryEdge: null, exitEdge: 0, navigable: false },
+      { col: 3, row: 3, entryEdge: 3, exitEdge: 5, navigable: false },
+      { col: 3, row: 4, entryEdge: 2, exitEdge: null, navigable: false },
+    ],
+  };
+  const gentle = riverCourse(river, 40, 'corner', { wander: 'verygentle' })!.centreline;
+  const wild = riverCourse(river, 40, 'corner', { wander: 'wild' })!.centreline;
+  assert.equal(wild.length, gentle.length, 'irregularity does not add a control point aimed at the hex centre');
+  assert.ok(wild.some((p, i) => Math.hypot(p.x - gentle[i]!.x, p.y - gentle[i]!.y) > 1), 'irregularity still changes the contour');
+});
+
 test('a river that rises at a city comes out from under its icon, and one that runs out at a city stops under it', () => {
   const size = 40;
   const segs = [0, 1, 2, 3, 4, 5].map((col) => ({ col, row: 2, entryEdge: col === 0 ? null : 3, exitEdge: col === 5 ? null : 0, navigable: false }));
@@ -1628,10 +1643,21 @@ test('a river course can be adjusted in one hex without changing the other hexes
   const free = riverCourse(river, size, 'reach', { wander: 'wild' })!.centreline;
   const baseline = nearest(free);
   river.segments[3]!.reach = { min: 0.8, max: null };
-  const adjusted = nearest(riverCourse(river, size, 'reach', { wander: 'wild' })!.centreline);
+  const adjustedLine = riverCourse(river, size, 'reach', { wander: 'wild' })!.centreline;
+  const adjusted = nearest(adjustedLine);
   assert.ok(adjusted[1]! >= 0.74, `selected hex came as near as ${adjusted[1]!.toFixed(2)}`);
   assert.ok(Math.abs(adjusted[0]! - baseline[0]!) < 0.03, 'upstream neighbouring hex stays on its generated course');
   assert.ok(Math.abs(adjusted[3]! - baseline[3]!) < 0.03, 'distant hex stays on its generated course');
+  const selected = adjustedLine.filter((p) => {
+    const h = pixelToOffset(p.x, p.y, size);
+    return h.col === 3 && h.row === 3;
+  });
+  const centre = hexCenter(3, 3, size);
+  const a = selected[0]!;
+  const b = selected.at(-1)!;
+  const side = (p: { x: number; y: number }) => (b.x - a.x) * (p.y - centre.y) - (b.y - a.y) * (p.x - centre.x);
+  const signs = selected.map(side).filter((v) => Math.abs(v) > size * size * 0.01).map(Math.sign);
+  assert.ok(signs.every((v) => v === signs[0]), 'minimum reach takes one coherent side around the centre');
 
   river.segments[3]!.reach = { min: null, max: 0.2 };
   const centred = nearest(riverCourse(river, size, 'reach', { wander: 'wild' })!.centreline);
