@@ -101,7 +101,7 @@ import { polygonPath, type CitySymbol, type PathCmd, type Prim } from './prims.j
 import { capitalCrown, cityMarker, iconClearance, iconDrop, markerExtent, symbolMarker } from './cityMarkers.js';
 import { riverStance, riverThroughIcon, showsRiver } from './riverCity.js';
 import { landBySide, riverCourses, type RiverCourse } from './rivers.js';
-import { citySite, resolvedSite } from './sites.js';
+import { citySite, lakeEdgesOf, resolvedSite } from './sites.js';
 import { escarpment, hillshade, reliefSymbols, vegetationSymbols, type Placed } from './symbols.js';
 import { ownersAtDepth, polityDepths, polityDisplayColours, toned } from './hierarchy.js';
 import { topLevelOf } from '../../shared/polityTree.js';
@@ -2316,7 +2316,7 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
             at: hexCenter(city.col, city.row, size),
             radius: markerRadius(city.population),
             // A city on its river (not a port at the shore) is set into the bank and shapes the course.
-            icon: resolvedSite(city).kind === 'river'
+            icon: resolvedSite(city, lakeEdgesOf(city, base, cols)).kind === 'river'
               ? { reach: iconClearance(knobs.cityMarkers, symbol, markerRadius(city.population)), ...riverStance(knobs.cityRiver, symbol), dy: iconDrop(knobs.cityMarkers, symbol, markerRadius(city.population)) }
               : undefined,
           };
@@ -2469,7 +2469,7 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
         // A river city's icon is set into the bank, where the course was bowed round it.
         riverIcon: (id) => riverIcons.get(id) ?? null,
         islandCentre: (i) => islandCentre(i),
-        onLand: traced?.onLand,
+        onLand: landAt,
       }),
     ]),
   );
@@ -2492,7 +2492,7 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
       }
       const symbol = citySymbolForPopulation(city.population);
       const colours = { ink: palette.cityFill, paper: palette.cityRing, river: palette.river };
-      const line = city.riverId && resolvedSite(city).kind === 'river' ? courses.get(city.riverId) : null;
+      const line = city.riverId && resolvedSite(city, lakeEdgesOf(city, base, cols)).kind === 'river' ? courses.get(city.riverId) : null;
       const widths = city.riverId ? widthProfiles.get(city.riverId) : null;
       if (line && widths) {
         // The icon is drawn whole, on top of the river; the style says whether the river bows round it, runs behind it,

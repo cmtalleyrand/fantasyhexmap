@@ -158,17 +158,21 @@ function onLandNear(want: Point, centre: Point, size: number, onLand: (p: Point)
 export function citySite(city: City, ctx: SiteContext): Point {
   const site = rawSite(city, ctx);
   if (!ctx.onLand) return site;
-  // An island's own drawn land is not part of the coast's, so it is left where it is.
-  if (isIslandType(ctx.base?.[city.row * ctx.cols + city.col] ?? null)) return site;
-  return onLandNear(site, hexCenter(city.col, city.row, ctx.size), ctx.size, ctx.onLand);
+  const index = city.row * ctx.cols + city.col;
+  const centre = isIslandType(ctx.base?.[index] ?? null)
+    ? ctx.islandCentre?.(index) ?? hexCenter(city.col, city.row, ctx.size)
+    : hexCenter(city.col, city.row, ctx.size);
+  return onLandNear(site, centre, ctx.size, ctx.onLand);
 }
 
 function rawSite(city: City, ctx: SiteContext): Point {
   const { size } = ctx;
-  const centre = hexCenter(city.col, city.row, size);
   const index = city.row * ctx.cols + city.col;
-  // On an island the land is the island, wherever it lies in the hex.
-  if (isIslandType(ctx.base?.[index] ?? null)) return ctx.islandCentre?.(index) ?? centre;
+  // An island's visual centre replaces the hex centre as the origin, but the
+  // requested offset/direction is still resolved below like every other site.
+  const centre = isIslandType(ctx.base?.[index] ?? null)
+    ? ctx.islandCentre?.(index) ?? hexCenter(city.col, city.row, size)
+    : hexCenter(city.col, city.row, size);
   const { kind, edges } = resolvedSite(city, lakeEdgesOf(city, ctx.base, ctx.cols));
   const line = city.riverId ? ctx.riverLine?.(city.riverId) : null;
   // Only the part of the river inside the hex counts: one that clips the hex
