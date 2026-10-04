@@ -4,6 +4,7 @@ import { createMapState } from '../shared/layers.ts';
 import type { MapState } from '../shared/types.ts';
 import { buildExportScene } from '../src/render/export.ts';
 import {
+  appendLegend,
   DEFAULT_LEGEND_OPTIONS,
   legendLayers,
   legendSections,
@@ -165,4 +166,27 @@ test('the legend lists a capital entry only when the map has a capital', () => {
   assert.ok(!labels().includes('Crown: capital of a realm'));
   map.layers.cities.data!.cities[1]!.capital = true;
   assert.ok(labels().includes('Crown: capital of a realm'));
+});
+
+test('the river city swatch follows how the style sits a city with its river', async () => {
+  const { createMapState } = await import('../shared/layers.ts');
+  const { resolveStyle } = await import('../src/render/styles.ts');
+  const labels = new Set<string>();
+  for (const cityRiver of ['beside', 'overlay', 'outline', 'wash'] as const) {
+    const map = createMapState('L', 4, 4);
+    map.layers.cities.data = { cities: [{ id: 'a', col: 1, row: 1, name: 'A', population: 5000, onRiver: true, riverId: 'r', coastal: false, coastalEdges: [] }] } as never;
+    const style = resolveStyle({ preset: 'parchment', overrides: { cityRiver } });
+    const section = legendSections(map, { ...defaultVisibility(), cities: true }, 'colour', opts({ onlyUsed: true }), style).find((s) => s.id === 'cities')!;
+    const entry = section.entries.find((e) => e.swatch.kind === 'city' && e.swatch.onRiver)!;
+    assert.ok(entry, `${cityRiver}: a river city entry`);
+    labels.add(entry.label);
+    const scene = buildScene(map, { size: 20, visible: { ...defaultVisibility(), cities: true }, labels: false, style });
+    const before = scene.prims.length;
+    const drawn = appendLegend(scene, [section], null, 20);
+    assert.ok(drawn.prims.length > before, `${cityRiver}: the legend is drawn`);
+    if (cityRiver === 'outline' || cityRiver === 'wash') {
+      assert.ok(drawn.prims.slice(before).some((p) => p.kind === 'group' && p.clip), `${cityRiver}: the swatch shows the river through its icon`);
+    }
+  }
+  assert.equal(labels.size, 4, 'each mode has its own legend line');
 });

@@ -25,21 +25,16 @@ export interface MarkerColours {
   river: string;
 }
 
-/** The body of each marker as drawn, in marker radii: the sets draw the same size at different scales. */
-const FOOTPRINT: Record<CityMarkerSet, Record<CitySymbol, number>> = {
-  symbols: { village: 0.58, town: 0.82, city: 1, metropolis: 1 },
-  classic: { village: 0.4, town: 0.62, city: 0.8, metropolis: 0.9 },
-  illustrated: { village: 0.5, town: 0.6, city: 0.65, metropolis: 0.9 },
-};
-
-/** How far an icon of this set and size reaches from its centre, for a marker of radius `r`. */
-export function iconReach(set: CityMarkerSet, symbol: CitySymbol, r: number): number {
-  return FOOTPRINT[set][symbol] * r;
+/** How far below its site the middle of the drawn icon lies (drawn buildings stand on a ground line below the site). */
+export function iconDrop(set: CityMarkerSet, symbol: CitySymbol, r: number): number {
+  const { up, down } = markerExtent(set, symbol);
+  return (r * (up - down)) / 2;
 }
 
-/** Whether a city of this size stands on its river, which parts the icon, rather than on the bank. */
-export function riverBisects(symbol: CitySymbol): boolean {
-  return symbol === 'metropolis';
+/** How much room the whole icon needs round its site: the river keeps this clear of it (a capital's crown is not counted). */
+export function iconClearance(set: CityMarkerSet, symbol: CitySymbol, r: number): number {
+  const { up, down, half } = markerExtent(set, symbol);
+  return r * Math.max(half, (up + down) / 2);
 }
 
 /**

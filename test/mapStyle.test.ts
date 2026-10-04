@@ -1537,7 +1537,73 @@ test('the river bows round the icon of a city on its bank, and the icon is press
     for (const population of [5_000, 120_000, 1_000_000]) {
       const prims = draw(population, true);
       assert.equal(prims.filter((p) => p.kind === 'circle' && p.fill === style.palette.river && p.stroke === style.palette.cityRing).length, 0, `${cityMarkers}: no disc of water round the marker`);
-      assert.ok(prims.some((p) => p.kind === 'polygon' && p.fill === style.palette.cityFill) || prims.some((p) => p.kind === 'path' && p.fill === style.palette.cityFill), `${cityMarkers}: the icon is drawn`);
+      assert.ok(prims.some((p) => (p.kind === 'polygon' || p.kind === 'path' || p.kind === 'circle') && p.fill === style.palette.cityFill), `${cityMarkers}: the icon is drawn`);
+    }
+  }
+});
+
+test('a city on a river keeps its whole icon, however the style sits it with the river', async () => {
+  const { riverStance, riverThroughIcon, showsRiver } = await import('../src/render/riverCity.ts');
+  const { iconClearance, iconDrop } = await import('../src/render/cityMarkers.ts');
+  const size = 40;
+  const reachR = 10;
+  const line = Array.from({ length: 41 }, (_, i) => ({ x: i * 2, y: 40 }));
+  const reach = { line, widths: line.map(() => 3) };
+  const icon = [{ kind: 'path', d: [['M', 30, 32], ['L', 50, 32], ['L', 50, 48], ['L', 30, 48], ['Z']], fill: '#111' }] as Prim[];
+  assert.deepEqual(riverThroughIcon('beside', icon, { x: 40, y: 40 }, reachR, reach, { river: '#9bd' }, 1), [], 'beside shows no river through the icon');
+  assert.deepEqual(riverThroughIcon('overlay', icon, { x: 40, y: 40 }, reachR, reach, { river: '#9bd' }, 1), [], 'over the bank shows none either');
+  for (const mode of ['outline', 'wash'] as const) {
+    const [through] = riverThroughIcon(mode, icon, { x: 40, y: 40 }, reachR, reach, { river: '#9bd' }, 1) as Array<Extract<Prim, { kind: 'group' }>>;
+    assert.equal(through!.kind, 'group');
+    assert.deepEqual(through!.clip, icon[0]!.kind === 'path' ? icon[0]!.d : [], 'the river is clipped to the icon, so the icon stays whole');
+    const ys = through!.prims.flatMap((p) => (p.kind === 'polyline' || p.kind === 'polygon' ? p.points.map((q) => q.y) : []));
+    assert.ok(ys.some((y) => y < 40) && ys.some((y) => y > 40), `${mode}: the river's two banks are drawn`);
+  }
+  // Only the two larger icons stand on the river and show it; the others stand beside it.
+  assert.equal(showsRiver('village'), false);
+  assert.equal(showsRiver('town'), false);
+  assert.equal(showsRiver('city'), true);
+  assert.equal(showsRiver('metropolis'), true);
+  assert.equal(riverStance('outline', 'city').straddle, true);
+  assert.equal(riverStance('wash', 'metropolis').straddle, true);
+  assert.equal(riverStance('outline', 'town').straddle, false);
+  assert.equal(riverStance('beside', 'metropolis').straddle, false, 'beside keeps even the largest icon on the bank');
+  assert.ok(riverStance('beside', 'city').setIn >= 1 && riverStance('beside', 'city').press === 0, 'beside sets the whole icon on the bank');
+  assert.ok(iconClearance('illustrated', 'metropolis', 10) >= 9.5, 'the clearance covers the drawn icon');
+  assert.ok(iconDrop('illustrated', 'city', 10) > 0, 'drawn buildings stand below their site, so the river is aimed at their middle');
+
+  const map = islandMap();
+  const river = map.layers.rivers.data!.rivers[0]!;
+  const at = hexCenter(river.segments[1]!.col, river.segments[1]!.row, size);
+  const bare = riverCourse(river, size, 'seed')!;
+  const near = (mode: 'beside' | 'overlay' | 'wash') => {
+    const course = riverCourse(river, size, 'seed', { cities: [{ at, radius: 12, id: 'c', icon: { reach: reachR, ...riverStance(mode, 'city') } }] })!;
+    const m = course.icons[0]!.at;
+    return { course, d: Math.min(...course.centreline.map((p) => Math.hypot(p.x - m.x, p.y - m.y))) };
+  };
+  assert.ok(near('beside').d >= reachR - 1e-6, 'the river keeps clear of the whole icon');
+  assert.deepEqual(near('overlay').course.centreline, bare.centreline, 'over the bank the river is not bowed');
+  assert.deepEqual(near('wash').course.centreline, bare.centreline, 'a river shown through the icon is not bowed');
+
+  for (const cityRiver of ['beside', 'overlay', 'outline', 'wash'] as const) {
+    for (const cityMarkers of ['symbols', 'classic', 'illustrated'] as const) {
+      const style = resolveStyle({ preset: 'parchment', overrides: { cityMarkers, cityRiver } });
+      for (const population of [5_000, 30_000, 120_000, 1_000_000]) {
+        const sceneMap = islandMap();
+        sceneMap.layers.cities.data = { cities: [{ id: 'a', col: 2, row: 2, name: 'Wet', population, onRiver: true, riverId: 'r', coastal: false, coastalEdges: [] }] } as never;
+        const draw = (cityRiverMode: 'beside' | typeof cityRiver) => buildScene(sceneMap, { size: 20, visible: { ...allLayers(), cities: true }, labels: false, style: resolveStyle({ preset: 'parchment', overrides: { cityMarkers, cityRiver: cityRiverMode } }) }).prims;
+        const prims = draw(cityRiver);
+        const icon = (p: Prim) => (p.kind === 'path' || p.kind === 'circle') && p.fill === style.palette.cityFill;
+        const tag = `${cityRiver}/${cityMarkers}/${population}`;
+        assert.ok(prims.some(icon), `${tag}: the icon is drawn`);
+        // The icon is whole: the same shapes the marker draws on its own, never reshaped into polygons.
+        assert.equal(prims.filter((p) => p.kind === 'polygon' && p.fill === style.palette.cityFill).length, 0, `${tag}: the icon is not reshaped`);
+        // The river shows through the larger icons in the two modes that ask for it, and only there: a clipped,
+        // translucent group beyond those a plain scene has.
+        const clipped = (list: Prim[]) => list.filter((p) => p.kind === 'group' && p.clip && p.opacity !== undefined).length;
+        const expected = (cityRiver === 'outline' || cityRiver === 'wash') && population > 50_000;
+        assert.equal(clipped(prims) - clipped(draw('beside')), expected ? 1 : 0, `${tag}: the river ${expected ? 'shows' : 'does not show'} through the icon`);
+      }
     }
   }
 });

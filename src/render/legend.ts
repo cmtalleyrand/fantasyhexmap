@@ -11,8 +11,8 @@
  */
 
 import type { Point } from '../../shared/hex.js';
-import { capitalCrown, cityMarker, iconReach, riverBisects, symbolMarker, type CityMarkerSet } from './cityMarkers.js';
-import { pressIcon, SET_IN } from './riverCity.js';
+import { capitalCrown, cityMarker, iconClearance, symbolMarker, type CityMarkerSet } from './cityMarkers.js';
+import { riverStance, riverThroughIcon, showsRiver, type CityRiver } from './riverCity.js';
 import { fantasyTextEm } from './fonts.js';
 import {
   BASE_COLOURS,
@@ -25,7 +25,7 @@ import {
 import { CLASSIC_STYLE, type ElevationStyle, type MapStyle } from './styles.js';
 import { polityDisplayColours } from './hierarchy.js';
 import { descendantsOf } from '../../shared/polityTree.js';
-import { thematicLayer, withLandOf, type CitySymbol, type Prim, type Scene, type VisibleLayers } from './scene.js';
+import { mix, thematicLayer, withLandOf, type CitySymbol, type Prim, type Scene, type VisibleLayers } from './scene.js';
 import { LAYER_META } from '../../shared/layers.js';
 import { formatLength, riverLength } from '../../shared/riverLength.js';
 import { riverLabel } from '../../shared/riverEdit.js';
@@ -69,7 +69,7 @@ export type LegendSwatch =
   | { kind: 'island'; sea: string; land: string; variant: 'islands' | 'mainland' | 'isthmus' | 'strait' }
   | { kind: 'line'; colour: string; width: number }
   | { kind: 'coast' }
-  | { kind: 'city'; symbol: CitySymbol; onRiver: boolean; set?: CityMarkerSet; ink?: string; paper?: string; river?: string; bank?: string; capital?: boolean }
+  | { kind: 'city'; symbol: CitySymbol; onRiver: boolean; cityRiver?: CityRiver; set?: CityMarkerSet; ink?: string; paper?: string; river?: string; bank?: string; capital?: boolean }
   | { kind: 'contour'; marks: number; flat: boolean }
   | { kind: 'ramp' };
 
@@ -85,6 +85,13 @@ export interface LegendSection {
   title: string;
   entries: LegendEntry[];
 }
+
+const CITY_RIVER_LABEL: Record<CityRiver, string> = {
+  beside: 'On a river (the river bows round the icon)',
+  overlay: 'On a river (the river runs behind the icon)',
+  outline: 'On a river (larger icons show its banks faintly through them)',
+  wash: 'On a river (larger icons show a wash of water through them)',
+};
 
 const CITY_ENTRIES: Array<{ symbol: CitySymbol; label: string }> = [
   { symbol: 'village', label: 'Village (10,000 or fewer)' },
@@ -241,8 +248,8 @@ export function legendSections(
         // A river city stands on its river's bank; the largest sit astride it.
         if (!options.onlyUsed || cities.some((c) => c.onRiver)) {
           entries.push({
-            swatch: { kind: 'city', symbol: 'town', onRiver: true, set: style.knobs.cityMarkers, ink: style.palette.cityFill, paper: style.palette.cityRing, river: style.palette.river, bank: style.palette.riverBank },
-            label: 'On a river (the icon is shaped by it)',
+            swatch: { kind: 'city', symbol: style.knobs.cityRiver === 'outline' || style.knobs.cityRiver === 'wash' ? 'city' : 'town', onRiver: true, cityRiver: style.knobs.cityRiver, set: style.knobs.cityMarkers, ink: style.palette.cityFill, paper: style.palette.cityRing, river: style.palette.river, bank: style.palette.riverBank },
+            label: CITY_RIVER_LABEL[style.knobs.cityRiver],
           });
         }
         if (style.knobs.cityCoastMarks && (!options.onlyUsed || cities.some((c) => c.coastalEdges.length > 0))) {
@@ -381,9 +388,10 @@ function swatchPrims(swatch: LegendSwatch, x: number, cy: number, m: ReturnType<
       // bank of a river that runs across the swatch, as it does on the map.
       const R = swatch.capital ? 6 * k : swatch.onRiver ? 6 * k : 8 * k;
       const riverWidth = 3 * k;
-      // A river city is set into the bank of a river running across the swatch and pressed against it, as on the map.
-      const reach = iconReach(set, swatch.symbol, R);
-      const setIn = swatch.onRiver && !riverBisects(swatch.symbol) ? riverWidth / 2 + reach * SET_IN : 0;
+      // A river city stands as the style says beside (or on) a river running across the swatch, as on the map.
+      const stance = riverStance(swatch.cityRiver ?? 'beside', swatch.symbol);
+      const reach = iconClearance(set, swatch.symbol, R);
+      const setIn = swatch.onRiver && !stance.straddle ? riverWidth / 2 + reach * stance.setIn : 0;
       const at = { x: cx, y: cy + (swatch.capital ? 3 * k : 0) - setIn / 2 };
       const crown = swatch.capital ? capitalCrown(set, swatch.symbol, at, R, { ink, paper }) : [];
       const riverY = at.y + setIn;
@@ -402,8 +410,10 @@ function swatchPrims(swatch: LegendSwatch, x: number, cy: number, m: ReturnType<
         : swatch.onRiver
           ? symbolMarker(swatch.symbol, at, R, colours, true)
           : [{ kind: 'city', c: at, r: R, onRiver: false, symbol: swatch.symbol }];
-      const marker = swatch.onRiver ? pressIcon(plain, { line: course, widths: course.map(() => riverWidth) }, 0.9 * k, 0.5 * k, riverBisects(swatch.symbol) ? undefined : at) : plain;
-      return [...water, ...marker, ...crown];
+      const scenery = swatch.onRiver && showsRiver(swatch.symbol)
+        ? riverThroughIcon(swatch.cityRiver ?? 'beside', plain, site, reach, { line: course, widths: course.map(() => riverWidth) }, { river: set === 'classic' ? colours.river : mix(colours.river, paper, 0.4) }, 0.6 * k)
+        : [];
+      return [...water, ...plain, ...scenery, ...crown];
     }
     case 'contour': {
       const prims: Prim[] = [box(ELEVATION_COLOURS.Rolling)];

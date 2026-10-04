@@ -162,7 +162,7 @@ export interface CourseEnds {
     radius: number;
     id?: string;
     /** The icon: how far it reaches, and whether it stands across the river (the largest size) rather than on its bank. */
-    icon?: { reach: number; straddle: boolean };
+    icon?: { reach: number; straddle: boolean; setIn?: number; press?: number; dy?: number };
   }>;
   /** How irregular the course is (see `WANDER`); 'normal' when omitted. */
   wander?: RiverWander;
@@ -637,10 +637,10 @@ export function riverCourse(river: River, size: number, seed: string, ends: Cour
     return w;
   });
 
-  // The river and the icons of the cities on its bank shape each other. An icon is set into the bank, and the
-  // river bows out round it, keeping clear of all but a fraction (`PRESS`) of its reach, so the course curves
-  // with the icon's rim; the icon is then pressed against the bowed bank when it is drawn (`pressIcon`). The
-  // icon of a city that straddles the river stands on the line, and the river is left as it is.
+  // The river and the icons of the cities on its bank shape each other. An icon is set into the bank (how far
+  // depends on the city's stance, `riverStance`), and the river bows out round it, keeping clear of all but a
+  // fraction of its reach, so the course curves with the icon's rim; the icon itself is drawn whole. The icon of a
+  // city that straddles the river stands on the line, and the river is left as it is.
   const icons: Array<{ id: string; at: Point }> = [];
   for (const city of ends.cities ?? []) {
     if (!city.icon || !city.id) continue;
@@ -655,7 +655,8 @@ export function riverCourse(river: River, size: number, seed: string, ends: Cour
     });
     if (k < 1 || k > line.length - 2) continue;
     if (city.icon.straddle) {
-      icons.push({ id: city.id, at: line[k]! });
+      // Stood so the middle of the icon, not its site, is on the river.
+      icons.push({ id: city.id, at: { x: line[k]!.x, y: line[k]!.y + (city.icon.dy ?? 0) } });
       continue;
     }
     const a = line[k - 1]!;
@@ -663,14 +664,14 @@ export function riverCourse(river: River, size: number, seed: string, ends: Cour
     const len = Math.hypot(b.x - a.x, b.y - a.y) || 1;
     const nx = -(b.y - a.y) / len;
     const ny = (b.x - a.x) / len;
-    const setIn = widths[k]! / 2 + city.icon.reach * SET_IN;
+    const setIn = widths[k]! / 2 + city.icon.reach * (city.icon.setIn ?? SET_IN);
     // The bank that is land, else one the city's id picks.
     const parity = [...city.id].reduce((h, ch) => (h * 31 + ch.charCodeAt(0)) | 0, 0) % 2 === 0 ? 1 : -1;
     const sides = [parity, -parity];
     const side = sides.find((sd) => !ends.onLand || ends.onLand({ x: line[k]!.x + nx * sd * setIn, y: line[k]!.y + ny * sd * setIn })) ?? parity;
     const m = { x: line[k]!.x + nx * side * setIn, y: line[k]!.y + ny * side * setIn };
     icons.push({ id: city.id, at: m });
-    const clear = (i: number) => city.icon!.reach * (1 - PRESS) + widths[i]! / 2;
+    const clear = (i: number) => city.icon!.reach * (1 - (city.icon!.press ?? PRESS)) + widths[i]! / 2;
     const push = (i: number) => {
       const p = line[i]!;
       const d = Math.hypot(p.x - m.x, p.y - m.y);
@@ -815,7 +816,7 @@ export function riverCourses(
   size: number,
   seed: string,
   lakeEnds: (river: River) => Pick<CourseEnds, 'before' | 'beyond' | 'inWater' | 'onLand'> = () => ({}),
-  cities: Array<{ riverId: string; at: Point; radius: number; id?: string; icon?: { reach: number; straddle: boolean } }> = [],
+  cities: Array<{ riverId: string; at: Point; radius: number; id?: string; icon?: { reach: number; straddle: boolean; setIn?: number; press?: number; dy?: number } }> = [],
   wander: RiverWander = 'normal',
 ): Map<string, RiverCourse> {
   const out = new Map<string, RiverCourse>();

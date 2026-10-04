@@ -10,6 +10,7 @@
  */
 
 import type { CityMarkerSet } from './cityMarkers.js';
+import type { CityRiver } from './riverCity.js';
 import type { LetteringId } from './lettering.js';
 import { BASE_COLOURS, ISLAND_DOT, MAP_COLOURS } from './palette.js';
 
@@ -56,6 +57,8 @@ export interface StyleKnobs {
   lettering: LetteringId;
   /** City markers: the app's symbols, the atlas convention of dots and rings, or drawn buildings. */
   cityMarkers: CityMarkerSet;
+  /** How a city's icon sits with the river it stands on: beside it, over its bank, or (the larger icons) standing on it with its course shown through them. */
+  cityRiver: CityRiver;
   /** The dashed water-coloured marks on a city's coastal edges. */
   cityCoastMarks: boolean;
   /** Thickness of the ink lines (coasts and frontiers) relative to the style's own: fine, thin, standard, bold or heavy. */
@@ -194,6 +197,7 @@ const CLASSIC: PresetInfo = {
     cityNames: 'beside',
     lettering: 'classic',
     cityMarkers: 'symbols',
+    cityRiver: 'beside',
   },
 };
 
@@ -255,6 +259,7 @@ const PARCHMENT: PresetInfo = {
     cityNames: 'beside',
     lettering: 'storybook',
     cityMarkers: 'illustrated',
+    cityRiver: 'beside',
   },
 };
 
@@ -329,6 +334,7 @@ const ATLAS: PresetInfo = {
     cityNames: 'beside',
     lettering: 'chancery',
     cityMarkers: 'classic',
+    cityRiver: 'beside',
   },
 };
 
@@ -389,6 +395,7 @@ const NIGHT: PresetInfo = {
     cityNames: 'beside',
     lettering: 'storybook',
     cityMarkers: 'classic',
+    cityRiver: 'beside',
   },
 };
 
@@ -554,6 +561,15 @@ export const KNOB_OPTIONS: {
       { value: 'illustrated', label: 'Drawn buildings' },
     ],
   },
+  cityRiver: {
+    label: 'Cities on rivers',
+    options: [
+      { value: 'beside', label: 'Beside the river (river bows round the icon)' },
+      { value: 'overlay', label: 'Over the bank (river runs behind the icon)' },
+      { value: 'outline', label: 'Larger icons on the river, its banks faint through them' },
+      { value: 'wash', label: 'Larger icons on the river, a wash of water through them' },
+    ],
+  },
   cityCoastMarks: {
     label: 'Coastal edge marks on cities',
     options: [
@@ -587,7 +603,7 @@ export const KNOB_OPTIONS: {
   },
 };
 
-export const KNOB_ORDER: KnobId[] = ['relief', 'water', 'ripples', 'coast', 'grid', 'land', 'islands', 'ice', 'rivers', 'riverWander', 'polityStyle', 'frontier', 'borders', 'polityTone', 'subPolities', 'lettering', 'realmNames', 'cityNames', 'cityMarkers', 'cityCoastMarks', 'lineWeight', 'grain'];
+export const KNOB_ORDER: KnobId[] = ['relief', 'water', 'ripples', 'coast', 'grid', 'land', 'islands', 'ice', 'rivers', 'riverWander', 'polityStyle', 'frontier', 'borders', 'polityTone', 'subPolities', 'lettering', 'realmNames', 'cityNames', 'cityMarkers', 'cityRiver', 'cityCoastMarks', 'lineWeight', 'grain'];
 
 export const DEFAULT_STYLE_CHOICE: MapStyleChoice = { preset: 'classic', overrides: {} };
 
