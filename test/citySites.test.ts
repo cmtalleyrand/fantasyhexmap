@@ -4,6 +4,10 @@ import { citySite } from '../src/render/sites.ts';
 import { landTest, surfaceMap, surfaceEdges } from '../src/render/coast.ts';
 import { hexCenter } from '../shared/hex.ts';
 import type { BaseGeo, City } from '../shared/types.ts';
+import { createMapState } from '../shared/layers.ts';
+import { reducer } from '../src/state/store.ts';
+import { buildScene, defaultVisibility } from '../src/render/scene.ts';
+import { resolveStyle } from '../src/render/styles.ts';
 
 const size = 20;
 const S: BaseGeo = 'Sea';
@@ -75,4 +79,46 @@ test('a city can be placed toward a corner, back from the shore, or at a free of
   assert.ok(Math.abs(free.x - (c.x + 0.3 * size)) < 1e-9 && Math.abs(free.y - (c.y - 0.2 * size)) < 1e-9);
   const far = citySite({ ...city, site: { offset: { x: 5, y: 0 } } }, ctx);
   assert.ok(far.x - c.x <= size * 0.8 + 1e-9, 'an offset stays inside the hex');
+});
+
+test('an island city uses its island centre as the origin without ignoring its chosen site', () => {
+  const base: BaseGeo[] = ['Islands'];
+  const island = { x: 14, y: 11 };
+  const city = {
+    id: 'island-city', col: 0, row: 0, name: 'C', population: 100,
+    onRiver: false, riverId: null, coastal: true, coastalEdges: [0],
+  } as City;
+  const onLand = (p: { x: number; y: number }) => Math.hypot(p.x - island.x, p.y - island.y) <= size * 0.7;
+  const ctx = { size, base, cols: 1, islandCentre: () => island, onLand };
+
+  assert.deepEqual(citySite({ ...city, site: 'inland' }, ctx), island);
+  const east = citySite({ ...city, site: { coast: 0 } }, ctx);
+  assert.ok(east.x > island.x, 'a coastal choice moves the marker east of the island centre');
+  assert.ok(onLand(east), 'the chosen point is constrained to the island rather than skipped');
+  const offset = citySite({ ...city, site: { offset: { x: -0.2, y: 0.1 } } }, ctx);
+  assert.ok(offset.x < island.x && offset.y > island.y, 'a custom offset is relative to the island centre');
+});
+
+test('editing a city site changes the marker position in the rendered scene', () => {
+  const map = createMapState('City sites', 3, 3);
+  map.layers.base.data = Array(9).fill('Land');
+  const city = {
+    id: 'city', col: 1, row: 1, name: 'City', population: 10_000,
+    onRiver: false, riverId: null, coastal: false, coastalEdges: [],
+  } satisfies City;
+  map.layers.cities.data = { cities: [city] };
+  const visible = { ...defaultVisibility(), cities: true };
+  const style = resolveStyle({ preset: 'classic', overrides: { cityMarkers: 'symbols' } });
+  const markerAt = (state: typeof map) => {
+    const markers = buildScene(state, { size, visible, labels: false, style }).prims
+      .filter((p) => p.kind === 'city');
+    assert.equal(markers.length, 1);
+    return markers[0]!.c;
+  };
+
+  const centre = markerAt(map);
+  const edited = reducer(map, { type: 'setCitySite', id: city.id, site: { corner: 1 } });
+  const corner = markerAt(edited);
+  assert.ok(corner.x > centre.x && corner.y > centre.y);
+  assert.deepEqual(edited.layers.cities.data!.cities[0]!.site, { corner: 1 });
 });

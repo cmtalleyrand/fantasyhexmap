@@ -33,6 +33,7 @@ import {
   type IslandOrientation,
   type BaseGeo,
   type City,
+  type CitySite,
   type IslandSpec,
   type LayerId,
   type MapState,
@@ -835,7 +836,7 @@ function siteValue(site: City['site']): string {
   return site;
 }
 
-function parseSiteValue(value: string): City['site'] {
+function parseSiteValue(value: string): CitySite {
   if (value.startsWith('bank:')) return { bank: Number(value.slice(5)) };
   if (value.startsWith('coast:')) return { coast: Number(value.slice(6)) };
   if (value.startsWith('port:')) return { coast: Number(value.slice(5)), river: true };
@@ -1558,7 +1559,7 @@ function CityEditor(props: SubProps) {
                   id={`site-${c.id}`}
                   className="grow"
                   value={siteValue(c.site)}
-                  onChange={(e) => dispatch({ type: 'upsertCity', city: { ...c, site: parseSiteValue(e.target.value) } })}
+                  onChange={(e) => dispatch({ type: 'setCitySite', id: c.id, site: parseSiteValue(e.target.value) })}
                 >
                   <option value="auto">Automatic (river port, river, land between lakes, coast, or centre)</option>
                   <option value="inland">Inland, at the hex centre</option>
@@ -1608,7 +1609,7 @@ function CityEditor(props: SubProps) {
                         onCommit={(raw) => {
                           const v = Math.max(-0.8, Math.min(0.8, Number(raw) || 0));
                           const offset = (c.site as { offset: { x: number; y: number } }).offset;
-                          dispatch({ type: 'upsertCity', city: { ...c, site: { offset: { ...offset, [axis]: v } } } });
+                          dispatch({ type: 'setCitySite', id: c.id, site: { offset: { ...offset, [axis]: v } } });
                         }}
                       />
                     </label>

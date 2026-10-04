@@ -33,6 +33,7 @@ import { LAYER_META, normaliseSelection } from '../../shared/layers.js';
 import { LAYER_ORDER, MAX_DIM, type PolitiesData } from '../../shared/types.js';
 import type {
   City,
+  CitySite,
   Decision,
   JournalEntry,
   JournalKind,
@@ -111,6 +112,7 @@ export type Action =
   | { type: 'setPolityAutoShade'; ids: string[]; on: boolean }
   | { type: 'removePolity'; id: string }
   | { type: 'upsertCity'; city: City }
+  | { type: 'setCitySite'; id: string; site: CitySite }
   | { type: 'removeCity'; id: string }
   | { type: 'addRiver'; river: River }
   | { type: 'updateRiver'; river: River }
@@ -1030,6 +1032,19 @@ function reduceMap(map: MapState, action: Action): MapState {
       return journal(
         withLayer(map, 'cities', commit(layer, { data: { cities } })),
         manualEntry('cities', `${exists ? 'Edited' : 'Added'} the city "${city.name}" by hand.`),
+      );
+    }
+
+    case 'setCitySite': {
+      const layer = map.layers.cities;
+      if (!layer.data) return map;
+      const index = layer.data.cities.findIndex((city) => city.id === action.id);
+      if (index < 0 || identicalData(layer.data.cities[index]!.site ?? 'auto', action.site)) return map;
+      const cities = [...layer.data.cities];
+      cities[index] = { ...cities[index]!, site: action.site };
+      return journal(
+        withLayer(map, 'cities', commit(layer, { data: { cities } })),
+        manualEntry('cities', `Changed where the city "${cities[index]!.name}" is drawn.`),
       );
     }
 
