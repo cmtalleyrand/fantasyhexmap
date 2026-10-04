@@ -39,7 +39,7 @@ import { canonicalEdgeId, hexCenter, hexEdgePoints, pixelToOffset, type Point } 
 import type { River } from '../../shared/types.js';
 import type { RiverWander } from './styles.js';
 import type { PathCmd } from './prims.js';
-import { signed, unit } from './seed.js';
+import { signed } from './seed.js';
 import { PRESS, SET_IN } from './riverCity.js';
 
 export interface RiverCourse {
@@ -59,16 +59,16 @@ const SLIDE = 0.25;
 
 /**
  * What each level of river irregularity does: how far the wander swings (a multiple of the base swing), how
- * many passes pull the crossings taut (fewer leaves the hex walk's own corners), how far a crossing may slide
- * along its edge, and how often (`chance`) and how far (`bulge`, as a fraction of the way to the hex centre)
- * a river that bends within a hex swings into it rather than just clipping its corner.
+ * many passes pull the crossings taut (fewer leaves the hex walk's own corners), and how far a crossing may
+ * slide along its edge. Irregularity changes the course relative to its route; it does not attract the course
+ * to hex centres.
  */
-const WANDER: Record<RiverWander, { swing: number; relax: number; slide: number; chance: number; bulge: number }> = {
-  verygentle: { swing: 0.85, relax: 6, slide: 0.3, chance: 0.4, bulge: 0.5 },
-  gentle: { swing: 1.3, relax: 2, slide: 0.36, chance: 0.7, bulge: 0.85 },
-  normal: { swing: 1.9, relax: 0, slide: 0.42, chance: 0.9, bulge: 1.1 },
-  irregular: { swing: 2.5, relax: 0, slide: 0.46, chance: 1, bulge: 1.35 },
-  wild: { swing: 3.2, relax: 0, slide: 0.5, chance: 1, bulge: 1.6 },
+const WANDER: Record<RiverWander, { swing: number; relax: number; slide: number }> = {
+  verygentle: { swing: 0.85, relax: 6, slide: 0.3 },
+  gentle: { swing: 1.3, relax: 2, slide: 0.36 },
+  normal: { swing: 1.9, relax: 0, slide: 0.42 },
+  irregular: { swing: 2.5, relax: 0, slide: 0.46 },
+  wild: { swing: 3.2, relax: 0, slide: 0.5 },
 };
 const SAMPLES_PER_SPAN = 8;
 /** How far along its edge a relaxed crossing may settle, as a fraction of the edge. */
@@ -122,6 +122,8 @@ interface Control {
   p: Point;
   /** Navigability of the span that ends at this point. */
   navigable: boolean;
+  /** Hex that the span ending at this point must traverse. */
+  spanHex?: string;
   /** Set where the point is a crossing that may slide along its edge. */
   slide?: Slide;
 }
@@ -171,17 +173,18 @@ export interface CourseEnds {
 function controls(river: River, size: number, seed: string, ends: CourseEnds): Control[] {
   const level = WANDER[ends.wander ?? 'normal'];
   const out: Control[] = [];
-  const push = (p: Point, navigable: boolean, slide?: Slide) => {
+  const push = (p: Point, navigable: boolean, slide?: Slide, spanHex?: string) => {
     const last = out[out.length - 1];
     if (last && Math.hypot(last.p.x - p.x, last.p.y - p.y) < size * 0.02) return;
-    out.push({ p, navigable, slide });
+    out.push({ p, navigable, slide, spanHex });
   };
-  const cross = (col: number, row: number, edge: number, navigable: boolean) => {
+  const cross = (col: number, row: number, edge: number, navigable: boolean, spanHex?: string) => {
     const slide = edgeSlide(col, row, edge, size, seed, level.slide);
-    push(along(slide), navigable, slide);
+    push(along(slide), navigable, slide, spanHex);
   };
   if (ends.before && river.segments[0]) push(ends.before, river.segments[0].navigable);
   river.segments.forEach((s, k) => {
+    const key = `${s.col},${s.row}`;
     if (s.entryEdge !== null) cross(s.col, s.row, s.entryEdge, s.navigable);
     else if (k === 0) {
       if (ends.start) push(ends.start, s.navigable);
@@ -194,20 +197,7 @@ function controls(river: River, size: number, seed: string, ends: CourseEnds): C
         }, s.navigable);
       }
     }
-    // A river that bends within the hex sometimes swings into it, towards its centre, rather than just clipping
-    // the corner between its two edges: the bend is then sharper, as a river's are.
-    if (s.entryEdge !== null && s.exitEdge !== null && level.chance > 0) {
-      const turn = Math.abs((((s.exitEdge - s.entryEdge - 3) % 6) + 9) % 6 - 3);
-      if (turn > 0 && unit(seed, 'bulge', s.col, s.row, 'p') < level.chance * (turn === 1 ? 0.6 : 1)) {
-        const a = along(edgeSlide(s.col, s.row, s.entryEdge, size, seed, level.slide));
-        const b = along(edgeSlide(s.col, s.row, s.exitEdge, size, seed, level.slide));
-        const c = hexCenter(s.col, s.row, size);
-        const k = level.bulge * (0.4 + 0.6 * unit(seed, 'bulge', s.col, s.row, 'k')) * (turn === 1 ? 0.7 : 1);
-        const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
-        push({ x: mid.x + (c.x - mid.x) * k, y: mid.y + (c.y - mid.y) * k }, s.navigable);
-      }
-    }
-    if (s.exitEdge !== null) cross(s.col, s.row, s.exitEdge, s.navigable);
+    if (s.exitEdge !== null) cross(s.col, s.row, s.exitEdge, s.navigable, key);
     else if (k === river.segments.length - 1) {
       // A tributary meets its host at an acute angle, leaning downstream: a point
       // a little upstream of the join, between the way the tributary was heading
@@ -219,9 +209,9 @@ function controls(river: River, size: number, seed: string, ends: CourseEnds): C
         const t = ends.joinTangent;
         const dir = { x: JOIN_FLOW * t.x + (1 - JOIN_FLOW) * (u.x / ul), y: JOIN_FLOW * t.y + (1 - JOIN_FLOW) * (u.y / ul) };
         const dl = Math.hypot(dir.x, dir.y) || 1;
-        push({ x: ends.end.x - (dir.x / dl) * size * JOIN_RUN, y: ends.end.y - (dir.y / dl) * size * JOIN_RUN }, s.navigable);
+        push({ x: ends.end.x - (dir.x / dl) * size * JOIN_RUN, y: ends.end.y - (dir.y / dl) * size * JOIN_RUN }, s.navigable, undefined, key);
       }
-      push(ends.end ?? hexCenter(s.col, s.row, size), s.navigable);
+      push(ends.end ?? hexCenter(s.col, s.row, size), s.navigable, undefined, key);
     }
   });
   const last = river.segments.at(-1);
@@ -307,6 +297,7 @@ function holdToReach(
     const key = `${s.col},${s.row}`;
     const c = hexCenter(s.col, s.row, size);
     const dist = (p: Point) => Math.hypot(p.x - c.x, p.y - c.y);
+    let preferred: Point | null = null;
     for (let pass = 0; pass < 6; pass++) {
       // The run of the line inside this hex that comes nearest the centre.
       let best = -1;
@@ -317,30 +308,48 @@ function holdToReach(
       const d = dist(line[best]!);
       const want = Math.min(hi, Math.max(low, d));
       if (Math.abs(want - d) < apothem * 0.004) break;
-      let from = best;
-      let to = best;
-      while (from > 1 && hexOf(line[from - 1]!) === key) from--;
-      while (to < line.length - 2 && hexOf(line[to + 1]!) === key) to++;
+      let first = best;
+      let last = best;
+      while (first > 0 && hexOf(line[first - 1]!) === key) first--;
+      while (last < line.length - 1 && hexOf(line[last + 1]!) === key) last++;
+      const from = Math.max(0, first - 1);
+      const to = Math.min(line.length - 1, last + 1);
       const p = line[best]!;
-      let ux = d < 1e-6 ? 0 : (p.x - c.x) / d;
-      let uy = d < 1e-6 ? 0 : (p.y - c.y) / d;
-      if (d < 1e-6) {
-        const a = line[Math.max(0, best - 1)]!;
-        const b = line[Math.min(line.length - 1, best + 1)]!;
-        const len = Math.hypot(b.x - a.x, b.y - a.y) || 1;
-        ux = -(b.y - a.y) / len;
-        uy = (b.x - a.x) / len;
+      if (!preferred) {
+        // Translate the reach sideways relative to its entry-to-exit chord. A
+        // radial push changes direction along the curve and can fold it; one
+        // fixed normal preserves the ordering and irregularity of its samples.
+        const a = line[from]!;
+        const b = line[to]!;
+        const chord = Math.hypot(b.x - a.x, b.y - a.y) || 1;
+        const nx = -(b.y - a.y) / chord;
+        const ny = (b.x - a.x) / chord;
+        let side = (p.x - c.x) * nx + (p.y - c.y) * ny;
+        if (Math.abs(side) < apothem * 0.02) {
+          const mid = line[Math.floor((first + last) / 2)]!;
+          side = (mid.x - c.x) * nx + (mid.y - c.y) * ny;
+        }
+        if (Math.abs(side) < apothem * 0.02) side = signed(river.id, 'reach-side', s.col, s.row);
+        preferred = { x: Math.sign(side) * nx, y: Math.sign(side) * ny };
       }
-      const shift = { x: c.x + ux * want - p.x, y: c.y + uy * want - p.y };
+      const dot = (p.x - c.x) * preferred.x + (p.y - c.y) * preferred.y;
+      const sideways = -dot + Math.sqrt(Math.max(0, want * want - d * d + dot * dot));
+      const shift = want > d
+        ? { x: preferred.x * sideways, y: preferred.y * sideways }
+        : { x: c.x + ((p.x - c.x) / d) * want - p.x, y: c.y + ((p.y - c.y) / d) * want - p.y };
       // Take the whole shift if the apex may go there, else as much of it as may.
       let f = 1;
-      while (f > 0.1 && !ok({ x: p.x + shift.x * f, y: p.y + shift.y * f })) f /= 2;
+      while (f > 0.1) {
+        const q = { x: p.x + shift.x * f, y: p.y + shift.y * f };
+        if (hexOf(q) === key && ok(q)) break;
+        f /= 2;
+      }
       if (f <= 0.1) break;
       const before = arc[best]! - arc[from]!;
       const after = arc[to]! - arc[best]!;
       for (let i = from; i <= to; i++) {
         const span = i < best ? before : after;
-        const w = span > 0 ? smoothstep(1 - Math.abs(arc[i]! - arc[best]!) / (span + size * 0.05)) : 1;
+        const w = span > 0 ? smoothstep(1 - Math.abs(arc[i]! - arc[best]!) / span) : 1;
         line[i] = { x: line[i]!.x + shift.x * f * w, y: line[i]!.y + shift.y * f * w };
       }
     }
@@ -365,10 +374,42 @@ export function riverCourse(river: River, size: number, seed: string, ends: Cour
 
   let centreline: Point[] = [pts[0]!];
   let navigable: boolean[] = [ctrl[0]!.navigable];
+  let spanHexes: Array<string | undefined> = [undefined];
   for (let i = 0; i < n - 1; i++) {
-    for (const p of catmullRom(ext[i]!, ext[i + 1]!, ext[i + 2]!, ext[i + 3]!, SAMPLES_PER_SPAN)) {
+    const curve = catmullRom(ext[i]!, ext[i + 1]!, ext[i + 2]!, ext[i + 3]!, SAMPLES_PER_SPAN);
+    const spanHex = ctrl[i + 1]!.spanHex;
+    const belongs = (q: Point) => {
+      const h = pixelToOffset(q.x, q.y, size);
+      return !spanHex || `${h.col},${h.row}` === spanHex;
+    };
+    // Reduce the curved departure from the in-hex chord uniformly over the
+    // span. Clipping samples separately would put corners into the contour.
+    let curveFraction = 1;
+    for (let j = 0; spanHex && j < curve.length - 1; j++) {
+      const t = (j + 1) / SAMPLES_PER_SPAN;
+      const straight = { x: pts[i]!.x + (pts[i + 1]!.x - pts[i]!.x) * t, y: pts[i]!.y + (pts[i + 1]!.y - pts[i]!.y) * t };
+      const p = curve[j]!;
+      if (belongs(p)) continue;
+      let lo = 0;
+      let hi = curveFraction;
+      for (let k = 0; k < 8; k++) {
+        const f = (lo + hi) / 2;
+        const q = { x: straight.x + (p.x - straight.x) * f, y: straight.y + (p.y - straight.y) * f };
+        if (belongs(q)) lo = f;
+        else hi = f;
+      }
+      curveFraction = lo;
+    }
+    for (let j = 0; j < curve.length; j++) {
+      let p = curve[j]!;
+      if (spanHex && curveFraction < 1 && j < curve.length - 1) {
+        const t = (j + 1) / SAMPLES_PER_SPAN;
+        const straight = { x: pts[i]!.x + (pts[i + 1]!.x - pts[i]!.x) * t, y: pts[i]!.y + (pts[i + 1]!.y - pts[i]!.y) * t };
+        p = { x: straight.x + (p.x - straight.x) * curveFraction, y: straight.y + (p.y - straight.y) * curveFraction };
+      }
       centreline.push(p);
       navigable.push(ctrl[i + 1]!.navigable);
+      spanHexes.push(j < curve.length - 1 ? ctrl[i + 1]!.spanHex : undefined);
     }
   }
   // The river's own hexes: its line is kept inside them.
@@ -419,6 +460,11 @@ export function riverCourse(river: River, size: number, seed: string, ends: Cour
         ...navigable.slice(from, to + 1),
         ...tailNavigable,
       ];
+      spanHexes = [
+        ...(head.length ? [undefined] : []),
+        ...spanHexes.slice(from, to + 1),
+        ...tail.map(() => undefined),
+      ];
     }
     if (centreline.length < 2) return null;
   }
@@ -444,6 +490,7 @@ export function riverCourse(river: River, size: number, seed: string, ends: Cour
       if (last < centreline.length - 1) {
         centreline = [...centreline.slice(0, last + 1), bisect(centreline[last]!, centreline[last + 1]!)];
         navigable = [...navigable.slice(0, last + 1), navigable[last]!];
+        spanHexes = [...spanHexes.slice(0, last + 1), undefined];
       } else {
         // Carry on along the last heading to the shore (a coast that bulges past the hex's edge).
         const a = centreline[last - 1]!;
@@ -455,6 +502,7 @@ export function riverCourse(river: River, size: number, seed: string, ends: Cour
           if (!dry(q)) {
             centreline = [...centreline, bisect(from, q)];
             navigable = [...navigable, navigable[last]!];
+            spanHexes = [...spanHexes, undefined];
             break;
           }
           from = q;
@@ -494,6 +542,7 @@ export function riverCourse(river: River, size: number, seed: string, ends: Cour
     if (rises && k > 0 && arc(0, k) < reach && centreline.length - k >= 4) {
       centreline = centreline.slice(k);
       navigable = navigable.slice(k);
+      spanHexes = spanHexes.slice(k);
       break;
     }
   }
@@ -504,6 +553,7 @@ export function riverCourse(river: River, size: number, seed: string, ends: Cour
     if (runsOut && k < centreline.length - 1 && k >= 3 && arc(k, centreline.length - 1) < reach) {
       centreline = centreline.slice(0, k + 1);
       navigable = navigable.slice(0, k + 1);
+      spanHexes = spanHexes.slice(0, k + 1);
       break;
     }
   }
@@ -598,7 +648,9 @@ export function riverCourse(river: River, size: number, seed: string, ends: Cour
     const limit = reach > room[i]! ? room[i]! / reach : 1;
     for (let f = limit; f > 0.2 * limit; f /= 2) {
       const q = { x: p.x + normals[i]!.x * offset[i]! * f, y: p.y + normals[i]!.y * offset[i]! * f };
-      if (inHexes(q) && (!land || land(q) || wet?.(q))) return f;
+      const h = pixelToOffset(q.x, q.y, size);
+      const inSpan = !spanHexes[i] || `${h.col},${h.row}` === spanHexes[i];
+      if (inSpan && inHexes(q) && (!land || land(q) || wet?.(q))) return f;
     }
     return 0;
   });
