@@ -15,7 +15,10 @@
  * between two adjacent edges, a centre point sits behind both crossings and the
  * curve hooks back on itself, which is what made the earlier version look odd.
  *
- * Before the curve is fitted, each crossing is relaxed along its edge towards
+ * A bend between non-opposite edges gets an interior control point. Without
+ * that point, the shortest connection between two neighbouring edges clips
+ * their common corner, so a routed hex can appear not to contain the river at
+ * all. Before the curve is fitted, each crossing is relaxed along its edge towards
  * the straight line between its neighbours, as a string pulled taut through the
  * channel of edges would settle. That removes the zigzag of 60 and 120 degree
  * turns the hex walk would otherwise leave. A gentle seeded meander is then laid
@@ -59,16 +62,15 @@ const SLIDE = 0.25;
 
 /**
  * What each level of river irregularity does: how far the wander swings (a multiple of the base swing), how
- * many passes pull the crossings taut (fewer leaves the hex walk's own corners), and how far a crossing may
- * slide along its edge. Irregularity changes the course relative to its route; it does not attract the course
- * to hex centres.
+ * many passes pull the crossings taut, how far a crossing may slide along its edge, and how far a bend is drawn
+ * into its routed hex. The inset is a geometric requirement, while the exact course remains style-dependent.
  */
-const WANDER: Record<RiverWander, { swing: number; relax: number; slide: number }> = {
-  verygentle: { swing: 0.85, relax: 6, slide: 0.3 },
-  gentle: { swing: 1.3, relax: 2, slide: 0.36 },
-  normal: { swing: 1.9, relax: 0, slide: 0.42 },
-  irregular: { swing: 2.5, relax: 0, slide: 0.46 },
-  wild: { swing: 3.2, relax: 0, slide: 0.5 },
+const WANDER: Record<RiverWander, { swing: number; relax: number; slide: number; bendInset: number }> = {
+  verygentle: { swing: 0.85, relax: 6, slide: 0.3, bendInset: 0.35 },
+  gentle: { swing: 1.3, relax: 2, slide: 0.36, bendInset: 0.45 },
+  normal: { swing: 1.9, relax: 0, slide: 0.42, bendInset: 0.55 },
+  irregular: { swing: 2.5, relax: 0, slide: 0.42, bendInset: 0.65 },
+  wild: { swing: 3.2, relax: 0, slide: 0.42, bendInset: 0.75 },
 };
 const SAMPLES_PER_SPAN = 8;
 /** How far along its edge a relaxed crossing may settle, as a fraction of the edge. */
@@ -196,6 +198,16 @@ function controls(river: River, size: number, seed: string, ends: CourseEnds): C
           y: c.y + signed(seed, 'source', s.col, s.row, 'y') * size * 0.15,
         }, s.navigable);
       }
+    }
+    if (s.entryEdge !== null && s.exitEdge !== null && (s.entryEdge + 3) % 6 !== s.exitEdge) {
+      const a = along(edgeSlide(s.col, s.row, s.entryEdge, size, seed, level.slide));
+      const b = along(edgeSlide(s.col, s.row, s.exitEdge, size, seed, level.slide));
+      const c = hexCenter(s.col, s.row, size);
+      const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+      push({
+        x: mid.x + (c.x - mid.x) * level.bendInset,
+        y: mid.y + (c.y - mid.y) * level.bendInset,
+      }, s.navigable, undefined, key);
     }
     if (s.exitEdge !== null) cross(s.col, s.row, s.exitEdge, s.navigable, key);
     else if (k === river.segments.length - 1) {

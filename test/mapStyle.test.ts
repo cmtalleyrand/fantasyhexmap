@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { hexCenter, hexEdgePoints, hexIndex, inBounds, neighbourOf } from '../shared/hex.ts';
+import { hexCenter, hexEdgePoints, hexIndex, inBounds, neighbourOf, pixelToOffset } from '../shared/hex.ts';
 import { createMapState } from '../shared/layers.ts';
 import type { BaseGeo, MapState } from '../shared/types.ts';
 import { alike, chainEdges, coastEdges, coastGeometry, coastKey, drawnLand, raggedEdge, sideOf } from '../src/render/coast.ts';
@@ -320,7 +320,7 @@ test('a meandering river never folds back on itself, even through tight bends', 
   assert.ok(sharp < runs * 0.2, `${sharp} sharp turns in ${runs} rivers`);
 });
 
-test('river irregularity changes a bend without inserting a hex-centre waypoint', () => {
+test('a river bend enters its routed hex instead of clipping the shared corner', () => {
   const river = {
     id: 'corner', name: 'Corner', terminus: 'OffMap' as const,
     segments: [
@@ -331,7 +331,15 @@ test('river irregularity changes a bend without inserting a hex-centre waypoint'
   };
   const gentle = riverCourse(river, 40, 'corner', { wander: 'verygentle' })!.centreline;
   const wild = riverCourse(river, 40, 'corner', { wander: 'wild' })!.centreline;
-  assert.equal(wild.length, gentle.length, 'irregularity does not add a control point aimed at the hex centre');
+  const centre = hexCenter(3, 3, 40);
+  const nearest = (line: { x: number; y: number }[]) => Math.min(...line
+    .filter((p) => {
+      const h = pixelToOffset(p.x, p.y, 40);
+      return h.col === 3 && h.row === 3;
+    })
+    .map((p) => Math.hypot(p.x - centre.x, p.y - centre.y)));
+  assert.ok(nearest(gentle) < 40 * 0.7, 'even a very gentle course runs materially inside the routed hex');
+  assert.ok(nearest(wild) < 40 * 0.7, 'a wild course also runs materially inside the routed hex');
   assert.ok(wild.some((p, i) => Math.hypot(p.x - gentle[i]!.x, p.y - gentle[i]!.y) > 1), 'irregularity still changes the contour');
 });
 
