@@ -122,6 +122,8 @@ interface Control {
   p: Point;
   /** Navigability of the span that ends at this point. */
   navigable: boolean;
+  /** Hex that the span ending at this point must traverse. */
+  spanHex?: string;
   /** Set where the point is a crossing that may slide along its edge. */
   slide?: Slide;
 }
@@ -171,17 +173,18 @@ export interface CourseEnds {
 function controls(river: River, size: number, seed: string, ends: CourseEnds): Control[] {
   const level = WANDER[ends.wander ?? 'normal'];
   const out: Control[] = [];
-  const push = (p: Point, navigable: boolean, slide?: Slide) => {
+  const push = (p: Point, navigable: boolean, slide?: Slide, spanHex?: string) => {
     const last = out[out.length - 1];
     if (last && Math.hypot(last.p.x - p.x, last.p.y - p.y) < size * 0.02) return;
-    out.push({ p, navigable, slide });
+    out.push({ p, navigable, slide, spanHex });
   };
-  const cross = (col: number, row: number, edge: number, navigable: boolean) => {
+  const cross = (col: number, row: number, edge: number, navigable: boolean, spanHex?: string) => {
     const slide = edgeSlide(col, row, edge, size, seed, level.slide);
-    push(along(slide), navigable, slide);
+    push(along(slide), navigable, slide, spanHex);
   };
   if (ends.before && river.segments[0]) push(ends.before, river.segments[0].navigable);
   river.segments.forEach((s, k) => {
+    const key = `${s.col},${s.row}`;
     if (s.entryEdge !== null) cross(s.col, s.row, s.entryEdge, s.navigable);
     else if (k === 0) {
       if (ends.start) push(ends.start, s.navigable);
@@ -194,7 +197,7 @@ function controls(river: River, size: number, seed: string, ends: CourseEnds): C
         }, s.navigable);
       }
     }
-    if (s.exitEdge !== null) cross(s.col, s.row, s.exitEdge, s.navigable);
+    if (s.exitEdge !== null) cross(s.col, s.row, s.exitEdge, s.navigable, key);
     else if (k === river.segments.length - 1) {
       // A tributary meets its host at an acute angle, leaning downstream: a point
       // a little upstream of the join, between the way the tributary was heading
@@ -206,9 +209,9 @@ function controls(river: River, size: number, seed: string, ends: CourseEnds): C
         const t = ends.joinTangent;
         const dir = { x: JOIN_FLOW * t.x + (1 - JOIN_FLOW) * (u.x / ul), y: JOIN_FLOW * t.y + (1 - JOIN_FLOW) * (u.y / ul) };
         const dl = Math.hypot(dir.x, dir.y) || 1;
-        push({ x: ends.end.x - (dir.x / dl) * size * JOIN_RUN, y: ends.end.y - (dir.y / dl) * size * JOIN_RUN }, s.navigable);
+        push({ x: ends.end.x - (dir.x / dl) * size * JOIN_RUN, y: ends.end.y - (dir.y / dl) * size * JOIN_RUN }, s.navigable, undefined, key);
       }
-      push(ends.end ?? hexCenter(s.col, s.row, size), s.navigable);
+      push(ends.end ?? hexCenter(s.col, s.row, size), s.navigable, undefined, key);
     }
   });
   const last = river.segments.at(-1);
@@ -336,7 +339,11 @@ function holdToReach(
         : { x: c.x + ((p.x - c.x) / d) * want - p.x, y: c.y + ((p.y - c.y) / d) * want - p.y };
       // Take the whole shift if the apex may go there, else as much of it as may.
       let f = 1;
-      while (f > 0.1 && !ok({ x: p.x + shift.x * f, y: p.y + shift.y * f })) f /= 2;
+      while (f > 0.1) {
+        const q = { x: p.x + shift.x * f, y: p.y + shift.y * f };
+        if (hexOf(q) === key && ok(q)) break;
+        f /= 2;
+      }
       if (f <= 0.1) break;
       const before = arc[best]! - arc[from]!;
       const after = arc[to]! - arc[best]!;
@@ -367,10 +374,42 @@ export function riverCourse(river: River, size: number, seed: string, ends: Cour
 
   let centreline: Point[] = [pts[0]!];
   let navigable: boolean[] = [ctrl[0]!.navigable];
+  let spanHexes: Array<string | undefined> = [undefined];
   for (let i = 0; i < n - 1; i++) {
-    for (const p of catmullRom(ext[i]!, ext[i + 1]!, ext[i + 2]!, ext[i + 3]!, SAMPLES_PER_SPAN)) {
+    const curve = catmullRom(ext[i]!, ext[i + 1]!, ext[i + 2]!, ext[i + 3]!, SAMPLES_PER_SPAN);
+    const spanHex = ctrl[i + 1]!.spanHex;
+    const belongs = (q: Point) => {
+      const h = pixelToOffset(q.x, q.y, size);
+      return !spanHex || `${h.col},${h.row}` === spanHex;
+    };
+    // Reduce the curved departure from the in-hex chord uniformly over the
+    // span. Clipping samples separately would put corners into the contour.
+    let curveFraction = 1;
+    for (let j = 0; spanHex && j < curve.length - 1; j++) {
+      const t = (j + 1) / SAMPLES_PER_SPAN;
+      const straight = { x: pts[i]!.x + (pts[i + 1]!.x - pts[i]!.x) * t, y: pts[i]!.y + (pts[i + 1]!.y - pts[i]!.y) * t };
+      const p = curve[j]!;
+      if (belongs(p)) continue;
+      let lo = 0;
+      let hi = curveFraction;
+      for (let k = 0; k < 8; k++) {
+        const f = (lo + hi) / 2;
+        const q = { x: straight.x + (p.x - straight.x) * f, y: straight.y + (p.y - straight.y) * f };
+        if (belongs(q)) lo = f;
+        else hi = f;
+      }
+      curveFraction = lo;
+    }
+    for (let j = 0; j < curve.length; j++) {
+      let p = curve[j]!;
+      if (spanHex && curveFraction < 1 && j < curve.length - 1) {
+        const t = (j + 1) / SAMPLES_PER_SPAN;
+        const straight = { x: pts[i]!.x + (pts[i + 1]!.x - pts[i]!.x) * t, y: pts[i]!.y + (pts[i + 1]!.y - pts[i]!.y) * t };
+        p = { x: straight.x + (p.x - straight.x) * curveFraction, y: straight.y + (p.y - straight.y) * curveFraction };
+      }
       centreline.push(p);
       navigable.push(ctrl[i + 1]!.navigable);
+      spanHexes.push(j < curve.length - 1 ? ctrl[i + 1]!.spanHex : undefined);
     }
   }
   // The river's own hexes: its line is kept inside them.
@@ -421,6 +460,11 @@ export function riverCourse(river: River, size: number, seed: string, ends: Cour
         ...navigable.slice(from, to + 1),
         ...tailNavigable,
       ];
+      spanHexes = [
+        ...(head.length ? [undefined] : []),
+        ...spanHexes.slice(from, to + 1),
+        ...tail.map(() => undefined),
+      ];
     }
     if (centreline.length < 2) return null;
   }
@@ -446,6 +490,7 @@ export function riverCourse(river: River, size: number, seed: string, ends: Cour
       if (last < centreline.length - 1) {
         centreline = [...centreline.slice(0, last + 1), bisect(centreline[last]!, centreline[last + 1]!)];
         navigable = [...navigable.slice(0, last + 1), navigable[last]!];
+        spanHexes = [...spanHexes.slice(0, last + 1), undefined];
       } else {
         // Carry on along the last heading to the shore (a coast that bulges past the hex's edge).
         const a = centreline[last - 1]!;
@@ -457,6 +502,7 @@ export function riverCourse(river: River, size: number, seed: string, ends: Cour
           if (!dry(q)) {
             centreline = [...centreline, bisect(from, q)];
             navigable = [...navigable, navigable[last]!];
+            spanHexes = [...spanHexes, undefined];
             break;
           }
           from = q;
@@ -496,6 +542,7 @@ export function riverCourse(river: River, size: number, seed: string, ends: Cour
     if (rises && k > 0 && arc(0, k) < reach && centreline.length - k >= 4) {
       centreline = centreline.slice(k);
       navigable = navigable.slice(k);
+      spanHexes = spanHexes.slice(k);
       break;
     }
   }
@@ -506,6 +553,7 @@ export function riverCourse(river: River, size: number, seed: string, ends: Cour
     if (runsOut && k < centreline.length - 1 && k >= 3 && arc(k, centreline.length - 1) < reach) {
       centreline = centreline.slice(0, k + 1);
       navigable = navigable.slice(0, k + 1);
+      spanHexes = spanHexes.slice(0, k + 1);
       break;
     }
   }
@@ -600,7 +648,9 @@ export function riverCourse(river: River, size: number, seed: string, ends: Cour
     const limit = reach > room[i]! ? room[i]! / reach : 1;
     for (let f = limit; f > 0.2 * limit; f /= 2) {
       const q = { x: p.x + normals[i]!.x * offset[i]! * f, y: p.y + normals[i]!.y * offset[i]! * f };
-      if (inHexes(q) && (!land || land(q) || wet?.(q))) return f;
+      const h = pixelToOffset(q.x, q.y, size);
+      const inSpan = !spanHexes[i] || `${h.col},${h.row}` === spanHexes[i];
+      if (inSpan && inHexes(q) && (!land || land(q) || wet?.(q))) return f;
     }
     return 0;
   });
