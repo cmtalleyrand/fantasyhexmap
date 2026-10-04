@@ -458,24 +458,24 @@ function SelectedRiver(
             </label>
           </div>
           <p className="hint" style={{ margin: 0 }}>
-            Distance is measured from the centre toward the edge of this hex. These controls reshape only this hex;
-            source and mouth hexes keep their endpoint positions.
+            Distance guides the underlying course from the centre toward the edge of this hex. The selected map
+            style still adds its own river wander; source and mouth hexes keep their endpoint positions.
           </p>
           <div className="row" style={{ flexWrap: 'wrap', gap: 6 }}>
-          <button
-            className="tiny"
-            title="Start a distributary that leaves this river here. Use it more than once for a delta that splits three or more ways."
-            onClick={() => {
-              setNotice(null);
-              props.setRiverDraftParent(river.id);
-              props.setRiverDraft([picked!]);
-            }}
-          >
-            branch from here
-          </button>
-          <button className="tiny danger" onClick={removePicked}>
-            remove this hex
-          </button>
+            <button
+              className="tiny"
+              title="Start a distributary that leaves this river here. Use it more than once for a delta that splits three or more ways."
+              onClick={() => {
+                setNotice(null);
+                props.setRiverDraftParent(river.id);
+                props.setRiverDraft([picked!]);
+              }}
+            >
+              branch from here
+            </button>
+            <button className="tiny danger" onClick={removePicked}>
+              remove this hex
+            </button>
           </div>
         </div>
       ) : (
