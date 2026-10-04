@@ -178,21 +178,6 @@ export default function Inspector(props: InspectorProps) {
         <p className="hint" style={{ marginTop: 0 }}>{meta.blurb}</p>
 
         <div className="row" style={{ marginBottom: 8 }}>
-          <button
-            className="tiny"
-            disabled={layer.past.length === 0}
-            onClick={() => dispatch({ type: 'undo', layer: activeLayer })}
-            title={`${layer.past.length} step(s) back on this layer (Ctrl+Z)`}
-          >
-            ↶ undo ({layer.past.length})
-          </button>
-          <button
-            className="tiny"
-            disabled={layer.future.length === 0}
-            onClick={() => dispatch({ type: 'redo', layer: activeLayer })}
-          >
-            ↷ redo ({layer.future.length})
-          </button>
           <span className="grow" />
           {!ai && (
             <button
@@ -277,7 +262,7 @@ export default function Inspector(props: InspectorProps) {
               <p className="hint" style={{ marginTop: 4 }}>
                 The whole layer is sent as context and comes back rewritten, so one instruction can change
                 the map anywhere. Tick layers in the Layers list to rewrite several with one instruction.
-                Each layer keeps its own undo.
+                Each instruction is one whole-map undo step.
               </p>
               {activeLayer === 'polities' && (
                 <>

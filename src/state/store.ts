@@ -2,8 +2,8 @@
  * Map state reducer.
  *
  * Two rules govern everything here:
- *  - Every committed change (a manual edit batch or an AI regeneration) pushes a
- *    snapshot onto that layer's own undo stack and bumps that layer's version.
+ *  - Every reducer action that commits a change is recorded as one whole-map
+ *    undo transaction, while changed layers bump their own versions.
  *    Versions are what staleness is computed from, so a change to an upstream
  *    layer marks downstream layers stale without touching their data.
  *  - Derived facts are recomputed, never edited. When base geography or rivers
@@ -30,7 +30,7 @@ import { isLayerEnabled } from '../../shared/layers.js';
 import { detachOrphanBranches, setRiverNavigability } from '../../shared/riverEdit.js';
 import { cosmeticallyEqual, currentDepVersions, identicalData, trimHistory } from '../../shared/layers.js';
 import { LAYER_META, normaliseSelection } from '../../shared/layers.js';
-import { MAX_DIM, type PolitiesData } from '../../shared/types.js';
+import { LAYER_ORDER, MAX_DIM, type PolitiesData } from '../../shared/types.js';
 import type {
   City,
   Decision,
@@ -49,6 +49,7 @@ import type {
   Polity,
   River,
   TokenUsage,
+  MapHistorySnapshot,
 } from '../../shared/types.js';
 
 /** A change to island hexes' specs: counts, coastal groups, and the side (null: automatic). */
@@ -148,8 +149,8 @@ export type Action =
   | { type: 'setHexShape'; indices: number[]; change: HexShapeChange | null }
   | { type: 'clearLayer'; layer: LayerId }
   | { type: 'startLayer'; layer: LayerId }
-  | { type: 'undo'; layer: LayerId }
-  | { type: 'redo'; layer: LayerId };
+  | { type: 'undo'; layer?: LayerId }
+  | { type: 'redo'; layer?: LayerId };
 
 function snapshotOf<K extends LayerId>(layer: LayerState<K>): LayerSnapshot<K> {
   return {
@@ -577,7 +578,8 @@ function dropUnderwater(map: MapState): MapState {
  * vegetation and population, and any river running through them. Hexes that
  * went from Sea or Lake to land are filled in from the surrounding land for
  * every layer that is both planned and generated. These are real edits to those
- * layers, so each is committed and individually undoable.
+ * layers. They are committed together and the outer reducer records the entire
+ * propagation as one undoable transaction.
  */
 function propagateBaseEdit(
   map: MapState,
@@ -666,7 +668,50 @@ export function appReducer(state: MapState | null, action: Action | { type: 'res
   return reducer(state, action);
 }
 
+function mapSnapshot(map: MapState): MapHistorySnapshot {
+  const { history: _history, ...snapshot } = map;
+  return snapshot;
+}
+
+function restores(snapshot: MapHistorySnapshot, history: NonNullable<MapState['history']>): MapState {
+  return { ...snapshot, history, updatedAt: Date.now() };
+}
+
+/**
+ * Apply one user-visible change as one transaction. The snapshot is shallow:
+ * immutable layer arrays are shared until changed, so recording is O(number of
+ * top-level fields), not O(number of hexes). A changed action clears redo.
+ */
 export function reducer(map: MapState, action: Action): MapState {
+  const history = map.history ?? { past: [], future: [] };
+  if (action.type === 'undo') {
+    const previous = history.past.at(-1);
+    if (!previous) return map;
+    return restores(previous, {
+      past: history.past.slice(0, -1),
+      future: trimHistory([...history.future, mapSnapshot(map)]),
+    });
+  }
+  if (action.type === 'redo') {
+    const ahead = history.future.at(-1);
+    if (!ahead) return map;
+    return restores(ahead, {
+      past: trimHistory([...history.past, mapSnapshot(map)]),
+      future: history.future.slice(0, -1),
+    });
+  }
+
+  const next = reduceMap(map, action);
+  if (action.type === 'load' || next === map) return next;
+  const committed = next.journal.length > map.journal.length || LAYER_ORDER.some(
+    (id) => next.layers[id].past.length > map.layers[id].past.length,
+  );
+  return committed
+    ? { ...next, history: { past: trimHistory([...history.past, mapSnapshot(map)]), future: [] } }
+    : next;
+}
+
+function reduceMap(map: MapState, action: Action): MapState {
   switch (action.type) {
     case 'load':
       return migrateLegacyIslands(action.map);
@@ -1337,46 +1382,6 @@ export function reducer(map: MapState, action: Action): MapState {
           commit(layer, { data: null, warnings: [], notes: null, generatedAt: null, depVersions: {} }),
         ),
         manualEntry(action.layer, `Cleared the ${LAYER_META[action.layer].label} layer.`),
-      );
-      return action.layer === 'base' || action.layer === 'rivers' ? reconcile(next) : next;
-    }
-
-    case 'undo': {
-      const layer = map.layers[action.layer];
-      const previous = layer.past[layer.past.length - 1];
-      if (!previous) return map;
-      const next = journal(
-        withLayer(map, action.layer, {
-          ...layer,
-          ...previous,
-          version: nextVersion(layer.version, layer.data, previous.data),
-          past: layer.past.slice(0, -1),
-          future: trimHistory([...layer.future, snapshotOf(layer)]),
-        }),
-        {
-          ...manualEntry(action.layer, `Undid the last change to ${LAYER_META[action.layer].label}.`),
-          kind: 'undo' as JournalKind,
-        },
-      );
-      return action.layer === 'base' || action.layer === 'rivers' ? reconcile(next) : next;
-    }
-
-    case 'redo': {
-      const layer = map.layers[action.layer];
-      const ahead = layer.future[layer.future.length - 1];
-      if (!ahead) return map;
-      const next = journal(
-        withLayer(map, action.layer, {
-          ...layer,
-          ...ahead,
-          version: nextVersion(layer.version, layer.data, ahead.data),
-          past: trimHistory([...layer.past, snapshotOf(layer)]),
-          future: layer.future.slice(0, -1),
-        }),
-        {
-          ...manualEntry(action.layer, `Redid a change to ${LAYER_META[action.layer].label}.`),
-          kind: 'redo' as JournalKind,
-        },
       );
       return action.layer === 'base' || action.layer === 'rivers' ? reconcile(next) : next;
     }
