@@ -223,7 +223,7 @@ test('changing the default irregularity redraws default hexes only', () => {
   assert.equal(commandCount(scene(back).prims), commandCount(scene(reducer(plain, { type: 'setDefaultIrregularity', irregular: null })).prims));
 });
 
-test('a roughened coast varies its anchors along coast edges, and corrects the fills it crosses', () => {
+test('a roughened coast moves anchors out of the hex-edge rhythm, and corrects the fills it crosses', () => {
   const base: BaseGeo[] = Array.from({ length: 36 }, (_, i) => ((i % 6) < 3 ? 'Coastal Land' : 'Sea'));
   const size = 30;
   const edges = coastEdges(base, 6, 6, size);
@@ -237,15 +237,9 @@ test('a roughened coast varies its anchors along coast edges, and corrects the f
     const onPath = points(rough.paths[c]!);
     for (const edge of chain.edges) {
       const mid = [(edge.from.x + edge.to.x) / 2, (edge.from.y + edge.to.y) / 2];
-      const dx = edge.to.x - edge.from.x;
-      const dy = edge.to.y - edge.from.y;
-      const anchor = onPath.find((p) => {
-        const cross = dx * (p[1]! - edge.from.y) - dy * (p[0]! - edge.from.x);
-        const dot = (p[0]! - edge.from.x) * dx + (p[1]! - edge.from.y) * dy;
-        return Math.abs(cross) < 1e-6 && dot > 0 && dot < dx * dx + dy * dy;
-      });
-      assert.ok(anchor, 'the coast keeps an interior anchor on every crossed edge');
-      if (Math.hypot(anchor[0]! - mid[0]!, anchor[1]! - mid[1]!) > size * 0.01) shifted++;
+      const nearest = Math.min(...onPath.map((p) => Math.hypot(p[0]! - mid[0]!, p[1]! - mid[1]!)));
+      assert.ok(nearest < size * 0.4, 'each edge still has a nearby coast anchor');
+      if (nearest > size * 0.02) shifted++;
     }
   });
   assert.ok(shifted > edges.length / 2, 'edge anchors do not repeat the hex midpoint rhythm');
@@ -254,32 +248,37 @@ test('a roughened coast varies its anchors along coast edges, and corrects the f
   assert.ok(area(rough.toLand) + area(rough.toWater) > area(plain.toLand) + area(plain.toWater));
 });
 
-test('a rough coast bridges concave grid notches where its boundary changes land hex', () => {
+test('component-scale smoothing removes the narrow waist between adjacent island hexes', () => {
+  const cols = 5;
   const size = 30;
-  const edges = coastEdges(['Sea', 'Sea', 'Sea', 'Coastal Land', 'Coastal Land', 'Sea', 'Sea', 'Sea', 'Sea'], 3, 3, size);
-  // Neutral noise leaves the quadratic itself visible: no shifted edge anchors and no normal displacement.
-  const geometry = coastGeometryOf(edges, true, { size, noise: () => 0.5, amplitude: () => 0.2 });
-  let seams = 0;
-  for (const chain of geometry.chains) {
-    const n = chain.points.length;
-    for (let k = 0; k < n; k++) {
-      const incoming = chain.edges[(k - 1 + chain.edges.length) % chain.edges.length]!;
-      const outgoing = chain.edges[k % chain.edges.length]!;
-      const a = chain.points[(k - 1 + n) % n]!;
-      const p = chain.points[k]!;
-      const b = chain.points[(k + 1) % n]!;
-      const turn = (p.x - a.x) * (b.y - p.y) - (p.y - a.y) * (b.x - p.x);
-      if (turn >= 0 || incoming.hex === outgoing.hex) continue;
-      seams++;
-      const m0 = { x: (a.x + p.x) / 2, y: (a.y + p.y) / 2 };
-      const m1 = { x: (p.x + b.x) / 2, y: (p.y + b.y) / 2 };
-      const chord = { x: (m0.x + m1.x) / 2, y: (m0.y + m1.y) / 2 };
-      const drawn = geometry.anchors.get(coastKey(p))!;
-      const inheritedNotch = Math.hypot(p.x - chord.x, p.y - chord.y);
-      assert.ok(Math.hypot(drawn.x - chord.x, drawn.y - chord.y) < inheritedNotch * 0.1, 'the drawn coast does not follow the grid notch');
+  const base: BaseGeo[] = Array.from({ length: 25 }, () => 'Sea');
+  base[7] = 'Land';
+  base[12] = 'Land';
+  const edges = coastEdges(base, cols, 5, size);
+  const plain = pathPolylines(coastGeometryOf(edges, true).paths[0]!, 10)[0]!;
+  const shaped = pathPolylines(coastGeometryOf(edges, true, { size, noise: () => 0.5, amplitude: () => 0.2 }).paths[0]!, 10)[0]!;
+  const a = hexCenter(7 % cols, Math.floor(7 / cols), size);
+  const b = hexCenter(12 % cols, Math.floor(12 / cols), size);
+  const middle = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+  const length = Math.hypot(b.x - a.x, b.y - a.y);
+  const axis = { x: (b.x - a.x) / length, y: (b.y - a.y) / length };
+  const across = { x: -axis.y, y: axis.x };
+  const width = (ring: Array<{ x: number; y: number }>) => {
+    const hits: number[] = [];
+    for (let i = 0; i < ring.length; i++) {
+      const p = ring[i]!;
+      const q = ring[(i + 1) % ring.length]!;
+      const dp = (p.x - middle.x) * axis.x + (p.y - middle.y) * axis.y;
+      const dq = (q.x - middle.x) * axis.x + (q.y - middle.y) * axis.y;
+      if (dp * dq > 0 || dp === dq) continue;
+      const t = dp / (dp - dq);
+      const x = p.x + (q.x - p.x) * t - middle.x;
+      const y = p.y + (q.y - p.y) * t - middle.y;
+      hits.push(x * across.x + y * across.y);
     }
-  }
-  assert.equal(seams, 2, 'the adjacent pair has one seam endpoint on each side');
+    return Math.max(...hits) - Math.min(...hits);
+  };
+  assert.ok(width(shaped) > width(plain) * 1.2, 'grid-scale concavities are removed before irregular detail is added');
 });
 
 test('irregularity changes how islands are drawn and a land share changes how big they are', () => {

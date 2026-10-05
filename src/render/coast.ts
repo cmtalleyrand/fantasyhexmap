@@ -425,27 +425,19 @@ const ROUGH_STEPS = 10;
  * One piece of a smoothed coast - the quadratic through control corner `p`
  * from an anchor on the edge before it to an anchor on the edge after it - with the roughening laid
  * on. The displacement is seeded noise that vanishes at both ends, so
- * neighbouring pieces join without a step and the coast still crosses every
- * boundary edge (where rivers and cities meet it). The noise is
+ * neighbouring pieces join without a step. The noise is
  * interpolated through unevenly spaced knots rather than assembled from sine
  * waves: a dominant first sine harmonic made each corner into a balanced bay
  * or cape, repeating the same bilateral shape around a coast.
  */
-function roughPiece(m0: Point, p: Point, m1: Point, amplitude: number, lean: number, rough: Roughness, cornerPull = 1): Point[] {
-  // A boundary that changes from one land hex to another has inherited a concave corner from the grid, not
-  // from the geography. Pulling less strongly towards that corner bridges the artificial notch while retaining
-  // a little curvature; the noisy displacement below then gives the bridge its irregular, non-linear outline.
-  const chord = mid(m0, m1);
-  const control = { x: chord.x + (p.x - chord.x) * cornerPull, y: chord.y + (p.y - chord.y) * cornerPull };
+function roughPiece(m0: Point, p: Point, m1: Point, amplitude: number, lean: number, bias: number, rough: Roughness): Point[] {
   const at = (t: number): Point => ({
-    x: (1 - t) * (1 - t) * m0.x + 2 * (1 - t) * t * control.x + t * t * m1.x,
-    y: (1 - t) * (1 - t) * m0.y + 2 * (1 - t) * t * control.y + t * t * m1.y,
+    x: (1 - t) * (1 - t) * m0.x + 2 * (1 - t) * t * p.x + t * t * m1.x,
+    y: (1 - t) * (1 - t) * m0.y + 2 * (1 - t) * t * p.y + t * t * m1.y,
   });
   const { size, noise } = rough;
-  const nx = (k: number) => noise(p.x / size, p.y / size, k) * 2 - 1;
   const knots = [0, 0.25 + noise(p.x / size, p.y / size, 11) * 0.12, 0.68 + noise(p.x / size, p.y / size, 12) * 0.1, 1];
-  const first = nx(1);
-  const values = [0, first, first * 0.65 + nx(2) * 0.35, 0];
+  const values = [0, bias, bias * 0.8 + (noise(p.x / size, p.y / size, 2) * 2 - 1) * 0.2, 0];
   const wobble = (t: number) => {
     let k = 0;
     while (k + 2 < knots.length && t > knots[k + 1]!) k++;
@@ -458,13 +450,13 @@ function roughPiece(m0: Point, p: Point, m1: Point, amplitude: number, lean: num
     const t = j / ROUGH_STEPS;
     const here = at(t);
     // Use the curve's local normal so irregular displacement follows bends without changing its along-shore position.
-    const dx = 2 * (1 - t) * (control.x - m0.x) + 2 * t * (m1.x - control.x);
-    const dy = 2 * (1 - t) * (control.y - m0.y) + 2 * t * (m1.y - control.y);
+    const dx = 2 * (1 - t) * (p.x - m0.x) + 2 * t * (m1.x - p.x);
+    const dy = 2 * (1 - t) * (p.y - m0.y) + 2 * t * (m1.y - p.y);
     const len = Math.hypot(dx, dy) || 1;
     // How boldly this piece wanders: some stretches are nearly calm, a few take a deep bay or point, so the
     // coast does not repeat one wobble at one strength all the way round.
-    const gain = Math.min(1.5, 0.3 + 1.6 * nx(5) ** 2);
-    const d = wobble(t) * gain * amplitude * size * 1.35 - lean * size * Math.sin(Math.PI * t);
+    const gain = 0.75 + noise(p.x / size, p.y / size, 5) * 0.5;
+    const d = wobble(t) * gain * amplitude * size * 2.1 - lean * size * Math.sin(Math.PI * t);
     out.push({ x: here.x - (dy / len) * d, y: here.y + (dx / len) * d });
   }
   out.push(m1);
@@ -677,17 +669,30 @@ export function coastGeometryOf(
     const n = points.length;
     const edgeAmplitude = edges.map((edge) => rough?.amplitude(edge) ?? 0);
     const roughChain = rough !== undefined && edgeAmplitude.some((amplitude) => amplitude > 0);
-    // Moving each shared-edge anchor along that edge breaks the equal half-edge rhythm responsible for rounded
-    // hexes and peanut-shaped two-hex islands. The anchor never leaves its edge, so topology and fill ownership
-    // are unchanged. Its key is direction-independent, making the result stable whichever way an edge is walked.
+    // Neighbour averaging gives each random choice a multi-corner reach; RMS normalisation prevents an unlucky
+    // seed from making an entire island almost circular merely because all of its raw values were near zero.
+    const rawBias = points.map((point) => rough ? rough.noise(point.x / rough.size, point.y / rough.size, 30) * 2 - 1 : 0);
+    const broadBias = rawBias.map((value, i) => {
+      const prev = rawBias[(i - 1 + n) % n] ?? value;
+      const next = rawBias[(i + 1) % n] ?? value;
+      return prev * 0.25 + value * 0.5 + next * 0.25;
+    });
+    const rms = Math.sqrt(broadBias.reduce((sum, value) => sum + value * value, 0) / Math.max(1, n)) || 1;
+    const cornerBias = broadBias.map((value) => Math.max(-1, Math.min(1, value / rms * 0.65)));
+    // Moving each anchor both along and across its source edge breaks the equal-radius lobes produced by a chain
+    // of hexes. The displacement stays well below half a hex, so edge order and coast topology remain unchanged.
     const edgeAnchor = edges.map((edge, i) => {
       if (!roughChain || edgeAmplitude[i] === 0) return mid(edge.from, edge.to);
       const forward = key(edge.from) <= key(edge.to);
       const [a, b] = forward ? [edge.from, edge.to] : [edge.to, edge.from];
       const m = mid(a, b);
       const strength = Math.min(1, edgeAmplitude[i]! / 0.2);
-      const t = 0.5 + (rough.noise(m.x / rough.size, m.y / rough.size, 21) * 2 - 1) * 0.36 * strength;
-      return { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t };
+      const t = 0.5 + (rough.noise(m.x / rough.size, m.y / rough.size, 21) * 2 - 1) * 0.24 * strength;
+      const dx = b.x - a.x;
+      const dy = b.y - a.y;
+      const length = Math.hypot(dx, dy) || 1;
+      const off = (rough.noise(m.x / rough.size, m.y / rough.size, 22) * 2 - 1) * edgeAmplitude[i]! * rough.size * 0.85;
+      return { x: a.x + dx * t - (dy / length) * off, y: a.y + dy * t + (dx / length) * off };
     });
     // Per corner: the plain curve (and its slivers), or the roughened one.
     const piece: Array<Point[] | null> = points.map(() => null);
@@ -705,12 +710,14 @@ export function coastGeometryOf(
       const turn = (p.x - a.x) * (b.y - p.y) - (p.y - a.y) * (b.x - p.x);
       const lean = rough?.lean ? (rough.lean(incoming) + rough.lean(outgoing)) / 2 : 0;
       if (rough && (roughChain || lean !== 0)) {
-        // Consecutive boundary edges belonging to different land hexes meet at an endpoint of their internal
-        // shared edge. At a concave turn, following that grid vertex produces one half of the repeated waist
-        // visible around every adjacent pair. Reduce its influence rather than adding a fixed outward offset:
-        // this removes the structural notch at every scale, while ordinary bays within one hex are untouched.
-        const crossesLandHexSeam = turn < 0 && incoming.hex !== undefined && outgoing.hex !== undefined && incoming.hex !== outgoing.hex;
-        const samples = roughPiece(m0, p, m1, amplitude, lean, rough, crossesLandHexSeam ? 0.15 : 1);
+        // A concave vertex is the grid-scale notch between neighbouring land hexes. Moving its curve control
+        // towards the chord removes that one-hex notch before noise is applied, while multi-hex bays remain.
+        const strength = Math.sqrt(Math.min(1, amplitude / 0.2));
+        const chord = mid(a, b);
+        const control = turn < 0
+          ? { x: p.x + (chord.x - p.x) * 0.92 * strength, y: p.y + (chord.y - p.y) * 0.92 * strength }
+          : p;
+        const samples = roughPiece(m0, control, m1, amplitude, lean, cornerBias[k]!, rough);
         piece[k] = samples;
         anchors.set(key(p), samples[ROUGH_STEPS >> 1]!);
         for (const lobe of roughLobes(m0, p, m1, samples)) {
