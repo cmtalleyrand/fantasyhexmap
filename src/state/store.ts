@@ -61,6 +61,8 @@ export interface HexShapeChange {
   land?: number | null;
   /** An isthmus or strait's width. */
   width?: ChannelWidth | null;
+  /** A strait's channel junction side; null restores the central junction. */
+  straitJunctionSide?: number | null;
   irregular?: Irregularity | null;
   concentrationSide?: number | null;
   concentration?: number | null;
@@ -1324,7 +1326,7 @@ function reduceMap(map: MapState, action: Action): MapState {
         const key = String(i);
         const before = JSON.stringify(shapes[key] ?? null);
         const kept = shapes[key]?.type === value ? shapes[key]! : undefined;
-        let next: HexShape | undefined = { type: value!, ...(kept?.land !== undefined ? { land: kept.land } : {}), ...(kept?.width ? { width: kept.width } : {}), ...(kept?.irregular ? { irregular: kept.irregular } : {}), ...(kept?.concentrationSide !== undefined ? { concentrationSide: kept.concentrationSide } : {}), ...(kept?.concentration !== undefined ? { concentration: kept.concentration } : {}) };
+        let next: HexShape | undefined = { type: value!, ...(kept?.land !== undefined ? { land: kept.land } : {}), ...(kept?.width ? { width: kept.width } : {}), ...(kept?.straitJunctionSide !== undefined ? { straitJunctionSide: kept.straitJunctionSide } : {}), ...(kept?.irregular ? { irregular: kept.irregular } : {}), ...(kept?.concentrationSide !== undefined ? { concentrationSide: kept.concentrationSide } : {}), ...(kept?.concentration !== undefined ? { concentration: kept.concentration } : {}) };
         const change = action.change;
         if (change === null) next = undefined;
         else {
@@ -1332,6 +1334,10 @@ function reduceMap(map: MapState, action: Action): MapState {
           else if (change.land !== undefined && hasLandShare(value)) next.land = Math.max(0, Math.min(100, Math.round(change.land)));
           if (change.width === null) delete next.width;
           else if (change.width !== undefined && hasChannelWidth(value) && CHANNEL_WIDTH_VALUES.includes(change.width)) next.width = change.width;
+          if (value === 'Strait') {
+            if (change.straitJunctionSide === null) delete next.straitJunctionSide;
+            else if (change.straitJunctionSide !== undefined && Number.isInteger(change.straitJunctionSide) && change.straitJunctionSide >= 0 && change.straitJunctionSide < 6) next.straitJunctionSide = change.straitJunctionSide;
+          }
           if (change.irregular === null) delete next.irregular;
           else if (change.irregular !== undefined && (isShapedType(value) || value === 'Lake')) next.irregular = change.irregular;
           if (hasLandConcentration(value)) {
@@ -1340,7 +1346,7 @@ function reduceMap(map: MapState, action: Action): MapState {
             if (change.concentration === null) delete next.concentration;
             else if (change.concentration !== undefined) next.concentration = Math.max(0, Math.min(100, Math.round(change.concentration)));
           }
-          if (next.land === undefined && next.width === undefined && next.irregular === undefined && next.concentrationSide === undefined && next.concentration === undefined) next = undefined;
+          if (next.land === undefined && next.width === undefined && next.straitJunctionSide === undefined && next.irregular === undefined && next.concentrationSide === undefined && next.concentration === undefined) next = undefined;
         }
         if (next) shapes[key] = next;
         else delete shapes[key];

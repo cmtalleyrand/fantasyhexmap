@@ -751,6 +751,8 @@ function HexShapePanel(props: SubProps) {
   const width = sharedOf(channelHexes.map((i) => widthOf(i, true)));
   const usualWidth = sharedOf(channelHexes.map((i) => widthOf(i, false)));
   const bothKinds = channelHexes.some((i) => base![i] === 'Isthmus') && channelHexes.some((i) => base![i] === 'Strait');
+  const straitHexes = hexes.filter((i) => base![i] === 'Strait');
+  const straitJunctionSide = sharedOf(straitHexes.map((i) => String(hexShapeFor(base![i], map.hexShapes?.[String(i)]).straitJunctionSide ?? -1)));
   const land = sharedOf(landHexes.map((i) => String(percentOf(i, true))));
   const usual = sharedOf(landHexes.map((i) => String(percentOf(i, false))));
   const irregular = sharedOf(shaped.map(irregularOf));
@@ -834,6 +836,24 @@ function HexShapePanel(props: SubProps) {
           </select>
           <p className="hint" style={{ margin: 0 }}>
             How narrow {channelHexes.every((i) => base![i] === 'Isthmus') ? 'the neck of land' : channelHexes.every((i) => base![i] === 'Strait') ? 'the channel of water' : 'the neck of land (isthmus) or channel of water (strait)'} is at its thinnest, as a share of the hex's width.{usualWidth !== '' ? ` Usually ${usualWidth.toLowerCase()}.` : ''}
+          </p>
+        </>
+      )}
+      {straitHexes.length > 0 && (
+        <>
+          <label htmlFor="strait-junction-side" style={{ margin: 0 }}>Strait channels meet</label>
+          <select
+            id="strait-junction-side"
+            aria-label="Strait channels meet"
+            value={straitJunctionSide}
+            onChange={(e) => set({ straitJunctionSide: e.target.value === '-1' ? null : Number(e.target.value) })}
+          >
+            {straitJunctionSide === '' && <option value="">Mixed</option>}
+            <option value="-1">Near the middle</option>
+            {SIDE_NAMES.map((name, side) => <option key={side} value={side}>On the {name} side</option>)}
+          </select>
+          <p className="hint" style={{ margin: 0 }}>
+            Chooses the common junction of the strait's channel branches. The middle gives non-opposite banks a balanced shape; a side pulls the junction towards that edge while keeping the channel open.
           </p>
         </>
       )}
