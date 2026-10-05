@@ -6,7 +6,7 @@ import { CHANNEL_WIDTH_PERCENT, CHANNEL_WIDTH_VALUES, DEFAULT_HEX_DIMENSIONS, he
 import { reducer } from '../src/state/store.ts';
 import { buildScene, defaultVisibility } from '../src/render/scene.ts';
 import { resolveStyle } from '../src/render/styles.ts';
-import { coastGeometryOf, coastEdges, landInsetDepth, surfaceMap } from '../src/render/coast.ts';
+import { coastGeometryOf, coastEdges, coastKey, landInsetDepth, surfaceMap } from '../src/render/coast.ts';
 import { coveredArea, nearestHex, shapeCoast } from '../src/render/footprint.ts';
 import { pathPolylines } from '../src/render/ice.ts';
 import { hexCenter, hexCorners } from '../shared/hex.ts';
@@ -252,6 +252,34 @@ test('a roughened coast varies its anchors along coast edges, and corrects the f
   // The roughened coast strays further, so more of the map's fill needs correcting.
   const area = (slivers: Array<{ d: PathCmd[] }>) => slivers.reduce((sum, s) => sum + s.d.length, 0);
   assert.ok(area(rough.toLand) + area(rough.toWater) > area(plain.toLand) + area(plain.toWater));
+});
+
+test('a rough coast bridges concave grid notches where its boundary changes land hex', () => {
+  const size = 30;
+  const edges = coastEdges(['Sea', 'Sea', 'Sea', 'Coastal Land', 'Coastal Land', 'Sea', 'Sea', 'Sea', 'Sea'], 3, 3, size);
+  // Neutral noise leaves the quadratic itself visible: no shifted edge anchors and no normal displacement.
+  const geometry = coastGeometryOf(edges, true, { size, noise: () => 0.5, amplitude: () => 0.2 });
+  let seams = 0;
+  for (const chain of geometry.chains) {
+    const n = chain.points.length;
+    for (let k = 0; k < n; k++) {
+      const incoming = chain.edges[(k - 1 + chain.edges.length) % chain.edges.length]!;
+      const outgoing = chain.edges[k % chain.edges.length]!;
+      const a = chain.points[(k - 1 + n) % n]!;
+      const p = chain.points[k]!;
+      const b = chain.points[(k + 1) % n]!;
+      const turn = (p.x - a.x) * (b.y - p.y) - (p.y - a.y) * (b.x - p.x);
+      if (turn >= 0 || incoming.hex === outgoing.hex) continue;
+      seams++;
+      const m0 = { x: (a.x + p.x) / 2, y: (a.y + p.y) / 2 };
+      const m1 = { x: (p.x + b.x) / 2, y: (p.y + b.y) / 2 };
+      const chord = { x: (m0.x + m1.x) / 2, y: (m0.y + m1.y) / 2 };
+      const drawn = geometry.anchors.get(coastKey(p))!;
+      const inheritedNotch = Math.hypot(p.x - chord.x, p.y - chord.y);
+      assert.ok(Math.hypot(drawn.x - chord.x, drawn.y - chord.y) < inheritedNotch * 0.1, 'the drawn coast does not follow the grid notch');
+    }
+  }
+  assert.equal(seams, 2, 'the adjacent pair has one seam endpoint on each side');
 });
 
 test('irregularity changes how islands are drawn and a land share changes how big they are', () => {
