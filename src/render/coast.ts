@@ -431,10 +431,15 @@ const ROUGH_STEPS = 10;
  * waves: a dominant first sine harmonic made each corner into a balanced bay
  * or cape, repeating the same bilateral shape around a coast.
  */
-function roughPiece(m0: Point, p: Point, m1: Point, amplitude: number, lean: number, rough: Roughness): Point[] {
+function roughPiece(m0: Point, p: Point, m1: Point, amplitude: number, lean: number, rough: Roughness, cornerPull = 1): Point[] {
+  // A boundary that changes from one land hex to another has inherited a concave corner from the grid, not
+  // from the geography. Pulling less strongly towards that corner bridges the artificial notch while retaining
+  // a little curvature; the noisy displacement below then gives the bridge its irregular, non-linear outline.
+  const chord = mid(m0, m1);
+  const control = { x: chord.x + (p.x - chord.x) * cornerPull, y: chord.y + (p.y - chord.y) * cornerPull };
   const at = (t: number): Point => ({
-    x: (1 - t) * (1 - t) * m0.x + 2 * (1 - t) * t * p.x + t * t * m1.x,
-    y: (1 - t) * (1 - t) * m0.y + 2 * (1 - t) * t * p.y + t * t * m1.y,
+    x: (1 - t) * (1 - t) * m0.x + 2 * (1 - t) * t * control.x + t * t * m1.x,
+    y: (1 - t) * (1 - t) * m0.y + 2 * (1 - t) * t * control.y + t * t * m1.y,
   });
   const { size, noise } = rough;
   const nx = (k: number) => noise(p.x / size, p.y / size, k) * 2 - 1;
@@ -453,8 +458,8 @@ function roughPiece(m0: Point, p: Point, m1: Point, amplitude: number, lean: num
     const t = j / ROUGH_STEPS;
     const here = at(t);
     // Use the curve's local normal so irregular displacement follows bends without changing its along-shore position.
-    const dx = 2 * (1 - t) * (p.x - m0.x) + 2 * t * (m1.x - p.x);
-    const dy = 2 * (1 - t) * (p.y - m0.y) + 2 * t * (m1.y - p.y);
+    const dx = 2 * (1 - t) * (control.x - m0.x) + 2 * t * (m1.x - control.x);
+    const dy = 2 * (1 - t) * (control.y - m0.y) + 2 * t * (m1.y - control.y);
     const len = Math.hypot(dx, dy) || 1;
     // How boldly this piece wanders: some stretches are nearly calm, a few take a deep bay or point, so the
     // coast does not repeat one wobble at one strength all the way round.
@@ -698,12 +703,14 @@ export function coastGeometryOf(
       const m1 = roughChain ? edgeAnchor[k % edges.length]! : mid(p, b);
       anchors.set(key(p), { x: (m0.x + 2 * p.x + m1.x) / 4, y: (m0.y + 2 * p.y + m1.y) / 4 });
       const turn = (p.x - a.x) * (b.y - p.y) - (p.y - a.y) * (b.x - p.x);
-      const lean = (rough?.lean ? (rough.lean(incoming) + rough.lean(outgoing)) / 2 : 0)
-        // A hex union has matching inward notches at either end of every shared edge. Expanding irregular coasts
-        // across those concave corners prevents a two-hex island from retaining a narrow, symmetric waist.
-        - (turn < 0 ? Math.min(0.05, amplitude * 0.35) : 0);
+      const lean = rough?.lean ? (rough.lean(incoming) + rough.lean(outgoing)) / 2 : 0;
       if (rough && (roughChain || lean !== 0)) {
-        const samples = roughPiece(m0, p, m1, amplitude, lean, rough);
+        // Consecutive boundary edges belonging to different land hexes meet at an endpoint of their internal
+        // shared edge. At a concave turn, following that grid vertex produces one half of the repeated waist
+        // visible around every adjacent pair. Reduce its influence rather than adding a fixed outward offset:
+        // this removes the structural notch at every scale, while ordinary bays within one hex are untouched.
+        const crossesLandHexSeam = turn < 0 && incoming.hex !== undefined && outgoing.hex !== undefined && incoming.hex !== outgoing.hex;
+        const samples = roughPiece(m0, p, m1, amplitude, lean, rough, crossesLandHexSeam ? 0.15 : 1);
         piece[k] = samples;
         anchors.set(key(p), samples[ROUGH_STEPS >> 1]!);
         for (const lobe of roughLobes(m0, p, m1, samples)) {
