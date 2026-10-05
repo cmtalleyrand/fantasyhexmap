@@ -629,9 +629,11 @@ export function riverCourse(river: River, size: number, seed: string, ends: Cour
     const at = wanderCum[i]! / size;
     const envelope = 0.55 + 0.45 * (0.5 + 0.5 * noise(7, at / 3.4));
     let fade = smoothstep(wanderCum[i]! / (0.8 * size)) * smoothstep((wanderCum.at(-1)! - wanderCum[i]!) / (0.8 * size));
-    // Irregularity winds between edge crossings; it does not relocate a crossing towards a hex corner.
+    // Pin only a short neighbourhood of each crossing. A broad pinning envelope made every hex-sized span
+    // bow out and return in a balanced arc, visibly repeating the grid even though the noise itself was random.
+    // The exact crossing remains fixed, while most of the span can participate in the continuous meander.
     const crossingDistance = ctrl.reduce((nearest, c) => c.slide ? Math.min(nearest, Math.hypot(centreline[i]!.x - c.p.x, centreline[i]!.y - c.p.y)) : nearest, Infinity);
-    fade *= smoothstep(crossingDistance / (size * 0.8));
+    fade *= smoothstep(crossingDistance / (size * 0.4));
     const wander = noise(1, at / 2.0) + 0.85 * noise(2, at / 0.85 + 5) + 0.5 * noise(3, at / 0.4 + 9) + 0.14 * noise(4, at / 0.26 + 13);
     return (amplitude * envelope * fade * wander) / 2.2;
   });

@@ -419,14 +419,17 @@ export interface Roughness {
 }
 
 /** Samples along each quadratic piece of a roughened coast. */
-const ROUGH_STEPS = 8;
+const ROUGH_STEPS = 10;
 
 /**
  * One piece of a smoothed coast - the quadratic through control corner `p`
  * from the midpoint before it to the midpoint after - with the roughening laid
- * on. The displacement is a few seeded harmonics that vanish at both ends, so
+ * on. The displacement is seeded noise that vanishes at both ends, so
  * neighbouring pieces join without a step and the coast still passes through
- * the midpoint of every edge (where rivers and cities meet it).
+ * the midpoint of every edge (where rivers and cities meet it). The noise is
+ * interpolated through unevenly spaced knots rather than assembled from sine
+ * waves: a dominant first sine harmonic made each corner into a balanced bay
+ * or cape, repeating the same bilateral shape around a coast.
  */
 function roughPiece(a: Point, p: Point, b: Point, amplitude: number, lean: number, rough: Roughness): Point[] {
   const m0 = mid(a, p);
@@ -437,23 +440,27 @@ function roughPiece(a: Point, p: Point, b: Point, amplitude: number, lean: numbe
   });
   const { size, noise } = rough;
   const nx = (k: number) => noise(p.x / size, p.y / size, k) * 2 - 1;
-  // Harmonic weights fall off with frequency; amplitude is split across them.
-  const weights = [nx(1), nx(2) * 0.6, nx(3) * 0.35, nx(4) * 0.18];
-  const total = weights.reduce((sum, w) => sum + Math.abs(w), 0) || 1;
+  const knots = [0, 0.16 + noise(p.x / size, p.y / size, 11) * 0.13, 0.43 + noise(p.x / size, p.y / size, 12) * 0.14, 0.72 + noise(p.x / size, p.y / size, 13) * 0.12, 1];
+  const values = [0, nx(1), nx(2), nx(3), 0];
+  const wobble = (t: number) => {
+    let k = 0;
+    while (k + 2 < knots.length && t > knots[k + 1]!) k++;
+    const u = (t - knots[k]!) / (knots[k + 1]! - knots[k]!);
+    const eased = u * u * (3 - 2 * u);
+    return values[k]! + (values[k + 1]! - values[k]!) * eased;
+  };
   const out: Point[] = [m0];
   for (let j = 1; j < ROUGH_STEPS; j++) {
     const t = j / ROUGH_STEPS;
     const here = at(t);
-    // The normal to the curve; the displacement is symmetric, so which side it points to does not matter.
+    // Use the curve's local normal so irregular displacement follows bends without changing its along-shore position.
     const dx = 2 * (1 - t) * (p.x - m0.x) + 2 * t * (m1.x - p.x);
     const dy = 2 * (1 - t) * (p.y - m0.y) + 2 * t * (m1.y - p.y);
     const len = Math.hypot(dx, dy) || 1;
-    let d = 0;
-    for (let h = 0; h < weights.length; h++) d += weights[h]! * Math.sin(Math.PI * (h + 1) * t);
     // How boldly this piece wanders: some stretches are nearly calm, a few take a deep bay or point, so the
     // coast does not repeat one wobble at one strength all the way round.
     const gain = Math.min(1.5, 0.3 + 1.6 * nx(5) ** 2);
-    d = (d / total) * gain * amplitude * size * 1.6 - lean * size * Math.sin(Math.PI * t);
+    const d = wobble(t) * gain * amplitude * size * 1.35 - lean * size * Math.sin(Math.PI * t);
     out.push({ x: here.x - (dy / len) * d, y: here.y + (dx / len) * d });
   }
   out.push(m1);
