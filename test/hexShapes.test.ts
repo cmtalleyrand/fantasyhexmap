@@ -223,7 +223,7 @@ test('changing the default irregularity redraws default hexes only', () => {
   assert.equal(commandCount(scene(back).prims), commandCount(scene(reducer(plain, { type: 'setDefaultIrregularity', irregular: null })).prims));
 });
 
-test('a roughened coast still passes through the midpoint of every coast edge, and corrects the fills it crosses', () => {
+test('a roughened coast moves anchors out of the hex-edge rhythm, and corrects the fills it crosses', () => {
   const base: BaseGeo[] = Array.from({ length: 36 }, (_, i) => ((i % 6) < 3 ? 'Coastal Land' : 'Sea'));
   const size = 30;
   const edges = coastEdges(base, 6, 6, size);
@@ -232,17 +232,53 @@ test('a roughened coast still passes through the midpoint of every coast edge, a
   const rough = coastGeometryOf(edges, true, { size, noise, amplitude: () => 0.2 });
   assert.equal(plain.chains.length, rough.chains.length);
   const points = (d: PathCmd[]) => d.flatMap((c) => (c[0] === 'L' || c[0] === 'M' ? [[c[1], c[2]]] : c[0] === 'Q' ? [[c[3], c[4]]] : []));
-  const near = (a: number[], b: number[]) => Math.hypot(a[0]! - b[0]!, a[1]! - b[1]!) < 1e-6;
+  let shifted = 0;
   rough.chains.forEach((chain, c) => {
     const onPath = points(rough.paths[c]!);
     for (const edge of chain.edges) {
       const mid = [(edge.from.x + edge.to.x) / 2, (edge.from.y + edge.to.y) / 2];
-      assert.ok(onPath.some((p) => near(p, mid)), 'the coast keeps the midpoint of each edge');
+      const nearest = Math.min(...onPath.map((p) => Math.hypot(p[0]! - mid[0]!, p[1]! - mid[1]!)));
+      assert.ok(nearest < size * 0.4, 'each edge still has a nearby coast anchor');
+      if (nearest > size * 0.02) shifted++;
     }
   });
+  assert.ok(shifted > edges.length / 2, 'edge anchors do not repeat the hex midpoint rhythm');
   // The roughened coast strays further, so more of the map's fill needs correcting.
   const area = (slivers: Array<{ d: PathCmd[] }>) => slivers.reduce((sum, s) => sum + s.d.length, 0);
   assert.ok(area(rough.toLand) + area(rough.toWater) > area(plain.toLand) + area(plain.toWater));
+});
+
+test('component-scale smoothing removes the narrow waist between adjacent island hexes', () => {
+  const cols = 5;
+  const size = 30;
+  const base: BaseGeo[] = Array.from({ length: 25 }, () => 'Sea');
+  base[7] = 'Land';
+  base[12] = 'Land';
+  const edges = coastEdges(base, cols, 5, size);
+  const plain = pathPolylines(coastGeometryOf(edges, true).paths[0]!, 10)[0]!;
+  const shaped = pathPolylines(coastGeometryOf(edges, true, { size, noise: () => 0.5, amplitude: () => 0.2 }).paths[0]!, 10)[0]!;
+  const a = hexCenter(7 % cols, Math.floor(7 / cols), size);
+  const b = hexCenter(12 % cols, Math.floor(12 / cols), size);
+  const middle = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+  const length = Math.hypot(b.x - a.x, b.y - a.y);
+  const axis = { x: (b.x - a.x) / length, y: (b.y - a.y) / length };
+  const across = { x: -axis.y, y: axis.x };
+  const width = (ring: Array<{ x: number; y: number }>) => {
+    const hits: number[] = [];
+    for (let i = 0; i < ring.length; i++) {
+      const p = ring[i]!;
+      const q = ring[(i + 1) % ring.length]!;
+      const dp = (p.x - middle.x) * axis.x + (p.y - middle.y) * axis.y;
+      const dq = (q.x - middle.x) * axis.x + (q.y - middle.y) * axis.y;
+      if (dp * dq > 0 || dp === dq) continue;
+      const t = dp / (dp - dq);
+      const x = p.x + (q.x - p.x) * t - middle.x;
+      const y = p.y + (q.y - p.y) * t - middle.y;
+      hits.push(x * across.x + y * across.y);
+    }
+    return Math.max(...hits) - Math.min(...hits);
+  };
+  assert.ok(width(shaped) > width(plain) * 1.2, 'grid-scale concavities are removed before irregular detail is added');
 });
 
 test('irregularity changes how islands are drawn and a land share changes how big they are', () => {
