@@ -419,41 +419,47 @@ export interface Roughness {
 }
 
 /** Samples along each quadratic piece of a roughened coast. */
-const ROUGH_STEPS = 8;
+const ROUGH_STEPS = 10;
 
 /**
  * One piece of a smoothed coast - the quadratic through control corner `p`
- * from the midpoint before it to the midpoint after - with the roughening laid
- * on. The displacement is a few seeded harmonics that vanish at both ends, so
- * neighbouring pieces join without a step and the coast still passes through
- * the midpoint of every edge (where rivers and cities meet it).
+ * from an anchor on the edge before it to an anchor on the edge after it - with the roughening laid
+ * on. The displacement is seeded noise that vanishes at both ends, so
+ * neighbouring pieces join without a step and the coast still crosses every
+ * boundary edge (where rivers and cities meet it). The noise is
+ * interpolated through unevenly spaced knots rather than assembled from sine
+ * waves: a dominant first sine harmonic made each corner into a balanced bay
+ * or cape, repeating the same bilateral shape around a coast.
  */
-function roughPiece(a: Point, p: Point, b: Point, amplitude: number, lean: number, rough: Roughness): Point[] {
-  const m0 = mid(a, p);
-  const m1 = mid(p, b);
+function roughPiece(m0: Point, p: Point, m1: Point, amplitude: number, lean: number, rough: Roughness): Point[] {
   const at = (t: number): Point => ({
     x: (1 - t) * (1 - t) * m0.x + 2 * (1 - t) * t * p.x + t * t * m1.x,
     y: (1 - t) * (1 - t) * m0.y + 2 * (1 - t) * t * p.y + t * t * m1.y,
   });
   const { size, noise } = rough;
   const nx = (k: number) => noise(p.x / size, p.y / size, k) * 2 - 1;
-  // Harmonic weights fall off with frequency; amplitude is split across them.
-  const weights = [nx(1), nx(2) * 0.6, nx(3) * 0.35, nx(4) * 0.18];
-  const total = weights.reduce((sum, w) => sum + Math.abs(w), 0) || 1;
+  const knots = [0, 0.25 + noise(p.x / size, p.y / size, 11) * 0.12, 0.68 + noise(p.x / size, p.y / size, 12) * 0.1, 1];
+  const first = nx(1);
+  const values = [0, first, first * 0.65 + nx(2) * 0.35, 0];
+  const wobble = (t: number) => {
+    let k = 0;
+    while (k + 2 < knots.length && t > knots[k + 1]!) k++;
+    const u = (t - knots[k]!) / (knots[k + 1]! - knots[k]!);
+    const eased = u * u * (3 - 2 * u);
+    return values[k]! + (values[k + 1]! - values[k]!) * eased;
+  };
   const out: Point[] = [m0];
   for (let j = 1; j < ROUGH_STEPS; j++) {
     const t = j / ROUGH_STEPS;
     const here = at(t);
-    // The normal to the curve; the displacement is symmetric, so which side it points to does not matter.
+    // Use the curve's local normal so irregular displacement follows bends without changing its along-shore position.
     const dx = 2 * (1 - t) * (p.x - m0.x) + 2 * t * (m1.x - p.x);
     const dy = 2 * (1 - t) * (p.y - m0.y) + 2 * t * (m1.y - p.y);
     const len = Math.hypot(dx, dy) || 1;
-    let d = 0;
-    for (let h = 0; h < weights.length; h++) d += weights[h]! * Math.sin(Math.PI * (h + 1) * t);
     // How boldly this piece wanders: some stretches are nearly calm, a few take a deep bay or point, so the
     // coast does not repeat one wobble at one strength all the way round.
     const gain = Math.min(1.5, 0.3 + 1.6 * nx(5) ** 2);
-    d = (d / total) * gain * amplitude * size * 1.6 - lean * size * Math.sin(Math.PI * t);
+    const d = wobble(t) * gain * amplitude * size * 1.35 - lean * size * Math.sin(Math.PI * t);
     out.push({ x: here.x - (dy / len) * d, y: here.y + (dx / len) * d });
   }
   out.push(m1);
@@ -466,9 +472,7 @@ function roughPiece(a: Point, p: Point, b: Point, amplitude: number, lean: numbe
  * side (land lost). The curve may cross the polyline, so each stretch on one
  * side becomes a polygon of its own.
  */
-function roughLobes(a: Point, p: Point, b: Point, samples: Point[]): Array<{ d: PathCmd[]; towardWater: boolean; leg: 0 | 1 }> {
-  const m0 = mid(a, p);
-  const m1 = mid(p, b);
+function roughLobes(m0: Point, p: Point, m1: Point, samples: Point[]): Array<{ d: PathCmd[]; towardWater: boolean; leg: 0 | 1 }> {
   const side = (q: Point): number => {
     const s1 = distanceToSegment(q, m0, p);
     const s2 = distanceToSegment(q, p, m1);
@@ -666,6 +670,20 @@ export function coastGeometryOf(
     if (!smooth || chain.points.length < 3) return hexPath(chain);
     const { points, edges, closed } = chain;
     const n = points.length;
+    const edgeAmplitude = edges.map((edge) => rough?.amplitude(edge) ?? 0);
+    const roughChain = rough !== undefined && edgeAmplitude.some((amplitude) => amplitude > 0);
+    // Moving each shared-edge anchor along that edge breaks the equal half-edge rhythm responsible for rounded
+    // hexes and peanut-shaped two-hex islands. The anchor never leaves its edge, so topology and fill ownership
+    // are unchanged. Its key is direction-independent, making the result stable whichever way an edge is walked.
+    const edgeAnchor = edges.map((edge, i) => {
+      if (!roughChain || edgeAmplitude[i] === 0) return mid(edge.from, edge.to);
+      const forward = key(edge.from) <= key(edge.to);
+      const [a, b] = forward ? [edge.from, edge.to] : [edge.to, edge.from];
+      const m = mid(a, b);
+      const strength = Math.min(1, edgeAmplitude[i]! / 0.2);
+      const t = 0.5 + (rough.noise(m.x / rough.size, m.y / rough.size, 21) * 2 - 1) * 0.36 * strength;
+      return { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t };
+    });
     // Per corner: the plain curve (and its slivers), or the roughened one.
     const piece: Array<Point[] | null> = points.map(() => null);
     for (let k = closed ? 0 : 1; k < (closed ? n : n - 1); k++) {
@@ -674,17 +692,21 @@ export function coastGeometryOf(
       const a = points[(k - 1 + n) % n]!;
       const p = points[k]!;
       const b = points[(k + 1) % n]!;
-      const amplitude = rough ? Math.max(rough.amplitude(incoming), rough.amplitude(outgoing)) : 0;
+      const amplitude = Math.max(edgeAmplitude[(k - 1 + edges.length) % edges.length]!, edgeAmplitude[k % edges.length]!);
       // The curve's middle is the stretch of the coast nearest the corner.
-      const m0 = mid(a, p);
-      const m1 = mid(p, b);
+      const m0 = roughChain ? edgeAnchor[(k - 1 + edges.length) % edges.length]! : mid(a, p);
+      const m1 = roughChain ? edgeAnchor[k % edges.length]! : mid(p, b);
       anchors.set(key(p), { x: (m0.x + 2 * p.x + m1.x) / 4, y: (m0.y + 2 * p.y + m1.y) / 4 });
-      const lean = rough?.lean ? (rough.lean(incoming) + rough.lean(outgoing)) / 2 : 0;
-      if (rough && (amplitude > 0 || lean !== 0)) {
-        const samples = roughPiece(a, p, b, amplitude, lean, rough);
+      const turn = (p.x - a.x) * (b.y - p.y) - (p.y - a.y) * (b.x - p.x);
+      const lean = (rough?.lean ? (rough.lean(incoming) + rough.lean(outgoing)) / 2 : 0)
+        // A hex union has matching inward notches at either end of every shared edge. Expanding irregular coasts
+        // across those concave corners prevents a two-hex island from retaining a narrow, symmetric waist.
+        - (turn < 0 ? Math.min(0.05, amplitude * 0.35) : 0);
+      if (rough && (roughChain || lean !== 0)) {
+        const samples = roughPiece(m0, p, m1, amplitude, lean, rough);
         piece[k] = samples;
         anchors.set(key(p), samples[ROUGH_STEPS >> 1]!);
-        for (const lobe of roughLobes(a, p, b, samples)) {
+        for (const lobe of roughLobes(m0, p, m1, samples)) {
           const edge = lobe.leg === 0 ? incoming : outgoing;
           if (!hasArea(lobe.d)) continue;
           if (lobe.towardWater) toLand.push({ d: lobe.d, donor: edge.land });
@@ -696,7 +718,6 @@ export function coastGeometryOf(
       // With land on the right, a right turn rounds a corner of land that
       // sticks out into the water, and a left turn fills a notch of water.
       // Straight on (pieces of a split hex meeting in line) needs neither.
-      const turn = (p.x - a.x) * (b.y - p.y) - (p.y - a.y) * (b.x - p.x);
       const scale = Math.hypot(p.x - a.x, p.y - a.y) * Math.hypot(b.x - p.x, b.y - p.y) || 1;
       if (Math.abs(turn) / scale < 1e-6 || !hasArea(d)) continue;
       if (turn > 0) toWater.push({ d, donor: incoming.water });
@@ -710,7 +731,7 @@ export function coastGeometryOf(
 /** A smoothed chain in which some corners carry a sampled, roughened curve. */
 function roughPath(points: Point[], closed: boolean, piece: Array<Point[] | null>): PathCmd[] {
   const n = points.length;
-  const first = closed ? mid(points[n - 1]!, points[0]!) : points[0]!;
+  const first = closed && piece[0] ? piece[0]![0]! : closed ? mid(points[n - 1]!, points[0]!) : points[0]!;
   const d: PathCmd[] = [['M', first.x, first.y]];
   if (!closed) {
     const m0 = mid(points[0]!, points[1]!);

@@ -223,7 +223,7 @@ test('changing the default irregularity redraws default hexes only', () => {
   assert.equal(commandCount(scene(back).prims), commandCount(scene(reducer(plain, { type: 'setDefaultIrregularity', irregular: null })).prims));
 });
 
-test('a roughened coast still passes through the midpoint of every coast edge, and corrects the fills it crosses', () => {
+test('a roughened coast varies its anchors along coast edges, and corrects the fills it crosses', () => {
   const base: BaseGeo[] = Array.from({ length: 36 }, (_, i) => ((i % 6) < 3 ? 'Coastal Land' : 'Sea'));
   const size = 30;
   const edges = coastEdges(base, 6, 6, size);
@@ -232,14 +232,23 @@ test('a roughened coast still passes through the midpoint of every coast edge, a
   const rough = coastGeometryOf(edges, true, { size, noise, amplitude: () => 0.2 });
   assert.equal(plain.chains.length, rough.chains.length);
   const points = (d: PathCmd[]) => d.flatMap((c) => (c[0] === 'L' || c[0] === 'M' ? [[c[1], c[2]]] : c[0] === 'Q' ? [[c[3], c[4]]] : []));
-  const near = (a: number[], b: number[]) => Math.hypot(a[0]! - b[0]!, a[1]! - b[1]!) < 1e-6;
+  let shifted = 0;
   rough.chains.forEach((chain, c) => {
     const onPath = points(rough.paths[c]!);
     for (const edge of chain.edges) {
       const mid = [(edge.from.x + edge.to.x) / 2, (edge.from.y + edge.to.y) / 2];
-      assert.ok(onPath.some((p) => near(p, mid)), 'the coast keeps the midpoint of each edge');
+      const dx = edge.to.x - edge.from.x;
+      const dy = edge.to.y - edge.from.y;
+      const anchor = onPath.find((p) => {
+        const cross = dx * (p[1]! - edge.from.y) - dy * (p[0]! - edge.from.x);
+        const dot = (p[0]! - edge.from.x) * dx + (p[1]! - edge.from.y) * dy;
+        return Math.abs(cross) < 1e-6 && dot > 0 && dot < dx * dx + dy * dy;
+      });
+      assert.ok(anchor, 'the coast keeps an interior anchor on every crossed edge');
+      if (Math.hypot(anchor[0]! - mid[0]!, anchor[1]! - mid[1]!) > size * 0.01) shifted++;
     }
   });
+  assert.ok(shifted > edges.length / 2, 'edge anchors do not repeat the hex midpoint rhythm');
   // The roughened coast strays further, so more of the map's fill needs correcting.
   const area = (slivers: Array<{ d: PathCmd[] }>) => slivers.reduce((sum, s) => sum + s.d.length, 0);
   assert.ok(area(rough.toLand) + area(rough.toWater) > area(plain.toLand) + area(plain.toWater));
