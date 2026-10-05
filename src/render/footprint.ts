@@ -217,9 +217,10 @@ function landAt(hex: Split, r: number): Poly[] {
  * edges plus a neck of the set width run from the middle to each of them: it narrows to the width
  * at the middle and opens out to the land at either end. A strait is the same turned round: the
  * land is the sectors of its land-facing edges (its banks), less a channel of the set width run to
- * every edge that faces water; a bank with no bank opposite it is also given the depth that leaves
- * the width between it and the far edge. Land is always joined to an edge that faces land and water
- * to one that faces water, so nothing is left to pinch off.
+ * every edge that faces water. All banks and channel arms use one junction near the middle unless a
+ * side is selected, in which case it moves towards that side while remaining inset by half the channel
+ * width. Land is always joined to an edge that faces land and water to one that faces water, so nothing
+ * is left to pinch off.
  *
  * `fill` tunes how much land that is, from 0 to 2: 1 is the shape above. An isthmus cannot have less
  * land than that (cutting its flare back leaves pockets of water between it and the land beside it, and
@@ -227,9 +228,15 @@ function landAt(hex: Split, r: number): Poly[] {
  * cuts the banks back from the land-facing edges (so, below the land its width gives, the channel is
  * wider than the width set: the share asked for wins); more deepens them.
  */
-function fixedLand(hex: { hex: Poly; centre: Point; dry: number[]; wet: number[] }, width: number, kind: 'strait' | 'isthmus', fill = 1): Poly[] {
-  const { hex: outline, centre, dry, wet } = hex;
+function fixedLand(hex: { hex: Poly; centre: Point; dry: number[]; wet: number[]; junctionSide?: number }, width: number, kind: 'strait' | 'isthmus', fill = 1): Poly[] {
+  const { hex: outline, centre: hexCentre, dry, wet } = hex;
   const mid = (e: number): Point => ({ x: (outline[e]!.x + outline[(e + 1) % 6]!.x) / 2, y: (outline[e]!.y + outline[(e + 1) % 6]!.y) / 2 });
+  // A side-selected junction is inset from that edge by half the channel width. This keeps the
+  // channel connected through the selected edge rather than collapsing it to a zero-width point.
+  const chosen = kind === 'strait' && hex.junctionSide !== undefined ? mid(hex.junctionSide) : hexCentre;
+  const distance = Math.hypot(chosen.x - hexCentre.x, chosen.y - hexCentre.y);
+  const ratio = distance === 0 ? 0 : Math.max(0, distance - width / 2) / distance;
+  const centre = { x: hexCentre.x + (chosen.x - hexCentre.x) * ratio, y: hexCentre.y + (chosen.y - hexCentre.y) * ratio };
   const span = Math.hypot(mid(0).x - mid(3).x, mid(0).y - mid(3).y);
   const band = (e: number, depth: number) => cut(outline, outline[e]!, outline[(e + 1) % 6]!, depth, 'left');
   const scale = Math.min(1, fill);
@@ -244,14 +251,9 @@ function fixedLand(hex: { hex: Poly; centre: Point; dry: number[]; wet: number[]
   const arms = (edges: number[]): Poly[] => edges.map((e) => within(arm(centre, mid(e), width / 2), outline)).filter((a) => a.length > 0);
   const deeper = Math.max(0, fill - 1) * span;
   if (kind === 'strait') {
-    // A bank with no bank opposite it has nothing to leave `width` against, so it is given the depth that
-    // leaves `width` between it and the hex's far edge: the strait narrows as the setting does either way.
-    const natural = Math.max(0, (span - Math.min(width, span)) / 2) * scale;
-    const lone = dry.filter((e) => !dry.includes((e + 3) % 6));
-    const bands = [
-      ...lone.map((e) => band(e, Math.max(natural, deeper))),
-      ...(deeper > 0 ? dry.filter((e) => !lone.includes(e)).map((e) => band(e, deeper)) : []),
-    ].filter((b) => b.length > 0);
+    // Every bank converges on the same junction. In particular, non-opposite banks no longer
+    // expand independently from their edges and accidentally put their meeting point on one side.
+    const bands = (deeper > 0 ? dry.map((e) => band(e, deeper)) : []).filter((b) => b.length > 0);
     const banks = [...sectors, ...bands];
     const channels = arms(wet);
     return banks.flatMap((b, k) => without(b, banks.slice(0, k))).flatMap((b) => without(b, channels));
@@ -262,7 +264,7 @@ function fixedLand(hex: { hex: Poly; centre: Point; dry: number[]; wet: number[]
 }
 
 /** The fill (see `fixedLand`) at which an isthmus or strait of this width has `target` of the hex as land, or the nearest it can. */
-function fillFor(hex: { hex: Poly; centre: Point; dry: number[]; wet: number[] }, width: number, kind: 'strait' | 'isthmus', target: number, hexArea: number): number {
+function fillFor(hex: { hex: Poly; centre: Point; dry: number[]; wet: number[]; junctionSide?: number }, width: number, kind: 'strait' | 'isthmus', target: number, hexArea: number): number {
   const share = (fill: number) => fixedLand(hex, width, kind, fill).reduce((sum, p) => sum + polyArea(p), 0) / hexArea;
   let low = 0;
   let high = 2;
@@ -519,6 +521,8 @@ export interface ShapeTarget {
   width?: number;
   /** With `width`: also aim at `share`, tuning how much land the hex has (see `fixedLand`). Without it the share is not aimed at. */
   fit?: boolean;
+  /** For a channel, move its common junction towards this hex side; absent leaves it central. */
+  junctionSide?: number;
 }
 
 /**
@@ -551,7 +555,7 @@ export function shapeCoast(
   }
 
   /** One hex cut to its share: what it gives up, what it takes, and the land it is left with. */
-  const reshapeHex = (i: number, { share, kind, width, fit, concentrationSide, concentration }: ShapeTarget): HexShape | null => {
+  const reshapeHex = (i: number, { share, kind, width, fit, concentrationSide, concentration, junctionSide }: ShapeTarget): HexShape | null => {
     const col = i % cols;
     const row = Math.floor(i / cols);
     const split = surface.split.get(i);
@@ -576,7 +580,7 @@ export function shapeCoast(
     // A strait or isthmus of a set width has no share to find (see `fixedLand`).
     if (width !== undefined && kind !== 'inset') {
       if (dry.length === 0 || wet.length === 0) return null;
-      const shape = { hex: corners, centre: hexCenter(col, row, size), dry, wet };
+      const shape = { hex: corners, centre: hexCenter(col, row, size), dry, wet, junctionSide };
       const type = kind === 'channel' ? 'strait' : 'isthmus';
       const fill = fit ? fillFor(shape, width, type, share, hexArea) : 1;
       const fixed = setAgainst(solid(fixedLand(shape, width, type, fill)), land, water, hexArea);
@@ -606,7 +610,7 @@ export function shapeCoast(
   for (const [i, target] of targets) {
     // The same hex, cut to the same share among the same neighbours, is cut the same way.
     const code = (j: number) => `${surface.whole[j]}${surface.split.get(j)?.sides.join('') ?? ''}`;
-    const sig = [target.share, target.kind, target.width ?? '', target.fit ? 'fit' : '', target.concentrationSide ?? '-', target.concentration ?? 0, code(i), ...[0, 1, 2, 3, 4, 5].map((e) => {
+    const sig = [target.share, target.kind, target.width ?? '', target.fit ? 'fit' : '', target.junctionSide ?? '-', target.concentrationSide ?? '-', target.concentration ?? 0, code(i), ...[0, 1, 2, 3, 4, 5].map((e) => {
       const n = neighbourOf(i % cols, Math.floor(i / cols), e);
       return inBounds(cols, rows, n.col, n.row) ? code(hexIndex(cols, n.col, n.row)) : '-';
     })].join('|');

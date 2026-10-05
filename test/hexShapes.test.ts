@@ -6,7 +6,7 @@ import { CHANNEL_WIDTH_PERCENT, CHANNEL_WIDTH_VALUES, DEFAULT_HEX_DIMENSIONS, he
 import { reducer } from '../src/state/store.ts';
 import { buildScene, defaultVisibility } from '../src/render/scene.ts';
 import { resolveStyle } from '../src/render/styles.ts';
-import { coastGeometryOf, coastEdges, landInsetDepth, surfaceMap } from '../src/render/coast.ts';
+import { coastGeometryOf, coastEdges, coastKey, landInsetDepth, surfaceMap } from '../src/render/coast.ts';
 import { coveredArea, nearestHex, shapeCoast } from '../src/render/footprint.ts';
 import { pathPolylines } from '../src/render/ice.ts';
 import { hexCenter, hexCorners } from '../shared/hex.ts';
@@ -960,6 +960,25 @@ test('the scene draws a strait differently at each width, and its width is set p
   assert.equal(hexShapeFor('Isthmus', set.hexShapes!['4']).width, undefined);
   const cleared = reducer(set, { type: 'setHexShape', indices: [4], change: { width: null } });
   assert.equal('4' in cleared.hexShapes!, false);
+});
+
+test('a strait junction is central by default and can be moved towards any selected side', () => {
+  const base: BaseGeo[] = ['Sea', 'Land', 'Sea', 'Sea', 'Strait', 'Land', 'Sea', 'Sea', 'Sea'];
+  const map = mapWith(base, 3, 3);
+  const central = JSON.stringify(scene(map).prims);
+  const variants = Array.from({ length: 6 }, (_, straitJunctionSide) => {
+    const changed = reducer(map, { type: 'setHexShape', indices: [4], change: { straitJunctionSide } });
+    assert.deepEqual(changed.hexShapes!['4'], { type: 'Strait', straitJunctionSide });
+    return JSON.stringify(scene(changed).prims);
+  });
+  assert.ok(variants.some((variant) => variant !== central), 'a selected side moves the channel junction away from its central default');
+  assert.ok(new Set(variants).size > 1, 'different selected sides can produce different channel geometry');
+
+  const restored = reducer(reducer(map, { type: 'setHexShape', indices: [4], change: { straitJunctionSide: 2 } }), {
+    type: 'setHexShape', indices: [4], change: { straitJunctionSide: null },
+  });
+  assert.equal(restored.hexShapes?.['4'], undefined);
+  assert.equal(reducer(map, { type: 'setHexShape', indices: [4], change: { straitJunctionSide: 6 } }), map);
 });
 
 test('maps saved with land shares for isthmuses and straits take widths instead', () => {

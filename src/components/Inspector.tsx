@@ -751,6 +751,8 @@ function HexShapePanel(props: SubProps) {
   const width = sharedOf(channelHexes.map((i) => widthOf(i, true)));
   const usualWidth = sharedOf(channelHexes.map((i) => widthOf(i, false)));
   const bothKinds = channelHexes.some((i) => base![i] === 'Isthmus') && channelHexes.some((i) => base![i] === 'Strait');
+  const straitHexes = hexes.filter((i) => base![i] === 'Strait');
+  const straitJunctionSide = sharedOf(straitHexes.map((i) => String(hexShapeFor(base![i], map.hexShapes?.[String(i)]).straitJunctionSide ?? -1)));
   const land = sharedOf(landHexes.map((i) => String(percentOf(i, true))));
   const usual = sharedOf(landHexes.map((i) => String(percentOf(i, false))));
   const irregular = sharedOf(shaped.map(irregularOf));
@@ -834,6 +836,24 @@ function HexShapePanel(props: SubProps) {
           </select>
           <p className="hint" style={{ margin: 0 }}>
             How narrow {channelHexes.every((i) => base![i] === 'Isthmus') ? 'the neck of land' : channelHexes.every((i) => base![i] === 'Strait') ? 'the channel of water' : 'the neck of land (isthmus) or channel of water (strait)'} is at its thinnest, as a share of the hex's width.{usualWidth !== '' ? ` Usually ${usualWidth.toLowerCase()}.` : ''}
+          </p>
+        </>
+      )}
+      {straitHexes.length > 0 && (
+        <>
+          <label htmlFor="strait-junction-side" style={{ margin: 0 }}>Strait channels meet</label>
+          <select
+            id="strait-junction-side"
+            aria-label="Strait channels meet"
+            value={straitJunctionSide}
+            onChange={(e) => set({ straitJunctionSide: e.target.value === '-1' ? null : Number(e.target.value) })}
+          >
+            {straitJunctionSide === '' && <option value="">Mixed</option>}
+            <option value="-1">Near the middle</option>
+            {SIDE_NAMES.map((name, side) => <option key={side} value={side}>On the {name} side</option>)}
+          </select>
+          <p className="hint" style={{ margin: 0 }}>
+            Chooses the common junction of the strait's channel branches. The middle gives non-opposite banks a balanced shape; a side pulls the junction towards that edge while keeping the channel open.
           </p>
         </>
       )}
@@ -1114,6 +1134,9 @@ function PolityEditor(props: SubProps) {
 
   // Realms followed by their parts, so a realm and its provinces sit together.
   const outline = useMemo(() => polityOutline(data.polities), [data.polities]);
+  const validShareWith = shareWith !== target && data.polities.some((p) => p.id === shareWith)
+    ? shareWith
+    : '';
   const ownCount = useMemo(() => {
     const counts = new Map<string, number>();
     data.owner.forEach((_, i) => {
@@ -1208,7 +1231,7 @@ function PolityEditor(props: SubProps) {
       <div>
         <label>Or share selected hexes between that polity and</label>
         <div className="row">
-          <select className="grow" value={shareWith} onChange={(e) => setShareWith(e.target.value)}>
+          <select className="grow" value={validShareWith} onChange={(e) => setShareWith(e.target.value)}>
             <option value="">(choose a polity)</option>
             {outline
               .filter(({ polity: p }) => p.id !== target)
@@ -1234,10 +1257,10 @@ function PolityEditor(props: SubProps) {
         </div>
         <button
           style={{ marginTop: 4 }}
-          disabled={selected.length === 0 || !target || !shareWith}
+          disabled={selected.length === 0 || !target || !validShareWith}
           title={target ? undefined : 'Choose the polity to assign to above first'}
           onClick={() =>
-            dispatch({ type: 'shareHexes', indices: selected, first: target, second: shareWith, share: sharePercent / 100 })
+            dispatch({ type: 'shareHexes', indices: selected, first: target, second: validShareWith, share: sharePercent / 100 })
           }
         >
           Share {selected.length} hexes ({100 - sharePercent}% / {sharePercent}%)
