@@ -1134,6 +1134,9 @@ function PolityEditor(props: SubProps) {
 
   // Realms followed by their parts, so a realm and its provinces sit together.
   const outline = useMemo(() => polityOutline(data.polities), [data.polities]);
+  const validShareWith = shareWith !== target && data.polities.some((p) => p.id === shareWith)
+    ? shareWith
+    : '';
   const ownCount = useMemo(() => {
     const counts = new Map<string, number>();
     data.owner.forEach((_, i) => {
@@ -1228,7 +1231,7 @@ function PolityEditor(props: SubProps) {
       <div>
         <label>Or share selected hexes between that polity and</label>
         <div className="row">
-          <select className="grow" value={shareWith} onChange={(e) => setShareWith(e.target.value)}>
+          <select className="grow" value={validShareWith} onChange={(e) => setShareWith(e.target.value)}>
             <option value="">(choose a polity)</option>
             {outline
               .filter(({ polity: p }) => p.id !== target)
@@ -1254,10 +1257,10 @@ function PolityEditor(props: SubProps) {
         </div>
         <button
           style={{ marginTop: 4 }}
-          disabled={selected.length === 0 || !target || !shareWith}
+          disabled={selected.length === 0 || !target || !validShareWith}
           title={target ? undefined : 'Choose the polity to assign to above first'}
           onClick={() =>
-            dispatch({ type: 'shareHexes', indices: selected, first: target, second: shareWith, share: sharePercent / 100 })
+            dispatch({ type: 'shareHexes', indices: selected, first: target, second: validShareWith, share: sharePercent / 100 })
           }
         >
           Share {selected.length} hexes ({100 - sharePercent}% / {sharePercent}%)

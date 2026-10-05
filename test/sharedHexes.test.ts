@@ -29,6 +29,16 @@ test('a hex can be shared between two polities in a chosen proportion', () => {
   assert.deepEqual(holdersOf(data, 0), [['a', 1]]);
 });
 
+test('a polity that owns only one hex can share that hex', () => {
+  const map = mapWithTwoPolities();
+  map.layers.polities.data!.owner = ['a', 'b', null];
+  const shared = reducer(map, { type: 'shareHexes', indices: [0], first: 'a', second: 'b', share: 0.5 });
+  const data = shared.layers.polities.data!;
+  assert.deepEqual(holdersOf(data, 0), [['a', 0.5], ['b', 0.5]]);
+  assert.deepEqual(holdersOf(data, 1), [['b', 1]]);
+  assert.deepEqual(data.polities.map((polity) => polity.id), ['a', 'b']);
+});
+
 test('the larger holder is the owner, and areas follow the shares', () => {
   const shared = reducer(mapWithTwoPolities(), { type: 'shareHexes', indices: [1], first: 'a', second: 'b', share: 0.75 });
   const data = shared.layers.polities.data!;
@@ -99,5 +109,25 @@ test('a shared hex is visible with the parchment wash polity style', () => {
   assert.ok(
     scene.prims.some((p) => p.kind === 'polygon' && p.points.length < 6 && p.fill === 'rgba(0, 0, 170, 0.55)'),
     'expected the second polity share to be painted over the wash-style map',
+  );
+});
+
+test('a shared hex has an internal border with the outline polity style', () => {
+  const map = mapWithTwoPolities();
+  map.layers.polities.data!.shares = { '1': { polityId: 'b', share: 0.5 } };
+  const visible = defaultVisibility();
+  visible.polities = true;
+  const scene = buildScene(map, {
+    size: 20,
+    visible,
+    labels: false,
+    style: resolveStyle({ preset: 'night', overrides: {} }),
+  });
+  const paths = scene.prims.flatMap(function flatten(prim): typeof scene.prims {
+    return prim.kind === 'group' ? prim.prims.flatMap(flatten) : [prim];
+  });
+  assert.ok(
+    paths.some((p) => p.kind === 'path' && p.d.length === 2 && p.stroke === resolveStyle({ preset: 'night', overrides: {} }).palette.frontier),
+    'expected an internal border through the shared hex',
   );
 });

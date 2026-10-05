@@ -987,6 +987,24 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
         prims.push({ kind: 'polygon', points: piece, fill: hexFill(own) });
         prims.push({ kind: 'polygon', points: piece, fill: alpha < 1 ? withAlpha(solid, alpha) : solid });
       }
+      if (knobs.polityStyle === 'outline') {
+        const share = polities?.shares?.[String(i)];
+        if (share && polities?.owner[i]) {
+          const piece = shareRegion(corners, share.share);
+          const cutX = Math.min(...piece.map((point) => point.x));
+          const cut = piece
+            .filter((point) => Math.abs(point.x - cutX) < 1e-5)
+            .filter((point, index, points) => index === points.findIndex((other) => Math.abs(other.y - point.y) < 1e-5));
+          if (cut.length === 2) {
+            prims.push({
+              kind: 'path',
+              d: [['M', cut[0]!.x, cut[0]!.y], ['L', cut[1]!.x, cut[1]!.y]],
+              stroke: palette.frontier,
+              strokeWidth: Math.max(1, size * 0.09),
+            });
+          }
+        }
+      }
     }
   }
 
