@@ -432,8 +432,8 @@ const ROUGH_STEPS = 10;
  */
 function roughPiece(m0: Point, p: Point, m1: Point, amplitude: number, lean: number, bias: number, rough: Roughness): Point[] {
   const at = (t: number): Point => ({
-    x: (1 - t) * (1 - t) * m0.x + 2 * (1 - t) * t * control.x + t * t * m1.x,
-    y: (1 - t) * (1 - t) * m0.y + 2 * (1 - t) * t * control.y + t * t * m1.y,
+    x: (1 - t) * (1 - t) * m0.x + 2 * (1 - t) * t * p.x + t * t * m1.x,
+    y: (1 - t) * (1 - t) * m0.y + 2 * (1 - t) * t * p.y + t * t * m1.y,
   });
   const { size, noise } = rough;
   const knots = [0, 0.25 + noise(p.x / size, p.y / size, 11) * 0.12, 0.68 + noise(p.x / size, p.y / size, 12) * 0.1, 1];
