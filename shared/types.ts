@@ -252,6 +252,8 @@ export interface HexShape {
   land?: number;
   /** An Isthmus or Strait: how narrow it is at its thinnest, replacing the map's default. */
   width?: ChannelWidth;
+  /** A Strait: the side towards which its channel junction is drawn; absent keeps it near the centre. */
+  straitJunctionSide?: number;
   irregular?: Irregularity;
   /** Edge 0-5 towards which a coast, mainland or lake's land is biased. */
   concentrationSide?: number;
@@ -268,7 +270,7 @@ export function hexShapeFor(
   value: BaseGeo | null | undefined,
   stored: HexShape | undefined,
   mapDefault?: Irregularity | null,
-): { land?: number; width?: ChannelWidth; irregular: Irregularity; concentrationSide?: number; concentration?: number } {
+): { land?: number; width?: ChannelWidth; straitJunctionSide?: number; irregular: Irregularity; concentrationSide?: number; concentration?: number } {
   const fallback = mapDefault && IRREGULARITY_VALUES.includes(mapDefault) && isShapedType(value) ? mapDefault : undefined;
   const irregular = fallback ?? (value ? DEFAULT_IRREGULARITY[value] : 'Smooth');
   if (!value || !stored || stored.type !== value || !(isShapedType(value) || value === 'Lake')) return { irregular };
@@ -276,9 +278,13 @@ export function hexShapeFor(
     ? Math.max(0, Math.min(100, stored.land))
     : undefined;
   const width = hasChannelWidth(value) && CHANNEL_WIDTH_VALUES.includes(stored.width as ChannelWidth) ? (stored.width as ChannelWidth) : undefined;
+  const straitJunctionSide = value === 'Strait' && Number.isInteger(stored.straitJunctionSide) && stored.straitJunctionSide! >= 0 && stored.straitJunctionSide! < 6
+    ? stored.straitJunctionSide
+    : undefined;
   return {
     ...(land !== undefined ? { land } : {}),
     ...(width !== undefined ? { width } : {}),
+    ...(straitJunctionSide !== undefined ? { straitJunctionSide } : {}),
     irregular: IRREGULARITY_VALUES.includes(stored.irregular as Irregularity) ? (stored.irregular as Irregularity) : irregular,
     ...(hasLandConcentration(value) && Number.isInteger(stored.concentrationSide) && stored.concentrationSide! >= 0 && stored.concentrationSide! < 6
       ? { concentrationSide: stored.concentrationSide }
