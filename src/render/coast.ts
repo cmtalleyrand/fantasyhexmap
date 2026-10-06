@@ -270,7 +270,9 @@ export interface CoastGeometry {
   anchors: Map<string, Point>;
 }
 
-const key = (p: Point) => `${Math.round(p.x * 100)},${Math.round(p.y * 100)}`;
+// Preserve the clipper's small shore fragments. A 0.01-unit key collapses
+// distinct short shore segments and can turn a closed ring into open chains.
+const key = (p: Point) => `${Math.round(p.x * 10000)},${Math.round(p.y * 10000)}`;
 
 /** The key `CoastGeometry.anchors` uses for a hex corner. */
 export const coastKey = key;
@@ -430,6 +432,8 @@ export interface Roughness {
   displacementLimit?: (edge: CoastEdge) => number;
   /** Total land area for a closed component; permits redistribution across its hexes. */
   componentArea?: (chain: CoastChain) => number | undefined;
+  /** Stable coarse component identity, including while local fitting disconnects a source fragment. */
+  featureSeed?: (chain: CoastChain) => number | undefined;
   /** Outer half of the coast stroke, counted toward a component area target. */
   componentInk?: number;
 }
