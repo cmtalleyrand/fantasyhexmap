@@ -83,14 +83,16 @@ test('an explicit narrow isthmus or strait retains its centre and at least half 
     const width = size * Math.sqrt(3) * 0.1;
     const shaped = shapeCoast(edges, surface, size, new Map([[27, { share: 0.5, kind: type === 'Isthmus' ? 'neck' : 'channel', width }]]))!;
     const limit = (e: CoastEdge) => (e.hex === 27 || e.across === 27) ? width * 0.15 : Infinity;
-    const geometry = coastGeometryOf(shaped.edges, true, { size, noise, amplitude: () => 0.2, displacementLimit: limit }, shaped);
-    const rings = geometry.paths.flatMap(d => pathPolylines(d, 6));
-    assert.equal(crossings(rings), 0, type);
-    const inside = evenOddTest(rings, size / 8), centre = hexCenter(3, 3, size);
-    // The land neck runs east-west; the water channel runs north-south.
-    // These closed rings enclose the land island or the water hole, respectively.
-    for (let y = -width * 0.25; y <= width * 0.25; y += width / 8) {
-      assert.equal(inside(type === 'Isthmus' ? { x: centre.x, y: centre.y + y } : { x: centre.x + y, y: centre.y }), true, `${type} width at y=${y}`);
+    for (let seed = 0; seed < 32; seed++) {
+      const geometry = coastGeometryOf(shaped.edges, true, { size, noise: (x, y, k) => noise(x, y, k + seed * 100), amplitude: () => 0.2, displacementLimit: limit }, shaped);
+      const rings = geometry.paths.flatMap(d => pathPolylines(d, 6));
+      assert.equal(crossings(rings), 0, `${type}, seed ${seed}`);
+      const inside = evenOddTest(rings, size / 8), centre = hexCenter(3, 3, size);
+      // The land neck runs east-west; the water channel runs north-south.
+      // These closed rings enclose the land island or the water hole, respectively.
+      for (let y = -width * 0.25; y <= width * 0.25; y += width / 8) {
+        assert.equal(inside(type === 'Isthmus' ? { x: centre.x, y: centre.y + y } : { x: centre.x + y, y: centre.y }), true, `${type}, seed ${seed}, width at y=${y}`);
+      }
     }
   }
 });
@@ -99,7 +101,7 @@ test('coast components remain disjoint across varied seeds, with lakes and small
   const base: BaseGeo[] = Array(64).fill('Sea');
   for (const i of [9,10,11,17,18,19,25,26,27,45,46,53,54]) base[i] = 'Land';
   base[18] = 'Sea'; // water hole in the northern island
-  for (let seed = 0; seed < 12; seed++) {
+  for (let seed = 0; seed < 32; seed++) {
     const geometry = coastGeometryOf(coastEdges(base, cols, rows, size), true, {
       size, noise: (x,y,k) => noise(x,y,k+seed*100), amplitude: () => 0.2,
     });
@@ -143,16 +145,20 @@ test('irregularity survives the silhouette stage, grows with its level, and does
     });
   };
   const rms = (values: number[]) => Math.sqrt(values.reduce((sum, v) => sum + v*v, 0) / values.length);
-  const wavy = rms(residual(0.06)), ragged = rms(residual(0.12)), fractured = rms(residual(0.2));
+  const ragged = rms(residual(0.12));
   assert.ok(ragged > size * 0.045, `visible Ragged displacement: ${ragged / size} hex radii`);
-  assert.ok(ragged > wavy * 1.4 && fractured > ragged * 1.2, 'levels preserve progressively more detail');
-  // Compare short and long variation, not just one broad distortion of an otherwise smooth body.
+
+  // Measure level progression on fine detail: broad bays can reach explicit width limits
+  // before local detail does. Whole-outline RMS conflates the two geometric stages.
   const offsets = residual(0.12), span = Math.round(size * 0.3 / (edges.length * size / quiet.length));
-  const fine = offsets.map((value, i) => {
+  const detail = (values: number[]) => values.map((value, i) => {
     let sum = 0;
-    for (let k = -span; k <= span; k++) sum += offsets[(i + k + offsets.length) % offsets.length]!;
+    for (let k = -span; k <= span; k++) sum += values[(i + k + values.length) % values.length]!;
     return value - sum / (2 * span + 1);
   });
+  const fine = detail(offsets);
+  const detailLevels = [0.06, 0.12, 0.2].map(a => rms(detail(residual(a))));
+  assert.ok(detailLevels[1]! > detailLevels[0]! * 1.4 && detailLevels[2]! > detailLevels[1]! * 1.2, `levels preserve progressively more fine detail: ${detailLevels}`);
   assert.ok(rms(fine) > size * 0.018, 'smaller bays and points survive alongside larger changes');
   const crossingArcs: number[] = [];
   const step = edges.reduce((sum,e) => sum + Math.hypot(e.to.x-e.from.x,e.to.y-e.from.y),0) / offsets.length;
