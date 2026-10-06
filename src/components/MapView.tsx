@@ -67,6 +67,8 @@ export default function MapView(props: MapViewProps) {
   const { map, visible, labels, riverNames, rangeNames, seaNames, landNames, polityNames, cityStateMax, polityOpacity, mapStyle, selection, onSelectionChange, onStrokeEnd } = props;
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const wrapRef = useRef<HTMLDivElement | null>(null);
+  // A viewport-sized backing canvas keeps pointer decorations from repainting the map.
+  const renderedMap = useRef<HTMLCanvasElement | null>(null);
   const [view, setView] = useState<View>({ scale: 1, x: 0, y: 0 });
   const [hover, setHover] = useState<number | null>(null);
   const [size, setSize] = useState({ width: 800, height: 600 });
@@ -197,24 +199,41 @@ export default function MapView(props: MapViewProps) {
   }, [fit, size.width, map.id]);
 
   useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
+    const canvas = renderedMap.current ?? document.createElement('canvas');
+    renderedMap.current = canvas;
     const dpr = window.devicePixelRatio || 1;
     canvas.width = Math.max(1, Math.floor(size.width * dpr));
     canvas.height = Math.max(1, Math.floor(size.height * dpr));
-    canvas.style.width = `${size.width}px`;
-    canvas.style.height = `${size.height}px`;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.fillStyle = MAP_COLOURS.background;
     ctx.fillRect(0, 0, size.width, size.height);
-    ctx.save();
     ctx.translate(view.x, view.y);
     ctx.scale(view.scale, view.scale);
     ctx.fillStyle = scene.background;
     ctx.fillRect(0, 0, scene.width, scene.height);
     drawScene(ctx, scene);
+  }, [scene, view, size]);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    const backing = renderedMap.current;
+    if (!canvas || !backing) return;
+    if (canvas.width !== backing.width) canvas.width = backing.width;
+    if (canvas.height !== backing.height) canvas.height = backing.height;
+    canvas.style.width = `${size.width}px`;
+    canvas.style.height = `${size.height}px`;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(backing, 0, 0);
+    const dpr = window.devicePixelRatio || 1;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.save();
+    ctx.translate(view.x, view.y);
+    ctx.scale(view.scale, view.scale);
     drawPrims(ctx, decoration);
     ctx.restore();
   }, [scene, decoration, view, size]);
