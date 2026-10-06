@@ -875,47 +875,70 @@ export function nearestOn(p: Point, polys: Poly[]): { dist: number; at: Point } 
  * `clip`, which is accurate to a fraction of a percent of the hex.
  */
 export function coveredArea(rings: Point[][], clip: Poly, lines = 96): number {
-  const top = Math.min(...clip.map((p) => p.y));
-  const bottom = Math.max(...clip.map((p) => p.y));
-  const step = (bottom - top) / lines;
-  let total = 0;
-  for (let n = 0; n < lines; n++) {
-    const y = top + (n + 0.5) * step;
-    // The width of `clip` on this line.
-    let left = Infinity;
-    let right = -Infinity;
-    for (let k = 0; k < clip.length; k++) {
-      const a = clip[k]!;
-      const b = clip[(k + 1) % clip.length]!;
-      if (a.y <= y !== b.y <= y) {
-        const x = a.x + ((y - a.y) / (b.y - a.y)) * (b.x - a.x);
-        left = Math.min(left, x);
-        right = Math.max(right, x);
+  return areaCoverage(rings)(clip, lines);
+}
+
+/** Prepare immutable outlines for repeated area measurements within one fitting pass. */
+export function areaCoverage(rings: Point[][]): (clip: Poly, lines?: number) => number {
+  const prepared = rings.map(ring => ({
+    box: boxOf(ring),
+    edges: ring.flatMap((a, k) => {
+      const b = ring[(k + 1) % ring.length]!;
+      return a.y === b.y ? [] : [[a, b] as [Point, Point]];
+    }),
+  }));
+  return (clip, lines = 96) => {
+    const top = Math.min(...clip.map((p) => p.y));
+    const bottom = Math.max(...clip.map((p) => p.y));
+    const step = (bottom - top) / lines;
+    const x0 = Math.min(...clip.map(p => p.x)), x1 = Math.max(...clip.map(p => p.x));
+    // Preserve all ray crossings (including those outside the clip), but discard
+    // rings outside its bounds and edges that cannot cross any measuring line.
+    const edges = prepared.flatMap(({ box, edges }) => {
+      if (box[2] < x0 || box[0] > x1 || box[3] < top || box[1] > bottom) return [];
+      const relevant: Array<[Point, Point]> = [];
+      for (const [a, b] of edges) {
+        if (Math.max(a.y, b.y) >= top && Math.min(a.y, b.y) <= bottom) relevant.push([a, b]);
+      }
+      return [relevant];
+    });
+    let total = 0;
+    for (let n = 0; n < lines; n++) {
+      const y = top + (n + 0.5) * step;
+      // The width of `clip` on this line.
+      let left = Infinity;
+      let right = -Infinity;
+      for (let k = 0; k < clip.length; k++) {
+        const a = clip[k]!;
+        const b = clip[(k + 1) % clip.length]!;
+        if (a.y <= y !== b.y <= y) {
+          const x = a.x + ((y - a.y) / (b.y - a.y)) * (b.x - a.x);
+          left = Math.min(left, x);
+          right = Math.max(right, x);
+        }
+      }
+      if (!(right > left)) continue;
+      // Where each outline is on this line, as stretches of x.
+      const runs: Array<[number, number]> = [];
+      for (const ring of edges) {
+        const xs: number[] = [];
+        for (const [a, b] of ring) {
+          if (a.y <= y !== b.y <= y) xs.push(a.x + ((y - a.y) / (b.y - a.y)) * (b.x - a.x));
+        }
+        xs.sort((u, v) => u - v);
+        for (let k = 0; k + 1 < xs.length; k += 2) runs.push([Math.max(left, xs[k]!), Math.min(right, xs[k + 1]!)]);
+      }
+      runs.sort((u, v) => u[0] - v[0]);
+      let reach = -Infinity;
+      for (const [from, to] of runs) {
+        if (to <= from) continue;
+        const start = Math.max(from, reach);
+        if (to > start) total += (to - start) * step;
+        reach = Math.max(reach, to);
       }
     }
-    if (!(right > left)) continue;
-    // Where each outline is on this line, as stretches of x.
-    const runs: Array<[number, number]> = [];
-    for (const ring of rings) {
-      const xs: number[] = [];
-      for (let k = 0; k < ring.length; k++) {
-        const a = ring[k]!;
-        const b = ring[(k + 1) % ring.length]!;
-        if (a.y <= y !== b.y <= y) xs.push(a.x + ((y - a.y) / (b.y - a.y)) * (b.x - a.x));
-      }
-      xs.sort((u, v) => u - v);
-      for (let k = 0; k + 1 < xs.length; k += 2) runs.push([Math.max(left, xs[k]!), Math.min(right, xs[k + 1]!)]);
-    }
-    runs.sort((u, v) => u[0] - v[0]);
-    let reach = -Infinity;
-    for (const [from, to] of runs) {
-      if (to <= from) continue;
-      const start = Math.max(from, reach);
-      if (to > start) total += (to - start) * step;
-      reach = Math.max(reach, to);
-    }
-  }
-  return total;
+    return total;
+  };
 }
 
 /**

@@ -1,0 +1,196 @@
+{
+  "measuredOn": "2026-10-06",
+  "baseline": "80a1ca935862d83a88b52d924e3a4ed0b58c1e22",
+  "sceneBenchmark": {
+    "size": 50,
+    "runs": 3,
+    "results": [
+      {
+        "revision": "80a1ca9",
+        "layout": "continent",
+        "size": 50,
+        "coldMs": 775.6855860000001,
+        "displayMs": 10.963271000000077,
+        "editMs": 724.5010629999997,
+        "hashes": [
+          "4f7800dbb2f61575a1e9eeaa56aef27ca057bec44df69640330ac21dd0528c29",
+          "1b92d363017e732326e44c209c31cac3d81aaf6da15ba4a2da20c1c8b8c2ae06",
+          "037473d4c39b396b0e69c9fa921e55fcd3a43368f71d14d1ee7565589e50820c"
+        ]
+      },
+      {
+        "revision": "80a1ca9",
+        "layout": "archipelago",
+        "size": 50,
+        "coldMs": 4299.514904000001,
+        "displayMs": 26.22662599999967,
+        "editMs": 4482.35183,
+        "hashes": [
+          "fef831d79379cb88cbdeb6348a4f4000895fcb78aae3f98db62fdb87556bba7c",
+          "0f458c37b0d58a9f70fb1d3d47a23fd701db28ce2f01241391eefe9a69104561",
+          "e43ff4fb38175fe98e2f06b604c4e766c6601706728ac7009582ce27cce393bd"
+        ]
+      },
+      {
+        "revision": "80a1ca9",
+        "layout": "lakes",
+        "size": 50,
+        "coldMs": 18752.947875000013,
+        "displayMs": 21675.099955000012,
+        "editMs": 20094.577179,
+        "hashes": [
+          "5eca045bf05f688cbfa7b1c8f1fde1bf190f3ce8d5a33254129d947289880c74",
+          "f3f92ca7a380046bd105b3f336813d01e7205d15bbeaabe5522ae0c1cb124691",
+          "f1256e16b0628905e85a22583afc2ea46a0d98c9b4b1a24047a156a38fd6c5a6"
+        ]
+      },
+      {
+        "revision": "current",
+        "layout": "continent",
+        "size": 50,
+        "coldMs": 516.9588719999999,
+        "displayMs": 12.11942399999998,
+        "editMs": 616.2395430000001,
+        "hashes": [
+          "4f7800dbb2f61575a1e9eeaa56aef27ca057bec44df69640330ac21dd0528c29",
+          "1b92d363017e732326e44c209c31cac3d81aaf6da15ba4a2da20c1c8b8c2ae06",
+          "037473d4c39b396b0e69c9fa921e55fcd3a43368f71d14d1ee7565589e50820c"
+        ]
+      },
+      {
+        "revision": "current",
+        "layout": "archipelago",
+        "size": 50,
+        "coldMs": 1638.9954860000007,
+        "displayMs": 24.35284899999897,
+        "editMs": 1875.297098,
+        "hashes": [
+          "fef831d79379cb88cbdeb6348a4f4000895fcb78aae3f98db62fdb87556bba7c",
+          "0f458c37b0d58a9f70fb1d3d47a23fd701db28ce2f01241391eefe9a69104561",
+          "e43ff4fb38175fe98e2f06b604c4e766c6601706728ac7009582ce27cce393bd"
+        ]
+      },
+      {
+        "revision": "current",
+        "layout": "lakes",
+        "size": 50,
+        "coldMs": 798.0127369999973,
+        "displayMs": 705.7256129999987,
+        "editMs": 789.3848760000001,
+        "hashes": [
+          "5eca045bf05f688cbfa7b1c8f1fde1bf190f3ce8d5a33254129d947289880c74",
+          "f3f92ca7a380046bd105b3f336813d01e7205d15bbeaabe5522ae0c1cb124691",
+          "f1256e16b0628905e85a22583afc2ea46a0d98c9b4b1a24047a156a38fd6c5a6"
+        ]
+      }
+    ]
+  },
+  "browserChecks": {
+    "baseline": "80a1ca935862d83a88b52d924e3a4ed0b58c1e22",
+    "sceneResults": [
+      {
+        "layout": "continent",
+        "n": 30,
+        "beforeBuildMs": 836.1000000005588,
+        "afterBuildMs": 583.3999999994412,
+        "identicalScene": true,
+        "pixelDifferences": 0,
+        "hoverCopyMs": 0.475
+      },
+      {
+        "layout": "archipelago",
+        "n": 30,
+        "beforeBuildMs": 2064.2000000001863,
+        "afterBuildMs": 858.5,
+        "identicalScene": true,
+        "pixelDifferences": 0,
+        "hoverCopyMs": 0.3600000000093132
+      },
+      {
+        "layout": "lakes",
+        "n": 30,
+        "beforeBuildMs": 2526.2999999998137,
+        "afterBuildMs": 309.40000000037253,
+        "identicalScene": true,
+        "pixelDifferences": 0,
+        "hoverCopyMs": 0.3899999999906868
+      }
+    ],
+    "interactions": [
+      {
+        "version": "before",
+        "initialHash": "0a875b57edcaabc76c7128db52c6099f8733c3ef01eed90a9893969cf731e00f",
+        "hover": {
+          "stroke": 48720,
+          "copy": 0
+        },
+        "hoverMedianMs": 72.50120100000095,
+        "zoomRedrew": true,
+        "zoomStrokes": 3248,
+        "selection": {
+          "stroke": 3249,
+          "copy": 0
+        }
+      },
+      {
+        "version": "after",
+        "initialHash": "90c4c9cc8e1b64ca4debf10d3342bbab8d49d4d3c551c2f4bc7130c87e3502ab",
+        "hover": {
+          "stroke": 15,
+          "copy": 15
+        },
+        "hoverMedianMs": 49.79061400000137,
+        "zoomRedrew": true,
+        "zoomStrokes": 3248,
+        "selection": {
+          "stroke": 3,
+          "copy": 2
+        }
+      }
+    ],
+    "viewportPixels": {
+      "differingPixels": 1,
+      "maxChannelDelta": 1,
+      "totalPixels": 480000
+    }
+  },
+  "stress100": {
+    "size": 100,
+    "runs": 1,
+    "results": [
+      {
+        "revision": "current",
+        "layout": "continent",
+        "size": 100,
+        "coldMs": 3616.0724659999996,
+        "displayMs": 54.39429199999995,
+        "editMs": 1695.2650810000005,
+        "hashes": [
+          "774c7349cb11d036f29d39530657add5914da0f579735854bdec924f360827a9"
+        ]
+      },
+      {
+        "revision": "current",
+        "layout": "archipelago",
+        "size": 100,
+        "coldMs": 6851.930767999999,
+        "displayMs": 86.87226700000065,
+        "editMs": 6978.182423999999,
+        "hashes": [
+          "1f3e24bf6be8dde0d6110de604b31d6eb3dadb2860cd9992371b109f45ee39aa"
+        ]
+      },
+      {
+        "revision": "current",
+        "layout": "lakes",
+        "size": 100,
+        "coldMs": 3966.2992730000005,
+        "displayMs": 2895.447220000002,
+        "editMs": 3239.4751639999995,
+        "hashes": [
+          "84fb52cb7d8cd92c4c42d8f290d0211bffc5678bc19cd9288c33f7d0a7b798cc"
+        ]
+      }
+    ]
+  }
+}
