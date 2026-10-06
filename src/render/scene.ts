@@ -114,7 +114,7 @@ import { BUNDLED_FACES, LETTERINGS, type FaceRole } from './lettering.js';
 import { signed, unit } from './seed.js';
 import { descendantsOf } from '../../shared/polityTree.js';
 import { ELEVATION_RANK, floeFringe, glacierEdges, glacierFlow, glacierMarginPrims, glacierShading, glacierShelf, iceSeam, nearHexes, pathPolylines, seaIcePrims } from './ice.js';
-import { coastLengthIn, coveredArea, driftOf, nearestHex, nearestOn, shapeCoast, type ShapeMemo, type ShapeTarget } from './footprint.js';
+import { areaCoverage, coastLengthIn, coveredArea, driftOf, nearestHex, nearestOn, shapeCoast, type ShapeMemo, type ShapeTarget } from './footprint.js';
 import { channelShareSet, channelWidthFraction, drawnLandFraction, landFraction, normaliseHexDimensions } from '../../shared/surfaceArea.js';
 import { CLASSIC_STYLE, type ElevationStyle, type MapStyle } from './styles.js';
 import { extendToRim, rimPieces } from './rim.js';
@@ -2068,20 +2068,21 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
     const hexArea = 1.5 * Math.sqrt(3) * size * size;
     for (let pass = 0; pass < 6; pass++) {
       const rings = lakeDraws.flatMap((d) => pathPolylines(d, 4));
+      const coverage = areaCoverage(rings);
+      // Attribute shoreline segments once per pass, rather than rescanning every
+      // lake for every hex whose land share is being fitted.
+      const lengths = new Map<number, number>();
+      for (const ring of rings) for (let k = 0; k < ring.length; k++) {
+        const a = ring[k]!, b = ring[(k + 1) % ring.length]!;
+        const h = nearestHex({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }, cols, rows, size);
+        if (aims.has(h)) lengths.set(h, (lengths.get(h) ?? 0) + Math.hypot(b.x - a.x, b.y - a.y));
+      }
       let miss = 0;
       for (const [h, aim] of aims) {
         const corners = hexCorners(h % cols, Math.floor(h / cols), size);
-        // The shore's length in the hex: the stretches whose middle is nearest this hex's centre.
-        let length = 0;
-        for (const ring of rings) {
-          for (let k = 0; k < ring.length; k++) {
-            const a = ring[k]!;
-            const b = ring[(k + 1) % ring.length]!;
-            if (nearestHex({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }, cols, rows, size) === h) length += Math.hypot(b.x - a.x, b.y - a.y);
-          }
-        }
+        const length = lengths.get(h) ?? 0;
         if (length < 1e-6) continue;
-        const water = Math.max(0, coveredArea(rings, corners, 64) - length * inkReachOf);
+        const water = Math.max(0, coverage(corners, 64) - length * inkReachOf);
         const err = aim.land - (1 - water / hexArea);
         miss = Math.max(miss, Math.abs(err));
         const step = ((err * hexArea) / length) * 0.8;

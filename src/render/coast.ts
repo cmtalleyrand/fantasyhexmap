@@ -662,6 +662,10 @@ function hasArea(d: PathCmd[]): boolean {
   return edge > 0 && Math.abs(sum) / edge > 0.05;
 }
 
+// Scoped to one coast build's immutable policy; discarded when that policy is
+// released. Reuse unchanged components across the land-share fitting passes.
+const componentCache = new WeakMap<Roughness, Map<string, ReturnType<typeof componentCoast>>>();
+
 /**
  * The coast along `edges` (from `surfaceEdges`, or `shapeCoast` when hexes have
  * been reshaped to their land share), traced into chains and optionally smoothed
@@ -690,7 +694,22 @@ export function coastGeometryOf(
     if ((roughChain || (rough && rough.componentArea?.(chain) !== undefined)) && clearance) {
       component = true;
       aggregate ||= rough!.componentArea?.(chain) !== undefined;
-      const silhouette = componentCoast(chain, rough!, clearance);
+      let silhouette: ReturnType<typeof componentCoast>;
+      if (chain.closed) {
+        let cache = componentCache.get(rough!);
+        if (!cache) { cache = new Map(); componentCache.set(rough!, cache); }
+        const signature = JSON.stringify([chain.closed, rough!.size, rough!.componentArea?.(chain), rough!.componentInk,
+          chain.edges.map(edge => [edge.from.x, edge.from.y, edge.to.x, edge.to.y, edge.land, edge.water,
+            rough!.amplitude(edge), rough!.lean?.(edge), rough!.displacementLimit?.(edge)]), clearance.signature(chain)]);
+        silhouette = cache.get(signature)!;
+        if (!silhouette) {
+          silhouette = componentCoast(chain, rough!, clearance);
+          cache.set(signature, silhouette);
+        }
+      } else {
+        // Open shorelines being fitted to local shares move on every pass.
+        silhouette = componentCoast(chain, rough!, clearance);
+      }
       toLand.push(...silhouette.toLand);
       toWater.push(...silhouette.toWater);
       silhouette.anchors.forEach((point, id) => anchors.set(id, point));
