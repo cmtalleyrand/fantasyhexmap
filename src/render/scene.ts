@@ -928,6 +928,29 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
   };
 
   // --- land -------------------------------------------------------------------
+  // The swept boundary patches can fold at a source corner after large component movement.
+  // Extend donor ground beneath the final land silhouette first, so such folds cannot leave
+  // pinholes of the sea background. The normal hex fills and corrections restore donor detail
+  // above this underlay; one shared clip keeps it out of water and component holes.
+  if (traced?.geometry.component && base) {
+    const ground: Prim[] = [];
+    // The two geometry stages can move at most 1.2 hex radii in total. A donor-coloured
+    // band of half-width 1.25 radii covers that reach, including the ends of each source edge.
+    for (const chain of traced.geometry.chains) for (const edge of chain.edges) {
+      const dx = edge.to.x - edge.from.x, dy = edge.to.y - edge.from.y;
+      const length = Math.hypot(dx, dy) || 1;
+      const tx = dx / length * size * 1.25, ty = dy / length * size * 1.25;
+      const points = [
+        { x: edge.from.x - tx - ty, y: edge.from.y - ty + tx },
+        { x: edge.to.x + tx - ty, y: edge.to.y + ty + tx },
+        { x: edge.to.x + tx + ty, y: edge.to.y + ty - tx },
+        { x: edge.from.x - tx + ty, y: edge.from.y - ty - tx },
+      ];
+      ground.push({ kind: 'polygon', points, fill: hexFill(edge.land) });
+      for (const overlay of overlays(edge.land)) ground.push({ kind: 'polygon', points, fill: overlay });
+    }
+    prims.push({ kind: 'group', clip: drawnLand(traced.geometry, width, height, size), clipRule: 'evenodd', prims: ground });
+  }
   for (let row = 0; row < rows; row++) {
     for (let col = 0; col < cols; col++) {
       const i = hexIndex(cols, col, row);
@@ -1137,11 +1160,15 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
   /** The rim notches that are water, by body, so the sea's surface and its ice reach the page's edge. */
   const rimWater: Record<'sea' | 'lake', PathCmd[]> = { sea: [], lake: [] };
   if (base) {
+    const seaFills: Prim[] = [];
+    const fillSea = (prim: Prim) => componentWaterClip ? seaFills.push(prim) : prims.push(prim);
     for (let i = 0; i < base.length; i++) {
       if (isIslandType(base[i]) && !lakeIslands.has(i)) islands.push(i);
       if (!isWater(i) || isSplit(i)) continue;
       const fill = waterColour(i);
-      prims.push({ kind: 'polygon', points: hexCorners(i % cols, Math.floor(i / cols), size), fill, stroke: fill, strokeWidth: seal });
+      const prim: Prim = { kind: 'polygon', points: hexCorners(i % cols, Math.floor(i / cols), size), fill, stroke: fill, strokeWidth: seal };
+      if (base[i] === 'Lake') prims.push(prim);
+      else fillSea(prim);
     }
     // Islands in a lake are drawn on the lake's body, after it.
     for (const i of lakeIslands) islands.push(i);
@@ -1158,7 +1185,7 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
         const points = piecePoints(col, row, p, size);
         if (side === 'sea') {
           const fill = waterColour(split.donors[p]!);
-          prims.push({ kind: 'polygon', points, fill, stroke: fill, strokeWidth: seal });
+          fillSea({ kind: 'polygon', points, fill, stroke: fill, strokeWidth: seal });
           return;
         }
         const donor = side === 'land' ? split.donors[p]! : isWater(i) ? lakeShoreDonor(i) : i;
@@ -1178,7 +1205,9 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
         const surface = split ? split.sides[6 + piece.edge]! : isLakeHex(i) ? 'lake' : terrain?.whole[i] ?? (isWater(i) ? 'sea' : 'land');
         if (surface !== 'land') {
           const fill = surface === 'lake' ? palette.lake : palette.sea;
-          prims.push({ kind: 'path', d: polygonPath(piece.points), fill, stroke: fill, strokeWidth: seal });
+          const prim: Prim = { kind: 'path', d: polygonPath(piece.points), fill, stroke: fill, strokeWidth: seal };
+          if (surface === 'sea') fillSea(prim);
+          else prims.push(prim);
           rimWater[surface].push(...polygonPath(piece.points));
           continue;
         }
@@ -1188,6 +1217,9 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
         for (const overlay of overlays(donor)) prims.push({ kind: 'path', d: polygonPath(piece.points), fill: overlay });
       }
     }
+    // Clip the original sea fills too: their sealing strokes can otherwise leave tiny
+    // traces of old hex edges inside the new coastline, even when later patches are clipped.
+    if (componentWaterClip && seaFills.length > 0) prims.push({ kind: 'group', clip: componentWaterClip, clipRule: 'evenodd', prims: seaFills });
     // Water that a reshaped hex takes as land, in the colours of the land it grows from.
     for (const s of coast?.grown ?? []) {
       const fill = hexFill(s.donor);
