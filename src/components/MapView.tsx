@@ -3,7 +3,7 @@ import type { PolityNameMin } from '../render/labels.js';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { hexIndex, pixelToOffset, gridPixelSize, inBounds } from '../../shared/hex.js';
 import type { LayerId, MapState } from '../../shared/types.js';
-import { drawPrims, drawScene } from '../render/canvas.js';
+import { drawScene } from '../render/canvas.js';
 import { buildStaticScene, decorationPrims, type DrawingCompromise, type VisibleLayers } from '../render/scene.js';
 import type { MapStyle } from '../render/styles.js';
 import { MAP_COLOURS } from '../render/palette.js';
@@ -234,7 +234,7 @@ export default function MapView(props: MapViewProps) {
     ctx.save();
     ctx.translate(view.x, view.y);
     ctx.scale(view.scale, view.scale);
-    drawPrims(ctx, decoration);
+    drawScene(ctx, { ...scene, prims: decoration });
     ctx.restore();
   }, [scene, decoration, view, size]);
 

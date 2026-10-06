@@ -7,7 +7,14 @@ import type { GrainTile } from './texture.js';
 type Ctx = CanvasRenderingContext2D;
 
 export function drawScene(ctx: Ctx, scene: Scene): void {
+  // The viewport canvas is larger than the map when fitted or panned. Water
+  // bands, coast strokes and edge symbols may extend beyond the scene itself.
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(0, 0, scene.width, scene.height);
+  ctx.clip();
   drawPrims(ctx, scene.prims);
+  ctx.restore();
 }
 
 export function drawPrims(ctx: Ctx, prims: Prim[]): void {
