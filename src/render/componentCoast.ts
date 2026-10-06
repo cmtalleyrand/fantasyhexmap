@@ -154,8 +154,14 @@ export function componentCoast(chain: CoastChain, rough: Roughness, clearance: R
   // Features belong to the whole component, with independent locations, signs,
   // extents and profiles. Accumulate their finite supports into uniform samples;
   // there is no alternating knot sequence or one repeated motif per hex edge.
+  // Fitting moves the contour's centroid. Seeding features from that moving
+  // point redraws every bay/cape on each fitting pass, so area cannot converge.
+  // Donor identities remain stable while a component's boundary moves.
   const centre = { x: source.reduce((sum, p) => sum + p.x, 0) / n, y: source.reduce((sum, p) => sum + p.y, 0) / n };
-  const random = (feature: number, role: number) => rough.noise(centre.x / size, centre.y / size, feature * 31 + role);
+  const stableSeed = rough.featureSeed?.(chain);
+  const landSeed = stableSeed ?? centre.x / size;
+  const waterSeed = stableSeed !== undefined ? (chain.closed ? 0 : 1) : centre.y / size;
+  const random = (feature: number, role: number) => rough.noise(landSeed, waterSeed, feature * 31 + role);
   const features = (band: number) => {
     const broad = band === 0;
     const values = Array<number>(n).fill(0);
@@ -343,7 +349,7 @@ export function componentCoast(chain: CoastChain, rough: Roughness, clearance: R
   chain.points.forEach((p, i) => {
     const arc = starts[Math.min(i, starts.length - 1)]! + (i === starts.length ? distance(chain.edges.at(-1)!.from, chain.edges.at(-1)!.to) : 0);
     const t = arc / step, j = Math.min(n - 1, Math.floor(t));
-    anchors.set(`${Math.round(p.x * 100)},${Math.round(p.y * 100)}`, lerp(result[j]!, result[chain.closed ? (j + 1) % n : Math.min(n - 1, j + 1)]!, t - j));
+    anchors.set(`${Math.round(p.x * 10000)},${Math.round(p.y * 10000)}`, lerp(result[j]!, result[chain.closed ? (j + 1) % n : Math.min(n - 1, j + 1)]!, t - j));
   });
   const path: PathCmd[] = result.map((p, i) => [i ? 'L' : 'M', p.x, p.y] as PathCmd);
   if (chain.closed)

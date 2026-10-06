@@ -116,6 +116,7 @@ import { descendantsOf } from '../../shared/polityTree.js';
 import { ELEVATION_RANK, floeFringe, glacierEdges, glacierFlow, glacierMarginPrims, glacierShading, glacierShelf, iceSeam, nearHexes, pathPolylines, seaIcePrims } from './ice.js';
 import { areaCoverage, coastLengthIn, coveredArea, driftOf, nearestHex, nearestOn, shapeCoast, type ShapeMemo, type ShapeTarget } from './footprint.js';
 import { channelShareSet, channelWidthFraction, drawnLandFraction, landFraction, normaliseHexDimensions } from '../../shared/surfaceArea.js';
+import { fitCoastAreas } from './coastArea.js';
 import { CLASSIC_STYLE, type ElevationStyle, type MapStyle } from './styles.js';
 import { extendToRim, rimPieces } from './rim.js';
 import { grainTile } from './texture.js';
@@ -362,6 +363,7 @@ function cachedPolityLabels(
  */
 interface TracedCoast {
   geometry: CoastGeometry;
+  coverage: Map<number, { wanted: number; shown: number }>;
   lakes: number[][];
   lakeIslands: Set<number>;
   surface: SurfaceMap;
@@ -475,11 +477,16 @@ function cachedCoast(
     if (surface.split.has(i)) {
       // A neck or a channel is drawn at its width, which is across the hex: its flat-to-flat span.
       targets.set(i, channel !== null
-        ? { share: aimed, kind: base[i] === 'Strait' ? 'channel' : 'neck', width: channel * Math.sqrt(3) * size, fit: channelShareSet(base[i], dimensions, shapes?.[String(i)]) !== null, junctionSide: base[i] === 'Strait' ? shape.straitJunctionSide : undefined }
+        ? { share: aimed, kind: base[i] === 'Strait' ? 'channel' : 'neck', width: channel * Math.sqrt(3) * size, fit: channelShareSet(base[i], dimensions, shapes?.[String(i)]) !== null, junctionSide: base[i] === 'Strait' ? shape.straitJunctionSide : undefined,
+          bankBias: base[i] === 'Strait' ? Array.from({ length: 6 }, (_, e) => 0.8 + unit(seed, 'strait-bank', i, e) * 0.4) : undefined }
         : { share: aimed, kind: 'inset', concentrationSide: shape.concentrationSide, concentration: shape.concentration });
     } else if (surface.whole[i] === 'land' && aimed < 1 && (share < 1 || seaLength.has(i))) {
       // Whole hexes of land are cut back from the sea; a strait drawn whole is all water.
-      targets.set(i, { share: aimed, kind: 'inset', concentrationSide: shape.concentrationSide, concentration: shape.concentration });
+      const keepJoins = base[i] === 'Coastal Land' && [0, 1, 2, 3, 4, 5].some(e => {
+        const n = neighbourOf(i % cols, Math.floor(i / cols), e);
+        return inBounds(cols, rows, n.col, n.row) && base[hexIndex(cols, n.col, n.row)] === 'Strait';
+      });
+      targets.set(i, { share: aimed, kind: 'inset', keepJoins, joinShare: keepJoins ? share : undefined, concentrationSide: shape.concentrationSide, concentration: shape.concentration });
     }
   }
   /** What each hex is to show, before its ink: the share the loop below aims at once the ink is measured. */
@@ -493,6 +500,11 @@ function cachedCoast(
   // their specialized constraints; open components retain map-edge correspondence.
   const aggregateArea = new Map<number, number>();
   const rawChains = chainEdges(seaEdges);
+  const featureSeeds = new Map<number, number>();
+  for (const chain of rawChains) {
+    const id = Math.min(...chain.edges.map(edge => edge.land));
+    for (const edge of chain.edges) featureSeeds.set(edge.land, id);
+  }
   const boundariesByHex = new Map<number, Set<(typeof rawChains)[number]>>();
   for (const chain of rawChains) for (const edge of chain.edges) {
     if (edge.hex === undefined) continue;
@@ -528,6 +540,8 @@ function cachedCoast(
     ? {
         size,
         componentArea: chain => aggregateArea.get(chain.edges[0]?.hex ?? -1),
+        featureSeed: chain => aggregateArea.has(chain.edges[0]?.hex ?? -1) ? undefined
+          : Math.min(...chain.edges.map(edge => featureSeeds.get(edge.land) ?? edge.land)),
         componentInk: inkReach,
         amplitude: (edge: CoastEdge) => Math.min(Math.max(amplitudeOf(edge.hex), amplitudeOf(edge.across)), narrowest(edge.hex), narrowest(edge.across)),
         displacementLimit: (edge: CoastEdge) => Math.min(narrowest(edge.hex), narrowest(edge.across)) * size,
@@ -541,20 +555,24 @@ function cachedCoast(
     return { shaped, geometry: coastGeometryOf(shaped?.edges ?? seaEdges, smooth, rough, shaped ?? undefined) };
   };
   let { shaped, geometry } = trace(targets);
-  // A smoothed or roughened coast takes some land from a hex and gives some back, so the land drawn is a little
-  // off the share the hex was cut to. Cut it again to the share less what the coast moved, to draw the share itself.
+  // Fit the final outline and stroke, not requested area plus signed correction
+  // patches. Patches can overlap/fold, and a width-constrained shape may never
+  // have achieved its requested intermediate area in the first place.
   const hexArea = 1.5 * Math.sqrt(3) * size * size;
+  const page = gridPixelSize(cols, rows, size);
   let aimed = targets;
-  // Each pass measures what the coast as traced actually shows in every shaped hex (the land its smoothing keeps,
-  // plus the ink round it) and moves the cut by a part of what is missing. The measure shifts with the cut, so the
-  // passes can overshoot: the trace that came closest is kept.
-  let best: { shaped: typeof shaped; geometry: typeof geometry; miss: number } | null = null;
-  for (let pass = 0; pass < 7 && shaped && (smooth || inkReach > 0); pass++) {
-    const drift = driftOf(geometry, geometry.strips.length, new Set(targets.keys()), cols, rows, size, (d) => pathPolylines(d, 6));
-    // The border is land too: what shows is the share, so the land inside the line is less. The ink lies from the
-    // line out to its edge, which is what the share counts (the rest of the stroke is over land already counted).
-    const ink = inkReach > 0 ? coastLengthIn(geometry.paths.flatMap((d) => pathPolylines(d, 6)), new Set(targets.keys()), cols, rows, size) : new Map<number, number>();
+  const brackets = new Map([...targets.keys()].map(i => [i, { low: 0, high: 1 }]));
+  let best: { shaped: typeof shaped; geometry: typeof geometry; miss: number; shares: Map<number, ShapeTarget> } | null = null;
+  for (let pass = 0; pass < 16 && shaped && (smooth || inkReach > 0); pass++) {
+    const outlines = pathPolylines(drawnLand(geometry, page.width, page.height, size), 8);
+    const strokes = geometry.paths.flatMap(d => pathPolylines(d, 8));
+    const measure = areaCoverage(outlines, { evenOdd: true, stroke: { rings: strokes, reach: inkReach } });
+    // Lakes are fitted by their own later stage. Retain their offset accounting
+    // here only for mixed sea/lake shores, whose lake body does not exist yet.
+    const drift = lakeLength.size ? driftOf(geometry, geometry.strips.length, new Set(targets.keys()), cols, rows, size, d => pathPolylines(d, 6)) : new Map<number, number>();
+    const ink = lakeLength.size ? coastLengthIn(strokes, new Set(targets.keys()), cols, rows, size) : new Map<number, number>();
     let miss = 0;
+    let movement = 0;
     const next = new Map<number, ShapeTarget>();
     for (const [i, target] of targets) {
       // A neck or channel with no share set is drawn as it is; with one, its fill is found like any other cut.
@@ -563,21 +581,69 @@ function cachedCoast(
         continue;
       }
       const was = aimed.get(i)!.share;
-      const shows = was + (drift.get(i) ?? 0) / hexArea + (((ink.get(i) ?? 0) + (lakeLength.get(i) ?? 0)) * inkReach) / hexArea;
+      const shows = lakeLength.has(i)
+        ? was + (drift.get(i) ?? 0) / hexArea + (((ink.get(i) ?? 0) + (lakeLength.get(i) ?? 0)) * inkReach) / hexArea
+        : measure(hexCorners(i % cols, Math.floor(i / cols), size)) / hexArea;
       const short = wanted.get(i)! - shows;
-      // A neck or channel with a share set may not be able to reach it (its width allows a least and a most): that
-      // is not a coast cut badly, and must not decide which pass is kept for the hexes round it.
-      if (!target.fit) miss = Math.max(miss, Math.abs(short));
-      next.set(i, { ...target, share: Math.min(1, Math.max(0, was + short * 0.8)) });
+      miss += short * short;
+      const bracket = brackets.get(i)!;
+      if (short > 0) bracket.low = was;
+      else bracket.high = was;
+      const share = Math.abs(short) < 0.002 ? was : (bracket.low + bracket.high) / 2;
+      movement = Math.max(movement, Math.abs(share - was));
+      next.set(i, { ...target, share });
     }
-    if (!best || miss < best.miss) best = { shaped, geometry, miss };
-    // The final pass has already measured its candidate. Tracing another
-    // candidate here would discard it without ever measuring or selecting it.
-    if (miss < 0.004 || pass === 6) break;
+    if (!best || miss < best.miss) best = { shaped, geometry, miss, shares: new Map(aimed) };
+    // The final candidate has already been measured; avoid an unused trace.
+    if (movement < 0.0001 || pass === 15) break;
     aimed = next;
     ({ shaped, geometry } = trace(aimed));
   }
-  if (best && best.shaped !== shaped) ({ shaped, geometry } = best);
+  if (best) { ({ shaped, geometry } = best); aimed = best.shares; }
+  // Re-bracket explicitly fitted passages with their neighbours held fixed.
+  // Width ceilings must be measured, and simultaneous bounds can become stale
+  // when a neighbouring coastline moves. Ordinary coasts use the local final
+  // silhouette fit below, avoiding repeated whole-map tracing for every hex.
+  for (const [i, target] of targets) {
+    if (!target.fit || lakeLength.has(i)) continue;
+    const clip = hexCorners(i % cols, Math.floor(i / cols), size);
+    const shownAt = (g: CoastGeometry) => areaCoverage(pathPolylines(drawnLand(g, page.width, page.height, size), 8), {
+      evenOdd: true, stroke: { rings: g.paths.flatMap(d => pathPolylines(d, 8)), reach: inkReach },
+    })(clip) / hexArea;
+    let error = Math.abs(shownAt(geometry) - wanted.get(i)!);
+    if (error < 0.004) continue;
+    let selected: ReturnType<typeof trace> & { share: number } = { shaped, geometry, share: aimed.get(i)!.share };
+    const sample = (share: number) => {
+      const trial = new Map(aimed);
+      trial.set(i, { ...target, share });
+      const result = trace(trial), shown = shownAt(result.geometry);
+      const miss = Math.abs(shown - wanted.get(i)!);
+      if (miss < error) { error = miss; selected = { ...result, share }; }
+      return shown;
+    };
+    let low = 0, high = 1;
+    const minimum = sample(low), maximum = sample(high);
+    if (wanted.get(i)! > minimum && wanted.get(i)! < maximum) for (let step = 0; step < 12 && error > 0.002; step++) {
+      const middle = (low + high) / 2;
+      if (sample(middle) < wanted.get(i)!) low = middle;
+      else high = middle;
+    }
+    ({ shaped, geometry } = selected);
+    aimed.set(i, { ...target, share: selected.share });
+  }
+  geometry = fitCoastAreas(geometry, new Map([...targets].flatMap(([i, target]) =>
+    base[i] === 'Land' || lakeLength.has(i) || (target.width !== undefined && !target.fit) ? []
+      : [[i, { share: wanted.get(i)!, width: target.width }] as const])), cols, rows, size, page, inkReach);
+  const coverage = new Map<number, { wanted: number; shown: number }>();
+  if (targets.size) {
+    const measure = areaCoverage(pathPolylines(drawnLand(geometry, page.width, page.height, size), 8), {
+      evenOdd: true, stroke: { rings: geometry.paths.flatMap(d => pathPolylines(d, 8)), reach: inkReach },
+    });
+    for (const [i, target] of targets) {
+      if (base[i] === 'Land' || lakeLength.has(i) || (target.width !== undefined && !target.fit)) continue;
+      coverage.set(i, { wanted: wanted.get(i)!, shown: measure(hexCorners(i % cols, Math.floor(i / cols), size)) / hexArea });
+    }
+  }
   // A lake hex with a land share has land drawn in from the edges it shares with land, as deep as the share needs.
   const lakeInsets = new Map<number, number>();
   for (let i = 0; i < base.length; i++) {
@@ -596,7 +662,7 @@ function cachedCoast(
     if (lakeLength.has(i) && !seaLength.has(i) && !surface.split.has(i)) lakeAim.set(i, { land: wanted.get(i)!, lake: false });
   }
   for (const i of lakeInsets.keys()) lakeAim.set(i, { land: landFraction('Lake', undefined, dimensions, shapes?.[String(i)]), lake: true });
-  const entry = { key, geometry, lakes, lakeIslands, surface, insets: shaped?.insets ?? new Map<number, number>(), lakeInsets, lakeAim, onLand: landTest(surface, shaped?.land ?? new Map(), size) };
+  const entry = { key, geometry, coverage, lakes, lakeIslands, surface, insets: shaped?.insets ?? new Map<number, number>(), lakeInsets, lakeAim, onLand: landTest(surface, shaped?.land ?? new Map(), size) };
   coastCache.set(base, entry);
   return entry;
 }
@@ -756,6 +822,16 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
   if (memo) memo.dry = seaCoastLand;
   /** Where the drawing could not do everything asked of it. */
   const compromises: DrawingCompromise[] = [];
+  for (const [i, { wanted, shown }] of traced?.coverage ?? []) {
+    if (Math.abs(wanted - shown) <= 0.01) continue;
+    compromises.push({
+      hexes: [i],
+      what: `${Math.round(shown * 100)}% land drawn instead of ${Math.round(wanted * 100)}%`,
+      why: base?.[i] === 'Strait' || base?.[i] === 'Isthmus'
+        ? 'the chosen passage width and connected shores limit how much land fits; change the width or land percentage'
+        : 'the coastline could not reach this percentage while fitting the neighbouring shores',
+    });
+  }
   /** Every symbol drawn on the land, for the audit (see `symbolsOf`). */
   const traces: SymbolTrace[] = [];
   const trace = (hex: number, placed: Placed[]) => {
@@ -1073,7 +1149,7 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
     }
   }
 
-  if (traced?.geometry.aggregate) {
+  if (traced?.geometry.component) {
     const ground = prims.splice(groundStart);
     prims.push({ kind: 'group', clip: drawnLand(traced.geometry, width, height, size), clipRule: 'evenodd', prims: ground });
   }
