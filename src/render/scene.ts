@@ -492,6 +492,7 @@ function cachedCoast(
     ? {
         size,
         amplitude: (edge: CoastEdge) => Math.min(Math.max(amplitudeOf(edge.hex), amplitudeOf(edge.across)), narrowest(edge.hex), narrowest(edge.across)),
+        displacementLimit: (edge: CoastEdge) => Math.min(narrowest(edge.hex), narrowest(edge.across)) * size,
         noise: (x, y, k) => unit(seed, 'coast', Math.round(x * 1000), Math.round(y * 1000), k),
       }
     : undefined;
@@ -1126,6 +1127,10 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
 
   // --- water --------------------------------------------------------------------
   const coast = traced && (knobs.coast !== 'none' || knobs.water !== 'flat') ? traced.geometry : null;
+  const componentWaterClip: PathCmd[] | null = coast?.component ? [
+    ...polygonPath([{ x: -size, y: -size }, { x: width + size, y: -size }, { x: width + size, y: height + size }, { x: -size, y: height + size }]),
+    ...drawnLand(coast, width, height, size),
+  ] : null;
   // Sea ice lies on ordinary sea; its pack is drawn over the water below.
   const waterColour = (i: number) => (base?.[i] === 'Lake' ? palette.lake : palette.sea);
   const islands: number[] = [];
@@ -1189,11 +1194,15 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
       prims.push({ kind: 'path', d: s.d, fill, stroke: fill, strokeWidth: seal });
       for (const overlay of overlays(s.donor)) prims.push({ kind: 'path', d: s.d, fill: overlay });
     }
-    // Corners of land that the smoothed coast cuts off become water.
-    for (const s of coast?.toWater ?? []) {
+    // Whole-component movement can fold the swept donor ribbon at tight turns. Clip its
+    // water corrections to the final silhouette, so overlapping patches cannot scar the land.
+    const corrections: Prim[] = (coast?.toWater ?? []).map((s) => {
       const fill = waterColour(s.donor);
-      prims.push({ kind: 'path', d: s.d, fill, stroke: fill, strokeWidth: seal });
-    }
+      return { kind: 'path', d: s.d, fill, stroke: fill, strokeWidth: seal };
+    });
+    if (componentWaterClip) {
+      prims.push({ kind: 'group', clipRule: 'evenodd', clip: componentWaterClip, prims: corrections });
+    } else prims.push(...corrections);
   }
 
   const islandRand = (i: number) => {
@@ -1784,6 +1793,7 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
    * sea, and open to the same clip.
    */
   const waterClip = (body: 'sea' | 'lake'): PathCmd[] | null => {
+    if (body === 'sea' && componentWaterClip) return componentWaterClip;
     if (!base) return null;
     const hexes: number[] = [];
     base.forEach((v, i) => {
@@ -1823,7 +1833,7 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
       const surface = knobs.water === 'depth'
         ? depthBands(shorelines, size, water, shift(palette.seaShallow, palette.sea, water))
         : rippleBands(shorelines, size, water, palette.ripple, palette.rippleAlpha, body === 'lake' ? Math.min(1, knobs.ripples) : knobs.ripples);
-      prims.push({ kind: 'group', clip, prims: surface });
+      prims.push({ kind: 'group', clip, clipRule: body === 'sea' && componentWaterClip ? 'evenodd' : 'nonzero', prims: surface });
     }
   }
 
@@ -1866,7 +1876,7 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
     }
     // Bergs break off the glacier's coast, more of them the more irregular it is.
     if (texturedIce && knobs.coast === 'smooth' && glacierHexes.length > 0 && !thematic) drawn.push(...floeFringe(coastLines, size, seed, nearGlacier, iceColours));
-    if (clip && drawn.length > 0) prims.push({ kind: 'group', clip, prims: drawn });
+    if (clip && drawn.length > 0) prims.push({ kind: 'group', clip, clipRule: componentWaterClip ? 'evenodd' : 'nonzero', prims: drawn });
   }
 
   // --- lakes ----------------------------------------------------------------------
@@ -2069,11 +2079,14 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
 
   // Notches of water that the smoothed coast fills in become land, painted with
   // everything the neighbouring land hex is painted with.
+  const gainedLand: Prim[] = [];
   for (const s of coast?.toLand ?? []) {
     const fill = hexFill(s.donor);
-    prims.push({ kind: 'path', d: s.d, fill, stroke: fill, strokeWidth: seal });
-    for (const overlay of overlays(s.donor)) prims.push({ kind: 'path', d: s.d, fill: overlay });
+    gainedLand.push({ kind: 'path', d: s.d, fill, stroke: fill, strokeWidth: seal });
+    for (const overlay of overlays(s.donor)) gainedLand.push({ kind: 'path', d: s.d, fill: overlay });
   }
+  if (coast?.component) prims.push({ kind: 'group', clip: drawnLand(coast, width, height, size), clipRule: 'evenodd', prims: gainedLand });
+  else prims.push(...gainedLand);
 
   // The slope of a glacier down to the sea, over its own land and the coast
   // notches filled in for it, and under the grid and the coastline.

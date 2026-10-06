@@ -9,18 +9,23 @@
  * always exactly one coast edge in and one out), so the chaining needs no
  * tie-breaking.
  *
- * Smoothing replaces each chain with the quadratic B-spline through its edge
+ * Smooth coasts use the quadratic B-spline through their edge
  * midpoints. That curve still passes through the midpoint of every coast edge
  * and never strays more than an eighth of a hex (size / 8) from the hex corner
  * it rounds, so no hex changes side. The hex fills are corrected to match: at
  * every vertex the curve cuts across, the small "sliver" between the corner and
  * the curve is repainted with the colour of the side it now belongs to.
+ * Irregular coasts instead resample and filter the entire boundary at a
+ * multi-hex wavelength before adding continuous seeded detail. Width and
+ * opposing-shore constraints protect narrow features; source-edge correspondence
+ * is retained only for colours, fill corrections and border endpoints.
  */
 
 import { hexCenter, hexCorners, hexEdgePoints, hexIndex, inBounds, neighbourOf, pixelToOffset, type Point } from '../../shared/hex.js';
 import { isIslandType, type BaseGeo } from '../../shared/types.js';
 import type { PathCmd } from './prims.js';
 import { signed } from './seed.js';
+import { coastClearance, componentCoast } from './componentCoast.js';
 
 export type Side = 'land' | 'water';
 
@@ -238,6 +243,8 @@ export interface Sliver {
 }
 
 export interface CoastGeometry {
+  /** At least one coastline uses a component silhouette rather than corner curves. */
+  component?: boolean;
   chains: CoastChain[];
   /** Water strips left between a hex's own edge and its inset coast (a hex with less than all of itself as land). */
   strips: Sliver[];
@@ -416,6 +423,8 @@ export interface Roughness {
   lean?: (edge: CoastEdge) => number;
   noise: (x: number, y: number, k: number) => number;
   size: number;
+  /** Maximum total displacement for explicit neck/channel width constraints, in pixels. */
+  displacementLimit?: (edge: CoastEdge) => number;
 }
 
 /** Samples along each quadratic piece of a roughened coast. */
@@ -660,41 +669,26 @@ export function coastGeometryOf(
 ): CoastGeometry {
   const strips: Sliver[] = reshaped?.strips ?? [];
   const chains = chainEdges(edges);
+  const clearance = rough ? coastClearance(chains, rough.size) : null;
   const toWater: Sliver[] = [...strips];
   const toLand: Sliver[] = [];
   const anchors = new Map<string, Point>();
+  let component = false;
   const paths = chains.map((chain) => {
     if (!smooth || chain.points.length < 3) return hexPath(chain);
     const { points, edges, closed } = chain;
     const n = points.length;
     const edgeAmplitude = edges.map((edge) => rough?.amplitude(edge) ?? 0);
     const roughChain = rough !== undefined && edgeAmplitude.some((amplitude) => amplitude > 0);
-    // Neighbour averaging gives each random choice a multi-corner reach; RMS normalisation prevents an unlucky
-    // seed from making an entire island almost circular merely because all of its raw values were near zero.
-    const rawBias = points.map((point) => rough ? rough.noise(point.x / rough.size, point.y / rough.size, 30) * 2 - 1 : 0);
-    const broadBias = rawBias.map((value, i) => {
-      const prev = rawBias[(i - 1 + n) % n] ?? value;
-      const next = rawBias[(i + 1) % n] ?? value;
-      return prev * 0.25 + value * 0.5 + next * 0.25;
-    });
-    const rms = Math.sqrt(broadBias.reduce((sum, value) => sum + value * value, 0) / Math.max(1, n)) || 1;
-    const cornerBias = broadBias.map((value) => Math.max(-1, Math.min(1, value / rms * 0.65)));
-    // Moving each anchor both along and across its source edge breaks the equal-radius lobes produced by a chain
-    // of hexes. The displacement stays well below half a hex, so edge order and coast topology remain unchanged.
-    const edgeAnchor = edges.map((edge, i) => {
-      if (!roughChain || edgeAmplitude[i] === 0) return mid(edge.from, edge.to);
-      const forward = key(edge.from) <= key(edge.to);
-      const [a, b] = forward ? [edge.from, edge.to] : [edge.to, edge.from];
-      const m = mid(a, b);
-      const strength = Math.min(1, edgeAmplitude[i]! / 0.2);
-      const t = 0.5 + (rough.noise(m.x / rough.size, m.y / rough.size, 21) * 2 - 1) * 0.24 * strength;
-      const dx = b.x - a.x;
-      const dy = b.y - a.y;
-      const length = Math.hypot(dx, dy) || 1;
-      const off = (rough.noise(m.x / rough.size, m.y / rough.size, 22) * 2 - 1) * edgeAmplitude[i]! * rough.size * 0.85;
-      return { x: a.x + dx * t - (dy / length) * off, y: a.y + dy * t + (dx / length) * off };
-    });
-    // Per corner: the plain curve (and its slivers), or the roughened one.
+    if (roughChain && clearance) {
+      component = true;
+      const silhouette = componentCoast(chain, rough!, clearance);
+      toLand.push(...silhouette.toLand);
+      toWater.push(...silhouette.toWater);
+      silhouette.anchors.forEach((point, id) => anchors.set(id, point));
+      return silhouette.path;
+    }
+    // Legacy Smooth geometry, with optional lean used by ice margins.
     const piece: Array<Point[] | null> = points.map(() => null);
     for (let k = closed ? 0 : 1; k < (closed ? n : n - 1); k++) {
       const incoming = edges[(k - 1 + edges.length) % edges.length]!;
@@ -704,20 +698,13 @@ export function coastGeometryOf(
       const b = points[(k + 1) % n]!;
       const amplitude = Math.max(edgeAmplitude[(k - 1 + edges.length) % edges.length]!, edgeAmplitude[k % edges.length]!);
       // The curve's middle is the stretch of the coast nearest the corner.
-      const m0 = roughChain ? edgeAnchor[(k - 1 + edges.length) % edges.length]! : mid(a, p);
-      const m1 = roughChain ? edgeAnchor[k % edges.length]! : mid(p, b);
+      const m0 = mid(a, p);
+      const m1 = mid(p, b);
       anchors.set(key(p), { x: (m0.x + 2 * p.x + m1.x) / 4, y: (m0.y + 2 * p.y + m1.y) / 4 });
       const turn = (p.x - a.x) * (b.y - p.y) - (p.y - a.y) * (b.x - p.x);
       const lean = rough?.lean ? (rough.lean(incoming) + rough.lean(outgoing)) / 2 : 0;
-      if (rough && (roughChain || lean !== 0)) {
-        // A concave vertex is the grid-scale notch between neighbouring land hexes. Moving its curve control
-        // towards the chord removes that one-hex notch before noise is applied, while multi-hex bays remain.
-        const strength = Math.sqrt(Math.min(1, amplitude / 0.2));
-        const chord = mid(a, b);
-        const control = turn < 0
-          ? { x: p.x + (chord.x - p.x) * 0.92 * strength, y: p.y + (chord.y - p.y) * 0.92 * strength }
-          : p;
-        const samples = roughPiece(m0, control, m1, amplitude, lean, cornerBias[k]!, rough);
+      if (rough && lean !== 0) {
+        const samples = roughPiece(m0, p, m1, amplitude, lean, 0, rough);
         piece[k] = samples;
         anchors.set(key(p), samples[ROUGH_STEPS >> 1]!);
         for (const lobe of roughLobes(m0, p, m1, samples)) {
@@ -739,7 +726,7 @@ export function coastGeometryOf(
     }
     return piece.some(Boolean) ? roughPath(points, closed, piece) : smoothPath(points, closed);
   });
-  return { chains, strips, paths, toWater, toLand, grown: reshaped?.grown ?? [], water: reshaped?.water ?? new Map(), land: reshaped?.land ?? new Map(), anchors };
+  return { component, chains, strips, paths, toWater, toLand, grown: reshaped?.grown ?? [], water: reshaped?.water ?? new Map(), land: reshaped?.land ?? new Map(), anchors };
 }
 
 /** A smoothed chain in which some corners carry a sampled, roughened curve. */
