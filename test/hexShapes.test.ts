@@ -238,7 +238,7 @@ test('a roughened coast moves anchors out of the hex-edge rhythm, and corrects t
     for (const edge of chain.edges) {
       const mid = [(edge.from.x + edge.to.x) / 2, (edge.from.y + edge.to.y) / 2];
       const nearest = Math.min(...onPath.map((p) => Math.hypot(p[0]! - mid[0]!, p[1]! - mid[1]!)));
-      assert.ok(nearest < size * 0.4, 'each edge still has a nearby coast anchor');
+      assert.ok(nearest < size, 'the component silhouette stays within the source shoreline neighbourhood');
       if (nearest > size * 0.02) shifted++;
     }
   });
@@ -791,7 +791,7 @@ test('a land hex between two lakes still takes its lake shores irregularity', ()
   const wobble = (irregular: 'Smooth' | 'Fractured') => {
     const base: BaseGeo[] = Array.from({ length: 25 }, () => 'Land');
     for (const [c, r] of lakes) base[r * 5 + c] = 'Lake';
-    const map = { ...mapWith(base, 5, 5), defaultLakeIrregularity: irregular };
+    const map = { ...mapWith(base, 5, 5), id: 'lake-strip-irregularity', defaultLakeIrregularity: irregular };
     const centre = hexCenter(2, 2, size);
     let turning = 0;
     for (const p of buildScene(map, { size, visible: defaultVisibility(), labels: false, style: smooth }).prims) {

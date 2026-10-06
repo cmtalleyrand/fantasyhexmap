@@ -488,10 +488,49 @@ function cachedCoast(
     const own = drawnLandFraction(base[i], dimensions, shapes?.[String(i)]);
     wanted.set(i, own ?? 1);
   }
+  // Redistribute a coastal component's land share instead of cutting each hex
+  // independently. Explicit local shares, lake shores and split geography retain
+  // their specialized constraints; open components retain map-edge correspondence.
+  const aggregateArea = new Map<number, number>();
+  const rawChains = chainEdges(seaEdges);
+  const boundariesByHex = new Map<number, Set<(typeof rawChains)[number]>>();
+  for (const chain of rawChains) for (const edge of chain.edges) {
+    if (edge.hex === undefined) continue;
+    let list = boundariesByHex.get(edge.hex);
+    if (!list) { list = new Set(); boundariesByHex.set(edge.hex, list); }
+    list.add(chain);
+  }
+  const visited = new Set<number>();
+  if (smooth) for (let start = 0; start < base.length; start++) {
+    if (visited.has(start) || surface.whole[start] === 'sea' || !surface.whole[start]) continue;
+    const cells = [start];
+    visited.add(start);
+    for (let head = 0; head < cells.length; head++) {
+      const i = cells[head]!;
+      for (let side = 0; side < 6; side++) {
+        const neighbour = neighbourOf(i % cols, Math.floor(i / cols), side);
+        if (!inBounds(cols, rows, neighbour.col, neighbour.row)) continue;
+        const j = hexIndex(cols, neighbour.col, neighbour.row);
+        if (visited.has(j) || surface.whole[j] === 'sea' || !surface.whole[j]) continue;
+        visited.add(j); cells.push(j);
+      }
+    }
+    const boundaries = [...new Set(cells.flatMap(i => [...(boundariesByHex.get(i) ?? [])]))];
+    if (boundaries.length !== 1 || !boundaries[0]!.closed || cells.length < 2 || boundaries[0]!.edges.some(edge =>
+      (edge.hex !== undefined && surface.split.has(edge.hex)) || (edge.across !== undefined && surface.split.has(edge.across))) || cells.some(i => {
+      const shape = shapes?.[String(i)];
+      return !['Land', 'Coastal Land'].includes(base[i] ?? '') || shape?.land !== undefined || (shape?.concentration ?? 0) > 0;
+    })) continue;
+    const area = cells.reduce((sum, i) => sum + landFraction(base[i], undefined, dimensions, shapes?.[String(i)]) * hexAreaOf, 0);
+    for (const i of cells) { aggregateArea.set(i, area); targets.delete(i); }
+  }
   const rough: Roughness | undefined = smooth
     ? {
         size,
+        componentArea: chain => aggregateArea.get(chain.edges[0]?.hex ?? -1),
+        componentInk: inkReach,
         amplitude: (edge: CoastEdge) => Math.min(Math.max(amplitudeOf(edge.hex), amplitudeOf(edge.across)), narrowest(edge.hex), narrowest(edge.across)),
+        displacementLimit: (edge: CoastEdge) => Math.min(narrowest(edge.hex), narrowest(edge.across)) * size,
         noise: (x, y, k) => unit(seed, 'coast', Math.round(x * 1000), Math.round(y * 1000), k),
       }
     : undefined;
@@ -927,6 +966,30 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
   };
 
   // --- land -------------------------------------------------------------------
+  // The swept boundary patches can fold at a source corner after large component movement.
+  // Extend donor ground beneath the final land silhouette first, so such folds cannot leave
+  // pinholes of the sea background. The normal hex fills and corrections restore donor detail
+  // above this underlay; one shared clip keeps it out of water and component holes.
+  if (traced?.geometry.component && base) {
+    const ground: Prim[] = [];
+    // Component area adjustment can move beyond the former local 1.2-radius budget.
+    // Extend donor ground around source edges, clipped to the final component silhouette.
+    for (const chain of traced.geometry.chains) for (const edge of chain.edges) {
+      const dx = edge.to.x - edge.from.x, dy = edge.to.y - edge.from.y;
+      const length = Math.hypot(dx, dy) || 1;
+      const tx = dx / length * size * 2.5, ty = dy / length * size * 2.5;
+      const points = [
+        { x: edge.from.x - tx - ty, y: edge.from.y - ty + tx },
+        { x: edge.to.x + tx - ty, y: edge.to.y + ty + tx },
+        { x: edge.to.x + tx + ty, y: edge.to.y + ty - tx },
+        { x: edge.from.x - tx + ty, y: edge.from.y - ty - tx },
+      ];
+      ground.push({ kind: 'polygon', points, fill: hexFill(edge.land) });
+      for (const overlay of overlays(edge.land)) ground.push({ kind: 'polygon', points, fill: overlay });
+    }
+    prims.push({ kind: 'group', clip: drawnLand(traced.geometry, width, height, size), clipRule: 'evenodd', prims: ground });
+  }
+  const groundStart = prims.length;
   for (let row = 0; row < rows; row++) {
     for (let col = 0; col < cols; col++) {
       const i = hexIndex(cols, col, row);
@@ -1006,6 +1069,11 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
         }
       }
     }
+  }
+
+  if (traced?.geometry.aggregate) {
+    const ground = prims.splice(groundStart);
+    prims.push({ kind: 'group', clip: drawnLand(traced.geometry, width, height, size), clipRule: 'evenodd', prims: ground });
   }
 
   // --- glacier ground ----------------------------------------------------------------
@@ -1126,17 +1194,25 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
 
   // --- water --------------------------------------------------------------------
   const coast = traced && (knobs.coast !== 'none' || knobs.water !== 'flat') ? traced.geometry : null;
+  const componentWaterClip: PathCmd[] | null = coast?.component ? [
+    ...polygonPath([{ x: -size, y: -size }, { x: width + size, y: -size }, { x: width + size, y: height + size }, { x: -size, y: height + size }]),
+    ...drawnLand(coast, width, height, size),
+  ] : null;
   // Sea ice lies on ordinary sea; its pack is drawn over the water below.
   const waterColour = (i: number) => (base?.[i] === 'Lake' ? palette.lake : palette.sea);
   const islands: number[] = [];
   /** The rim notches that are water, by body, so the sea's surface and its ice reach the page's edge. */
   const rimWater: Record<'sea' | 'lake', PathCmd[]> = { sea: [], lake: [] };
   if (base) {
+    const seaFills: Prim[] = [];
+    const fillSea = (prim: Prim) => componentWaterClip ? seaFills.push(prim) : prims.push(prim);
     for (let i = 0; i < base.length; i++) {
       if (isIslandType(base[i]) && !lakeIslands.has(i)) islands.push(i);
       if (!isWater(i) || isSplit(i)) continue;
       const fill = waterColour(i);
-      prims.push({ kind: 'polygon', points: hexCorners(i % cols, Math.floor(i / cols), size), fill, stroke: fill, strokeWidth: seal });
+      const prim: Prim = { kind: 'polygon', points: hexCorners(i % cols, Math.floor(i / cols), size), fill, stroke: fill, strokeWidth: seal };
+      if (base[i] === 'Lake') prims.push(prim);
+      else fillSea(prim);
     }
     // Islands in a lake are drawn on the lake's body, after it.
     for (const i of lakeIslands) islands.push(i);
@@ -1153,7 +1229,7 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
         const points = piecePoints(col, row, p, size);
         if (side === 'sea') {
           const fill = waterColour(split.donors[p]!);
-          prims.push({ kind: 'polygon', points, fill, stroke: fill, strokeWidth: seal });
+          fillSea({ kind: 'polygon', points, fill, stroke: fill, strokeWidth: seal });
           return;
         }
         const donor = side === 'land' ? split.donors[p]! : isWater(i) ? lakeShoreDonor(i) : i;
@@ -1173,7 +1249,9 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
         const surface = split ? split.sides[6 + piece.edge]! : isLakeHex(i) ? 'lake' : terrain?.whole[i] ?? (isWater(i) ? 'sea' : 'land');
         if (surface !== 'land') {
           const fill = surface === 'lake' ? palette.lake : palette.sea;
-          prims.push({ kind: 'path', d: polygonPath(piece.points), fill, stroke: fill, strokeWidth: seal });
+          const prim: Prim = { kind: 'path', d: polygonPath(piece.points), fill, stroke: fill, strokeWidth: seal };
+          if (surface === 'sea') fillSea(prim);
+          else prims.push(prim);
           rimWater[surface].push(...polygonPath(piece.points));
           continue;
         }
@@ -1183,17 +1261,24 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
         for (const overlay of overlays(donor)) prims.push({ kind: 'path', d: polygonPath(piece.points), fill: overlay });
       }
     }
+    // Clip the original sea fills too: their sealing strokes can otherwise leave tiny
+    // traces of old hex edges inside the new coastline, even when later patches are clipped.
+    if (componentWaterClip && seaFills.length > 0) prims.push({ kind: 'group', clip: componentWaterClip, clipRule: 'evenodd', prims: seaFills });
     // Water that a reshaped hex takes as land, in the colours of the land it grows from.
     for (const s of coast?.grown ?? []) {
       const fill = hexFill(s.donor);
       prims.push({ kind: 'path', d: s.d, fill, stroke: fill, strokeWidth: seal });
       for (const overlay of overlays(s.donor)) prims.push({ kind: 'path', d: s.d, fill: overlay });
     }
-    // Corners of land that the smoothed coast cuts off become water.
-    for (const s of coast?.toWater ?? []) {
+    // Whole-component movement can fold the swept donor ribbon at tight turns. Clip its
+    // water corrections to the final silhouette, so overlapping patches cannot scar the land.
+    const corrections: Prim[] = (coast?.toWater ?? []).map((s) => {
       const fill = waterColour(s.donor);
-      prims.push({ kind: 'path', d: s.d, fill, stroke: fill, strokeWidth: seal });
-    }
+      return { kind: 'path', d: s.d, fill, stroke: fill, strokeWidth: seal };
+    });
+    if (componentWaterClip) {
+      prims.push({ kind: 'group', clipRule: 'evenodd', clip: componentWaterClip, prims: corrections });
+    } else prims.push(...corrections);
   }
 
   const islandRand = (i: number) => {
@@ -1784,6 +1869,7 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
    * sea, and open to the same clip.
    */
   const waterClip = (body: 'sea' | 'lake'): PathCmd[] | null => {
+    if (body === 'sea' && componentWaterClip) return componentWaterClip;
     if (!base) return null;
     const hexes: number[] = [];
     base.forEach((v, i) => {
@@ -1823,7 +1909,7 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
       const surface = knobs.water === 'depth'
         ? depthBands(shorelines, size, water, shift(palette.seaShallow, palette.sea, water))
         : rippleBands(shorelines, size, water, palette.ripple, palette.rippleAlpha, body === 'lake' ? Math.min(1, knobs.ripples) : knobs.ripples);
-      prims.push({ kind: 'group', clip, prims: surface });
+      prims.push({ kind: 'group', clip, clipRule: body === 'sea' && componentWaterClip ? 'evenodd' : 'nonzero', prims: surface });
     }
   }
 
@@ -1866,7 +1952,7 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
     }
     // Bergs break off the glacier's coast, more of them the more irregular it is.
     if (texturedIce && knobs.coast === 'smooth' && glacierHexes.length > 0 && !thematic) drawn.push(...floeFringe(coastLines, size, seed, nearGlacier, iceColours));
-    if (clip && drawn.length > 0) prims.push({ kind: 'group', clip, prims: drawn });
+    if (clip && drawn.length > 0) prims.push({ kind: 'group', clip, clipRule: componentWaterClip ? 'evenodd' : 'nonzero', prims: drawn });
   }
 
   // --- lakes ----------------------------------------------------------------------
@@ -2069,11 +2155,14 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
 
   // Notches of water that the smoothed coast fills in become land, painted with
   // everything the neighbouring land hex is painted with.
+  const gainedLand: Prim[] = [];
   for (const s of coast?.toLand ?? []) {
     const fill = hexFill(s.donor);
-    prims.push({ kind: 'path', d: s.d, fill, stroke: fill, strokeWidth: seal });
-    for (const overlay of overlays(s.donor)) prims.push({ kind: 'path', d: s.d, fill: overlay });
+    gainedLand.push({ kind: 'path', d: s.d, fill, stroke: fill, strokeWidth: seal });
+    for (const overlay of overlays(s.donor)) gainedLand.push({ kind: 'path', d: s.d, fill: overlay });
   }
+  if (coast?.component) prims.push({ kind: 'group', clip: drawnLand(coast, width, height, size), clipRule: 'evenodd', prims: gainedLand });
+  else prims.push(...gainedLand);
 
   // The slope of a glacier down to the sea, over its own land and the coast
   // notches filled in for it, and under the grid and the coastline.
