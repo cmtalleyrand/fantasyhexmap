@@ -511,6 +511,7 @@ test('a tapered river stays in its own hexes and never turns sharply between sam
   const cols = 10;
   const rows = 8;
   const map = createMapState('River shape', cols, rows);
+  map.id = 'river-shape-regression';
   // A winding river with 60-degree turns, the case that used to hook back.
   const { neighbourOf: nb } = await import('../shared/hex.ts');
   const dirs = [0, 1, 0, 1, 2, 1, 0, 0, 5, 0];
@@ -1285,6 +1286,7 @@ test('editing keeps a lake source and can run a river into a lake upstream or in
 test('rivers start and stop on a lake’s drawn shore, and a river widens below a confluence', async () => {
   const { buildRiverFromPath } = await import('../shared/validate.ts');
   const map = riverNetworkMap();
+  map.id = 'river-lake-shore-regression';
   const base = map.layers.base.data!;
   base[hexIndex(9, 6, 0)] = 'Lake';
   const trunk = buildRiverFromPath({ name: 'Trunk', path: stepPath({ col: 1, row: 2 }, [0, 0, 0, 0, 0, 0, 0]) }, 't', base, null, 9, 5, [])!;
