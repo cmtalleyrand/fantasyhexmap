@@ -1,5 +1,8 @@
 # Irregular coastline review
 
+The recurring waist/bulge issue remains unresolved. See the subsequent
+[90% / 60% / 30% land-percentage experiment](coast-land-percent-review.md).
+
 The original geometry retained one curve per hex corner. Its repeated rounded
 lobes, inward notches and grid-aligned shoulders made coastlines look regularly
 irregular. Component smoothing alone removed too much detail. Coast-arc noise
