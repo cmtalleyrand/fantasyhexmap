@@ -399,6 +399,13 @@ export function placePolityLabels(input: LabelInput): PolityLabel[] {
             // A name may graze a lake in its realm, but not run across it.
             const allowedLake = Math.floor(samples.length * LAKE_ALLOWANCE);
             for (const cand of candidates) {
+              // Candidates are sorted by inward penalty. Even perfect coverage
+              // cannot beat this bound, so neither can any later candidate.
+              const ceiling = 1 - cand.inward * 0.25 -
+                (Math.abs(rotation) / MAX_ROTATION) * 0.05 -
+                (layout.lines.length > 1 ? WRAP_PENALTY : 0) +
+                (font / idealSize) * 0.12;
+              if (best && ceiling <= best.score) break;
               const box = labelBox(cand.at, w, h, rotation);
               if (box.left < 0 || box.top < 0) continue;
               const probe = claimBox(cand.at, w, h, rotation, font);

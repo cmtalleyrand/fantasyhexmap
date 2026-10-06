@@ -27,6 +27,7 @@
 import { hexCenter, hexCorners, hexIndex, inBounds, neighbourOf, type Point } from '../../shared/hex.js';
 import { landInsetDepth, piecePoints, type CoastEdge, type Sliver, type SurfaceMap } from './coast.js';
 import type { PathCmd } from './prims.js';
+import { polygonSliver, sliverPolygon } from './sliver.js';
 
 export type Poly = Point[];
 
@@ -714,7 +715,7 @@ export function shapeCoast(
   }
 
   // A sliver too thin to see would still be stroked, as a hairline across the hex.
-  const sliver = (f: Frag): Sliver => ({ d: toPath(f.poly), donor: f.donor });
+  const sliver = (f: Frag): Sliver => polygonSliver(f.poly, f.donor);
   const real = (f: Frag) => {
     let edge = 0;
     for (let k = 0; k < f.poly.length; k++) edge += Math.hypot(f.poly[(k + 1) % f.poly.length]!.x - f.poly[k]!.x, f.poly[(k + 1) % f.poly.length]!.y - f.poly[k]!.y);
@@ -964,7 +965,8 @@ export function driftOf(
   const clips = new Map<number, { poly: Poly; box: [number, number, number, number] }>();
   const spread = (slivers: Sliver[], sign: number) => {
     for (const sliver of slivers) {
-      for (const ring of flatten(sliver.d)) {
+      const points = sliverPolygon(sliver);
+      for (const ring of points ? [points] : flatten(sliver.d)) {
         const poly = wound(tidy(ring));
         if (poly.length < 3) continue;
         const here = nearestHex(centroid(poly), cols, rows, size);

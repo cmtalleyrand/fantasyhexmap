@@ -4,8 +4,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { hexIndex, pixelToOffset, gridPixelSize, inBounds } from '../../shared/hex.js';
 import type { LayerId, MapState } from '../../shared/types.js';
 import { drawScene } from '../render/canvas.js';
-import { buildStaticScene, decorationPrims, type DrawingCompromise, type VisibleLayers } from '../render/scene.js';
+import { buildStaticScene, decorationPrims, type DrawingCompromise, type VisibleLayers, type Scene } from '../render/scene.js';
 import type { MapStyle } from '../render/styles.js';
+import { SceneRaster } from '../render/raster.js';
 import { MAP_COLOURS } from '../render/palette.js';
 import { riversThroughHex } from '../../shared/derive.js';
 import { formatLength, riverLength } from '../../shared/riverLength.js';
@@ -69,6 +70,9 @@ export default function MapView(props: MapViewProps) {
   const wrapRef = useRef<HTMLDivElement | null>(null);
   // A viewport-sized backing canvas keeps pointer decorations from repainting the map.
   const renderedMap = useRef<HTMLCanvasElement | null>(null);
+  const raster = useRef<SceneRaster | null>(null);
+  const [rasterVersion, setRasterVersion] = useState(0);
+  const sharpViewport = useRef<{ scene: Scene; view: View; size: { width: number; height: number } } | null>(null);
   const [view, setView] = useState<View>({ scale: 1, x: 0, y: 0 });
   const [hover, setHover] = useState<number | null>(null);
   const [size, setSize] = useState({ width: 800, height: 600 });
@@ -111,14 +115,14 @@ export default function MapView(props: MapViewProps) {
     };
   }, []);
 
-  // Names are measured in the style's lettering, so once its bundled fonts
-  // have loaded the map is laid out again with the real widths.
-  const [fontsVersion, setFontsVersion] = useState(0);
+  // Wait for the style's lettering before the one full layout, so loading
+  // fonts cannot rebuild a newly opened map just to replace fallback widths.
+  const [readyLettering, setReadyLettering] = useState<string | null>(null);
   const lettering = mapStyle.knobs.lettering;
   useEffect(() => {
     let live = true;
     void loadLettering(lettering).then(() => {
-      if (live) setFontsVersion((v) => v + 1);
+      if (live) setReadyLettering(lettering);
     });
     return () => {
       live = false;
@@ -128,8 +132,11 @@ export default function MapView(props: MapViewProps) {
   // The map itself is rebuilt only when the data or a display option changes;
   // the pointer moving only rebuilds the hover and selection outlines.
   const scene = useMemo(
-    () =>
-      buildStaticScene(map, {
+    (): Scene => {
+      // Do not lay out the entire map twice, first using fallback font widths
+      // and then using the downloaded faces. A font change schedules one layout.
+      if (readyLettering !== lettering) return { ...gridPixelSize(map.cols, map.rows, HEX_SIZE), background: mapStyle.palette.sea, prims: [] };
+      return buildStaticScene(map, {
         size: HEX_SIZE,
         visible,
         labels,
@@ -142,8 +149,9 @@ export default function MapView(props: MapViewProps) {
         polityOpacity,
         style: mapStyle,
         highlightRiver: props.riverTool?.selectedId ?? null,
-      }),
-    [map, visible, labels, riverNames, rangeNames, seaNames, landNames, polityNames, cityStateMax, polityOpacity, mapStyle, props.riverTool?.selectedId, fontsVersion],
+      });
+    },
+    [map, visible, labels, riverNames, rangeNames, seaNames, landNames, polityNames, cityStateMax, polityOpacity, mapStyle, props.riverTool?.selectedId, readyLettering, lettering],
   );
   const onCompromises = props.onCompromises;
   useEffect(() => {
@@ -171,7 +179,7 @@ export default function MapView(props: MapViewProps) {
     if (!wrap) return;
     const observer = new ResizeObserver(() => {
       const rect = wrap.getBoundingClientRect();
-      setSize({ width: rect.width, height: rect.height });
+      setSize(old => old.width === rect.width && old.height === rect.height ? old : { width: rect.width, height: rect.height });
     });
     observer.observe(wrap);
     return () => observer.disconnect();
@@ -199,6 +207,8 @@ export default function MapView(props: MapViewProps) {
   }, [fit, size.width, map.id]);
 
   useEffect(() => {
+    const sharp = sharpViewport.current;
+    if (sharp?.scene === scene && sharp.view === view && sharp.size === size) return;
     const canvas = renderedMap.current ?? document.createElement('canvas');
     renderedMap.current = canvas;
     const dpr = window.devicePixelRatio || 1;
@@ -209,12 +219,36 @@ export default function MapView(props: MapViewProps) {
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.fillStyle = MAP_COLOURS.background;
     ctx.fillRect(0, 0, size.width, size.height);
-    ctx.translate(view.x, view.y);
-    ctx.scale(view.scale, view.scale);
-    ctx.fillStyle = scene.background;
-    ctx.fillRect(0, 0, scene.width, scene.height);
-    drawScene(ctx, scene);
-  }, [scene, view, size]);
+    const paintSharp = () => {
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.fillStyle = MAP_COLOURS.background;
+      ctx.fillRect(0, 0, size.width, size.height);
+      ctx.translate(view.x, view.y);
+      ctx.scale(view.scale, view.scale);
+      ctx.fillStyle = scene.background;
+      ctx.fillRect(0, 0, scene.width, scene.height);
+      drawScene(ctx, scene);
+      sharpViewport.current = { scene, view, size };
+    };
+    let image = raster.current;
+    if (!image || image.scene !== scene || image.dpr !== dpr || !image.covers(view, size)) {
+      // The final viewport is painted directly. The independent map image is
+      // retained for the next gesture, not resampled into the settled picture.
+      paintSharp();
+      raster.current = new SceneRaster(scene, view, size, dpr);
+      return;
+    }
+    image.draw(ctx, view);
+    // Present cached pixels during navigation, then restore exact direct
+    // painting after it settles. Even same-scale copies can round edge pixels.
+    const timer = window.setTimeout(() => {
+      const ratio = view.scale / image.scale;
+      if (ratio > 1.5 || ratio < 1 / 1.5) raster.current = new SceneRaster(scene, view, size, dpr);
+      paintSharp();
+      setRasterVersion(v => v + 1);
+    }, 140);
+    return () => window.clearTimeout(timer);
+  }, [scene, view, size, rasterVersion]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -236,7 +270,7 @@ export default function MapView(props: MapViewProps) {
     ctx.scale(view.scale, view.scale);
     drawScene(ctx, { ...scene, prims: decoration });
     ctx.restore();
-  }, [scene, decoration, view, size]);
+  }, [scene, decoration, view, size, rasterVersion]);
 
   const hexAt = useCallback(
     (clientX: number, clientY: number): number | null => {

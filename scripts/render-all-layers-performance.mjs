@@ -5,7 +5,7 @@ import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { buildSync } from 'esbuild';
 const argument = name => process.argv[process.argv.indexOf(name) + 1];
-const ref = process.argv.includes('--baseline') ? argument('--baseline') : '7fd124e';
+const ref = process.argv.includes('--baseline') ? argument('--baseline') : '8acfcc0';
 const sha = execFileSync('git', ['rev-parse', '--verify', `${ref}^{commit}`], { encoding: 'utf8' }).trim();
 const root = resolve('.'), archived = resolve('work', `performance-baseline-${sha}`);
 mkdirSync(archived, { recursive: true });
@@ -32,7 +32,9 @@ try {
       await afterApi.loadLettering(opts.style.knobs.lettering);
       await document.fonts.ready;
       const timings = {}, scenes = {}, pixels = {};
-      for (const [version, api] of [['before', beforeApi], ['after', afterApi]]) {
+      // Alternate execution order so the optimized build is not always second.
+      const order = run % 2 ? [['after', afterApi], ['before', beforeApi]] : [['before', beforeApi], ['after', afterApi]];
+      for (const [version, api] of order) {
         const canvas = document.createElement('canvas'); canvas.width = 1000; canvas.height = 800;
         const ctx = canvas.getContext('2d'); ctx.scale(.5, .5);
         const start = performance.now();
@@ -45,7 +47,7 @@ try {
       }
       let pixelDifferences = 0;
       for (let i = 0; i < pixels.before.length; i++) if (pixels.before[i] !== pixels.after[i]) pixelDifferences++;
-      return { run, layerCounts: { base: map.layers.base.data.length, elevation: map.layers.elevation.data.filter(v => v !== null).length, climate: map.layers.climate.data.filter(v => v !== null).length, vegetation: map.layers.vegetation.data.filter(v => v !== null).length, rivers: map.layers.rivers.data.rivers.length, cities: map.layers.cities.data.cities.length, polities: map.layers.polities.data.polities.length, population: map.layers.population.data.filter(v => v !== null).length }, timings, identicalScene: scenes.before === scenes.after, pixelDifferences };
+      return { run, executionOrder: order.map(([version]) => version), layerCounts: { base: map.layers.base.data.length, elevation: map.layers.elevation.data.filter(v => v !== null).length, climate: map.layers.climate.data.filter(v => v !== null).length, vegetation: map.layers.vegetation.data.filter(v => v !== null).length, rivers: map.layers.rivers.data.rivers.length, cities: map.layers.cities.data.cities.length, polities: map.layers.polities.data.polities.length, population: map.layers.population.data.filter(v => v !== null).length }, timings, identicalScene: scenes.before === scenes.after, pixelDifferences };
     }, run);
     runs.push(result); console.log(JSON.stringify(result));
     await page.close();

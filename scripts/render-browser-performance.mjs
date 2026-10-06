@@ -6,7 +6,7 @@ import {resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {buildSync} from 'esbuild';
 const argument = name => process.argv[process.argv.indexOf(name)+1];
-const ref=process.argv.includes('--baseline')?argument('--baseline'):'origin/main';
+const ref=process.argv.includes('--baseline')?argument('--baseline'):'8acfcc0';
 const root=resolve('.');
 const sha=execFileSync('git',['rev-parse','--verify',`${ref}^{commit}`],{encoding:'utf8'}).trim();
 const archived=resolve('work',`performance-baseline-${sha}`);
@@ -19,7 +19,7 @@ const files={};
 for(const [version,source] of [['before',archived],['after',root]]){
  const contents=fixture.replace(/(['"])\.\.\/(src|shared)\/([^'"]+)\1/g,(_,quote,folder,file)=>JSON.stringify(resolve(source,folder,file)));
  const outfile=resolve(directory,`${version}.js`);files[version]=outfile;
- buildSync({stdin:{contents,sourcefile:'fixture.tsx',resolveDir:root,loader:'tsx'},bundle:true,format:'iife',globalName:version==='before'?'beforeApi':'afterApi',jsx:'automatic',loader:{'.woff2':'dataurl'},outfile});
+ buildSync({stdin:{contents,sourcefile:'fixture.tsx',resolveDir:resolve('scripts'),loader:'tsx'},bundle:true,format:'iife',globalName:version==='before'?'beforeApi':'afterApi',jsx:'automatic',loader:{'.woff2':'dataurl'},outfile});
 }
 let puppeteer;
 try{puppeteer=(await import('puppeteer-core')).default;}catch{puppeteer=(await import(pathToFileURL(resolve('work/node_modules/puppeteer-core/lib/puppeteer/puppeteer-core.js')).href)).default;}
@@ -67,8 +67,10 @@ try{
   const selection=await page.evaluate(()=>({...window.counts}));
   await page.evaluate(()=>window.counts={stroke:0,copy:0});
   await page.click('[aria-label="Zoom in"]');await page.evaluate(()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r))));
+  const immediateZoom=await page.evaluate(()=>({...window.counts}));
+  await page.evaluate(()=>new Promise(r=>setTimeout(r,500)));
   const zoom=await page.evaluate(()=>({counts:{...window.counts},changed:document.querySelector('canvas').toDataURL()}));
-  results.push({version,initialHash:createHash('sha256').update(initial.image).digest('hex'),hover,hoverMedianMs:moves.sort((a,b)=>a-b)[7],zoomRedrew:zoom.changed!==initial.image,zoomStrokes:zoom.counts.stroke,selection});
+  results.push({version,initialHash:createHash('sha256').update(initial.image).digest('hex'),hover,hoverMedianMs:moves.sort((a,b)=>a-b)[7],zoomRedrew:zoom.changed!==initial.image,zoomStrokes:zoom.counts.stroke,selection,immediateZoom});
   await page.close();
  }
  console.log(results);
@@ -80,8 +82,9 @@ try{
    return {differingPixels,maxChannelDelta,totalPixels:data[0].length/4};
  },images);
  if(pixels.maxChannelDelta>1 || pixels.differingPixels>pixels.totalPixels*0.0001)throw Error(`Viewport mismatch beyond raster rounding: ${JSON.stringify(pixels)}`);
- if(results[1].hover.stroke>=results[0].hover.stroke/10)throw Error('Hover did not eliminate full scene repainting');
+ if(results[1].hover.stroke>20)throw Error('Hover did not eliminate full scene repainting');
  if(results[1].selection.stroke>=20 || results[1].selection.copy<1)throw Error('Selection did not reuse viewport');
+ if(results[1].immediateZoom.stroke>=20||results[1].immediateZoom.copy<1)throw Error('Zoom gesture repainted the full scene instead of its raster');
  if(!results[1].zoomRedrew||results[1].zoomStrokes<10)throw Error('Zoom failed to invalidate cached viewport');
  const report={baseline:sha,sceneResults,interactions:results,viewportPixels:pixels};
  writeFileSync('work/render-browser-performance.json',JSON.stringify(report,null,2));

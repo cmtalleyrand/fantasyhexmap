@@ -1,0 +1,77 @@
+{
+  "baseline": "8acfcc0f0f3513284c93834cbd30d4b1326d9646",
+  "sceneResults": [
+    {
+      "layout": "continent",
+      "n": 30,
+      "beforeBuildMs": 924.2999999970198,
+      "afterBuildMs": 657.7000000029802,
+      "identicalScene": true,
+      "pixelDifferences": 0,
+      "hoverCopyMs": 0.2900000002235174
+    },
+    {
+      "layout": "archipelago",
+      "n": 30,
+      "beforeBuildMs": 908.1000000014901,
+      "afterBuildMs": 830.6000000014901,
+      "identicalScene": true,
+      "pixelDifferences": 0,
+      "hoverCopyMs": 0.4649999998509884
+    },
+    {
+      "layout": "lakes",
+      "n": 30,
+      "beforeBuildMs": 465.79999999701977,
+      "afterBuildMs": 406.29999999701977,
+      "identicalScene": true,
+      "pixelDifferences": 0,
+      "hoverCopyMs": 0.4100000001490116
+    }
+  ],
+  "interactions": [
+    {
+      "version": "before",
+      "initialHash": "32b37ed434f2b570e052b23c11dba6343857630bcd7d4bbdef7e17b923961eb0",
+      "hover": {
+        "stroke": 15,
+        "copy": 15
+      },
+      "hoverMedianMs": 50.115483999999924,
+      "zoomRedrew": true,
+      "zoomStrokes": 3248,
+      "selection": {
+        "stroke": 2,
+        "copy": 1
+      },
+      "immediateZoom": {
+        "stroke": 3248,
+        "copy": 1
+      }
+    },
+    {
+      "version": "after",
+      "initialHash": "3e37213701d0e4bf33fbb85ec79be2f1354c78634d061e69221d72fd4902d20e",
+      "hover": {
+        "stroke": 15,
+        "copy": 15
+      },
+      "hoverMedianMs": 49.51427100000001,
+      "zoomRedrew": true,
+      "zoomStrokes": 3249,
+      "selection": {
+        "stroke": 2,
+        "copy": 1
+      },
+      "immediateZoom": {
+        "stroke": 1,
+        "copy": 2
+      }
+    }
+  ],
+  "viewportPixels": {
+    "differingPixels": 1,
+    "maxChannelDelta": 1,
+    "totalPixels": 480000
+  }
+}

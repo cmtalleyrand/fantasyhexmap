@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { coastEdges, coastGeometryOf, evenOddTest, type Roughness } from '../src/render/coast.ts';
-import { coveredArea } from '../src/render/footprint.ts';
+import { coveredArea, driftOf } from '../src/render/footprint.ts';
+import { polygonSliver } from '../src/render/sliver.ts';
+import { hexCorners } from '../shared/hex.ts';
 import { unit } from '../src/render/seed.ts';
 import type { BaseGeo } from '../shared/types.ts';
 
@@ -67,4 +69,16 @@ test('indexed land queries retain ray parity at vertices, holes and cell boundar
   }
   for (const ring of rings) for (const p of ring) assert.equal(indexed(p), brute(p.x, p.y));
   for (let x = -52; x <= 156; x += 13) for (let y = -26; y <= 104; y += 3.25) assert.equal(indexed({ x, y }), brute(x, y));
+});
+
+
+test('coast fitting measures raw swept polygons without constructing render commands', () => {
+  const points = hexCorners(1, 1, 26);
+  const sliver = polygonSliver(points, 4);
+  const expected = sliver.d;
+  assert.deepEqual(expected, [...points.map((p, i) => [i ? 'L' : 'M', p.x, p.y]), ['Z']]);
+  const lazy = polygonSliver(points, 4);
+  Object.defineProperty(lazy, 'd', { get() { throw new Error('fitting materialized render commands'); } });
+  const drift = driftOf({ toWater: [], toLand: [lazy] }, 0, new Set([4]), 3, 3, 26, () => { throw new Error('fitting flattened a polygon'); });
+  assert.ok(Math.abs(drift.get(4)! - 1.5 * Math.sqrt(3) * 26 ** 2) < 1e-8);
 });

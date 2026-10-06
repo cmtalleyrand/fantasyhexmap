@@ -1,9 +1,9 @@
 import type { Point } from '../../shared/hex.js';
 import type { CoastChain, CoastEdge, Roughness, Sliver } from './coast.js';
 import type { PathCmd } from './prims.js';
+import { polygonSliver } from './sliver.js';
 const lerp = (a: Point, b: Point, t: number): Point => ({ x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t });
 const distance = (a: Point, b: Point) => Math.hypot(a.x - b.x, a.y - b.y);
-const polygon = (pts: Point[]): PathCmd[] => [...pts.map((p, i) => [i ? 'L' : 'M', p.x, p.y] as PathCmd), ['Z']];
 function segmentDistance(p: Point, e: CoastEdge): number {
   const dx = e.to.x - e.from.x, dy = e.to.y - e.from.y;
   const t = Math.max(0, Math.min(1, ((p.x - e.from.x) * dx + (p.y - e.from.y) * dy) / (dx * dx + dy * dy || 1)));
@@ -328,7 +328,7 @@ export function componentCoast(chain: CoastChain, rough: Roughness, clearance: R
       const emit = (ring: Point[], sign: number) => {
         if (Math.abs(sign) < 1e-8)
           return;
-        (sign > 0 ? toWater : toLand).push({ d: polygon(ring), donor: sign > 0 ? e.water : e.land });
+        (sign > 0 ? toWater : toLand).push(polygonSliver(ring, sign > 0 ? e.water : e.land));
       };
       if (sp * sq < 0) {
         const t = sp / (sp - sq), hit = lerp(p, q, t), base = lerp(a, b, t);

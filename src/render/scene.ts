@@ -571,7 +571,9 @@ function cachedCoast(
       next.set(i, { ...target, share: Math.min(1, Math.max(0, was + short * 0.8)) });
     }
     if (!best || miss < best.miss) best = { shaped, geometry, miss };
-    if (miss < 0.004) break;
+    // The final pass has already measured its candidate. Tracing another
+    // candidate here would discard it without ever measuring or selecting it.
+    if (miss < 0.004 || pass === 6) break;
     aimed = next;
     ({ shaped, geometry } = trace(aimed));
   }
@@ -2239,6 +2241,13 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
   // Island hexes are left out: the islet itself carries the realm's colour.
   const internal: PathCmd[] = [];
   if (polities) {
+    // Dense component coasts contribute thousands of swept patches. Append
+    // each one once instead of copying the entire accumulated realm on each add.
+    const append = <T,>(groups: Map<string, T[]>, owner: string, values: readonly T[]) => {
+      let group = groups.get(owner);
+      if (!group) { group = []; groups.set(owner, group); }
+      for (const value of values) group.push(value);
+    };
     const regions = new Map<string, number[]>();
     const bands = new Map<string, Array<{ from: Point; to: Point; land: number; water: number }>>();
     const frontier: Array<{ from: Point; to: Point; land: number; water: number }> = [];
@@ -2257,7 +2266,7 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
     };
     /** Land a realm colours outside its own hexes: lake-hex sectors facing it and coast notches filled in. */
     const extraLand = new Map<string, PathCmd[]>();
-    const addLand = (owner: string, d: PathCmd[]) => extraLand.set(owner, [...(extraLand.get(owner) ?? []), ...d]);
+    const addLand = (owner: string, d: PathCmd[]) => append(extraLand, owner, d);
     for (let i = 0; i < cols * rows; i++) {
       if (!isLakeHex(i)) continue;
       lakeSectorDonors(i).forEach((donor, e) => {
@@ -2307,7 +2316,7 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
       const path = traced!.geometry.paths[c];
       if (!path) return;
       for (const owner of new Set(chain.edges.filter((edge) => !isIsland(edge.land)).map((edge) => polities.owner[edge.land]))) {
-        if (owner) coastBands.set(owner, [...(coastBands.get(owner) ?? []), ...path]);
+        if (owner) append(coastBands, owner, path);
       }
     });
     /**
@@ -2325,7 +2334,7 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
         const i = hexIndex(cols, col, row);
         const owner = polities.owner[i];
         if (!owner || isIsland(i)) continue;
-        regions.set(owner, [...(regions.get(owner) ?? []), i]);
+        append(regions, owner, [i]);
         if (lakeOf.has(i)) touchLake(owner, i);
         for (let e = 0; e < 6; e++) {
           const n = neighbourOf(col, row, e);
@@ -2361,7 +2370,7 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
           const pieces = landAcross
             ? wander(a, b).map((piece) => ({ ...piece, land: i, water: j }))
             : [{ from: a, to: b, land: i, water: j }];
-          bands.set(owner, [...(bands.get(owner) ?? []), ...pieces]);
+          append(bands, owner, pieces);
           // A frontier between realms on land, drawn from one side only.
           if (landAcross && (other === null || owner < other)) frontier.push(...pieces);
         }
