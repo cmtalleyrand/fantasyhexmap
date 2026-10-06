@@ -82,3 +82,59 @@ test('rendering falls back to context paths when Path2D is unavailable', () => {
     if (original !== undefined) globalThis.Path2D = original;
   }
 });
+
+test('viewport culling skips distant marks and preserves translated groups', () => {
+  const arcs: number[][] = [];
+  const ctx = {
+    globalAlpha: 1, save() {}, restore() {}, translate() {}, beginPath() {}, fill() {},
+    arc: (...args: number[]) => arcs.push(args),
+  } as unknown as CanvasRenderingContext2D;
+  drawPrims(ctx, [
+    { kind: 'circle', c: { x: 1000, y: 1000 }, r: 3, fill: '#fff' },
+    { kind: 'group', translate: { x: 100, y: 0 }, prims: [
+      { kind: 'circle', c: { x: 0, y: 5 }, r: 3, fill: '#fff' },
+      { kind: 'circle', c: { x: 1000, y: 5 }, r: 3, fill: '#fff' },
+    ] },
+  ], { left: 95, top: 0, right: 105, bottom: 10 });
+  assert.equal(arcs.length, 1);
+  assert.deepEqual(arcs[0]!.slice(0, 3), [0, 5, 3]);
+});
+
+test('dense clipped groups reuse one surface and apply inherited opacity once', () => {
+  const original = globalThis.OffscreenCanvas;
+  const surfaces: { ctx: ReturnType<typeof context> }[] = [];
+  const copies: number[] = [], alphas: number[] = [], transforms: unknown[] = [];
+  function context(parent = false) {
+    const stack: number[] = [];
+    return {
+      canvas: { width: 64, height: 48 }, globalAlpha: parent ? 0.5 : 1,
+      save() { stack.push(this.globalAlpha); }, restore() { this.globalAlpha = stack.pop()!; },
+      beginPath() {}, moveTo() {}, lineTo() {}, closePath() {}, clip() {}, clearRect() {}, translate() {},
+      fill() { if (!parent) alphas.push(this.globalAlpha); },
+      getTransform: () => ({ a: 2, b: 0, c: 0, d: 2, e: 10, f: 20 }),
+      setTransform: (...values: unknown[]) => transforms.push(values),
+      drawImage() { copies.push(this.globalAlpha); },
+    };
+  }
+  class Surface {
+    readonly ctx = context();
+    constructor(public width: number, public height: number) { surfaces.push(this); }
+    getContext() { return this.ctx; }
+  }
+  Object.defineProperty(globalThis, 'OffscreenCanvas', { value: Surface, configurable: true });
+  try {
+    const ctx = context(true);
+    const prim: Prim = { kind: 'group', opacity: 0.5, clip: [['M', 0, 0], ['L', 50, 0], ['L', 50, 40], ['Z']],
+      prims: Array.from({ length: 200 }, () => ({ kind: 'polygon', points: [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }], fill: '#fff' })) };
+    drawPrims(ctx as unknown as CanvasRenderingContext2D, [prim, prim], undefined, true);
+    assert.equal(surfaces.length, 1);
+    assert.equal(alphas.length, 400);
+    assert.ok(alphas.every(alpha => alpha === 0.25));
+    assert.deepEqual(copies, [1, 1]);
+    assert.equal(ctx.globalAlpha, 0.5);
+    assert.ok(transforms.some(values => Array.isArray(values) && typeof values[0] === 'object' && values[0].e === 10));
+  } finally {
+    if (original === undefined) Reflect.deleteProperty(globalThis, 'OffscreenCanvas');
+    else Object.defineProperty(globalThis, 'OffscreenCanvas', { value: original, configurable: true });
+  }
+});

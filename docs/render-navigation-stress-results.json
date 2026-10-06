@@ -1,0 +1,634 @@
+{
+  "baseline": "42611d2b1d2b3147976ad9f7da3d29fc602e53b9",
+  "browser": "Chromium 151, headless software rendering, one raster thread",
+  "cpuQuota": "2 cores (200000 us per 100000 us)",
+  "nextFrameGateMs": 33,
+  "frameGapGateMs": 33.5,
+  "sharpImageGateMs": 1000,
+  "beforeDpr2": {
+    "rasterThreads": 1,
+    "cpuThrottledMs": 39.989,
+    "size": 40,
+    "populatedLayers": 8,
+    "activatedLayers": 8,
+    "dpr": 2,
+    "cases": [
+      {
+        "name": "large continuous zoom",
+        "frames": [
+          44.355391000000964,
+          47.70126700000037,
+          46.046244000001025,
+          48.30931800000326,
+          48.472874999999476,
+          49.41281700000036,
+          47.81093099999998,
+          48.52741700000115,
+          49.52012200000172,
+          48.6716239999987,
+          47.792851999998675,
+          47.66831000000093,
+          49.64721799999825,
+          49.286394999999175,
+          50.084514999998646,
+          45.14121300000261
+        ],
+        "nextFrameMaxMs": 17,
+        "inputFrameSamples": 16,
+        "inputFrameMaxMs": 33.5,
+        "medianMs": 48.472874999999476,
+        "maxMs": 50.084514999998646,
+        "maxFrameGapMs": 633.3999999999978,
+        "paints": {
+          "fill": 49672,
+          "stroke": 36580,
+          "copy": 34
+        },
+        "longTasks": [
+          70,
+          577
+        ],
+        "workerPaintMaxMs": null,
+        "sharpAfterLastInputMs": null
+      },
+      {
+        "name": "paused zoom out",
+        "frames": [
+          50.14455200000157,
+          44.50525199999902,
+          918.312629,
+          59.948003999998036,
+          50.14243500000157,
+          2667.0775429999994
+        ],
+        "nextFrameMaxMs": 2643.8999999910593,
+        "inputFrameSamples": 6,
+        "inputFrameMaxMs": 2646.2999999970198,
+        "medianMs": 59.948003999998036,
+        "maxMs": 2667.0775429999994,
+        "maxFrameGapMs": 2616.600000000002,
+        "paints": {
+          "fill": 198688,
+          "stroke": 146258,
+          "copy": 14
+        },
+        "longTasks": [
+          184,
+          194,
+          328,
+          325,
+          399,
+          2575,
+          69
+        ],
+        "workerPaintMaxMs": null,
+        "sharpAfterLastInputMs": null
+      },
+      {
+        "name": "paused zoom in",
+        "frames": [
+          48.82579600000099,
+          51.75315200000114,
+          46.240020999997796,
+          42.470382999999856,
+          36.3694230000001,
+          41.025526000001264
+        ],
+        "nextFrameMaxMs": 17.69999998807907,
+        "inputFrameSamples": 6,
+        "inputFrameMaxMs": 37.400000005960464,
+        "medianMs": 46.240020999997796,
+        "maxMs": 51.75315200000114,
+        "maxFrameGapMs": 766.5999999999985,
+        "paints": {
+          "fill": 173852,
+          "stroke": 127979,
+          "copy": 18
+        },
+        "longTasks": [
+          476,
+          198,
+          323,
+          239,
+          61,
+          723,
+          181,
+          204
+        ],
+        "workerPaintMaxMs": null,
+        "sharpAfterLastInputMs": null
+      },
+      {
+        "name": "pan across cached-window boundaries",
+        "frames": [
+          721.2140499999987,
+          1191.44427,
+          61.22665499999857,
+          83.7292030000026,
+          60.98019700000441,
+          64.00318800000241,
+          62.92025899999862,
+          64.04066099999909
+        ],
+        "nextFrameMaxMs": 690.5999999940395,
+        "inputFrameSamples": 16,
+        "inputFrameMaxMs": 707.7000000029802,
+        "medianMs": 64.04066099999909,
+        "maxMs": 1191.44427,
+        "maxFrameGapMs": 666.7000000000007,
+        "paints": {
+          "fill": 298032,
+          "stroke": 219385,
+          "copy": 40
+        },
+        "longTasks": [
+          244,
+          239,
+          129
+        ],
+        "workerPaintMaxMs": null,
+        "sharpAfterLastInputMs": null
+      }
+    ]
+  },
+  "afterDpr1": {
+    "rasterThreads": 1,
+    "cpuThrottledMs": 0,
+    "size": 40,
+    "populatedLayers": 8,
+    "activatedLayers": 8,
+    "dpr": 1,
+    "cases": [
+      {
+        "name": "large continuous zoom",
+        "frames": [
+          39.844928000000436,
+          47.773433000000296,
+          48.390629999999874,
+          48.248735000001034,
+          49.86405800000102,
+          48.64429999999993,
+          49.49308700000074,
+          48.296017000000575,
+          49.787608000000546,
+          48.996101999999155,
+          49.5120509999997,
+          49.235921000001326,
+          49.629297999999835,
+          49.1889740000006,
+          49.37988399999995,
+          49.49861300000157
+        ],
+        "nextFrameMaxMs": 1.2000000029802322,
+        "inputFrameSamples": 16,
+        "inputFrameMaxMs": 17,
+        "medianMs": 49.235921000001326,
+        "maxMs": 49.86405800000102,
+        "maxFrameGapMs": 16.80000000000109,
+        "paints": {
+          "fill": 0,
+          "stroke": 17,
+          "copy": 33
+        },
+        "longTasks": [],
+        "workerPaintMaxMs": 40.6000000089407,
+        "sharpAfterLastInputMs": 232.5
+      },
+      {
+        "name": "paused zoom out",
+        "frames": [
+          42.12658499999998,
+          41.125818000000436,
+          41.19117299999925,
+          40.83840099999907,
+          41.08931399999892,
+          40.1394790000013
+        ],
+        "nextFrameMaxMs": 1,
+        "inputFrameSamples": 6,
+        "inputFrameMaxMs": 16.799999997019768,
+        "medianMs": 41.125818000000436,
+        "maxMs": 42.12658499999998,
+        "maxFrameGapMs": 16.80000000000109,
+        "paints": {
+          "fill": 0,
+          "stroke": 12,
+          "copy": 18
+        },
+        "longTasks": [],
+        "workerPaintMaxMs": 63.599999994039536,
+        "sharpAfterLastInputMs": 257.09999999403954
+      },
+      {
+        "name": "paused zoom in",
+        "frames": [
+          49.78723799999898,
+          41.080315000001065,
+          41.04314499999964,
+          39.96509999999944,
+          39.82760199999939,
+          56.77963400000044
+        ],
+        "nextFrameMaxMs": 2,
+        "inputFrameSamples": 6,
+        "inputFrameMaxMs": 19,
+        "medianMs": 41.080315000001065,
+        "maxMs": 56.77963400000044,
+        "maxFrameGapMs": 33.30000000000109,
+        "paints": {
+          "fill": 0,
+          "stroke": 12,
+          "copy": 18
+        },
+        "longTasks": [],
+        "workerPaintMaxMs": 112,
+        "sharpAfterLastInputMs": 258.30000001192093
+      },
+      {
+        "name": "pan across cached-window boundaries",
+        "frames": [
+          62.55157500000132,
+          62.705181000001176,
+          63.09856900000159,
+          62.63101199999801,
+          63.240891999997984,
+          61.44833199999994,
+          62.354222000001755,
+          63.75028300000122
+        ],
+        "nextFrameMaxMs": 1.2000000029802322,
+        "inputFrameSamples": 16,
+        "inputFrameMaxMs": 17.799999997019768,
+        "medianMs": 62.705181000001176,
+        "maxMs": 63.75028300000122,
+        "maxFrameGapMs": 16.80000000000291,
+        "paints": {
+          "fill": 0,
+          "stroke": 32,
+          "copy": 40
+        },
+        "longTasks": [],
+        "workerPaintMaxMs": 40.29999999701977,
+        "sharpAfterLastInputMs": 229.90000000596046
+      }
+    ]
+  },
+  "afterDpr2": {
+    "rasterThreads": 1,
+    "cpuThrottledMs": 0,
+    "size": 40,
+    "populatedLayers": 8,
+    "activatedLayers": 8,
+    "dpr": 2,
+    "cases": [
+      {
+        "name": "large continuous zoom",
+        "frames": [
+          53.713637000000745,
+          64.62563000000046,
+          67.38438900000074,
+          43.21699400000034,
+          47.547990999999456,
+          48.11469699999907,
+          48.599827000000005,
+          50.099232000000484,
+          47.681336999999985,
+          49.43125299999883,
+          49.039166999999,
+          47.09141700000146,
+          47.67177500000071,
+          49.81480499999998,
+          48.019859,
+          49.587815000000774
+        ],
+        "nextFrameMaxMs": 2.0999999940395355,
+        "inputFrameSamples": 16,
+        "inputFrameMaxMs": 24.5,
+        "medianMs": 49.039166999999,
+        "maxMs": 67.38438900000074,
+        "maxFrameGapMs": 16.80000000000109,
+        "paints": {
+          "fill": 0,
+          "stroke": 17,
+          "copy": 33
+        },
+        "longTasks": [],
+        "workerPaintMaxMs": 141,
+        "sharpAfterLastInputMs": 327.20000000298023
+      },
+      {
+        "name": "paused zoom out",
+        "frames": [
+          44.00709800000004,
+          50.611166000000594,
+          59.48882099999901,
+          43.30296400000043,
+          50.87776400000075,
+          37.68495500000063
+        ],
+        "nextFrameMaxMs": 1.1000000089406967,
+        "inputFrameSamples": 6,
+        "inputFrameMaxMs": 25,
+        "medianMs": 50.611166000000594,
+        "maxMs": 59.48882099999901,
+        "maxFrameGapMs": 16.80000000000109,
+        "paints": {
+          "fill": 0,
+          "stroke": 9,
+          "copy": 15
+        },
+        "longTasks": [],
+        "workerPaintMaxMs": 209.69999998807907,
+        "sharpAfterLastInputMs": 403.09999999403954
+      },
+      {
+        "name": "paused zoom in",
+        "frames": [
+          48.561196000000564,
+          58.17573900000025,
+          57.306641000001036,
+          55.92780700000003,
+          61.90815600000133,
+          50.99004699999932
+        ],
+        "nextFrameMaxMs": 0.7999999970197678,
+        "inputFrameSamples": 6,
+        "inputFrameMaxMs": 28.799999997019768,
+        "medianMs": 57.306641000001036,
+        "maxMs": 61.90815600000133,
+        "maxFrameGapMs": 16.80000000000109,
+        "paints": {
+          "fill": 0,
+          "stroke": 9,
+          "copy": 15
+        },
+        "longTasks": [],
+        "workerPaintMaxMs": 187.40000000596046,
+        "sharpAfterLastInputMs": 327.90000000596046
+      },
+      {
+        "name": "pan across cached-window boundaries",
+        "frames": [
+          60.591591999997036,
+          61.073920999999245,
+          61.09471100000155,
+          62.025204000001395,
+          63.004376000000775,
+          64.24651699999959,
+          63.186485000001994,
+          60.227051999998366
+        ],
+        "nextFrameMaxMs": 1.300000011920929,
+        "inputFrameSamples": 16,
+        "inputFrameMaxMs": 19.19999998807907,
+        "medianMs": 62.025204000001395,
+        "maxMs": 64.24651699999959,
+        "maxFrameGapMs": 16.80000000000291,
+        "paints": {
+          "fill": 0,
+          "stroke": 15,
+          "copy": 40
+        },
+        "longTasks": [],
+        "workerPaintMaxMs": 120.59999999403954,
+        "sharpAfterLastInputMs": 194.40000000596046
+      }
+    ]
+  },
+  "unconstrainedRasterAttempt": {
+    "cases": [
+      {
+        "name": "large continuous zoom",
+        "frames": [
+          41.23766400000022,
+          64.49711899999966,
+          62.9843090000013,
+          47.71531800000048,
+          50.34745700000167,
+          46.38285899999937,
+          52.17128899999989,
+          47.96131499999865,
+          46.10822800000096,
+          51.809307999999874,
+          47.93383300000096,
+          54.1878910000014,
+          42.0153879999998,
+          49.98761999999988,
+          47.39961299999959,
+          53.552474000000075
+        ],
+        "nextFrameMaxMs": 1.6000000089406967,
+        "inputFrameSamples": 16,
+        "inputFrameMaxMs": 26.899999991059303,
+        "medianMs": 49.98761999999988,
+        "maxMs": 64.49711899999966,
+        "maxFrameGapMs": 16.80000000000109,
+        "paints": {
+          "fill": 0,
+          "stroke": 17,
+          "copy": 33
+        },
+        "longTasks": [],
+        "workerPaintMaxMs": 136.3999999910593,
+        "sharpAfterLastInputMs": 328
+      },
+      {
+        "name": "paused zoom out",
+        "frames": [
+          50.28584300000148,
+          57.06276700000126,
+          48.7454859999998,
+          48.19300800000019,
+          55.168461000001116,
+          54.42731500000082
+        ],
+        "nextFrameMaxMs": 0.8999999910593033,
+        "inputFrameSamples": 6,
+        "inputFrameMaxMs": 28.900000005960464,
+        "medianMs": 54.42731500000082,
+        "maxMs": 57.06276700000126,
+        "maxFrameGapMs": 16.80000000000109,
+        "paints": {
+          "fill": 0,
+          "stroke": 9,
+          "copy": 15
+        },
+        "longTasks": [],
+        "workerPaintMaxMs": 219,
+        "sharpAfterLastInputMs": 412.20000000298023
+      },
+      {
+        "name": "paused zoom in",
+        "frames": [
+          49.09295600000041,
+          90.99751499999911,
+          52.308547000000544,
+          69.79668399999719,
+          43.41628000000128,
+          42.00468499999988
+        ],
+        "nextFrameMaxMs": 1.300000011920929,
+        "inputFrameSamples": 6,
+        "inputFrameMaxMs": 59.29999999701977,
+        "medianMs": 52.308547000000544,
+        "maxMs": 90.99751499999911,
+        "maxFrameGapMs": 50,
+        "paints": {
+          "fill": 0,
+          "stroke": 9,
+          "copy": 15
+        },
+        "longTasks": [
+          59
+        ],
+        "workerPaintMaxMs": 222,
+        "sharpAfterLastInputMs": 318.09999999403954
+      },
+      {
+        "name": "pan across cached-window boundaries",
+        "frames": [
+          59.11498399999982,
+          62.11514399999942,
+          62.93959000000177,
+          62.35281899999973,
+          62.46484200000123,
+          63.33324400000129,
+          62.63075300000128,
+          64.02862800000003
+        ],
+        "nextFrameMaxMs": 1.2999999970197678,
+        "inputFrameSamples": 16,
+        "inputFrameMaxMs": 24.5,
+        "medianMs": 62.63075300000128,
+        "maxMs": 64.02862800000003,
+        "maxFrameGapMs": 16.80000000000291,
+        "paints": {
+          "fill": 0,
+          "stroke": 15,
+          "copy": 40
+        },
+        "longTasks": [],
+        "workerPaintMaxMs": 122,
+        "sharpAfterLastInputMs": 197.29999999701977
+      }
+    ],
+    "passedCadenceGate": false
+  },
+  "unconstrainedProfileAttempt": {
+    "cases": [
+      {
+        "name": "large continuous zoom",
+        "frames": [
+          42.62671599999885,
+          42.89973199999986,
+          48.60099300000002,
+          50.925884000000224,
+          48.799825000000055,
+          49.12705000000096,
+          51.544057999999495,
+          46.56466999999975,
+          49.05965400000059,
+          46.792256000000634,
+          51.421362000000954,
+          51.51886899999954,
+          47.13365300000078,
+          46.198153000001184,
+          50.3620549999996,
+          50.781010000000606
+        ],
+        "nextFrameMaxMs": 2,
+        "inputFrameSamples": 16,
+        "inputFrameMaxMs": 25.599999994039536,
+        "medianMs": 49.05965400000059,
+        "maxMs": 51.544057999999495,
+        "maxFrameGapMs": 16.80000000000109,
+        "paints": {
+          "fill": 0,
+          "stroke": 17,
+          "copy": 33
+        },
+        "longTasks": [],
+        "workerPaintMaxMs": 154.8999999910593,
+        "sharpAfterLastInputMs": 343.20000000298023
+      },
+      {
+        "name": "paused zoom out",
+        "frames": [
+          60.18033599999944,
+          53.0978869999999,
+          49.2786300000007,
+          67.30418499999905,
+          53.908496000000014,
+          63.96718299999884
+        ],
+        "nextFrameMaxMs": 1.0999999940395355,
+        "inputFrameSamples": 6,
+        "inputFrameMaxMs": 36.8999999910593,
+        "medianMs": 60.18033599999944,
+        "maxMs": 67.30418499999905,
+        "maxFrameGapMs": 33.30000000000109,
+        "paints": {
+          "fill": 0,
+          "stroke": 9,
+          "copy": 15
+        },
+        "longTasks": [],
+        "workerPaintMaxMs": 230.79999999701977,
+        "sharpAfterLastInputMs": 407.29999999701977
+      },
+      {
+        "name": "paused zoom in",
+        "frames": [
+          49.17920299999969,
+          69.78089499999987,
+          72.83149000000049,
+          56.64479200000278,
+          77.9916430000012,
+          43.755027999999584
+        ],
+        "nextFrameMaxMs": 0.9000000059604645,
+        "inputFrameSamples": 6,
+        "inputFrameMaxMs": 48.20000000298023,
+        "medianMs": 69.78089499999987,
+        "maxMs": 77.9916430000012,
+        "maxFrameGapMs": 33.20000000000073,
+        "paints": {
+          "fill": 0,
+          "stroke": 8,
+          "copy": 14
+        },
+        "longTasks": [],
+        "workerPaintMaxMs": 221.79999999701977,
+        "sharpAfterLastInputMs": 338
+      },
+      {
+        "name": "pan across cached-window boundaries",
+        "frames": [
+          60.40999000000011,
+          58.26968100000158,
+          78.67122499999823,
+          66.27038200000243,
+          195.79387599999973,
+          63.34925600000133,
+          63.75455800000054,
+          63.04264599999806
+        ],
+        "nextFrameMaxMs": 2.199999988079071,
+        "inputFrameSamples": 16,
+        "inputFrameMaxMs": 33.099999994039536,
+        "medianMs": 63.75455800000054,
+        "maxMs": 195.79387599999973,
+        "maxFrameGapMs": 116.70000000000073,
+        "paints": {
+          "fill": 0,
+          "stroke": 13,
+          "copy": 40
+        },
+        "longTasks": [],
+        "workerPaintMaxMs": 137.90000000596046,
+        "sharpAfterLastInputMs": 196.59999999403954
+      }
+    ],
+    "passedCadenceGate": false
+  }
+}

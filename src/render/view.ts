@@ -15,6 +15,7 @@ export const MAX_SCALE = 6;
  */
 export function zoomAt(view: View, factor: number, px: number, py: number): View {
   const scale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, view.scale * factor));
+  if (scale === view.scale) return view;
   const k = scale / view.scale;
   return { scale, x: px - (px - view.x) * k, y: py - (py - view.y) * k };
 }

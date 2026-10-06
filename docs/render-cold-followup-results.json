@@ -1,0 +1,99 @@
+{
+  "baseline": "42611d2b1d2b3147976ad9f7da3d29fc602e53b9",
+  "size": 40,
+  "allLayers": true,
+  "labels": true,
+  "runs": [
+    {
+      "run": 0,
+      "executionOrder": [
+        "before",
+        "after"
+      ],
+      "layerCounts": {
+        "base": 1600,
+        "elevation": 539,
+        "climate": 539,
+        "vegetation": 539,
+        "rivers": 13,
+        "cities": 29,
+        "polities": 10,
+        "population": 539
+      },
+      "timings": {
+        "before": {
+          "buildMs": 6808,
+          "totalMs": 7421.5
+        },
+        "after": {
+          "buildMs": 5799.4000000059605,
+          "totalMs": 6432.9000000059605
+        }
+      },
+      "identicalScene": true,
+      "pixelDifferences": 0
+    },
+    {
+      "run": 1,
+      "executionOrder": [
+        "after",
+        "before"
+      ],
+      "layerCounts": {
+        "base": 1600,
+        "elevation": 539,
+        "climate": 539,
+        "vegetation": 539,
+        "rivers": 13,
+        "cities": 29,
+        "polities": 10,
+        "population": 539
+      },
+      "timings": {
+        "after": {
+          "buildMs": 4727.20000000298,
+          "totalMs": 5358.70000000298
+        },
+        "before": {
+          "buildMs": 5410.4000000059605,
+          "totalMs": 6032.20000000298
+        }
+      },
+      "identicalScene": true,
+      "pixelDifferences": 0
+    },
+    {
+      "run": 2,
+      "executionOrder": [
+        "before",
+        "after"
+      ],
+      "layerCounts": {
+        "base": 1600,
+        "elevation": 539,
+        "climate": 539,
+        "vegetation": 539,
+        "rivers": 13,
+        "cities": 29,
+        "polities": 10,
+        "population": 539
+      },
+      "timings": {
+        "before": {
+          "buildMs": 6496.5,
+          "totalMs": 7184
+        },
+        "after": {
+          "buildMs": 4895.5,
+          "totalMs": 5511.5999999940395
+        }
+      },
+      "identicalScene": true,
+      "pixelDifferences": 0
+    }
+  ],
+  "beforeMedianMs": 7184,
+  "afterMedianMs": 5511.5999999940395,
+  "budgetMs": 1000,
+  "meetsBudget": false
+}

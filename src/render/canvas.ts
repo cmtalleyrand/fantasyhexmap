@@ -3,29 +3,39 @@ import type { PathCmd, Prim } from './prims.js';
 import type { Scene } from './scene.js';
 import { MAP_COLOURS } from './palette.js';
 import type { GrainTile } from './texture.js';
+import { boundsOf, intersects, type Bounds } from './bounds.js';
 
-type Ctx = CanvasRenderingContext2D;
+type Ctx = CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
+const compositeSurfaces: OffscreenCanvas[] = [];
+let compositeDepth = 0;
 
-export function drawScene(ctx: Ctx, scene: Scene): void {
+export function drawScene(ctx: Ctx, scene: Scene, viewport?: Bounds, compositeClips = false): void {
   // The viewport canvas is larger than the map when fitted or panned. Water
   // bands, coast strokes and edge symbols may extend beyond the scene itself.
   ctx.save();
   ctx.beginPath();
-  ctx.rect(0, 0, scene.width, scene.height);
+  const left = viewport ? Math.max(0, viewport.left) : 0, top = viewport ? Math.max(0, viewport.top) : 0;
+  const right = viewport ? Math.min(scene.width, viewport.right) : scene.width;
+  const bottom = viewport ? Math.min(scene.height, viewport.bottom) : scene.height;
+  if (right <= left || bottom <= top) { ctx.restore(); return; }
+  ctx.rect(left, top, right - left, bottom - top);
   ctx.clip();
-  drawPrims(ctx, scene.prims);
+  drawPrims(ctx, scene.prims, viewport, compositeClips);
   ctx.restore();
 }
 
-export function drawPrims(ctx: Ctx, prims: Prim[]): void {
-  for (const prim of prims) drawPrim(ctx, prim);
+export function drawPrims(ctx: Ctx, prims: Prim[], viewport?: Bounds, compositeClips = false): void {
+  for (const prim of prims) {
+    if (viewport && !intersects(boundsOf(prim), viewport)) continue;
+    drawPrim(ctx, prim, viewport, compositeClips);
+  }
 }
 
 // Scene paths are immutable and often shared by several water bands and clips.
 // Weak keys release their compiled paths when a scene is replaced.
 const compiledPaths = new WeakMap<PathCmd[], Path2D>();
 
-function traceCommands(target: CanvasRenderingContext2D | Path2D, d: PathCmd[]): void {
+function traceCommands(target: Ctx | Path2D, d: PathCmd[]): void {
   for (const c of d) {
     switch (c[0]) {
       case 'M': target.moveTo(c[1], c[2]); break;
@@ -72,7 +82,7 @@ function tileSource(tile: GrainTile): HTMLCanvasElement | OffscreenCanvas | null
   return canvas;
 }
 
-function drawPrim(ctx: Ctx, prim: Prim): void {
+function drawPrim(ctx: Ctx, prim: Prim, viewport?: Bounds, compositeClips = false): void {
   switch (prim.kind) {
     case 'path': {
       const path = tracePath(ctx, prim.d);
@@ -99,12 +109,32 @@ function drawPrim(ctx: Ctx, prim: Prim): void {
       ctx.save();
       if (prim.opacity !== undefined) ctx.globalAlpha *= prim.opacity;
       if (prim.translate) ctx.translate(prim.translate.x, prim.translate.y);
+      const local = viewport && prim.translate ? { left: viewport.left - prim.translate.x, top: viewport.top - prim.translate.y,
+        right: viewport.right - prim.translate.x, bottom: viewport.bottom - prim.translate.y } : viewport;
       if (prim.clip) {
         const path = tracePath(ctx, prim.clip);
         if (path) ctx.clip(path, prim.clipRule ?? 'nonzero');
         else ctx.clip(prim.clipRule ?? 'nonzero');
       }
-      drawPrims(ctx, prim.prims);
+      if (compositeClips && prim.clip && prim.prims.length >= 200 && typeof OffscreenCanvas !== 'undefined') {
+        // Rasterize the children once, then evaluate the dense silhouette once
+        // for the composite rather than once for every overlapping donor patch.
+        let layer = compositeSurfaces[compositeDepth];
+        if (!layer) compositeSurfaces[compositeDepth] = layer = new OffscreenCanvas(ctx.canvas.width, ctx.canvas.height);
+        if (layer.width !== ctx.canvas.width) layer.width = ctx.canvas.width;
+        if (layer.height !== ctx.canvas.height) layer.height = ctx.canvas.height;
+        const surface = layer.getContext('2d')!;
+        surface.setTransform(1, 0, 0, 1, 0, 0);
+        surface.clearRect(0, 0, layer.width, layer.height);
+        surface.setTransform(ctx.getTransform());
+        surface.globalAlpha = ctx.globalAlpha;
+        compositeDepth++;
+        try { drawPrims(surface, prim.prims, local, compositeClips); }
+        finally { compositeDepth--; }
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        ctx.globalAlpha = 1;
+        ctx.drawImage(layer, 0, 0);
+      } else drawPrims(ctx, prim.prims, local, compositeClips);
       ctx.restore();
       break;
     }

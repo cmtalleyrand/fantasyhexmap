@@ -30,6 +30,7 @@ function csp(): Plugin {
       const policy = [
         "default-src 'none'",
         "script-src 'self'",
+        "worker-src 'self'",
         // React sets style attributes; Vite injects a stylesheet from this origin.
         "style-src 'self' 'unsafe-inline'",
         "img-src 'self' data: blob:",
