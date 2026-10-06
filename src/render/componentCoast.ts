@@ -54,7 +54,7 @@ export function coastClearance(chains: CoastChain[], size: number): (p: Point, c
     return nearest;
   };
 }
-/** Uniform arc-length samples, a multi-hex low-pass silhouette, then irregularly spaced coast-wide detail.
+/** Uniform arc-length samples, a multi-hex low-pass silhouette, then warped spatial ridge/erosion detail.
 * No source corner or edge midpoint is a mandatory waypoint. Source correspondence is kept
 * solely for donor colours, fill correction, border ends and explicit geographic constraints.
 */
@@ -134,38 +134,50 @@ export function componentCoast(chain: CoastChain, rough: Roughness, clearance: R
     return { x: x / sum, y: y / sum };
   });
   result.splice(0, result.length, ...eased);
-  // Detail is added AFTER the last silhouette filter. Its control positions span the whole
-  // ring, with seeded unequal spacing and independent bands, and never reset at a hex edge.
-  // Arc-length noise also avoids matching the shapes on two nearby opposing shores.
+  // Shape variation lives in a planar field, rather than in a sequence of alternating
+  // positive/negative knots around the shore. Warping the field's coordinates and using
+  // one-sided ridges creates asymmetric features at several scales.
   const centre = { x: source.reduce((sum, p) => sum + p.x, 0) / n, y: source.reduce((sum, p) => sum + p.y, 0) / n };
-  const field = (wavelength: number, purpose: number) => {
-    const knots = Math.max(4, Math.ceil(perimeter / (size * wavelength)));
-    const random = (i: number, role: number) => rough.noise(centre.x / size, centre.y / size, purpose + i * 11 + role);
-    const gaps = Array.from({ length: knots }, (_, i) => 0.45 + random(i, 0) * 1.5);
-    const total = gaps.reduce((sum, gap) => sum + gap, 0);
-    const widths = gaps.map(gap => gap / total * perimeter);
-    const positions = [0];
-    widths.forEach(width => positions.push(positions.at(-1)! + width));
-    const raw = Array.from({ length: chain.closed ? knots : knots + 1 }, (_, i) => random(i, 1) * 2 - 1);
-    const mean = raw.reduce((sum, value) => sum + value, 0) / raw.length;
-    const rms = Math.sqrt(raw.reduce((sum, value) => sum + (value - mean) ** 2, 0) / raw.length) || 1;
-    const values = raw.map(value => Math.max(-1.3, Math.min(1.3, (value - mean) / rms * 0.6)));
-    const value = (i: number) => values[chain.closed ? (i + knots) % knots : Math.max(0, Math.min(knots, i))]!;
-    const slope = (i: number) => {
-      if (!chain.closed && (i === 0 || i === knots)) return 0;
-      return (value(i + 1) - value(i - 1)) / (widths[(i - 1 + knots) % knots]! + widths[i % knots]!);
+  const seedX = centre.x / size, seedY = centre.y / size;
+  const axis = rough.noise(seedX, seedY, 60) * Math.PI * 2;
+  const origin = {
+    x: rough.noise(seedX, seedY, 61) * 100,
+    y: rough.noise(seedX, seedY, 62) * 100,
+  };
+  const field = (p: Point, scale: number, purpose: number) => {
+    const px = (p.x - centre.x) / (size * scale), py = (p.y - centre.y) / (size * scale);
+    const x = px * Math.cos(axis) - py * Math.sin(axis) + origin.x;
+    const y = px * Math.sin(axis) + py * Math.cos(axis) + origin.y;
+    const ix = Math.floor(x), iy = Math.floor(y), fx = x - ix, fy = y - iy;
+    const gradient = (a: number, b: number) => {
+      const gx = rough.noise(seedX + a * 13, seedY + b * 17, purpose) * 2 - 1;
+      const gy = rough.noise(seedX + a * 13, seedY + b * 17, purpose + 100) * 2 - 1;
+      const length = Math.hypot(gx, gy) || 1;
+      return (gx * (x - a) + gy * (y - b)) / length;
     };
-    let knot = 0;
-    return (arc: number) => {
-      while (knot + 1 < knots && arc > positions[knot + 1]!) knot++;
-      const width = widths[knot]!, t = Math.min(1, (arc - positions[knot]!) / width);
-      const a = value(knot), b = value(knot + 1);
-      return (2 * t ** 3 - 3 * t ** 2 + 1) * a + (t ** 3 - 2 * t ** 2 + t) * width * slope(knot)
-        + (-2 * t ** 3 + 3 * t ** 2) * b + (t ** 3 - t ** 2) * width * slope(knot + 1);
+    const fade = (t: number) => t * t * t * (t * (t * 6 - 15) + 10);
+    const u = fade(fx), v = fade(fy);
+    const a = gradient(ix, iy), b = gradient(ix + 1, iy), c = gradient(ix, iy + 1), d = gradient(ix + 1, iy + 1);
+    return ((a + (b - a) * u) * (1 - v) + (c + (d - c) * u) * v) * 1.7;
+  };
+  const terrain = (p: Point) => {
+    const warped = {
+      x: p.x + field(p, 2.7, 70) * size * 0.75,
+      y: p.y + field(p, 2.7, 71) * size * 0.75,
+    };
+    const regional = field(warped, 1.8, 72);
+    // A regional field varies strength without switching detail off. Angular ridges
+    // and erosion remain present around the coast, with no coast-wide RMS normalization.
+    const gate = 0.4 + 0.6 * Math.max(0, Math.min(1, (regional + 0.55) / 1.05)) ** 2;
+    const coarse = field(warped, 2.3, 73);
+    const ridge = Math.abs(field(warped, 0.55, 74));
+    const inlet = Math.max(0, field(warped, 0.85, 75)) ** 2;
+    const fine = field(warped, 0.22, 76) * 0.65 + field(warped, 0.095, 77) * 0.2;
+    return {
+      flow: { x: field(warped, 2.0, 78), y: field(warped, 2.0, 79) },
+      relief: coarse * 0.7 + gate * (ridge * 1.7 - inlet * 2.5 + fine),
     };
   };
-  const bands = [field(2.4, 100), field(0.9, 10000), field(0.38, 20000)];
-  const envelope = field(3.7, 30000);
   const amplitudes = donors.map(edge => rough.amplitude(edge));
   const limits = donors.map((edge, i) => Math.min(size * 0.4, clearance(source[i]!, chain, i * step) * 0.14,
     (rough.displacementLimit?.(edge) ?? Infinity) * 0.4));
@@ -188,13 +200,19 @@ export function componentCoast(chain: CoastChain, rough: Roughness, clearance: R
     const next = eased[chain.closed ? (i + 1) % n : Math.min(n - 1, i + 1)]!;
     const dx = next.x - previous.x, dy = next.y - previous.y, length = Math.hypot(dx, dy) || 1;
     const arc = i * step;
-    const strength = Math.max(0.25, Math.min(1.6, 0.9 + envelope(arc) * 0.75));
-    const offset = settings[i]!.amplitude * size * strength * 1.8
-      * (bands[0]!(arc) * 0.9 + bands[1]!(arc) * 0.9 + bands[2]!(arc) * 0.55);
+    const sample = terrain(p);
+    const amplitude = settings[i]!.amplitude * size;
+    // Large planar flow changes the outline asymmetrically. Smaller ridged/erosive detail
+    // follows its local shore normal, with regionally varying strength.
+    const move = {
+      x: amplitude * (sample.flow.x * 1.5 - dy / length * sample.relief * 3.0),
+      y: amplitude * (sample.flow.y * 1.5 + dx / length * sample.relief * 3.0),
+    };
     const limit = settings[i]!.limit;
+    const distance = Math.hypot(move.x, move.y) || 1;
     const ends = chain.closed ? 1 : Math.min(1, arc / size, (perimeter - arc) / size);
-    const bounded = limit > 0 ? limit * Math.tanh(offset / limit) * ends : 0;
-    return { x: p.x - dy / length * bounded, y: p.y + dx / length * bounded };
+    const gain = limit > 0 ? limit * Math.tanh(distance / limit) / distance * ends : 0;
+    return { x: p.x + move.x * gain, y: p.y + move.y * gain };
   });
   result.splice(0, result.length, ...detail);
   const onResult = (arc: number) => {

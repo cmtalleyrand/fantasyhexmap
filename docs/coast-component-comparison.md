@@ -2,13 +2,15 @@
 
 The original geometry retained one curve per hex corner. Its repeated rounded
 lobes, inward notches and grid-aligned shoulders made coastlines look regularly
-irregular. The first component-stage version over-smoothed the coast and lost
-much of the detail. The revised stage keeps the component silhouette and adds
-irregular detail after its final filter.
+irregular. Component smoothing alone removed too much detail. Adding coast-arc noise
+restored detail but still produced a repeated rounded bump/dip motif. This
+candidate replaces that detail generator with warped spatial ridges and erosion
+to aim for rugged, angular coastlines. The images are for visual review; passing
+geometric checks does not establish that the appearance is satisfactory.
 
-![Original, first PR version and current revision](coast-component-comparison.png)
+![Original, previous revision and new candidate](coast-component-comparison.png)
 
-Columns: original renderer at `24c5927`, first PR version at `3da23b5`, current
+Columns: original renderer at `24c5927`, previous revision at `44a36bc`, current
 revision. Rows: three-hex chain, longer chain, bay, explicit isthmus and strait.
 Inputs, seed (`coast-evidence`), 30-pixel hex radius, Ragged setting and parchment
 style are the same. These are actual `buildScene` / SVG renders rasterized with
@@ -24,11 +26,12 @@ rendered silhouette and grows with the chosen level.
 
 ![The same inputs and Ragged level with three seeds](coast-component-seeds.png)
 
-Three fixed seeds on the same inputs at Ragged. Bays, points, spacing and calm
-stretches vary along each coast. Noise is defined around the whole boundary,
-with independently seeded unequal knot intervals, several scales and a slowly
-varying strength. It does not restart at a hex corner or midpoint. Hermite
-interpolation joins its knots continuously, including the seam of a closed ring.
+Three fixed seeds on the same inputs at Ragged. Detail is sampled from a seeded
+two-dimensional gradient field with a random orientation. A broad spatial field warps its coordinates; absolute-value ridges,
+one-sided erosion and smaller signed fields add angular points and cuts at
+several scales. Regional variation changes strength while retaining fine detail
+around the coast. Neither knots along the coastline nor its original hex corners
+control feature placement. The field is continuous across closed-ring seams.
 
 ## Geometry and fills
 
@@ -57,7 +60,7 @@ node --import tsx scripts/coast-evidence.ts ragged-third coast-reefs Ragged
 ```
 
 It writes the current SVG renders into `work/evidence/`. The first two comparison
-columns were captured from their respective source versions before the revision.
+columns were captured from their respective source versions before this candidate.
 Gallery crops are enlarged rasterizations of those SVGs.
 
 Regression coverage includes preserved coarse and fine detail, increasing
