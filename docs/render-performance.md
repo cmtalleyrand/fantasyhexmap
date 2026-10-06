@@ -103,7 +103,7 @@ It writes `work/render-browser-performance.json`.
 
 The cold-render target is **under 1000 ms**, including scene construction and
 canvas drawing with all eight populated layers and labels enabled. It is
-**not met**. PR #132 remains a draft.
+**not met**. This follow-up remains a draft.
 
 The offline generator and normal decoders produce a fixed 40×40 map containing
 539 populated land cells in each terrain/population layer, 13 rivers, 29 cities
