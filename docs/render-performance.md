@@ -98,3 +98,51 @@ Use `--chromium /path/to/browser` if Chromium is elsewhere. The browser script
 fails on changed scene data, pixel differences outside the stated bounds,
 full-scene hover repainting, selection repainting, or failed zoom invalidation.
 It writes `work/render-browser-performance.json`.
+
+## 40×40 populated all-layer acceptance test
+
+The stricter target is **under 1000 ms**, including cold scene construction and
+canvas drawing, with all eight populated layers and labels enabled. This target
+is **not met**. The follow-up remains a draft.
+
+The offline generator and normal decoders produce a fixed 40×40 map containing
+539 populated land cells in each terrain/population layer, 13 rivers, 29 cities
+and 10 polities. Three independent browser pages use different rendering seeds.
+The parchment preset uses smooth coastlines and its actual bundled fonts,
+loaded before timing. The 1000×800 canvas displays the whole map at half scale;
+reading its pixels forces queued drawing to finish inside the measured interval.
+Generation, font loading and application startup are excluded from the timing.
+
+Against merged PR #130 (`7fd124e`), measured total times in Chromium are:
+
+| Seed | Baseline | Follow-up |
+| --- | ---: | ---: |
+| 0 | 7.309 s | 8.851 s |
+| 1 | 5.907 s | 4.958 s |
+| 2 | 6.434 s | 6.006 s |
+| Median | 6.434 s | 6.006 s |
+
+The coldest follow-up case regresses, and the median improvement is modest.
+These results do not establish an adequate fix. All three complete scenes are
+identical to the baseline; all three canvas comparisons have zero differing
+channels. Coastline construction, geometric fitting, lettering and canvas
+painting still need substantial work to reach the budget.
+
+The follow-up prepares clearance candidates, padded convolution inputs,
+scanline area edges and point-query bins once, avoids repeated clipping edge
+normalization, and searches nearby river points and cumulative lengths without
+scanning whole courses. The correctness suite passes all 44 test files, including
+a new 10,000-point ray-parity comparison covering holes and boundary conditions.
+Type checking and the production build pass.
+
+Reproduce the full acceptance check after installing the scratch browser driver
+as described above:
+
+```sh
+node scripts/render-all-layers-performance.mjs --baseline 7fd124e --check
+```
+
+`--check` exits with an error if any timed run takes 1000 ms or more. Geometry or
+pixel differences also fail the script, regardless of the budget flag. Raw results
+are recorded in `docs/render-all-layers-performance-results.json`; fresh runs write
+`work/render-all-layers-performance.json`.

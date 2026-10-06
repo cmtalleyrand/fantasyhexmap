@@ -16,16 +16,14 @@ export function coastClearance(chains: CoastChain[], size: number) {
     chain: CoastChain;
     arc: number;
     length: number;
-    seen: number;
   };
   const bins = new Map<number, Map<number, Entry[]>>();
-  let query = 0;
   const lengths = new Map<CoastChain, number>();
   for (const chain of chains) {
     let arc = 0;
     for (const edge of chain.edges) {
       const length = distance(edge.from, edge.to);
-      const entry = { edge, chain, arc, length, seen: 0 };
+      const entry = { edge, chain, arc, length };
       for (let x = Math.floor(Math.min(edge.from.x, edge.to.x) / size); x <= Math.floor(Math.max(edge.from.x, edge.to.x) / size); x++)
         for (let y = Math.floor(Math.min(edge.from.y, edge.to.y) / size); y <= Math.floor(Math.max(edge.from.y, edge.to.y) / size); y++) {
           let column = bins.get(x);
@@ -38,30 +36,33 @@ export function coastClearance(chains: CoastChain[], size: number) {
     }
     lengths.set(chain, arc);
   }
+  const candidates = new Map<number, Map<number, Entry[]>>();
   const measure = (p: Point, chain: CoastChain, arc: number, otherComponentsOnly = false) => {
     let nearest = size * 3;
-    const stamp = ++query;
     const x = Math.floor(p.x / size), y = Math.floor(p.y / size);
-    for (let dx = -3; dx <= 3; dx++)
-      for (let dy = -3; dy <= 3; dy++)
-        for (const e of bins.get(x + dx)?.get(y + dy) ?? []) {
-          // An edge crossing bin boundaries is examined only once per query.
-          if (e.seen === stamp) continue;
-          e.seen = stamp;
-          if (e.chain === chain) {
-            if (otherComponentsOnly) continue;
-            let gap = Math.abs(arc - (e.arc + e.length / 2));
-            if (chain.closed)
-              gap = Math.min(gap, lengths.get(chain)! - gap);
-            if (gap < size * 2 + e.length / 2)
-              continue;
-          }
-          const a = e.edge.from, b = e.edge.to;
-          const bx = Math.max(0, Math.min(a.x, b.x) - p.x, p.x - Math.max(a.x, b.x));
-          const by = Math.max(0, Math.min(a.y, b.y) - p.y, p.y - Math.max(a.y, b.y));
-          if (bx * bx + by * by > nearest * nearest) continue;
-          nearest = Math.min(nearest, segmentDistance(p, e.edge));
-        }
+    let column = candidates.get(x);
+    if (!column) { column = new Map(); candidates.set(x, column); }
+    let entries = column.get(y);
+    if (!entries) {
+      const nearby = new Set<Entry>();
+      for (let dx = -3; dx <= 3; dx++) for (let dy = -3; dy <= 3; dy++) {
+        for (const entry of bins.get(x + dx)?.get(y + dy) ?? []) nearby.add(entry);
+      }
+      entries = [...nearby]; column.set(y, entries);
+    }
+    for (const e of entries) {
+      if (e.chain === chain) {
+        if (otherComponentsOnly) continue;
+        let gap = Math.abs(arc - (e.arc + e.length / 2));
+        if (chain.closed) gap = Math.min(gap, lengths.get(chain)! - gap);
+        if (gap < size * 2 + e.length / 2) continue;
+      }
+      const a = e.edge.from, b = e.edge.to;
+      const bx = Math.max(0, Math.min(a.x, b.x) - p.x, p.x - Math.max(a.x, b.x));
+      const by = Math.max(0, Math.min(a.y, b.y) - p.y, p.y - Math.max(a.y, b.y));
+      if (bx * bx + by * by > nearest * nearest) continue;
+      nearest = Math.min(nearest, segmentDistance(p, e.edge));
+    }
     return nearest;
   };
   // A fitting pass can move one coast while leaving distant components alone.
@@ -133,10 +134,11 @@ export function componentCoast(chain: CoastChain, rough: Roughness, clearance: R
   const sigma = Math.min(size * (aggregate ? 1.3 : 0.85), perimeter / 6);
   const silhouetteKernel = kernel(sigma);
   const span = silhouetteKernel.reach;
+  const paddedSource = Array.from({ length: n + 2 * span }, (_, j) => at(j - span));
   const silhouette = source.map((_, i) => {
     let x = 0, y = 0;
     for (let k = -span; k <= span; k++) {
-      const w = silhouetteKernel.weights[k + span]!, q = at(i + k);
+      const w = silhouetteKernel.weights[k + span]!, q = paddedSource[i + k + span]!;
       x += q.x * w;
       y += q.y * w;
     }
@@ -203,6 +205,7 @@ export function componentCoast(chain: CoastChain, rough: Roughness, clearance: R
   });
   // Ease the bounded displacement as a curve, so a local clearance limit cannot introduce
   // a new corner. In explicitly narrow features this last filter has a correspondingly short reach.
+  const paddedResult = new Map<number, Point[]>();
   const eased = result.map((p, i) => {
     if (!chain.closed && (i === 0 || i === n - 1))
       return p;
@@ -210,12 +213,17 @@ export function componentCoast(chain: CoastChain, rough: Roughness, clearance: R
     const radius = Math.min(size * 0.35, perimeter / 6, Math.max(size / 16, widthLimit * 0.5));
     const smoothingKernel = kernel(radius);
     const reach = smoothingKernel.reach;
+    let padded = paddedResult.get(reach);
+    if (!padded) {
+      padded = Array.from({ length: n + 2 * reach }, (_, j) => result[chain.closed ? (j - reach + n) % n : Math.max(0, Math.min(n - 1, j - reach))]!);
+      paddedResult.set(reach, padded);
+    }
     let x = 0, y = 0;
     for (let k = -reach; k <= reach; k++) {
-      const j = chain.closed ? (i + k + n) % n : Math.max(0, Math.min(n - 1, i + k));
+      const q = padded[i + k + reach]!;
       const w = smoothingKernel.weights[k + reach]!;
-      x += result[j]!.x * w;
-      y += result[j]!.y * w;
+      x += q.x * w;
+      y += q.y * w;
     }
     return { x: x / smoothingKernel.total, y: y / smoothingKernel.total };
   });

@@ -1,0 +1,87 @@
+{
+  "baseline": "7fd124e261cf57d9c39aca2d75b0c31592d84e1e",
+  "size": 40,
+  "allLayers": true,
+  "labels": true,
+  "runs": [
+    {
+      "run": 0,
+      "layerCounts": {
+        "base": 1600,
+        "elevation": 539,
+        "climate": 539,
+        "vegetation": 539,
+        "rivers": 13,
+        "cities": 29,
+        "polities": 10,
+        "population": 539
+      },
+      "timings": {
+        "before": {
+          "buildMs": 5938.699999999255,
+          "totalMs": 7308.5
+        },
+        "after": {
+          "buildMs": 7717,
+          "totalMs": 8850.800000000745
+        }
+      },
+      "identicalScene": true,
+      "pixelDifferences": 0
+    },
+    {
+      "run": 1,
+      "layerCounts": {
+        "base": 1600,
+        "elevation": 539,
+        "climate": 539,
+        "vegetation": 539,
+        "rivers": 13,
+        "cities": 29,
+        "polities": 10,
+        "population": 539
+      },
+      "timings": {
+        "before": {
+          "buildMs": 5103.60000000149,
+          "totalMs": 5907.199999999255
+        },
+        "after": {
+          "buildMs": 4191.5,
+          "totalMs": 4958.39999999851
+        }
+      },
+      "identicalScene": true,
+      "pixelDifferences": 0
+    },
+    {
+      "run": 2,
+      "layerCounts": {
+        "base": 1600,
+        "elevation": 539,
+        "climate": 539,
+        "vegetation": 539,
+        "rivers": 13,
+        "cities": 29,
+        "polities": 10,
+        "population": 539
+      },
+      "timings": {
+        "before": {
+          "buildMs": 5614,
+          "totalMs": 6433.699999999255
+        },
+        "after": {
+          "buildMs": 5254.800000000745,
+          "totalMs": 6005.89999999851
+        }
+      },
+      "identicalScene": true,
+      "pixelDifferences": 0
+    }
+  ],
+  "beforeMedianMs": 6433.699999999255,
+  "afterMedianMs": 6005.89999999851,
+  "budgetMs": 1000,
+  "meetsBudget": false
+}

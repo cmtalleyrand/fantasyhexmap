@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { coastEdges, coastGeometryOf, type Roughness } from '../src/render/coast.ts';
+import { coastEdges, coastGeometryOf, evenOddTest, type Roughness } from '../src/render/coast.ts';
 import { coveredArea } from '../src/render/footprint.ts';
 import { unit } from '../src/render/seed.ts';
 import type { BaseGeo } from '../shared/types.ts';
@@ -43,4 +43,28 @@ test('area scan keeps enclosing contours and merges overlaps while ignoring dist
   assert.equal(coveredArea([rectangle(-100, -100, 200, 200)], clip, 100), 100);
   assert.ok(Math.abs(coveredArea([rectangle(-5, 0, 10, 10), rectangle(3, 0, 10, 10), rectangle(100, 100, 10, 10)], clip, 100) - 100) < 1e-10);
   assert.ok(Math.abs(coveredArea([rectangle(-5, 2, 10, 6)], clip, 100) - 30) < 1e-10);
+});
+
+
+test('indexed land queries retain ray parity at vertices, holes and cell boundaries', () => {
+  const rings = [
+    [{ x: -40, y: -20 }, { x: 80, y: -10 }, { x: 60, y: 90 }, { x: -30, y: 50 }],
+    [{ x: 0, y: 0 }, { x: 20, y: 0 }, { x: 20, y: 30 }, { x: 0, y: 30 }],
+    [{ x: 120, y: 10 }, { x: 150, y: 35 }, { x: 120, y: 60 }],
+  ];
+  const indexed = evenOddTest(rings, 3.25);
+  const brute = (x: number, y: number) => {
+    let inside = false;
+    for (const ring of rings) for (let i = 0; i < ring.length; i++) {
+      const a = ring[i]!, b = ring[(i + 1) % ring.length]!;
+      if ((a.y > y) !== (b.y > y) && x < ((b.x - a.x) * (y - a.y)) / (b.y - a.y) + a.x) inside = !inside;
+    }
+    return inside;
+  };
+  for (let i = 0; i < 10000; i++) {
+    const x = -70 + unit('land-query', i, 0) * 250, y = -40 + unit('land-query', i, 1) * 160;
+    assert.equal(indexed({ x, y }), brute(x, y));
+  }
+  for (const ring of rings) for (const p of ring) assert.equal(indexed(p), brute(p.x, p.y));
+  for (let x = -52; x <= 156; x += 13) for (let y = -26; y <= 104; y += 3.25) assert.equal(indexed({ x, y }), brute(x, y));
 });

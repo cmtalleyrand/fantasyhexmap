@@ -68,16 +68,20 @@ export function polyArea(p: Poly): number {
 function cut(poly: Poly, a: Point, b: Point, off: number, keep: 'right' | 'left'): Poly {
   const sign = keep === 'right' ? 1 : -1;
   const out: Poly = [];
+  const ex = b.x - a.x, ey = b.y - a.y;
+  const len = Math.hypot(ex, ey) || 1;
+  const side = (q: Point) => sign * (((q.x - a.x) * -ey + (q.y - a.y) * ex) / len - off);
+  let vp = poly.length > 0 ? side(poly[0]!) : 0;
   for (let k = 0; k < poly.length; k++) {
     const p = poly[k]!;
     const q = poly[(k + 1) % poly.length]!;
-    const vp = sign * (right(a, b, p) - off);
-    const vq = sign * (right(a, b, q) - off);
+    const vq = side(q);
     if (vp >= 0) out.push(p);
     if (vp >= 0 !== vq >= 0) {
       const t = vp / (vp - vq);
       out.push({ x: snap(p.x + (q.x - p.x) * t), y: snap(p.y + (q.y - p.y) * t) });
     }
+    vp = vq;
   }
   return tidy(out);
 }
@@ -880,13 +884,20 @@ export function coveredArea(rings: Point[][], clip: Poly, lines = 96): number {
 
 /** Prepare immutable outlines for repeated area measurements within one fitting pass. */
 export function areaCoverage(rings: Point[][]): (clip: Poly, lines?: number) => number {
-  const prepared = rings.map(ring => ({
-    box: boxOf(ring),
-    edges: ring.flatMap((a, k) => {
+  const band = 8;
+  const prepared = rings.map(ring => {
+    const bins = new Map<number, Array<[Point, Point]>>();
+    ring.forEach((a, k) => {
       const b = ring[(k + 1) % ring.length]!;
-      return a.y === b.y ? [] : [[a, b] as [Point, Point]];
-    }),
-  }));
+      if (a.y === b.y) return;
+      for (let y = Math.floor(Math.min(a.y, b.y) / band); y <= Math.floor(Math.max(a.y, b.y) / band); y++) {
+        let bin = bins.get(y);
+        if (!bin) { bin = []; bins.set(y, bin); }
+        bin.push([a, b]);
+      }
+    });
+    return { box: boxOf(ring), bins };
+  });
   return (clip, lines = 96) => {
     const top = Math.min(...clip.map((p) => p.y));
     const bottom = Math.max(...clip.map((p) => p.y));
@@ -894,14 +905,7 @@ export function areaCoverage(rings: Point[][]): (clip: Poly, lines?: number) => 
     const x0 = Math.min(...clip.map(p => p.x)), x1 = Math.max(...clip.map(p => p.x));
     // Preserve all ray crossings (including those outside the clip), but discard
     // rings outside its bounds and edges that cannot cross any measuring line.
-    const edges = prepared.flatMap(({ box, edges }) => {
-      if (box[2] < x0 || box[0] > x1 || box[3] < top || box[1] > bottom) return [];
-      const relevant: Array<[Point, Point]> = [];
-      for (const [a, b] of edges) {
-        if (Math.max(a.y, b.y) >= top && Math.min(a.y, b.y) <= bottom) relevant.push([a, b]);
-      }
-      return [relevant];
-    });
+    const relevant = prepared.filter(({ box }) => !(box[2] < x0 || box[0] > x1 || box[3] < top || box[1] > bottom));
     let total = 0;
     for (let n = 0; n < lines; n++) {
       const y = top + (n + 0.5) * step;
@@ -920,9 +924,9 @@ export function areaCoverage(rings: Point[][]): (clip: Poly, lines?: number) => 
       if (!(right > left)) continue;
       // Where each outline is on this line, as stretches of x.
       const runs: Array<[number, number]> = [];
-      for (const ring of edges) {
+      for (const { bins } of relevant) {
         const xs: number[] = [];
-        for (const [a, b] of ring) {
+        for (const [a, b] of bins.get(Math.floor(y / band)) ?? []) {
           if (a.y <= y !== b.y <= y) xs.push(a.x + ((y - a.y) / (b.y - a.y)) * (b.x - a.x));
         }
         xs.sort((u, v) => u - v);
@@ -957,6 +961,7 @@ export function driftOf(
   flatten: (d: PathCmd[]) => Point[][],
 ): Map<number, number> {
   const drift = new Map<number, number>();
+  const clips = new Map<number, { poly: Poly; box: [number, number, number, number] }>();
   const spread = (slivers: Sliver[], sign: number) => {
     for (const sliver of slivers) {
       for (const ring of flatten(sliver.d)) {
@@ -970,9 +975,14 @@ export function driftOf(
           const n = neighbourOf(col, row, e);
           if (inBounds(cols, rows, n.col, n.row)) near.push(hexIndex(cols, n.col, n.row));
         }
+        const bounds = boxOf(poly);
         for (const j of near) {
           if (!of.has(j)) continue;
-          const part = within(poly, hexCorners(j % cols, Math.floor(j / cols), size));
+          let clip = clips.get(j);
+          if (!clip) { const poly = hexCorners(j % cols, Math.floor(j / cols), size); clip = { poly, box: boxOf(poly) }; clips.set(j, clip); }
+          const box = clip.box;
+          if (bounds[2] < box[0] - ON_LINE || bounds[0] > box[2] + ON_LINE || bounds[3] < box[1] - ON_LINE || bounds[1] > box[3] + ON_LINE) continue;
+          const part = within(poly, clip.poly);
           if (part.length >= 3) drift.set(j, (drift.get(j) ?? 0) + sign * polyArea(part));
         }
       }
