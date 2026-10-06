@@ -1,7 +1,8 @@
 # Irregular coastline review
 
-The recurring waist/bulge issue remains unresolved. See the subsequent
-[90% / 60% / 30% land-percentage experiment](coast-land-percent-review.md).
+These galleries show the feature-stage revision at `84714c6`. See the subsequent
+[land-percentage diagnostic](coast-land-percent-review.md) and
+[component-area revision](coast-component-area-review.md) for the recurring waists.
 
 The original geometry retained one curve per hex corner. Its repeated rounded
 lobes, inward notches and grid-aligned shoulders made coastlines look regularly

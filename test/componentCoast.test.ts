@@ -205,3 +205,95 @@ test('the final land silhouette has ground beneath folds in its donor patches', 
     assert.ok(landPainted, 'the land has a donor ground fill rather than showing the sea background');
   }
 });
+
+test('a component area target removes hex-join waists without removing roughness or splitting low-share land', () => {
+  const layouts = [[25, 26, 27, 28, 29], [19, 27, 36]];
+  const area = (ring: Point[]) => Math.abs(ring.reduce((sum, p, i) => {
+    const q = ring[(i + 1) % ring.length]!;
+    return sum + p.x * q.y - q.x * p.y;
+  }, 0)) / 2;
+  for (const cells of layouts) {
+    const base: BaseGeo[] = Array(64).fill('Sea');
+    cells.forEach(i => base[i] = 'Land');
+    const edges = coastEdges(base, cols, rows, size);
+    for (const fraction of [0.9, 0.6, 0.3]) for (let seed = 0; seed < 32; seed++) {
+      const target = cells.length * 1.5 * Math.sqrt(3) * size * size * fraction;
+      const geometry = coastGeometryOf(edges, true, {
+        size, amplitude: () => seed === 0 ? 0 : 0.2,
+        noise: (x, y, k) => noise(x, y, k + seed * 100), componentArea: () => target,
+      });
+      const rings = geometry.paths.flatMap(d => pathPolylines(d, 6));
+      assert.equal(rings.length, 1, 'the source component remains connected at low land percentages');
+      assert.equal(crossings(rings), 0, `fraction ${fraction}, seed ${seed}`);
+      const ring = rings[0]!.slice(0, -1);
+      assert.ok(Math.abs(area(ring) - target) < target * 1e-8, 'area belongs to the whole component');
+      if (seed === 0 && cells.length === 5) {
+        const widthAt = (x: number) => {
+          const hits: number[] = [];
+          ring.forEach((p, i) => {
+            const q = ring[(i + 1) % ring.length]!;
+            if ((p.x <= x) !== (q.x <= x)) hits.push(p.y + (q.y - p.y) * (x - p.x) / (q.x - p.x));
+          });
+          return Math.max(...hits) - Math.min(...hits);
+        };
+        const centre = hexCenter(3, 3, size), separation = Math.sqrt(3) * size;
+        const widths = [-0.5, 0, 0.5].map(offset => widthAt(centre.x + separation * offset));
+        assert.ok(Math.min(...widths) / Math.max(...widths) > 0.97, 'the waist does not repeat at the hex joins');
+      }
+    }
+  }
+});
+
+test('scene coast tracing uses component area before per-hex reshaping can split the component', async () => {
+  const { createMapState } = await import('../shared/layers.ts');
+  const { buildScene, defaultVisibility } = await import('../src/render/scene.ts');
+  const { resolveStyle } = await import('../src/render/styles.ts');
+  const style = resolveStyle({ preset: 'parchment' });
+  for (const percent of [90, 60, 30]) for (const seed of ['coast-evidence', 'coast-driftwood']) {
+    const map = createMapState('Component area', cols, rows);
+    map.id = seed;
+    map.hexDimensions.coastalLandPercent = percent;
+    map.defaultIrregularity = 'Ragged';
+    map.layers.base.data = Array(64).fill('Sea');
+    for (const i of [19, 27, 36]) map.layers.base.data[i] = 'Coastal Land';
+    const scene = buildScene(map, { size, visible: defaultVisibility(), labels: false, style });
+    const land = scene.prims.find(p => p.kind === 'group' && p.clipRule === 'evenodd' && p.clip && p.prims.some(q => (q.kind === 'polygon' || q.kind === 'path') && q.fill === style.palette.coastalLand));
+    assert.ok(land && land.kind === 'group' && land.clip);
+    const rings = pathPolylines(land.clip, 6);
+    assert.equal(rings.length, 1, `${percent}%, ${seed}: component remains a single island`);
+    assert.equal(crossings(rings), 0, `${percent}%, ${seed}: rendered contour is simple`);
+    const ring = rings[0]!;
+    const area = Math.abs(ring.reduce((sum, p, i) => { const q = ring[(i + 1) % ring.length]!; return sum + p.x * q.y - q.x * p.y; }, 0)) / 2;
+    const perimeter = ring.reduce((sum, p, i) => { const q = ring[(i + 1) % ring.length]!; return sum + Math.hypot(q.x - p.x, q.y - p.y); }, 0);
+    const coast = scene.prims.find(p => p.kind === 'path' && p.stroke === style.palette.coast);
+    assert.ok(coast && coast.kind === 'path' && coast.strokeWidth);
+    const target = 3 * 1.5 * Math.sqrt(3) * size * size * percent / 100;
+    assert.ok(Math.abs(area + perimeter * coast.strokeWidth / 2 - target) < target * 1e-7, 'the outer half of the coastline ink counts toward the component land area');
+  }
+});
+
+test('component area redistribution does not merge nearby independent islands', () => {
+  const base: BaseGeo[] = Array(64).fill('Sea');
+  for (const i of [18, 26, 20, 28]) base[i] = 'Land';
+  const edges = coastEdges(base, cols, rows, size);
+  for (const fraction of [0.9, 0.6, 0.3]) for (let seed = 0; seed < 32; seed++) {
+    const geometry = coastGeometryOf(edges, true, {
+      size, amplitude: () => 0.2, noise: (x, y, k) => noise(x, y, k + seed * 100),
+      componentArea: chain => new Set(chain.edges.map(edge => edge.hex)).size * 1.5 * Math.sqrt(3) * size * size * fraction,
+    });
+    const rings = geometry.paths.flatMap(d => pathPolylines(d, 6));
+    assert.equal(rings.length, 2);
+    assert.equal(crossings(rings), 0, `${fraction}, seed ${seed}: independent islands stay separate`);
+  }
+});
+
+
+test('a zero component-area target produces no contour or non-finite anchors', () => {
+  const base: BaseGeo[] = Array(64).fill('Sea');
+  for (const i of [19, 27, 36]) base[i] = 'Land';
+  const geometry = coastGeometryOf(coastEdges(base, cols, rows, size), true, {
+    size, amplitude: () => 0.2, noise, componentArea: () => 0,
+  });
+  assert.deepEqual(geometry.paths, [[]]);
+  for (const anchor of geometry.anchors.values()) assert.ok(Number.isFinite(anchor.x) && Number.isFinite(anchor.y));
+});

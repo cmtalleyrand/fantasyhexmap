@@ -10,7 +10,7 @@ function segmentDistance(p: Point, e: CoastEdge): number {
   return distance(p, lerp(e.from, e.to, t));
 }
 /** Spatial index shared by all component rings: nearby islands and holes constrain each other. */
-export function coastClearance(chains: CoastChain[], size: number): (p: Point, chain: CoastChain, arc: number) => number {
+export function coastClearance(chains: CoastChain[], size: number): (p: Point, chain: CoastChain, arc: number, otherComponentsOnly?: boolean) => number {
   const bins = new Map<string, Array<{
     edge: CoastEdge;
     chain: CoastChain;
@@ -36,13 +36,14 @@ export function coastClearance(chains: CoastChain[], size: number): (p: Point, c
     }
     lengths.set(chain, arc);
   }
-  return (p, chain, arc) => {
+  return (p, chain, arc, otherComponentsOnly = false) => {
     let nearest = size * 3;
     const x = Math.floor(p.x / size), y = Math.floor(p.y / size);
     for (let dx = -3; dx <= 3; dx++)
       for (let dy = -3; dy <= 3; dy++)
         for (const e of bins.get(`${x + dx},${y + dy}`) ?? []) {
           if (e.chain === chain) {
+            if (otherComponentsOnly) continue;
             let gap = Math.abs(arc - (e.arc + e.length / 2));
             if (chain.closed)
               gap = Math.min(gap, lengths.get(chain)! - gap);
@@ -60,6 +61,8 @@ export function coastClearance(chains: CoastChain[], size: number): (p: Point, c
 */
 export function componentCoast(chain: CoastChain, rough: Roughness, clearance: ReturnType<typeof coastClearance>) {
   const { size } = rough;
+  const targetArea = chain.closed ? rough.componentArea?.(chain) : undefined;
+  const aggregate = targetArea !== undefined;
   const starts: number[] = [];
   let perimeter = 0;
   for (const e of chain.edges) {
@@ -80,7 +83,7 @@ export function componentCoast(chain: CoastChain, rough: Roughness, clearance: R
     donors.push(e);
   }
   const at = (i: number) => source[chain.closed ? (i % n + n) % n : Math.max(0, Math.min(n - 1, i))]!;
-  const sigma = Math.min(size * 0.85, perimeter / 6);
+  const sigma = Math.min(size * (aggregate ? 1.3 : 0.85), perimeter / 6);
   const span = Math.ceil(sigma * 3 / step);
   const silhouette = source.map((_, i) => {
     let x = 0, y = 0, total = 0;
@@ -93,7 +96,7 @@ export function componentCoast(chain: CoastChain, rough: Roughness, clearance: R
     return { x: x / total, y: y / total };
   });
   // Restore the area removed by curvature smoothing, without restoring grid corners.
-  if (chain.closed) {
+  if (chain.closed && !aggregate) {
     const area = (pts: Point[]) => Math.abs(pts.reduce((s, p, i) => { const q = pts[(i + 1) % pts.length]!; return s + p.x * q.y - q.x * p.y; }, 0));
     const scale = Math.min(1.45, Math.sqrt(area(source) / (area(silhouette) || 1)));
     const c = { x: silhouette.reduce((s, p) => s + p.x, 0) / n, y: silhouette.reduce((s, p) => s + p.y, 0) / n };
@@ -140,13 +143,13 @@ export function componentCoast(chain: CoastChain, rough: Roughness, clearance: R
     const next = silhouette[chain.closed ? (i + 1) % n : Math.min(n - 1, i + 1)]!;
     const dx = next.x - prev.x, dy = next.y - prev.y, len = Math.hypot(dx, dy) || 1;
     const amplitude = rough.amplitude(donors[i]!);
-    const strength = amplitude > 0 ? 1 : 0;
+    const strength = aggregate || amplitude > 0 ? 1 : 0;
     const off = -(rough.lean?.(donors[i]!) ?? 0) * size + broadFeatures[i]! * size * amplitude / 0.12;
     const target = { x: p.x - dy / len * off, y: p.y + dx / len * off };
     const original = source[i]!;
     // Reserve movement for detail after the silhouette is eased. Explicit geographic limits
     // divide their budget between this stage and the final irregularity stage.
-    const limit = Math.min(size * 0.8, clearance(original, chain, i * step) * 0.24, (rough.displacementLimit?.(donors[i]!) ?? Infinity) * 0.6);
+    const limit = Math.min(size * (aggregate ? 1.2 : 0.8), clearance(original, chain, i * step, aggregate) * 0.24, (rough.displacementLimit?.(donors[i]!) ?? Infinity) * 0.6);
     const move = distance(original, target);
     const ends = chain.closed ? 1 : Math.min(1, i * step / (size * 1.5), (perimeter - i * step) / (size * 1.5));
     return lerp(original, target, Math.min(strength, limit / (move || 1)) * ends);
@@ -198,12 +201,54 @@ export function componentCoast(chain: CoastChain, rough: Roughness, clearance: R
     // covering the whole coast with the same ridged high-frequency field.
     const offset = shoreFeatures[i]! * amplitude / 0.12;
     const move = { x: -dy / length * offset, y: dx / length * offset };
-    const limit = settings[i]!.limit;
-    const distance = Math.hypot(move.x, move.y) || 1;
+    // The component filter can form tight end caps. Detail must stay inside their
+    // curvature radius, not merely the width of the old hex-derived outline.
+    const turn = Math.abs((p.x - previous.x) * (next.y - previous.y) - (p.y - previous.y) * (next.x - previous.x));
+    const radius = turn > 1e-9 ? distance(previous, p) * distance(p, next) * distance(previous, next) / (2 * turn) : Infinity;
+    const limit = Math.min(settings[i]!.limit, aggregate ? radius * 0.3 : Infinity);
+    const moveLength = Math.hypot(move.x, move.y) || 1;
     const ends = chain.closed ? 1 : Math.min(1, arc / size, (perimeter - arc) / size);
-    const gain = limit > 0 ? limit * Math.tanh(distance / limit) / distance * ends : 0;
+    const gain = limit > 0 ? limit * Math.tanh(moveLength / limit) / moveLength * ends : 0;
     return { x: p.x + move.x * gain, y: p.y + move.y * gain };
   });
+  if (targetArea !== undefined) {
+    // A positive affine transform changes the component's area without folding
+    // its contour or reintroducing per-hex width constraints. For elongated land,
+    // concentrate the area change across its short axis to retain its long reach.
+    const centre = { x: detail.reduce((sum, p) => sum + p.x, 0) / n, y: detail.reduce((sum, p) => sum + p.y, 0) / n };
+    let xx = 0, xy = 0, yy = 0;
+    for (const p of detail) {
+      const x = p.x - centre.x, y = p.y - centre.y;
+      xx += x * x; xy += x * y; yy += y * y;
+    }
+    const angle = Math.atan2(2 * xy, xx - yy) / 2;
+    const cos = Math.cos(angle), sin = Math.sin(angle);
+    const difference = Math.hypot(xx - yy, 2 * xy);
+    const aspect = Math.sqrt((xx + yy + difference) / Math.max(1e-8, xx + yy - difference));
+    const area = Math.abs(detail.reduce((sum, p, i) => { const q = detail[(i + 1) % n]!; return sum + p.x * q.y - q.x * p.y; }, 0)) / 2;
+    const exponent = 0.5 / Math.max(1, aspect);
+    let ratio = targetArea / Math.max(1e-8, area);
+    if ((rough.componentInk ?? 0) > 0 && targetArea > 0) {
+      const edges = detail.map((p, i) => {
+        const q = detail[(i + 1) % n]!, dx = q.x - p.x, dy = q.y - p.y;
+        return { u: dx * cos + dy * sin, v: -dx * sin + dy * cos };
+      });
+      let low = 0, high = ratio;
+      for (let pass = 0; pass < 32; pass++) {
+        const mid = (low + high) / 2, along = mid ** exponent, across = mid / along;
+        const perimeter = edges.reduce((sum, e) => sum + Math.hypot(e.u * along, e.v * across), 0);
+        if (area * mid + rough.componentInk! * perimeter > targetArea) high = mid;
+        else low = mid;
+      }
+      ratio = (low + high) / 2;
+    }
+    const along = ratio ** exponent, across = ratio === 0 ? 0 : ratio / along;
+    detail.forEach((p, i) => {
+      const x = p.x - centre.x, y = p.y - centre.y;
+      const u = (x * cos + y * sin) * along, v = (-x * sin + y * cos) * across;
+      detail[i] = { x: centre.x + u * cos - v * sin, y: centre.y + u * sin + v * cos };
+    });
+  }
   result.splice(0, result.length, ...detail);
   const onResult = (arc: number) => {
     const t = arc / step, j = Math.min(n - 1, Math.floor(t));
@@ -247,5 +292,6 @@ export function componentCoast(chain: CoastChain, rough: Roughness, clearance: R
   const path: PathCmd[] = result.map((p, i) => [i ? 'L' : 'M', p.x, p.y] as PathCmd);
   if (chain.closed)
     path.push(['Z']);
+  if (targetArea === 0) path.length = 0;
   return { path, toLand, toWater, anchors };
 }

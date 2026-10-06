@@ -488,9 +488,47 @@ function cachedCoast(
     const own = drawnLandFraction(base[i], dimensions, shapes?.[String(i)]);
     wanted.set(i, own ?? 1);
   }
+  // Redistribute a coastal component's land share instead of cutting each hex
+  // independently. Explicit local shares, lake shores and split geography retain
+  // their specialized constraints; open components retain map-edge correspondence.
+  const aggregateArea = new Map<number, number>();
+  const rawChains = chainEdges(seaEdges);
+  const boundariesByHex = new Map<number, Set<(typeof rawChains)[number]>>();
+  for (const chain of rawChains) for (const edge of chain.edges) {
+    if (edge.hex === undefined) continue;
+    let list = boundariesByHex.get(edge.hex);
+    if (!list) { list = new Set(); boundariesByHex.set(edge.hex, list); }
+    list.add(chain);
+  }
+  const visited = new Set<number>();
+  if (smooth) for (let start = 0; start < base.length; start++) {
+    if (visited.has(start) || surface.whole[start] === 'sea' || !surface.whole[start]) continue;
+    const cells = [start];
+    visited.add(start);
+    for (let head = 0; head < cells.length; head++) {
+      const i = cells[head]!;
+      for (let side = 0; side < 6; side++) {
+        const neighbour = neighbourOf(i % cols, Math.floor(i / cols), side);
+        if (!inBounds(cols, rows, neighbour.col, neighbour.row)) continue;
+        const j = hexIndex(cols, neighbour.col, neighbour.row);
+        if (visited.has(j) || surface.whole[j] === 'sea' || !surface.whole[j]) continue;
+        visited.add(j); cells.push(j);
+      }
+    }
+    const boundaries = [...new Set(cells.flatMap(i => [...(boundariesByHex.get(i) ?? [])]))];
+    if (boundaries.length !== 1 || !boundaries[0]!.closed || cells.length < 2 || boundaries[0]!.edges.some(edge =>
+      (edge.hex !== undefined && surface.split.has(edge.hex)) || (edge.across !== undefined && surface.split.has(edge.across))) || cells.some(i => {
+      const shape = shapes?.[String(i)];
+      return !['Land', 'Coastal Land'].includes(base[i] ?? '') || shape?.land !== undefined || (shape?.concentration ?? 0) > 0;
+    })) continue;
+    const area = cells.reduce((sum, i) => sum + landFraction(base[i], undefined, dimensions, shapes?.[String(i)]) * hexAreaOf, 0);
+    for (const i of cells) { aggregateArea.set(i, area); targets.delete(i); }
+  }
   const rough: Roughness | undefined = smooth
     ? {
         size,
+        componentArea: chain => aggregateArea.get(chain.edges[0]?.hex ?? -1),
+        componentInk: inkReach,
         amplitude: (edge: CoastEdge) => Math.min(Math.max(amplitudeOf(edge.hex), amplitudeOf(edge.across)), narrowest(edge.hex), narrowest(edge.across)),
         displacementLimit: (edge: CoastEdge) => Math.min(narrowest(edge.hex), narrowest(edge.across)) * size,
         noise: (x, y, k) => unit(seed, 'coast', Math.round(x * 1000), Math.round(y * 1000), k),
@@ -934,12 +972,12 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
   // above this underlay; one shared clip keeps it out of water and component holes.
   if (traced?.geometry.component && base) {
     const ground: Prim[] = [];
-    // The two geometry stages can move at most 1.2 hex radii in total. A donor-coloured
-    // band of half-width 1.25 radii covers that reach, including the ends of each source edge.
+    // Component area adjustment can move beyond the former local 1.2-radius budget.
+    // Extend donor ground around source edges, clipped to the final component silhouette.
     for (const chain of traced.geometry.chains) for (const edge of chain.edges) {
       const dx = edge.to.x - edge.from.x, dy = edge.to.y - edge.from.y;
       const length = Math.hypot(dx, dy) || 1;
-      const tx = dx / length * size * 1.25, ty = dy / length * size * 1.25;
+      const tx = dx / length * size * 2.5, ty = dy / length * size * 2.5;
       const points = [
         { x: edge.from.x - tx - ty, y: edge.from.y - ty + tx },
         { x: edge.to.x + tx - ty, y: edge.to.y + ty + tx },
@@ -951,6 +989,7 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
     }
     prims.push({ kind: 'group', clip: drawnLand(traced.geometry, width, height, size), clipRule: 'evenodd', prims: ground });
   }
+  const groundStart = prims.length;
   for (let row = 0; row < rows; row++) {
     for (let col = 0; col < cols; col++) {
       const i = hexIndex(cols, col, row);
@@ -1030,6 +1069,11 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
         }
       }
     }
+  }
+
+  if (traced?.geometry.aggregate) {
+    const ground = prims.splice(groundStart);
+    prims.push({ kind: 'group', clip: drawnLand(traced.geometry, width, height, size), clipRule: 'evenodd', prims: ground });
   }
 
   // --- glacier ground ----------------------------------------------------------------

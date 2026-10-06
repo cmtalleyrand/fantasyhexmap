@@ -1,5 +1,8 @@
 # Land percentage and recurring coastline waists
 
+This is the historical diagnostic at `c2168f6`. See the subsequent
+[component-area revision and images](coast-component-area-review.md).
+
 These are actual renderer outputs from the current PR geometry at 90%, 60% and
 30% land per coastal hex. Hex positions, rendering scale and irregularity level
 are held fixed within each row. The first two rows use the reported three-hex

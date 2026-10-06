@@ -9,14 +9,15 @@
  * always exactly one coast edge in and one out), so the chaining needs no
  * tie-breaking.
  *
- * Smooth coasts use the quadratic B-spline through their edge
+ * Coasts without a component-area policy use the quadratic B-spline through their edge
  * midpoints. That curve still passes through the midpoint of every coast edge
  * and never strays more than an eighth of a hex (size / 8) from the hex corner
  * it rounds, so no hex changes side. The hex fills are corrected to match: at
  * every vertex the curve cuts across, the small "sliver" between the corner and
  * the curve is repainted with the colour of the side it now belongs to.
  * Irregular coasts instead resample and filter the entire boundary at a
- * multi-hex wavelength before adding continuous seeded detail. Width and
+ * multi-hex wavelength before adding continuous seeded detail. Closed components
+ * can redistribute a total land-area target rather than maintaining per-hex shares. Width and
  * opposing-shore constraints protect narrow features; source-edge correspondence
  * is retained only for colours, fill corrections and border endpoints.
  */
@@ -245,6 +246,8 @@ export interface Sliver {
 export interface CoastGeometry {
   /** At least one coastline uses a component silhouette rather than corner curves. */
   component?: boolean;
+  /** At least one component uses a total-area target rather than per-hex shares. */
+  aggregate?: boolean;
   chains: CoastChain[];
   /** Water strips left between a hex's own edge and its inset coast (a hex with less than all of itself as land). */
   strips: Sliver[];
@@ -425,6 +428,10 @@ export interface Roughness {
   size: number;
   /** Maximum total displacement for explicit neck/channel width constraints, in pixels. */
   displacementLimit?: (edge: CoastEdge) => number;
+  /** Total land area for a closed component; permits redistribution across its hexes. */
+  componentArea?: (chain: CoastChain) => number | undefined;
+  /** Outer half of the coast stroke, counted toward a component area target. */
+  componentInk?: number;
 }
 
 /** Samples along each quadratic piece of a roughened coast. */
@@ -673,15 +680,16 @@ export function coastGeometryOf(
   const toWater: Sliver[] = [...strips];
   const toLand: Sliver[] = [];
   const anchors = new Map<string, Point>();
-  let component = false;
+  let component = false, aggregate = false;
   const paths = chains.map((chain) => {
     if (!smooth || chain.points.length < 3) return hexPath(chain);
     const { points, edges, closed } = chain;
     const n = points.length;
     const edgeAmplitude = edges.map((edge) => rough?.amplitude(edge) ?? 0);
     const roughChain = rough !== undefined && edgeAmplitude.some((amplitude) => amplitude > 0);
-    if (roughChain && clearance) {
+    if ((roughChain || (rough && rough.componentArea?.(chain) !== undefined)) && clearance) {
       component = true;
+      aggregate ||= rough!.componentArea?.(chain) !== undefined;
       const silhouette = componentCoast(chain, rough!, clearance);
       toLand.push(...silhouette.toLand);
       toWater.push(...silhouette.toWater);
@@ -726,7 +734,7 @@ export function coastGeometryOf(
     }
     return piece.some(Boolean) ? roughPath(points, closed, piece) : smoothPath(points, closed);
   });
-  return { component, chains, strips, paths, toWater, toLand, grown: reshaped?.grown ?? [], water: reshaped?.water ?? new Map(), land: reshaped?.land ?? new Map(), anchors };
+  return { component, aggregate, chains, strips, paths, toWater, toLand, grown: reshaped?.grown ?? [], water: reshaped?.water ?? new Map(), land: reshaped?.land ?? new Map(), anchors };
 }
 
 /** A smoothed chain in which some corners carry a sampled, roughened curve. */

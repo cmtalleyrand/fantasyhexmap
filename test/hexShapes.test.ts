@@ -791,7 +791,7 @@ test('a land hex between two lakes still takes its lake shores irregularity', ()
   const wobble = (irregular: 'Smooth' | 'Fractured') => {
     const base: BaseGeo[] = Array.from({ length: 25 }, () => 'Land');
     for (const [c, r] of lakes) base[r * 5 + c] = 'Lake';
-    const map = { ...mapWith(base, 5, 5), defaultLakeIrregularity: irregular };
+    const map = { ...mapWith(base, 5, 5), id: 'lake-strip-irregularity', defaultLakeIrregularity: irregular };
     const centre = hexCenter(2, 2, size);
     let turning = 0;
     for (const p of buildScene(map, { size, visible: defaultVisibility(), labels: false, style: smooth }).prims) {

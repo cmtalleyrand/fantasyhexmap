@@ -63,6 +63,7 @@ test('where a glacier ends on land its edge is its own line, shaded by the heigh
   const style = resolveStyle({ preset: 'parchment', overrides: {} });
   const build = (ground: 'Lowland' | 'Mountains') => {
     const map = createMapState('Margin', 6, 3);
+    map.id = 'glacier-margin-ground'; // Compare ground height with the same noise realization.
     map.layers.base.data = Array.from({ length: 18 }, (_, i) => (i % 6 < 3 ? 'Glacier' : 'Land'));
     map.layers.elevation.data = Array.from({ length: 18 }, (_, i) => (i % 6 < 3 ? 'Hills' : ground));
     const visible = { ...defaultVisibility(), elevation: true };
