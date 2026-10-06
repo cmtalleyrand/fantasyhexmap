@@ -80,7 +80,9 @@ function cut(poly: Poly, a: Point, b: Point, off: number, keep: 'right' | 'left'
     if (vp >= 0) out.push(p);
     if (vp >= 0 !== vq >= 0) {
       const t = vp / (vp - vq);
-      out.push({ x: snap(p.x + (q.x - p.x) * t), y: snap(p.y + (q.y - p.y) * t) });
+      // Keep intersections in floating-point until the final edge join. Rounding
+      // after every clip rotates short edges and makes area fitting discontinuous.
+      out.push({ x: p.x + (q.x - p.x) * t, y: p.y + (q.y - p.y) * t });
     }
     vp = vq;
   }
@@ -126,6 +128,35 @@ function without(poly: Poly, clips: Poly[]): Poly[] {
   let frags: Poly[] = [poly];
   for (const clip of clips) frags = frags.flatMap((f) => outside(f, clip));
   return frags;
+}
+
+/** Positive-length contact, rather than a point touch that can pinch off. */
+function sharedEdge(a: Poly, b: Poly): boolean {
+  for (let i = 0; i < a.length; i++) for (let j = 0; j < b.length; j++) {
+    const p = a[i]!, q = a[(i + 1) % a.length]!, u = b[j]!, v = b[(j + 1) % b.length]!;
+    const dx = q.x - p.x, dy = q.y - p.y, length = Math.hypot(dx, dy);
+    if (length < ON_LINE || Math.abs(right(p, q, u)) > 1e-7 || Math.abs(right(p, q, v)) > 1e-7) continue;
+    const t0 = ((u.x - p.x) * dx + (u.y - p.y) * dy) / length;
+    const t1 = ((v.x - p.x) * dx + (v.y - p.y) * dy) / length;
+    if (Math.min(length, Math.max(t0, t1)) - Math.max(0, Math.min(t0, t1)) > ON_LINE) return true;
+  }
+  return false;
+}
+
+/** Keep only land connected by a real edge to a mainland-facing boundary. */
+function attachedBanks(polys: Poly[], outline: Poly, dry: number[]): Poly[] {
+  const kept = new Set<number>();
+  const frontier: number[] = [];
+  polys.forEach((p, i) => {
+    if (dry.some(e => sharedEdge(p, [outline[e]!, outline[(e + 1) % 6]!]))) { kept.add(i); frontier.push(i); }
+  });
+  for (let head = 0; head < frontier.length; head++) {
+    const p = polys[frontier[head]!]!;
+    polys.forEach((q, i) => {
+      if (!kept.has(i) && sharedEdge(p, q)) { kept.add(i); frontier.push(i); }
+    });
+  }
+  return polys.filter((_, i) => kept.has(i));
 }
 
 /** A polygon wound as a hex's corners are (clockwise on the page), whichever way it was given. */
@@ -218,22 +249,18 @@ function landAt(hex: Split, r: number): Poly[] {
 /**
  * The land of a strait or an isthmus drawn `width` wide at its thinnest, whatever edges it meets.
  *
- * The hex is cut into six sectors from its middle. An isthmus is the sectors of its land-facing
- * edges plus a neck of the set width run from the middle to each of them: it narrows to the width
- * at the middle and opens out to the land at either end. A strait is the same turned round: the
- * land is the sectors of its land-facing edges (its banks), less a channel of the set width run to
- * every edge that faces water. All banks and channel arms use one junction near the middle unless a
- * side is selected, in which case it moves towards that side while remaining inset by half the channel
- * width. Land is always joined to an edge that faces land and water to one that faces water, so nothing
- * is left to pinch off.
+ * An isthmus retains its sectors and central neck. A strait connects one
+ * opening per consecutive run of sea-facing sides to a shared junction. Its
+ * banks grow independently from mainland edges in connected territories on
+ * either side of that passage; they never grow across it into detached land.
+ * Selecting a side moves the junction towards that side, inset by half width.
  *
- * `fill` tunes how much land that is, from 0 to 2: 1 is the shape above. An isthmus cannot have less
- * land than that (cutting its flare back leaves pockets of water between it and the land beside it, and
- * the neck is the least there is); more deepens land from the land-facing edges. For a strait, less
- * cuts the banks back from the land-facing edges (so, below the land its width gives, the channel is
- * wider than the width set: the share asked for wins); more deepens them.
+ * `fill` tunes connected bank depths from 0 to 2. An explicit land share is
+ * fitted within the range the passage width allows. Below the natural bank
+ * area the water becomes wider; above the maximum the chosen width wins and
+ * the scene reports the achieved share. Isthmuses retain their minimum neck.
  */
-function fixedLand(hex: { hex: Poly; centre: Point; dry: number[]; wet: number[]; junctionSide?: number }, width: number, kind: 'strait' | 'isthmus', fill = 1): Poly[] {
+function fixedLand(hex: { hex: Poly; centre: Point; dry: number[]; wet: number[]; junctionSide?: number; bankBias?: readonly number[] }, width: number, kind: 'strait' | 'isthmus', fill = 1): Poly[] {
   const { hex: outline, centre: hexCentre, dry, wet } = hex;
   const mid = (e: number): Point => ({ x: (outline[e]!.x + outline[(e + 1) % 6]!.x) / 2, y: (outline[e]!.y + outline[(e + 1) % 6]!.y) / 2 });
   // A side-selected junction is inset from that edge by half the channel width. This keeps the
@@ -244,6 +271,33 @@ function fixedLand(hex: { hex: Poly; centre: Point; dry: number[]; wet: number[]
   const centre = { x: hexCentre.x + (chosen.x - hexCentre.x) * ratio, y: hexCentre.y + (chosen.y - hexCentre.y) * ratio };
   const span = Math.hypot(mid(0).x - mid(3).x, mid(0).y - mid(3).y);
   const band = (e: number, depth: number) => cut(outline, outline[e]!, outline[(e + 1) % 6]!, depth, 'left');
+  if (kind === 'strait') {
+    // Adjacent sea edges are one mouth, not independent channels. Running an
+    // arm to every edge creates water cycles that cut islands out of the banks.
+    const mouths: Point[] = [];
+    for (const e of wet) {
+      if (wet.includes((e + 5) % 6)) continue;
+      const run = [e];
+      while (wet.includes((run[run.length - 1]! + 1) % 6)) run.push((run[run.length - 1]! + 1) % 6);
+      const middle = (run.length - 1) / 2;
+      // An even-length mouth exits at the shared corner of its middle edges.
+      // Averaging edge midpoints lies inside the hex and can leave a water hole.
+      mouths.push(Number.isInteger(middle) ? mid(run[middle]!) : outline[run[Math.ceil(middle)]!]!);
+    }
+    const channels = mouths.map(p => within(arm(centre, p, width / 2), outline));
+    const territory = without(outline, channels);
+    // Grow connected banks from their mainland edges within the territories
+    // on either side of the passage. Independent depths break paired shores.
+    const banks = dry.flatMap(e => {
+      const slab = band(e, fill * span * (hex.bankBias?.[e] ?? 1) / 2);
+      // A bank grows only in its own connected territory. Letting a deep band
+      // cross the channel creates a foreign fragment that later snaps onto the
+      // other bank, making both topology and area jump during fitting.
+      return attachedBanks(territory, outline, [e]).map(t => within(slab, t)).filter(p => p.length > 0);
+    });
+    const union = banks.flatMap((p, k) => without(p, banks.slice(0, k)));
+    return attachedBanks(solid(union), outline, dry);
+  }
   const scale = Math.min(1, fill);
   const rawSectors = dry.map((e): Poly => {
     const whole = wound([centre, outline[e]!, outline[(e + 1) % 6]!]);
@@ -255,21 +309,13 @@ function fixedLand(hex: { hex: Poly; centre: Point; dry: number[]; wet: number[]
   const sectors = solid(rawSectors);
   const arms = (edges: number[]): Poly[] => edges.map((e) => within(arm(centre, mid(e), width / 2), outline)).filter((a) => a.length > 0);
   const deeper = Math.max(0, fill - 1) * span;
-  if (kind === 'strait') {
-    // Every bank converges on the same junction. In particular, non-opposite banks no longer
-    // expand independently from their edges and accidentally put their meeting point on one side.
-    const bands = (deeper > 0 ? dry.map((e) => band(e, deeper)) : []).filter((b) => b.length > 0);
-    const banks = [...sectors, ...bands];
-    const channels = arms(wet);
-    return banks.flatMap((b, k) => without(b, banks.slice(0, k))).flatMap((b) => without(b, channels));
-  }
   const grown = deeper > 0 ? dry.map((e) => band(e, deeper)).filter((b) => b.length > 0) : [];
   const pieces = [...sectors, ...grown, ...arms(dry)];
   return pieces.flatMap((b, k) => without(b, pieces.slice(0, k)));
 }
 
 /** The fill (see `fixedLand`) at which an isthmus or strait of this width has `target` of the hex as land, or the nearest it can. */
-function fillFor(hex: { hex: Poly; centre: Point; dry: number[]; wet: number[]; junctionSide?: number }, width: number, kind: 'strait' | 'isthmus', target: number, hexArea: number): number {
+function fillFor(hex: { hex: Poly; centre: Point; dry: number[]; wet: number[]; junctionSide?: number; bankBias?: readonly number[] }, width: number, kind: 'strait' | 'isthmus', target: number, hexArea: number): number {
   const share = (fill: number) => fixedLand(hex, width, kind, fill).reduce((sum, p) => sum + polyArea(p), 0) / hexArea;
   let low = 0;
   let high = 2;
@@ -418,6 +464,7 @@ function reshapeCoastHex(
   lake: CoastEdge[] = [],
   concentrationSide?: number,
   concentration = 0,
+  joins: number[] = [],
 ): Reshaped | null {
   if (wet.length === 0 && lake.length === 0) return null;
   if (target >= 1) return null;
@@ -439,6 +486,27 @@ function reshapeCoastHex(
   };
   const full = polyArea(corners);
   const share = Math.max(0, Math.min(1, target));
+  if (joins.length && !lake.length && share > 0) {
+    const centre = centroid(corners), size = Math.hypot(corners[0]!.x - centre.x, corners[0]!.y - centre.y);
+    const landAt = (depth: number) => {
+      let core = corners;
+      for (const edge of wet) core = cut(core, edge.from, edge.to, depth * multiplier(edge), 'right');
+      if (!core.length) return [];
+      const root = centroid(core);
+      const bridges = joins.map(e => within(arm(root, { x: (corners[e]!.x + corners[(e + 1) % 6]!.x) / 2,
+        y: (corners[e]!.y + corners[(e + 1) % 6]!.y) / 2 }, size * 0.04 * Math.min(1, share / 0.1)), corners));
+      const pieces = [core, ...bridges];
+      return pieces.flatMap((p, k) => without(p, pieces.slice(0, k)));
+    };
+    let low = 0, high = size * 2;
+    for (let k = 0; k < 28; k++) {
+      const middle = (low + high) / 2;
+      if (landAt(middle).reduce((sum, p) => sum + polyArea(p), 0) / full > share) low = middle;
+      else high = middle;
+    }
+    const depth = (low + high) / 2, land = landAt(depth);
+    return { land, strips: without(corners, land).map(poly => ({ poly, donor: wet[0]!.water })), grown: [], water: [], depth };
+  }
   let low = 0;
   let high = Math.hypot(corners[0]!.x - corners[3]!.x, corners[0]!.y - corners[3]!.y);
   for (let k = 0; k < 24; k++) {
@@ -528,6 +596,10 @@ export interface ShapeTarget {
   fit?: boolean;
   /** For a channel, move its common junction towards this hex side; absent leaves it central. */
   junctionSide?: number;
+  /** Independent seeded bank depths, indexed by hex side. */
+  bankBias?: readonly number[];
+  /** Preserve a coastal mainland's joins to land adjoining a split passage. */
+  keepJoins?: boolean;
 }
 
 /**
@@ -560,13 +632,19 @@ export function shapeCoast(
   }
 
   /** One hex cut to its share: what it gives up, what it takes, and the land it is left with. */
-  const reshapeHex = (i: number, { share, kind, width, fit, concentrationSide, concentration, junctionSide }: ShapeTarget): HexShape | null => {
+  const reshapeHex = (i: number, { share, kind, width, fit, concentrationSide, concentration, junctionSide, bankBias, keepJoins }: ShapeTarget): HexShape | null => {
     const col = i % cols;
     const row = Math.floor(i / cols);
     const split = surface.split.get(i);
     const corners = hexCorners(col, row, size);
     if (!split) {
-      const result = reshapeCoastHex(corners, wetEdges.get(i) ?? [], share, lakeWet.get(i) ?? [], concentrationSide, concentration);
+      const joins = keepJoins ? [0, 1, 2, 3, 4, 5].filter(e => {
+        const n = neighbourOf(col, row, e);
+        if (!inBounds(cols, rows, n.col, n.row)) return false;
+        const j = hexIndex(cols, n.col, n.row);
+        return surface.split.get(j)?.sides[6 + (e + 3) % 6] === 'land' || surface.whole[j] === 'land';
+      }) : [];
+      const result = reshapeCoastHex(corners, wetEdges.get(i) ?? [], share, lakeWet.get(i) ?? [], concentrationSide, concentration, joins);
       return result ? { depth: result.depth, strips: result.strips, grown: [], land: result.land.map((poly) => ({ poly, hex: i, donor: i })) } : null;
     }
     const pieces = split.sides.map((side, p) => ({ side, poly: piecePoints(col, row, p, size), donor: split.donors[p]! }));
@@ -585,7 +663,7 @@ export function shapeCoast(
     // A strait or isthmus of a set width has no share to find (see `fixedLand`).
     if (width !== undefined && kind !== 'inset') {
       if (dry.length === 0 || wet.length === 0) return null;
-      const shape = { hex: corners, centre: hexCenter(col, row, size), dry, wet, junctionSide };
+      const shape = { hex: corners, centre: hexCenter(col, row, size), dry, wet, junctionSide, bankBias };
       const type = kind === 'channel' ? 'strait' : 'isthmus';
       const fill = fit ? fillFor(shape, width, type, share, hexArea) : 1;
       const fixed = setAgainst(solid(fixedLand(shape, width, type, fill)), land, water, hexArea);
@@ -615,7 +693,7 @@ export function shapeCoast(
   for (const [i, target] of targets) {
     // The same hex, cut to the same share among the same neighbours, is cut the same way.
     const code = (j: number) => `${surface.whole[j]}${surface.split.get(j)?.sides.join('') ?? ''}`;
-    const sig = [target.share, target.kind, target.width ?? '', target.fit ? 'fit' : '', target.junctionSide ?? '-', target.concentrationSide ?? '-', target.concentration ?? 0, code(i), ...[0, 1, 2, 3, 4, 5].map((e) => {
+    const sig = [target.share, target.kind, target.width ?? '', target.fit ? 'fit' : '', target.junctionSide ?? '-', target.bankBias?.join(',') ?? '', target.keepJoins ? 'joins' : '', target.concentrationSide ?? '-', target.concentration ?? 0, code(i), ...[0, 1, 2, 3, 4, 5].map((e) => {
       const n = neighbourOf(i % cols, Math.floor(i / cols), e);
       return inBounds(cols, rows, n.col, n.row) ? code(hexIndex(cols, n.col, n.row)) : '-';
     })].join('|');
@@ -721,7 +799,23 @@ export function shapeCoast(
     for (let k = 0; k < f.poly.length; k++) edge += Math.hypot(f.poly[(k + 1) % f.poly.length]!.x - f.poly[k]!.x, f.poly[(k + 1) % f.poly.length]!.y - f.poly[k]!.y);
     return edge > 0 && (2 * polyArea(f.poly)) / edge > 0.05;
   };
-  return { edges, strips: strips.filter(real).map(sliver), grown: grown.filter(real).map(sliver), water: waterLeft, insets, land: new Map([...reshaped].map(([i, lands]) => [i, lands.map((l) => l.poly)])) };
+  // Independently clipped neighbours can round the same intersection on
+  // opposite sides of a quantisation boundary. Canonicalise within the same
+  // tolerance used to remove shared edges, so their coast ends really join.
+  const vertices = new Map<string, Point[]>();
+  const vertex = (p: Point): Point => {
+    const x = Math.floor(p.x / ON_LINE), y = Math.floor(p.y / ON_LINE);
+    for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) {
+      const match = vertices.get(`${x + dx},${y + dy}`)?.find(q => Math.hypot(q.x - p.x, q.y - p.y) <= ON_LINE);
+      if (match) return match;
+    }
+    const key = `${x},${y}`;
+    vertices.set(key, [...(vertices.get(key) ?? []), p]);
+    return p;
+  };
+  const joined = edges.map(e => ({ ...e, from: vertex(e.from), to: vertex(e.to) }))
+    .filter(e => e.from !== e.to);
+  return { edges: joined, strips: strips.filter(real).map(sliver), grown: grown.filter(real).map(sliver), water: waterLeft, insets, land: new Map([...reshaped].map(([i, lands]) => [i, lands.map((l) => l.poly)])) };
 }
 
 const centroid = (poly: Poly): Point => ({
@@ -820,11 +914,18 @@ function freeParts(a: Point, b: Point, own: Land, near: Land[]): Array<[Point, P
     const poly = other.poly;
     for (let k = 0; k < poly.length; k++) {
       const p = poly[k]!;
+      const q = poly[(k + 1) % poly.length]!;
+      // Test the short edge against its neighbour's longer line too. Snapping
+      // a tiny fragment rotates its line enough that distant neighbour corners
+      // fail the opposite test, leaving dangling coast ends at a mainland join.
+      if ((q.x - p.x) * ex + (q.y - p.y) * ey < 0 &&
+        Math.abs(right(p, q, a)) < ON_LINE && Math.abs(right(p, q, b)) < ON_LINE) {
+        shared.push([along(q), along(p)]);
+      }
       if (!onLine(p)) continue;
       const s = along(p);
       if (s > ON_LINE && s < len - ON_LINE) stops.push({ at: s, p });
       // Against this edge, running the other way.
-      const q = poly[(k + 1) % poly.length]!;
       if (onLine(q) && along(q) < s) shared.push([along(q), s]);
     }
   }
@@ -884,7 +985,10 @@ export function coveredArea(rings: Point[][], clip: Poly, lines = 96): number {
 }
 
 /** Prepare immutable outlines for repeated area measurements within one fitting pass. */
-export function areaCoverage(rings: Point[][]): (clip: Poly, lines?: number) => number {
+export function areaCoverage(rings: Point[][], options?: {
+  evenOdd?: boolean;
+  stroke?: { rings: Point[][]; reach: number };
+}): (clip: Poly, lines?: number) => number {
   const band = 8;
   const prepared = rings.map(ring => {
     const bins = new Map<number, Array<[Point, Point]>>();
@@ -899,11 +1003,23 @@ export function areaCoverage(rings: Point[][]): (clip: Poly, lines?: number) => 
     });
     return { box: boxOf(ring), bins };
   });
+  const radius = options?.stroke?.reach ?? 0;
+  const strokes = radius > 0 ? options!.stroke!.rings.flatMap(ring => ring.flatMap((a, k) => {
+    if (k + 1 >= ring.length) return [];
+    const b = ring[k + 1]!, length = Math.hypot(b.x - a.x, b.y - a.y);
+    if (!length) return [];
+    const dx = (b.y - a.y) / length * radius, dy = (a.x - b.x) / length * radius;
+    return [{ poly: [{ x: a.x + dx, y: a.y + dy }, { x: b.x + dx, y: b.y + dy },
+      { x: b.x - dx, y: b.y - dy }, { x: a.x - dx, y: a.y - dy }], a, b,
+      box: [Math.min(a.x, b.x) - radius, Math.min(a.y, b.y) - radius,
+        Math.max(a.x, b.x) + radius, Math.max(a.y, b.y) + radius] }];
+  })) : [];
   return (clip, lines = 96) => {
     const top = Math.min(...clip.map((p) => p.y));
     const bottom = Math.max(...clip.map((p) => p.y));
     const step = (bottom - top) / lines;
     const x0 = Math.min(...clip.map(p => p.x)), x1 = Math.max(...clip.map(p => p.x));
+    const nearbyStroke = strokes.filter(s => s.box[2]! >= x0 && s.box[0]! <= x1 && s.box[3]! >= top && s.box[1]! <= bottom);
     // Preserve all ray crossings (including those outside the clip), but discard
     // rings outside its bounds and edges that cannot cross any measuring line.
     const relevant = prepared.filter(({ box }) => !(box[2] < x0 || box[0] > x1 || box[3] < top || box[1] > bottom));
@@ -925,13 +1041,38 @@ export function areaCoverage(rings: Point[][]): (clip: Poly, lines?: number) => 
       if (!(right > left)) continue;
       // Where each outline is on this line, as stretches of x.
       const runs: Array<[number, number]> = [];
+      const crossings: number[] = [];
       for (const { bins } of relevant) {
         const xs: number[] = [];
         for (const [a, b] of bins.get(Math.floor(y / band)) ?? []) {
           if (a.y <= y !== b.y <= y) xs.push(a.x + ((y - a.y) / (b.y - a.y)) * (b.x - a.x));
         }
-        xs.sort((u, v) => u - v);
-        for (let k = 0; k + 1 < xs.length; k += 2) runs.push([Math.max(left, xs[k]!), Math.min(right, xs[k + 1]!)]);
+        if (options?.evenOdd) crossings.push(...xs);
+        else {
+          xs.sort((u, v) => u - v);
+          for (let k = 0; k + 1 < xs.length; k += 2) runs.push([Math.max(left, xs[k]!), Math.min(right, xs[k + 1]!)]);
+        }
+      }
+      if (options?.evenOdd) {
+        crossings.sort((a, b) => a - b);
+        for (let k = 0; k + 1 < crossings.length; k += 2) runs.push([Math.max(left, crossings[k]!), Math.min(right, crossings[k + 1]!)]);
+      }
+      // Union the round coastline stroke with land, rather than estimating ink
+      // as perimeter times width (which counts overlaps and outside-hex ink).
+      for (const s of nearbyStroke) {
+        if (y < s.box[1]! || y > s.box[3]!) continue;
+        const xs: number[] = [];
+        for (let k = 0; k < 4; k++) {
+          const a = s.poly[k]!, b = s.poly[(k + 1) % 4]!;
+          if (a.y <= y !== b.y <= y) xs.push(a.x + (y - a.y) / (b.y - a.y) * (b.x - a.x));
+        }
+        if (xs.length >= 2) runs.push([Math.max(left, Math.min(...xs)), Math.min(right, Math.max(...xs))]);
+        for (const p of [s.a, s.b]) {
+          const dy = y - p.y;
+          if (Math.abs(dy) >= radius) continue;
+          const dx = Math.sqrt(radius * radius - dy * dy);
+          runs.push([Math.max(left, p.x - dx), Math.min(right, p.x + dx)]);
+        }
       }
       runs.sort((u, v) => u[0] - v[0]);
       let reach = -Infinity;
