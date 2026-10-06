@@ -1,7 +1,28 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { drawPrims } from '../src/render/canvas.ts';
+import { drawPrims, drawScene } from '../src/render/canvas.ts';
 import type { PathCmd, Prim } from '../src/render/prims.ts';
+
+test('scene bounds clip oversized geometry and restore the caller canvas state', () => {
+  const calls: unknown[][] = [];
+  const ctx = {
+    save: () => calls.push(['save']),
+    restore: () => calls.push(['restore']),
+    beginPath: () => calls.push(['begin']),
+    rect: (...args: number[]) => calls.push(['rect', ...args]),
+    clip: () => calls.push(['clip']),
+    arc: (...args: number[]) => calls.push(['arc', ...args]),
+    fill: () => calls.push(['fill']),
+  } as unknown as CanvasRenderingContext2D;
+  drawScene(ctx, {
+    width: 100, height: 80, background: 'transparent',
+    prims: [{ kind: 'circle', c: { x: 50, y: 40 }, r: 120, fill: '#fff' }],
+  });
+  assert.deepEqual(calls, [
+    ['save'], ['begin'], ['rect', 0, 0, 100, 80], ['clip'],
+    ['begin'], ['arc', 50, 40, 120, 0, Math.PI * 2], ['fill'], ['restore'],
+  ]);
+});
 
 test('shared paths compile once and retain fill, stroke and clip rules across transforms', () => {
   const original = globalThis.Path2D;

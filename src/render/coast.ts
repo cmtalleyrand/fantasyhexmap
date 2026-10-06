@@ -1326,9 +1326,28 @@ export function evenOddTest(rings: Point[][], band: number): (p: Point) => boole
       }
     }
   }
+  const columns = new Map<number, Map<number, { edges: Array<[Point, Point]>; events: number[] }>>();
+  const width = band * 4;
   return (p) => {
-    let inside = false;
-    for (const [a, b] of rows.get(Math.floor(p.y / band)) ?? []) {
+    const row = Math.floor(p.y / band), col = Math.floor(p.x / width);
+    let cells = columns.get(row);
+    if (!cells) { cells = new Map(); columns.set(row, cells); }
+    let cell = cells.get(col);
+    if (!cell) {
+      const left = col * width, right = (col + 1) * width;
+      const edges: Array<[Point, Point]> = [], events: number[] = [];
+      for (const [a, b] of rows.get(row) ?? []) {
+        if (Math.max(a.x, b.x) < left - 1e-9) continue;
+        if (Math.min(a.x, b.x) > right + 1e-9) events.push(Math.min(a.y, b.y), Math.max(a.y, b.y));
+        else edges.push([a, b]);
+      }
+      events.sort((a, b) => a - b);
+      cell = { edges, events }; cells.set(col, cell);
+    }
+    let lo = 0, hi = cell.events.length;
+    while (lo < hi) { const mid = (lo + hi) >>> 1; if (cell.events[mid]! <= p.y) lo = mid + 1; else hi = mid; }
+    let inside = lo % 2 === 1;
+    for (const [a, b] of cell.edges) {
       if ((a.y > p.y) !== (b.y > p.y) && p.x < ((b.x - a.x) * (p.y - a.y)) / (b.y - a.y) + a.x) inside = !inside;
     }
     return inside;

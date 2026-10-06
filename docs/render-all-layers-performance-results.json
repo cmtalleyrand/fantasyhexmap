@@ -1,0 +1,99 @@
+{
+  "baseline": "8acfcc0f0f3513284c93834cbd30d4b1326d9646",
+  "size": 40,
+  "allLayers": true,
+  "labels": true,
+  "runs": [
+    {
+      "run": 0,
+      "executionOrder": [
+        "before",
+        "after"
+      ],
+      "layerCounts": {
+        "base": 1600,
+        "elevation": 539,
+        "climate": 539,
+        "vegetation": 539,
+        "rivers": 13,
+        "cities": 29,
+        "polities": 10,
+        "population": 539
+      },
+      "timings": {
+        "before": {
+          "buildMs": 12049.39999999851,
+          "totalMs": 13367.69999999553
+        },
+        "after": {
+          "buildMs": 3417.39999999851,
+          "totalMs": 4350.5
+        }
+      },
+      "identicalScene": true,
+      "pixelDifferences": 0
+    },
+    {
+      "run": 1,
+      "executionOrder": [
+        "after",
+        "before"
+      ],
+      "layerCounts": {
+        "base": 1600,
+        "elevation": 539,
+        "climate": 539,
+        "vegetation": 539,
+        "rivers": 13,
+        "cities": 29,
+        "polities": 10,
+        "population": 539
+      },
+      "timings": {
+        "after": {
+          "buildMs": 3793.3000000044703,
+          "totalMs": 5147.80000000447
+        },
+        "before": {
+          "buildMs": 4136.10000000149,
+          "totalMs": 5220.29999999702
+        }
+      },
+      "identicalScene": true,
+      "pixelDifferences": 0
+    },
+    {
+      "run": 2,
+      "executionOrder": [
+        "before",
+        "after"
+      ],
+      "layerCounts": {
+        "base": 1600,
+        "elevation": 539,
+        "climate": 539,
+        "vegetation": 539,
+        "rivers": 13,
+        "cities": 29,
+        "polities": 10,
+        "population": 539
+      },
+      "timings": {
+        "before": {
+          "buildMs": 7701.30000000447,
+          "totalMs": 8993.20000000298
+        },
+        "after": {
+          "buildMs": 5698.19999999553,
+          "totalMs": 7230.79999999702
+        }
+      },
+      "identicalScene": true,
+      "pixelDifferences": 0
+    }
+  ],
+  "beforeMedianMs": 8993.20000000298,
+  "afterMedianMs": 5147.80000000447,
+  "budgetMs": 1000,
+  "meetsBudget": false
+}

@@ -98,3 +98,123 @@ Use `--chromium /path/to/browser` if Chromium is elsewhere. The browser script
 fails on changed scene data, pixel differences outside the stated bounds,
 full-scene hover repainting, selection repainting, or failed zoom invalidation.
 It writes `work/render-browser-performance.json`.
+
+## 40×40 populated all-layer acceptance test
+
+The cold-render target is **under 1000 ms**, including scene construction and
+canvas drawing with all eight populated layers and labels enabled. It is
+**not met**. This follow-up remains a draft.
+
+The offline generator and normal decoders produce a fixed 40×40 map containing
+539 populated land cells in each terrain/population layer, 13 rivers, 29 cities
+and 10 polities. Three independent browser pages use different rendering seeds.
+The parchment preset uses smooth coastlines and its actual bundled fonts,
+loaded before timing. The 1000×800 canvas displays the whole map at half scale;
+reading its pixels forces queued drawing to finish inside the measured interval.
+Generation, font loading and application startup are excluded from the timing.
+Execution order alternates between baseline-first and follow-up-first.
+
+The comparison includes the map-bounds fix from PR #131 (`8acfcc0`) on both
+sides. That PR is a rectangular drawing clip, rather than a geometry rebuild.
+The two feature changes under investigation are PRs #127 and #128; the latter
+introduced densely sampled whole-component coasts, their swept donor patches
+and additional silhouette clips. These features are retained.
+
+| Seed | Baseline | Follow-up |
+| --- | ---: | ---: |
+| 0 | 13.368 s | 4.351 s |
+| 1 | 5.220 s | 5.148 s |
+| 2 | 8.993 s | 7.231 s |
+| Median | 8.993 s | 5.148 s |
+
+This batch improves the median by about 43%, but the individual gains range
+from about 1% to 67%. Earlier batches varied substantially, including one
+median regression. These measurements do not establish a stable overall speedup
+or meet the requested budget. All three complete scenes are identical to the
+baseline and all three pixel comparisons have zero differing channels.
+
+The revised construction retains raw swept polygons during coastline fitting,
+materializes render commands only when needed, and omits the extra final trace
+that was discarded without measurement. Realm path accumulators append each
+patch once instead of repeatedly copying growing arrays. Polity label searches
+stop when the maximum possible score cannot beat the best candidate. Earlier
+spatial-query optimizations remain in place.
+
+## Navigation and ordinary scrolling
+
+Previously every wheel/zoom or pan changed the view and replayed the complete
+scene into a viewport-sized canvas. Hover caching did not cover that path.
+The denser component coasts made each replay more expensive.
+
+MapView now keeps a separate map raster. During wheel, pan and resize gestures
+it copies cached pixels; 140 ms after changes stop it directly paints the
+settled viewport to preserve exact antialiasing. A raster is refreshed when
+its scene, pixel ratio, coverage or zoom resolution requires it. Large maps
+use a viewport window with overscan instead of allocating a full-map canvas
+at high zoom. Fonts load before the first full layout, avoiding a second full
+layout with different metrics immediately after startup.
+
+The navigation test uses the same populated 40×40 map and all eight layers.
+It measures twenty wheel ticks, twenty pan moves and twenty resize events,
+checks canvas draw counts, and compares initial and settled images exactly.
+Measured navigation medians against the same map-bounds baseline are:
+
+| Interaction | Baseline | Follow-up | Reduction |
+| --- | ---: | ---: | ---: |
+| Wheel zoom | 543.9 ms | 33.1 ms | 94% |
+| Right-button pan | 480.0 ms | 50.0 ms | 90% |
+| Resize | 477.0 ms | 33.3 ms | 93% |
+
+The maximum follow-up response across these tests is 54.2 ms. Full-scene fills
+during each twenty-event gesture drop from roughly 490,000–516,000 calls to
+zero. Initial and settled canvas images match exactly. Hover decorations still
+paint independently. The large-zoom raster check uses about 4.13 million pixels
+rather than a full 4500×3900 scene at four-times zoom and double pixel density.
+
+The separate production-app test loads the map through IndexedDB, activates
+all layers, and uses native mouse-wheel scrolling on the desktop sidebar and
+mobile page. It requires actual scroll movement, no unchanged-map redraws and
+responses below one second. The final production run has medians of 50.3 ms
+on desktop and 50.1 ms on mobile, maxima of 414.6 ms and 226.2 ms, and zero
+canvas fills, strokes or copies. It records occasional long tasks (117–199 ms),
+so the result does not establish consistently smooth frame-rate scrolling.
+These tests cover settled scrolling; they do not
+prove that scrolling remains responsive during synchronous cold construction.
+
+## Reproduce the follow-up checks
+
+Install the scratch browser driver as above, build the app, and fetch the
+immutable map-bounds baseline if it is not already available:
+
+```sh
+git fetch origin pull/131/head:performance-map-bounds
+node --import tsx --test --test-concurrency=1 test/*.test.ts
+npm run typecheck
+npm run build
+node scripts/render-all-layers-performance.mjs --baseline 8acfcc0 --check
+node scripts/render-navigation-performance.mjs --baseline 8acfcc0
+node scripts/render-browser-performance.mjs --baseline 8acfcc0
+node scripts/render-app-scrolling-performance.mjs
+```
+
+Run these sequentially so builds and suites do not compete with measurements.
+The cold script creates the fixture bundle also used by the production-app
+scrolling script. `--check` intentionally fails while any cold run takes 1000 ms
+or more. Geometry and pixel differences fail independently of the budget flag.
+Fresh raw reports are written under `work/`; reviewable results are recorded
+under `docs/`.
+
+The final complete sequential correctness suite passes all 44 test files;
+type checking and the production build pass. An earlier suite had one
+intermittent `mapStyle` failure; its isolated rerun and the final full suite
+passed. Browser checks pass for three coastline layouts, scene data, canvas
+pixels, hover, selection and immediate/settled zoom. The populated-map
+navigation and production-app scrolling checks also pass. The cold one-second
+acceptance check remains a failing gate.
+
+Raw follow-up reports:
+
+- `docs/render-all-layers-performance-results.json`
+- `docs/render-navigation-performance-results.json`
+- `docs/render-browser-performance-followup-results.json`
+- `docs/render-app-scrolling-performance-results.json`

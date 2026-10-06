@@ -67,7 +67,9 @@ function riverPath(river: River, size: number): Point[] {
 /** Point at distance `d` along the polyline, plus the cumulative lengths. */
 function pointAt(pts: Point[], cum: number[], d: number): Point {
   let i = 1;
-  while (i < pts.length - 1 && cum[i]! < d) i++;
+  let lo = 1, hi = pts.length - 1;
+  while (lo < hi) { const mid = (lo + hi) >>> 1; if (cum[mid]! < d) lo = mid + 1; else hi = mid; }
+  i = lo;
   const span = cum[i]! - cum[i - 1]!;
   const t = span === 0 ? 0 : (d - cum[i - 1]!) / span;
   return {
@@ -453,7 +455,9 @@ function angleDiff(a: number, b: number): number {
 function turnWithin(pts: Point[], cum: number[], headings: number[], from: number, to: number): number {
   const at = (d: number) => {
     let i = 1;
-    while (i < pts.length - 1 && cum[i]! < d) i++;
+    let lo = 1, hi = pts.length - 1;
+    while (lo < hi) { const mid = (lo + hi) >>> 1; if (cum[mid]! < d) lo = mid + 1; else hi = mid; }
+    i = lo;
     return headings[i - 1]!;
   };
   const centre = at((from + to) / 2);
@@ -462,13 +466,30 @@ function turnWithin(pts: Point[], cum: number[], headings: number[], from: numbe
   return worst;
 }
 
-/** Whether a point lies near a stretch of the river's own line well away from `d` along it. */
-function ownReturn(pts: Point[], cum: number[], d: number, x: number, y: number, font: number): boolean {
-  for (let i = 0; i < pts.length; i++) {
-    if (Math.abs(cum[i]! - d) < font * 2.5) continue;
-    if (Math.hypot(pts[i]!.x - x, pts[i]!.y - y) < font * 0.6) return true;
-  }
-  return false;
+/** Exact point queries over nearby bins; retains the original distance predicate. */
+function nearbyPoints(points: Point[], cell: number) {
+  const bins = new Map<number, Map<number, number[]>>();
+  points.forEach((p, i) => {
+    const x = Math.floor(p.x / cell), y = Math.floor(p.y / cell);
+    let column = bins.get(x);
+    if (!column) { column = new Map(); bins.set(x, column); }
+    let bin = column.get(y);
+    if (!bin) { bin = []; column.set(y, bin); }
+    bin.push(i);
+  });
+  return (x: number, y: number, radius: number, eligible: (i: number) => boolean = () => true) => {
+    for (let bx = Math.floor((x - radius) / cell); bx <= Math.floor((x + radius) / cell); bx++) {
+      const column = bins.get(bx);
+      if (!column) continue;
+      for (let by = Math.floor((y - radius) / cell); by <= Math.floor((y + radius) / cell); by++) {
+        for (const i of column.get(by) ?? []) {
+          const p = points[i]!;
+          if (eligible(i) && Math.hypot(p.x - x, p.y - y) < radius) return true;
+        }
+      }
+    }
+    return false;
+  };
 }
 
 /**
@@ -511,6 +532,8 @@ export function placeRiverLabels(
     const total = cum[cum.length - 1]!;
     const profile = rescaleProfile(profileFor?.(river.id), raw, pts, cum);
     const others = rivers.filter((r) => r.id !== river.id).flatMap((r) => lines.get(r.id) ?? []);
+    const nearOthers = nearbyPoints(others, size);
+    const nearOwn = nearbyPoints(pts, size);
     const em = glyphAdvances(text, 1, face.tracking, face.weight, face.family, face.italic).width;
     const headings = headingsOf(pts);
 
@@ -568,9 +591,9 @@ export function placeRiverLabels(
               samples++;
               if (avoid.some((box) => insideBox(box, x, y)) || placed.some((box) => insideBox(box, x, y))) hits += 2;
               else if (inWater?.({ x, y })) hits += 2;
-              else if (others.some((o) => Math.hypot(o.x - x, o.y - y) < font * 0.45)) hits += 2;
+              else if (nearOthers(x, y, font * 0.45)) hits += 2;
               // The river's own line coming back round the inside of a bend.
-              else if (ownReturn(pts, cum, d, x, y, font)) hits += 2;
+              else if (nearOwn(x, y, font * 0.6, i => Math.abs(cum[i]! - d) >= font * 2.5)) hits += 2;
             }
           }
           const covered = hits / (2 * samples);
