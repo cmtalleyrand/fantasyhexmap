@@ -14,17 +14,35 @@ export function drawPrims(ctx: Ctx, prims: Prim[]): void {
   for (const prim of prims) drawPrim(ctx, prim);
 }
 
-function tracePath(ctx: Ctx, d: PathCmd[]): void {
-  ctx.beginPath();
+// Scene paths are immutable and often shared by several water bands and clips.
+// Weak keys release their compiled paths when a scene is replaced.
+const compiledPaths = new WeakMap<PathCmd[], Path2D>();
+
+function traceCommands(target: CanvasRenderingContext2D | Path2D, d: PathCmd[]): void {
   for (const c of d) {
     switch (c[0]) {
-      case 'M': ctx.moveTo(c[1], c[2]); break;
-      case 'L': ctx.lineTo(c[1], c[2]); break;
-      case 'Q': ctx.quadraticCurveTo(c[1], c[2], c[3], c[4]); break;
-      case 'C': ctx.bezierCurveTo(c[1], c[2], c[3], c[4], c[5], c[6]); break;
-      case 'Z': ctx.closePath(); break;
+      case 'M': target.moveTo(c[1], c[2]); break;
+      case 'L': target.lineTo(c[1], c[2]); break;
+      case 'Q': target.quadraticCurveTo(c[1], c[2], c[3], c[4]); break;
+      case 'C': target.bezierCurveTo(c[1], c[2], c[3], c[4], c[5], c[6]); break;
+      case 'Z': target.closePath(); break;
     }
   }
+}
+
+function tracePath(ctx: Ctx, d: PathCmd[]): Path2D | undefined {
+  if (typeof Path2D !== 'undefined') {
+    let path = compiledPaths.get(d);
+    if (!path) {
+      path = new Path2D();
+      traceCommands(path, d);
+      compiledPaths.set(d, path);
+    }
+    return path;
+  }
+  ctx.beginPath();
+  traceCommands(ctx, d);
+  return undefined;
 }
 
 /** One canvas per tile, reused: building the pattern source is the expensive part. */
@@ -50,10 +68,11 @@ function tileSource(tile: GrainTile): HTMLCanvasElement | OffscreenCanvas | null
 function drawPrim(ctx: Ctx, prim: Prim): void {
   switch (prim.kind) {
     case 'path': {
-      tracePath(ctx, prim.d);
+      const path = tracePath(ctx, prim.d);
       if (prim.fill) {
         ctx.fillStyle = prim.fill;
-        ctx.fill(prim.fillRule ?? 'nonzero');
+        if (path) ctx.fill(path, prim.fillRule ?? 'nonzero');
+        else ctx.fill(prim.fillRule ?? 'nonzero');
       }
       if (prim.stroke) {
         ctx.strokeStyle = prim.stroke;
@@ -61,7 +80,8 @@ function drawPrim(ctx: Ctx, prim: Prim): void {
         ctx.lineJoin = prim.round ? 'round' : 'miter';
         ctx.lineCap = prim.round ? 'round' : 'butt';
         ctx.setLineDash(prim.dash ?? []);
-        ctx.stroke();
+        if (path) ctx.stroke(path);
+        else ctx.stroke();
         ctx.setLineDash([]);
         ctx.lineJoin = 'miter';
         ctx.lineCap = 'butt';
@@ -73,8 +93,9 @@ function drawPrim(ctx: Ctx, prim: Prim): void {
       if (prim.opacity !== undefined) ctx.globalAlpha *= prim.opacity;
       if (prim.translate) ctx.translate(prim.translate.x, prim.translate.y);
       if (prim.clip) {
-        tracePath(ctx, prim.clip);
-        ctx.clip(prim.clipRule ?? 'nonzero');
+        const path = tracePath(ctx, prim.clip);
+        if (path) ctx.clip(path, prim.clipRule ?? 'nonzero');
+        else ctx.clip(prim.clipRule ?? 'nonzero');
       }
       drawPrims(ctx, prim.prims);
       ctx.restore();
