@@ -1,4 +1,5 @@
 /** Exercise scrolling in the production app, with the full populated map loaded from IndexedDB. */
+import {workerProbe} from './browser-worker-plugin.mjs';
 import {createServer} from 'node:http';
 import {readFileSync,writeFileSync} from 'node:fs';
 import {resolve,extname} from 'node:path';
@@ -21,6 +22,7 @@ try{
   localStorage.setItem('fantasyhexmap.prefs',JSON.stringify({defaultsVersion:2,offline:true,labels:true,riverNames:true,rangeNames:true,seaNames:true,landNames:true,mapStyle:{preset:'parchment',overrides:{coast:'smooth'}}}));
   await new Promise((resolve,reject)=>{const req=indexedDB.open('fantasyhexmap',2);req.onupgradeneeded=()=>{const db=req.result;db.createObjectStore('maps');db.createObjectStore('saves',{keyPath:'id'})};req.onsuccess=()=>{const db=req.result,tx=db.transaction('maps','readwrite');tx.objectStore('maps').put(map,'current');tx.oncomplete=()=>{db.close();resolve()};tx.onerror=reject};req.onerror=reject});
  });
+ await page.evaluateOnNewDocument(workerProbe);
  await page.evaluateOnNewDocument(()=>{
   window.paintCounts={fill:0,stroke:0,copy:0};window.tasks=[];
   new PerformanceObserver(list=>window.tasks.push(...list.getEntries().map(e=>e.duration))).observe({type:'longtask',buffered:true});
@@ -31,6 +33,7 @@ try{
  const buttons=await page.$$('button[aria-label^="Show "][aria-label$=" on the map"]');
  for(const button of buttons){await button.click();await page.evaluate(()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r))))}
  await page.evaluate(()=>new Promise(r=>setTimeout(r,800)));
+ await page.waitForFunction(()=>window.workerPaints>0&&window.workerJobs===0&&window.sharpFramesPending===0&&performance.now()-window.lastWorkerPaint>300,{timeout:30000});
  const measure=async selector=>{
   const box=await (await page.$(selector)).boundingBox();await page.mouse.move(box.x+Math.min(100,box.width/2),box.y+Math.min(120,box.height/2));
   await page.evaluate(()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r))));
@@ -40,6 +43,7 @@ try{
  };
  const desktop=await measure('.sidebar');
  await page.setViewport({width:500,height:800});await page.evaluate(()=>new Promise(r=>setTimeout(r,800)));
+ await page.waitForFunction(()=>window.workerJobs===0&&window.sharpFramesPending===0&&performance.now()-window.lastWorkerPaint>300,{timeout:30000});
  await page.mouse.move(480,750);await page.evaluate(()=>{window.paintCounts={fill:0,stroke:0,copy:0};window.tasks=[]});
  const frames=[];for(let i=0;i<20;i++){const t=performance.now();await page.mouse.wheel({deltaY:25});await page.evaluate(()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r))));frames.push(performance.now()-t)}
  const mobile=await page.evaluate(frames=>({y:window.scrollY,paints:{...window.paintCounts},longTasks:[...window.tasks],medianMs:frames.sort((a,b)=>a-b)[10],maxMs:Math.max(...frames)}),frames);

@@ -4,7 +4,8 @@ import {createHash} from 'node:crypto';
 import {mkdirSync,readFileSync,writeFileSync,symlinkSync} from 'node:fs';
 import {resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
-import {buildSync} from 'esbuild';
+import {build} from 'esbuild';
+import {browserWorkerPlugin, workerProbe} from './browser-worker-plugin.mjs';
 const argument = name => process.argv[process.argv.indexOf(name)+1];
 const ref=process.argv.includes('--baseline')?argument('--baseline'):'8acfcc0';
 const root=resolve('.');
@@ -19,13 +20,13 @@ const files={};
 for(const [version,source] of [['before',archived],['after',root]]){
  const contents=fixture.replace(/(['"])\.\.\/(src|shared)\/([^'"]+)\1/g,(_,quote,folder,file)=>JSON.stringify(resolve(source,folder,file)));
  const outfile=resolve(directory,`${version}.js`);files[version]=outfile;
- buildSync({stdin:{contents,sourcefile:'fixture.tsx',resolveDir:resolve('scripts'),loader:'tsx'},bundle:true,format:'iife',globalName:version==='before'?'beforeApi':'afterApi',jsx:'automatic',loader:{'.woff2':'dataurl'},outfile});
+ await build({stdin:{contents,sourcefile:'fixture.tsx',resolveDir:resolve('scripts'),loader:'tsx'},bundle:true,format:'iife',globalName:version==='before'?'beforeApi':'afterApi',jsx:'automatic',loader:{'.woff2':'dataurl'},plugins:[browserWorkerPlugin()],outfile});
 }
 let puppeteer;
 try{puppeteer=(await import('puppeteer-core')).default;}catch{puppeteer=(await import(pathToFileURL(resolve('work/node_modules/puppeteer-core/lib/puppeteer/puppeteer-core.js')).href)).default;}
 const executablePath=process.argv.includes('--chromium')?argument('--chromium'):'/usr/bin/chromium';
 const browser=await puppeteer.launch({executablePath,pipe:true,headless:true,args:['--no-sandbox','--disable-gpu','--disable-dev-shm-usage'],userDataDir:resolve(directory,'profile')});
-const results=[],images=[];
+const results=[],images=[];let workerReference;
 try{
  const page=await browser.newPage(); await page.setContent('<html><body></body></html>');
  await page.addScriptTag({path:files.before}); await page.addScriptTag({path:files.after});
@@ -53,24 +54,29 @@ try{
   const page=await browser.newPage();await page.setViewport({width:900,height:750,deviceScaleFactor:1});
   await page.setContent('<html><head><style>.mapwrap{width:800px;height:600px;position:relative}.maphud{position:absolute;bottom:0}canvas{display:block}</style></head><body><div id="root"></div></body></html>');
   await page.evaluate(()=>{window.counts={stroke:0,copy:0};for(const [method,counter] of [['stroke','stroke'],['drawImage','copy']]){const original=CanvasRenderingContext2D.prototype[method];CanvasRenderingContext2D.prototype[method]=function(...args){window.counts[counter]++;return original.apply(this,args);};}});
+  await page.evaluate(workerProbe);
   await page.addScriptTag({path:files[version]});await page.evaluate(v=>{window.cleanup=(v==='before'?beforeApi:afterApi).mount();},version);
   await page.waitForSelector('canvas');await page.evaluate(async()=>{await document.fonts.ready;await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));});
   await new Promise(r=>setTimeout(r,500));
+  if(version==='after')await page.waitForFunction(()=>window.workerPaints>0&&window.workerJobs===0&&performance.now()-window.lastWorkerPaint>300,{timeout:30000});
   const initial=await page.evaluate(()=>({image:document.querySelector('canvas').toDataURL(),counts:{...window.counts}}));
   await page.evaluate(()=>window.counts={stroke:0,copy:0});
   images.push(initial.image);
+  if(version==='after')await page.evaluate(()=>{window.initialWorkerFrame=window.workerLastFrame});
   const moves=[];
   for(let i=0;i<15;i++) {const t=performance.now();await page.mouse.move(100+i*35,150+(i%3)*35);await page.evaluate(()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r))));moves.push(performance.now()-t);}
   const hover=await page.evaluate(()=>({...window.counts}));
   await page.evaluate(()=>window.counts={stroke:0,copy:0});
   await page.mouse.click(220,150);await page.evaluate(()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r))));
-  const selection=await page.evaluate(()=>({...window.counts}));
+  const selection=await page.evaluate(initial=>{const canvases=document.querySelectorAll('.mapwrap canvas');const overlay=canvases[1];return {...window.counts,baseUnchanged:canvases[0].toDataURL()===initial,overlayInk:overlay?overlay.getContext('2d').getImageData(0,0,overlay.width,overlay.height).data.some((value,index)=>index%4===3&&value>0):false}},initial.image);
   await page.evaluate(()=>window.counts={stroke:0,copy:0});
   await page.click('[aria-label="Zoom in"]');await page.evaluate(()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r))));
   const immediateZoom=await page.evaluate(()=>({...window.counts}));
   await page.evaluate(()=>new Promise(r=>setTimeout(r,500)));
+  if(version==='after')await page.waitForFunction(()=>window.workerJobs===0&&performance.now()-window.lastWorkerPaint>300,{timeout:30000});
   const zoom=await page.evaluate(()=>({counts:{...window.counts},changed:document.querySelector('canvas').toDataURL()}));
   results.push({version,initialHash:createHash('sha256').update(initial.image).digest('hex'),hover,hoverMedianMs:moves.sort((a,b)=>a-b)[7],zoomRedrew:zoom.changed!==initial.image,zoomStrokes:zoom.counts.stroke,selection,immediateZoom});
+  if(version==='after')workerReference=await page.evaluate(()=>window.workerReference(afterApi.drawScene,window.initialWorkerFrame,afterApi.MAP_COLOURS.background,true));
   await page.close();
  }
  console.log(results);
@@ -81,12 +87,13 @@ try{
    for(let i=0;i<data[0].length;i+=4){let differs=false;for(let k=0;k<4;k++){const d=Math.abs(data[0][i+k]-data[1][i+k]);maxChannelDelta=Math.max(maxChannelDelta,d);if(d)differs=true;}if(differs)differingPixels++;}
    return {differingPixels,maxChannelDelta,totalPixels:data[0].length/4};
  },images);
- if(pixels.maxChannelDelta>1 || pixels.differingPixels>pixels.totalPixels*0.0001)throw Error(`Viewport mismatch beyond raster rounding: ${JSON.stringify(pixels)}`);
- if(results[1].hover.stroke>20)throw Error('Hover did not eliminate full scene repainting');
- if(results[1].selection.stroke>=20 || results[1].selection.copy<1)throw Error('Selection did not reuse viewport');
+ const workerPixels=await comparisonPage.evaluate(async images=>{const read=async url=>{const image=new Image();image.src=url;await image.decode();const canvas=document.createElement('canvas');canvas.width=image.width;canvas.height=image.height;const ctx=canvas.getContext('2d');ctx.drawImage(image,0,0);return ctx.getImageData(0,0,canvas.width,canvas.height).data};const a=await read(images[0]),b=await read(images[1]);let changed=0,max=0;for(let i=0;i<a.length;i++){const d=Math.abs(a[i]-b[i]);if(d)changed++;max=Math.max(max,d)}return {channels:changed,maxDelta:max}},[images[1],workerReference]);
+ if(workerPixels.maxDelta!==0)throw Error(`Worker viewport differs from the synchronous OffscreenCanvas reference: ${JSON.stringify(workerPixels)}`);
+ if(results[1].hover.stroke>20||results[1].hover.copy!==0)throw Error('Hover did not eliminate full scene repainting');
+ if(results[1].selection.stroke>=20||results[1].selection.copy!==0||!results[1].selection.baseUnchanged||!results[1].selection.overlayInk)throw Error('Selection must paint its transparent overlay without copying or changing the map');
  if(results[1].immediateZoom.stroke>=20||results[1].immediateZoom.copy<1)throw Error('Zoom gesture repainted the full scene instead of its raster');
- if(!results[1].zoomRedrew||results[1].zoomStrokes<10)throw Error('Zoom failed to invalidate cached viewport');
- const report={baseline:sha,sceneResults,interactions:results,viewportPixels:pixels};
+ if(!results[1].zoomRedrew)throw Error('Zoom failed to invalidate cached viewport');
+ const report={baseline:sha,sceneResults,interactions:results,viewportPixels:pixels,workerReferencePixels:workerPixels};
  writeFileSync('work/render-browser-performance.json',JSON.stringify(report,null,2));
  console.log(JSON.stringify(report,null,2));
 }finally{await browser.close();}

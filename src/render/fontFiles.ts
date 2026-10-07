@@ -46,13 +46,15 @@ function loadFace(face: BundledFace): Promise<void> {
   const hit = loaded.get(face.file);
   if (hit) return hit;
   const promise = (async () => {
-    if (typeof FontFace === 'undefined' || typeof document === 'undefined') return;
+    const fonts = typeof document !== 'undefined' ? document.fonts :
+      (globalThis as unknown as { fonts?: { add(face: FontFace): void } }).fonts;
+    if (typeof FontFace === 'undefined' || !fonts) return;
     const font = new FontFace(face.family, `url(${FILES[face.file]}) format("woff2")`, {
       weight: String(face.weight),
       style: face.italic ? 'italic' : 'normal',
     });
     await font.load();
-    document.fonts.add(font);
+    fonts.add(font);
   })().catch(() => {
     // A face that fails to load falls back to the stack's next font; drop the
     // failed attempt so a later call can try again.

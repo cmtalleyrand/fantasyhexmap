@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { coastEdges, coastGeometryOf, evenOddTest, type Roughness } from '../src/render/coast.ts';
-import { coveredArea, driftOf } from '../src/render/footprint.ts';
+import { areaCoverage, coveredArea, driftOf } from '../src/render/footprint.ts';
 import { polygonSliver } from '../src/render/sliver.ts';
 import { hexCorners } from '../shared/hex.ts';
 import { unit } from '../src/render/seed.ts';
@@ -81,4 +81,19 @@ test('coast fitting measures raw swept polygons without constructing render comm
   Object.defineProperty(lazy, 'd', { get() { throw new Error('fitting materialized render commands'); } });
   const drift = driftOf({ toWater: [], toLand: [lazy] }, 0, new Set([4]), 3, 3, 26, () => { throw new Error('fitting flattened a polygon'); });
   assert.ok(Math.abs(drift.get(4)! - 1.5 * Math.sqrt(3) * 26 ** 2) < 1e-8);
+});
+
+
+test('local coverage preparation preserves enclosing rings, holes, ink and queries outside its region', () => {
+  const rectangle = (x: number, y: number, w: number, h: number) => [{ x, y }, { x: x + w, y }, { x: x + w, y: y + h }, { x, y: y + h }];
+  const clip = rectangle(0, 0, 10, 10), elsewhere = rectangle(100, 100, 10, 10);
+  const rings = [rectangle(-100, -100, 200, 200), rectangle(2, 2, 6, 6), rectangle(100, 100, 10, 10)];
+  const strokes = [[{ x: -20, y: 5 }, { x: 20, y: 5 }], [{ x: 90, y: 105 }, { x: 120, y: 105 }]];
+  const options = { evenOdd: true, stroke: { rings: strokes, reach: 1 } };
+  const full = areaCoverage(rings, options), local = areaCoverage(rings, { ...options, within: clip });
+  for (const lines of [32, 128, 257]) {
+    assert.equal(local(clip, lines), full(clip, lines));
+    assert.equal(local(elsewhere, lines), full(elsewhere, lines));
+    assert.equal(local(clip.map(p => ({ ...p })), lines), full(clip, lines));
+  }
 });

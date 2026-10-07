@@ -50,7 +50,7 @@ export function fitCoastAreas(geometry: CoastGeometry, targets: ReadonlyMap<numb
     const clip = hexCorners(hex % cols, Math.floor(hex / cols), size);
     const centre = hexCenter(hex % cols, Math.floor(hex / cols), size);
     const measure = (g: CoastGeometry) => areaCoverage(pathPolylines(drawnLand(g, page.width, page.height, size), 8),
-      { evenOdd: true, stroke: { rings: g.paths.flatMap(d => pathPolylines(d, 8)), reach: ink } })(clip, 128) / hexArea;
+      { evenOdd: true, stroke: { rings: g.paths.flatMap(d => pathPolylines(d, 8)), reach: ink }, within: clip })(clip, 128) / hexArea;
     let bestError = Math.abs(measure(result) - target.share);
     if (bestError < 0.004) continue;
     const rings = result.paths.map(d => pathPolylines(d, 8)[0] ?? []);

@@ -1,12 +1,16 @@
 import { holdersOf } from '../../shared/polityShares.js';
 import type { PolityNameMin } from '../render/labels.js';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { flushSync } from 'react-dom';
 import { hexIndex, pixelToOffset, gridPixelSize, inBounds } from '../../shared/hex.js';
 import type { LayerId, MapState } from '../../shared/types.js';
 import { drawScene } from '../render/canvas.js';
 import { buildStaticScene, decorationPrims, type DrawingCompromise, type VisibleLayers, type Scene } from '../render/scene.js';
 import type { MapStyle } from '../render/styles.js';
 import { SceneRaster } from '../render/raster.js';
+import { ScenePainter } from '../render/scenePainter.js';
+import PaintWorker from '../render/paint.worker.ts?worker';
+import type { PaintView } from '../render/paintProtocol.js';
 import { MAP_COLOURS } from '../render/palette.js';
 import { riversThroughHex } from '../../shared/derive.js';
 import { formatLength, riverLength } from '../../shared/riverLength.js';
@@ -67,13 +71,25 @@ export interface MapViewProps {
 export default function MapView(props: MapViewProps) {
   const { map, visible, labels, riverNames, rangeNames, seaNames, landNames, polityNames, cityStateMax, polityOpacity, mapStyle, selection, onSelectionChange, onStrokeEnd } = props;
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const decorationRef = useRef<HTMLCanvasElement | null>(null);
   const wrapRef = useRef<HTMLDivElement | null>(null);
-  // A viewport-sized backing canvas keeps pointer decorations from repainting the map.
+  // Map pixels and pointer decorations have separate surfaces, so moving the
+  // pointer never copies or repaints the full map.
   const renderedMap = useRef<HTMLCanvasElement | null>(null);
   const raster = useRef<SceneRaster | null>(null);
+  const painter = useRef<ScenePainter | null>(null);
+  const overview = useRef<{ scene: Scene; bitmap: ImageBitmap; width: number; height: number } | null>(null);
+  const detail = useRef<({ scene: Scene; bitmap: ImageBitmap } & PaintView) | null>(null);
+  const [workerEnabled, setWorkerEnabled] = useState(() => typeof Worker !== 'undefined' && typeof OffscreenCanvas !== 'undefined');
   const [rasterVersion, setRasterVersion] = useState(0);
   const sharpViewport = useRef<{ scene: Scene; view: View; size: { width: number; height: number } } | null>(null);
   const [view, setView] = useState<View>({ scale: 1, x: 0, y: 0 });
+  // Continuous React events may defer a commit beyond the next browser frame.
+  // Once an overview exists, this commit only copies pixels and decorations.
+  const navigate = (next: View | ((previous: View) => View)) => {
+    if (workerEnabled && overview.current) flushSync(() => setView(next));
+    else setView(next);
+  };
   const [hover, setHover] = useState<number | null>(null);
   const [size, setSize] = useState({ width: 800, height: 600 });
   const drag = useRef<
@@ -153,6 +169,8 @@ export default function MapView(props: MapViewProps) {
     },
     [map, visible, labels, riverNames, rangeNames, seaNames, landNames, polityNames, cityStateMax, polityOpacity, mapStyle, props.riverTool?.selectedId, readyLettering, lettering],
   );
+  const latest = useRef({ scene, view, size });
+  latest.current = { scene, view, size };
   const onCompromises = props.onCompromises;
   useEffect(() => {
     onCompromises?.(scene.compromises ?? []);
@@ -206,19 +224,92 @@ export default function MapView(props: MapViewProps) {
     }
   }, [fit, size.width, map.id]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
+    if (!workerEnabled) return;
+    try {
+      const renderer = new ScenePainter({
+        overview: (scene, image) => {
+          if (latest.current.scene !== scene) { image.bitmap.close(); return; }
+          overview.current?.bitmap.close();
+          overview.current = { ...image, scene };
+          setRasterVersion(v => v + 1);
+        },
+        painted: (scene, painted, bitmap) => {
+          const current = latest.current;
+          if (current.scene !== scene || current.view !== painted.view || current.size !== painted.size) {
+            bitmap.close();
+            return;
+          }
+          const canvas = renderedMap.current;
+          const ctx = canvas?.getContext('2d');
+          if (!canvas || !ctx || canvas.width !== bitmap.width || canvas.height !== bitmap.height) { bitmap.close(); return; }
+          ctx.setTransform(1, 0, 0, 1, 0, 0);
+          ctx.drawImage(bitmap, 0, 0);
+          detail.current?.bitmap.close();
+          detail.current = { ...painted, scene, bitmap };
+          sharpViewport.current = { scene, view: painted.view, size: painted.size };
+          setRasterVersion(v => v + 1);
+        },
+        failed: () => setWorkerEnabled(false),
+      }, new PaintWorker());
+      painter.current = renderer;
+      return () => {
+        renderer.dispose();
+        painter.current = null;
+        overview.current?.bitmap.close();
+        overview.current = null;
+        detail.current?.bitmap.close();
+        detail.current = null;
+      };
+    } catch {
+      setWorkerEnabled(false);
+    }
+  }, [workerEnabled]);
+
+  useLayoutEffect(() => {
+    if (scene.prims.length > 0) painter.current?.setScene(scene, lettering);
+  }, [scene, lettering, workerEnabled]);
+
+  useLayoutEffect(() => {
     const sharp = sharpViewport.current;
     if (sharp?.scene === scene && sharp.view === view && sharp.size === size) return;
-    const canvas = renderedMap.current ?? document.createElement('canvas');
+    const canvas = canvasRef.current;
+    if (!canvas) return;
     renderedMap.current = canvas;
+    canvas.style.width = `${size.width}px`;
+    canvas.style.height = `${size.height}px`;
     const dpr = window.devicePixelRatio || 1;
-    canvas.width = Math.max(1, Math.floor(size.width * dpr));
-    canvas.height = Math.max(1, Math.floor(size.height * dpr));
-    const ctx = canvas.getContext('2d');
+    const width = Math.max(1, Math.floor(size.width * dpr)), height = Math.max(1, Math.floor(size.height * dpr));
+    if (canvas.width !== width) canvas.width = width;
+    if (canvas.height !== height) canvas.height = height;
+    const ctx = canvas.getContext('2d', { alpha: false });
     if (!ctx) return;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.fillStyle = MAP_COLOURS.background;
     ctx.fillRect(0, 0, size.width, size.height);
+    if (workerEnabled && painter.current) {
+      const renderer = painter.current;
+      renderer.invalidate();
+      const image = overview.current;
+      if (image?.scene === scene) {
+        ctx.drawImage(image.bitmap, view.x, view.y, image.width * view.scale, image.height * view.scale);
+        const sharp = detail.current;
+        if (sharp?.scene === scene) {
+          const ratio = view.scale / sharp.view.scale;
+          ctx.save();
+          ctx.beginPath();
+          ctx.rect(view.x, view.y, scene.width * view.scale, scene.height * view.scale);
+          ctx.clip();
+          ctx.drawImage(sharp.bitmap, view.x - sharp.view.x * ratio, view.y - sharp.view.y * ratio,
+            sharp.size.width * ratio, sharp.size.height * ratio);
+          ctx.restore();
+        }
+        const timer = window.setTimeout(() => renderer.paint({ view, size, dpr }), 140);
+        return () => window.clearTimeout(timer);
+      }
+      if (scene.prims.length > 0) renderer.paint({ view, size, dpr });
+      return;
+    }
     const paintSharp = () => {
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.fillStyle = MAP_COLOURS.background;
@@ -248,10 +339,10 @@ export default function MapView(props: MapViewProps) {
       setRasterVersion(v => v + 1);
     }, 140);
     return () => window.clearTimeout(timer);
-  }, [scene, view, size, rasterVersion]);
+  }, [scene, view, size, rasterVersion, workerEnabled]);
 
-  useEffect(() => {
-    const canvas = canvasRef.current;
+  useLayoutEffect(() => {
+    const canvas = decorationRef.current;
     const backing = renderedMap.current;
     if (!canvas || !backing) return;
     if (canvas.width !== backing.width) canvas.width = backing.width;
@@ -262,7 +353,6 @@ export default function MapView(props: MapViewProps) {
     if (!ctx) return;
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.drawImage(backing, 0, 0);
     const dpr = window.devicePixelRatio || 1;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.save();
@@ -380,14 +470,14 @@ export default function MapView(props: MapViewProps) {
     if (state?.mode === 'pinch') {
       const a = pointers.current.get(state.ids[0]);
       const b = pointers.current.get(state.ids[1]);
-      if (a && b) setView(pinchView(state.start, state.a0, state.b0, a, b));
+      if (a && b) navigate(pinchView(state.start, state.a0, state.b0, a, b));
       return;
     }
     const index = hexAt(e.clientX, e.clientY);
     setHover(index);
     if (!state) return;
     if (state.mode === 'pan') {
-      setView((v) => ({
+      navigate((v) => ({
         ...v,
         x: state.originX + (e.clientX - state.startX),
         y: state.originY + (e.clientY - state.startY),
@@ -451,7 +541,7 @@ export default function MapView(props: MapViewProps) {
     const rect = canvas.getBoundingClientRect();
     const px = e.clientX - rect.left;
     const py = e.clientY - rect.top;
-    setView((v) => zoomAt(v, Math.exp(-e.deltaY * 0.0015), px, py));
+    navigate((v) => zoomAt(v, Math.exp(-e.deltaY * 0.0015), px, py));
   };
 
   const hoverText = () => {
@@ -519,6 +609,7 @@ export default function MapView(props: MapViewProps) {
         onWheel={onWheel}
         onContextMenu={(e) => e.preventDefault()}
       />
+      <canvas ref={decorationRef} aria-hidden="true" style={{ position: 'absolute', left: 0, top: 0, pointerEvents: 'none' }} />
       {props.overlay && <div className="map-overlay">{props.overlay}</div>}
       {props.banner}
       <div className="maphud">{hoverText()}</div>

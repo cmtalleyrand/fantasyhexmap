@@ -1,67 +1,71 @@
 {
-  "baseline": "8acfcc0f0f3513284c93834cbd30d4b1326d9646",
+  "baseline": "42611d2b1d2b3147976ad9f7da3d29fc602e53b9",
   "sceneResults": [
     {
       "layout": "continent",
       "n": 30,
-      "beforeBuildMs": 924.2999999970198,
-      "afterBuildMs": 657.7000000029802,
+      "beforeBuildMs": 6555.600000008941,
+      "afterBuildMs": 6385.29999999702,
       "identicalScene": true,
       "pixelDifferences": 0,
-      "hoverCopyMs": 0.2900000002235174
+      "hoverCopyMs": 0.23999999985098838
     },
     {
       "layout": "archipelago",
       "n": 30,
-      "beforeBuildMs": 908.1000000014901,
-      "afterBuildMs": 830.6000000014901,
+      "beforeBuildMs": 6746,
+      "afterBuildMs": 5378,
       "identicalScene": true,
       "pixelDifferences": 0,
-      "hoverCopyMs": 0.4649999998509884
+      "hoverCopyMs": 0.35499999970197677
     },
     {
       "layout": "lakes",
       "n": 30,
-      "beforeBuildMs": 465.79999999701977,
-      "afterBuildMs": 406.29999999701977,
+      "beforeBuildMs": 442.5,
+      "afterBuildMs": 521,
       "identicalScene": true,
       "pixelDifferences": 0,
-      "hoverCopyMs": 0.4100000001490116
+      "hoverCopyMs": 0.31000000014901163
     }
   ],
   "interactions": [
     {
       "version": "before",
-      "initialHash": "32b37ed434f2b570e052b23c11dba6343857630bcd7d4bbdef7e17b923961eb0",
+      "initialHash": "e44468bf0dbcc6411306a75d9704e9dbe37c33b076c280054f92d19c46d4df3d",
       "hover": {
         "stroke": 15,
         "copy": 15
       },
-      "hoverMedianMs": 50.115483999999924,
+      "hoverMedianMs": 50.009477999999945,
       "zoomRedrew": true,
-      "zoomStrokes": 3248,
+      "zoomStrokes": 3286,
       "selection": {
         "stroke": 2,
-        "copy": 1
+        "copy": 1,
+        "baseUnchanged": false,
+        "overlayInk": false
       },
       "immediateZoom": {
-        "stroke": 3248,
-        "copy": 1
+        "stroke": 1,
+        "copy": 2
       }
     },
     {
       "version": "after",
-      "initialHash": "3e37213701d0e4bf33fbb85ec79be2f1354c78634d061e69221d72fd4902d20e",
+      "initialHash": "a9b7da58edbaff1ae1d5c29084ad223a23e9690204d01f0d7baaa5bef6679b33",
       "hover": {
         "stroke": 15,
-        "copy": 15
+        "copy": 0
       },
-      "hoverMedianMs": 49.51427100000001,
+      "hoverMedianMs": 50.05412300000171,
       "zoomRedrew": true,
-      "zoomStrokes": 3249,
+      "zoomStrokes": 2,
       "selection": {
         "stroke": 2,
-        "copy": 1
+        "copy": 0,
+        "baseUnchanged": true,
+        "overlayInk": true
       },
       "immediateZoom": {
         "stroke": 1,
@@ -70,8 +74,12 @@
     }
   ],
   "viewportPixels": {
-    "differingPixels": 1,
-    "maxChannelDelta": 1,
+    "differingPixels": 47473,
+    "maxChannelDelta": 32,
     "totalPixels": 480000
+  },
+  "workerReferencePixels": {
+    "channels": 0,
+    "maxDelta": 0
   }
 }

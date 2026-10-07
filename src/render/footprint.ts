@@ -1107,33 +1107,46 @@ export function coveredArea(rings: Point[][], clip: Poly, lines = 96): number {
 export function areaCoverage(rings: Point[][], options?: {
   evenOdd?: boolean;
   stroke?: { rings: Point[][]; reach: number };
+  /** Limit preparation to this query; other clips use the unrestricted fallback. */
+  within?: Poly;
 }): (clip: Poly, lines?: number) => number {
   const band = 8;
+  const region = options?.within ? boxOf(options.within) : null;
+  let unrestricted: ReturnType<typeof areaCoverage> | undefined;
   const prepared = rings.map(ring => {
+    const box = boxOf(ring);
     const bins = new Map<number, Array<[Point, Point]>>();
-    ring.forEach((a, k) => {
+    if (!region || !(box[2] < region[0] || box[0] > region[2] || box[3] < region[1] || box[1] > region[3])) ring.forEach((a, k) => {
       const b = ring[(k + 1) % ring.length]!;
       if (a.y === b.y) return;
-      for (let y = Math.floor(Math.min(a.y, b.y) / band); y <= Math.floor(Math.max(a.y, b.y) / band); y++) {
+      const first = Math.max(Math.floor(Math.min(a.y, b.y) / band), region ? Math.floor(region[1] / band) : -Infinity);
+      const last = Math.min(Math.floor(Math.max(a.y, b.y) / band), region ? Math.floor(region[3] / band) : Infinity);
+      for (let y = first; y <= last; y++) {
         let bin = bins.get(y);
         if (!bin) { bin = []; bins.set(y, bin); }
         bin.push([a, b]);
       }
     });
-    return { box: boxOf(ring), bins };
+    return { box, bins };
   });
   const radius = options?.stroke?.reach ?? 0;
-  const strokes = radius > 0 ? options!.stroke!.rings.flatMap(ring => ring.flatMap((a, k) => {
-    if (k + 1 >= ring.length) return [];
-    const b = ring[k + 1]!, length = Math.hypot(b.x - a.x, b.y - a.y);
-    if (!length) return [];
+  const strokes: Array<{ poly: Point[]; a: Point; b: Point; box: number[] }> = [];
+  if (radius > 0) for (const ring of options!.stroke!.rings) for (let k = 0; k + 1 < ring.length; k++) {
+    const a = ring[k]!, b = ring[k + 1]!;
+    const box = [Math.min(a.x, b.x) - radius, Math.min(a.y, b.y) - radius,
+      Math.max(a.x, b.x) + radius, Math.max(a.y, b.y) + radius];
+    if (region && (box[2]! < region[0] || box[0]! > region[2] || box[3]! < region[1] || box[1]! > region[3])) continue;
+    const length = Math.hypot(b.x - a.x, b.y - a.y);
+    if (!length) continue;
     const dx = (b.y - a.y) / length * radius, dy = (a.x - b.x) / length * radius;
-    return [{ poly: [{ x: a.x + dx, y: a.y + dy }, { x: b.x + dx, y: b.y + dy },
-      { x: b.x - dx, y: b.y - dy }, { x: a.x - dx, y: a.y - dy }], a, b,
-      box: [Math.min(a.x, b.x) - radius, Math.min(a.y, b.y) - radius,
-        Math.max(a.x, b.x) + radius, Math.max(a.y, b.y) + radius] }];
-  })) : [];
+    strokes.push({ poly: [{ x: a.x + dx, y: a.y + dy }, { x: b.x + dx, y: b.y + dy },
+      { x: b.x - dx, y: b.y - dy }, { x: a.x - dx, y: a.y - dy }], a, b, box });
+  }
   return (clip, lines = 96) => {
+    if (region && clip !== options!.within) {
+      unrestricted ??= areaCoverage(rings, { ...options, within: undefined });
+      return unrestricted(clip, lines);
+    }
     const top = Math.min(...clip.map((p) => p.y));
     const bottom = Math.max(...clip.map((p) => p.y));
     const step = (bottom - top) / lines;

@@ -18,3 +18,4 @@ export function mount(allLayers = false) {
 export {createMapState,defaultVisibility,resolveStyle};
 export {buildScene} from '../src/render/scene.ts';
 export {drawScene,drawPrims} from '../src/render/canvas.ts';
+export {MAP_COLOURS} from '../src/render/palette.ts';
