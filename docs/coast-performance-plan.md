@@ -304,3 +304,33 @@ node --import tsx scripts/coast-feature-benchmark.ts --size 30 --root work/rev
 ```
 
 `--layout plain` gives the plain-coast fixture; `--size` and `--runs` vary the map and repetitions.
+
+## 8. Progress
+
+Fixed on this branch after the investigation, with before/after evidence in
+`coast-pockets-before-after.png` and regression tests in `test/coastPockets.test.ts`:
+
+Small spurious lakes. They were pockets of water enclosed where independently reshaped hexes fail to
+meet: strait banks, the join hulls of the coast hexes beside a strait, and two cut-back coasts. The
+existing repair only handled a pocket lying wholly inside one strait hex. `shapeCoast` now fills any
+enclosed water pocket smaller than half a hex that holds no sea hex, across however many reshaped hexes
+it spans. Pockets inside a strait hex are filled in `fixedLand` itself, so the strait's share fitting
+counts them. On the 30×30 benchmark map, enclosed spurious lakes fall from 15 to 0.
+
+Strait banks drawn as prongs round a slot. A strait whose land lies on one side only (the far bank is in
+another hex) had its run of sea sides treated as a single mouth, which made the passage a bay. The run's
+two ends are now its mouths, so the passage runs through the hex and the bank is one shore.
+
+Strips of land along hex edges. A mainland-and-islands hex (and any split hex in `bands` mode with a
+share) laid its mainland as a band of uniform depth along each land edge. With one land edge that gave a
+flat tab; with two adjoining land edges, a thin chevron along both, mirrored about their corner. These
+hexes are now cut back from their sea edges, cut least beside the land and most facing away from it, so
+the mainland is a lobe against its land edges. A coast hex whose even cut-back would leave its land off
+its middle is drawn as land running from its neighbours in to its middle, as a neck is.
+
+Islands crowded off a smoothed mainland. Islands were kept clear of the mainland's reshaped polygon, which
+the smoothed coast's fitting enlarges well beyond the drawn shore, so they were shrunk to specks. They are
+now kept clear of the coast as drawn.
+
+Remaining, in plan order: the performance phases (unchanged by these fixes: about 35 s for the 30×30
+benchmark), the flat-sided strait banks against their channel, feasibility flagging, and asymmetry.

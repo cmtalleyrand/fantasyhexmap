@@ -1596,7 +1596,42 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
     const islands = base![i] === 'Mainland and islands' ? Math.max(0, set - dimensions.mainlandPercent) : set;
     return Math.min(100, islands) / 100;
   };
-  /** The land of a mainland hex islands must keep clear of. */
+  /** The sea coast as drawn, as lines: what a smoothed or roughened mainland really ends at. */
+  let drawnShoreLines: Point[][] | null = null;
+  /** The drawn shore each mainland hex's islands were kept clear of, as a memo key. */
+  const mainlandKeys = new Map<number, string>();
+  /**
+   * How far a point lies from a mainland hex's land, and the nearest point of it: 0 inside.
+   * Where the coast is smoothed, that is the coast as drawn, which can lie well off the
+   * reshaped polygon it was traced from (that polygon is enlarged so that the smoothed coast
+   * keeps the hex's share); islands kept clear of the polygon were crowded off land that is
+   * water as drawn, and drawn far smaller than their share.
+   */
+  const mainlandNear = (i: number): ((p: Point) => { dist: number; at: Point }) | null => {
+    const polys = mainlandOf(i);
+    if (polys.length === 0) return null;
+    if (!coast?.component || !seaCoastLand) return (p) => nearestOn(p, polys);
+    drawnShoreLines ??= coast.paths.flatMap((d) => pathPolylines(d, 6));
+    const c = hexCenter(i % cols, Math.floor(i / cols), size), reach = size * 1.8;
+    const segments: Array<[Point, Point]> = [];
+    for (const line of drawnShoreLines) for (let k = 0; k + 1 < line.length; k++) {
+      const a = line[k]!, b = line[k + 1]!;
+      if (Math.max(a.x, b.x) < c.x - reach || Math.min(a.x, b.x) > c.x + reach || Math.max(a.y, b.y) < c.y - reach || Math.min(a.y, b.y) > c.y + reach) continue;
+      segments.push([a, b]);
+    }
+    mainlandKeys.set(i, segments.map(([a, b]) => `${Math.round(a.x * 10)},${Math.round(a.y * 10)},${Math.round(b.x * 10)},${Math.round(b.y * 10)}`).join(' '));
+    return (p) => {
+      let best = { dist: Infinity, at: p };
+      for (const [a, b] of segments) {
+        const ex = b.x - a.x, ey = b.y - a.y;
+        const t = Math.max(0, Math.min(1, ((p.x - a.x) * ex + (p.y - a.y) * ey) / (ex * ex + ey * ey || 1)));
+        const at = { x: a.x + ex * t, y: a.y + ey * t }, dist = Math.hypot(p.x - at.x, p.y - at.y);
+        if (dist < best.dist) best = { dist, at };
+      }
+      return seaCoastLand(p) ? { dist: 0, at: p } : best;
+    };
+  };
+  /** The land of a mainland hex islands must keep clear of, as it was reshaped (before smoothing). */
   const mainlandOf = (i: number): Point[][] => {
     const shaped = coast?.land.get(i);
     if (shaped) return shaped;
@@ -1613,7 +1648,7 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
    */
   const layoutAt = (i: number, times: number, floor = times): { isles: Isle[]; crowd: number } => {
     const centre = hexCenter(i % cols, Math.floor(i / cols), size);
-    const mainland = base![i] === 'Mainland and islands' ? mainlandOf(i) : [];
+    const near = base![i] === 'Mainland and islands' ? mainlandNear(i) : null;
     const layout = islandLayout(i);
     const sized = (t: number) => layout.map((isle) => {
       const share = (isle.large ? dimensions.largeIslandPercent : dimensions.smallIslandPercent) * t * (isle.weight ?? 1);
@@ -1683,18 +1718,18 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
       return ((isle.rx * isle.ry) / Math.hypot(isle.ry * lengthways, isle.rx * sideways)) * blobReach;
     };
     const pushFromMainland = (a: number): number => {
-      if (mainland.length === 0) return 0;
+      if (!near) return 0;
       const here = { x: centre.x + at[a]!.x, y: centre.y + at[a]!.y };
-      const near = nearestOn(here, mainland);
+      const nearest = near(here);
       const reach = rho[a]! + gap;
-      if (near.dist >= reach) return 0;
-      const out = near.dist > 1e-6
-        ? { x: (here.x - near.at.x) / near.dist, y: (here.y - near.at.y) / near.dist }
+      if (nearest.dist >= reach) return 0;
+      const out = nearest.dist > 1e-6
+        ? { x: (here.x - nearest.at.x) / nearest.dist, y: (here.y - nearest.at.y) / nearest.dist }
         : (() => {
             const len = Math.hypot(at[a]!.x, at[a]!.y);
             return len > 1e-6 ? { x: at[a]!.x / len, y: at[a]!.y / len } : { x: 1, y: 0 };
           })();
-      const push = reach - near.dist + 0.01;
+      const push = reach - nearest.dist + 0.01;
       at[a] = { x: at[a]!.x + out.x * push, y: at[a]!.y + out.y * push };
       return push;
     };
@@ -1712,7 +1747,7 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
     // How far an island may be moved from the place the layout gave it to make room. A pattern may bend about its
     // line, and free islands may spread over the hex; a coastal group or a mainland's islands keep to their coast.
     const here = islandSpecFor(base![i], map.islandSpecs?.[String(i)]);
-    const kept = here.coastal?.large || here.coastal?.small || mainland.length > 0;
+    const kept = here.coastal?.large || here.coastal?.small || near !== null;
     const leash = size * (here.arrangement ? 0.2 : kept ? 0.14 : 0.5);
     for (let step = 0; step < 60; step++) {
       let moved = 0;
@@ -1764,7 +1799,7 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
           crowd = Math.max(crowd, reachAlong(isles[a]!, dx, dy) + reachAlong(isles[b]!, -dx, -dy) + gap * 0.5 - Math.hypot(dx, dy));
         }
       }
-      if (mainland.length > 0) crowd = Math.max(crowd, rho[a]! + gap * 0.5 - nearestOn({ x: centre.x + at[a]!.x, y: centre.y + at[a]!.y }, mainland).dist);
+      if (near) crowd = Math.max(crowd, rho[a]! + gap * 0.5 - near({ x: centre.x + at[a]!.x, y: centre.y + at[a]!.y }).dist);
     }
     return { isles: isles.map((s, k) => ({ ...s, c: { x: centre.x + at[k]!.x, y: centre.y + at[k]!.y } })), crowd };
   };
@@ -1828,7 +1863,8 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
     const usual = (spec.large * dimensions.largeIslandPercent + spec.small * dimensions.smallIslandPercent) / 100;
     const want = islandCover(i);
     // What fixes the islands' shapes and places, and so the size that covers `want`.
-    const mainland = base![i] === 'Mainland and islands' ? mainlandOf(i).map((ring) => ring.map((q) => `${Math.round(q.x * 10)},${Math.round(q.y * 10)}`).join(' ')) : [];
+    if (base![i] === 'Mainland and islands') mainlandNear(i);
+    const mainland = base![i] === 'Mainland and islands' ? [...mainlandOf(i).map((ring) => ring.map((q) => `${Math.round(q.x * 10)},${Math.round(q.y * 10)}`).join(' ')), mainlandKeys.get(i) ?? ''] : [];
     const memoKey = JSON.stringify([size, seed, inkReach, i, cols, levelOf(i), knobs.islands, spec, Math.round(coastward(i, spec) * 1000), want, dimensions.largeIslandPercent, dimensions.smallIslandPercent, mainland]);
     let times = islandScaleMemo.get(memoKey);
     if (times === undefined) {
