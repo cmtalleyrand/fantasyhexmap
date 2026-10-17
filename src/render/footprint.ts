@@ -321,7 +321,18 @@ function landAt(hex: Split, r: number): Poly[] {
  * area the water becomes wider; above the maximum the chosen width wins and
  * the scene reports the achieved share. Isthmuses retain their minimum neck.
  */
-function fixedLand(hex: { hex: Poly; centre: Point; dry: number[]; wet: number[]; junctionSide?: number; bankBias?: readonly number[]; rootHalfWidth?: readonly number[] }, width: number, kind: 'strait' | 'isthmus', fill = 1, pockets = true): Poly[] {
+function fixedLand(hex: FixedHex, width: number, kind: 'strait' | 'isthmus', fill = 1, pockets = true): Poly[] {
+  return fixedLandOf(hex, width, kind)(fill, pockets);
+}
+
+type FixedHex = { hex: Poly; centre: Point; dry: number[]; wet: number[]; junctionSide?: number; bankBias?: readonly number[]; rootHalfWidth?: readonly number[] };
+
+/**
+ * `fixedLand` for one hex and width at any fill. What does not depend on the fill (the
+ * channels, the territory left for each bank, where each bank aims) is found once, for a
+ * search over fills to repeat only what does.
+ */
+function fixedLandOf(hex: FixedHex, width: number, kind: 'strait' | 'isthmus'): (fill: number, pockets: boolean) => Poly[] {
   const { hex: outline, centre: hexCentre, dry, wet } = hex;
   const mid = (e: number): Point => ({ x: (outline[e]!.x + outline[(e + 1) % 6]!.x) / 2, y: (outline[e]!.y + outline[(e + 1) % 6]!.y) / 2 });
   // A side-selected junction is inset from that edge by half the channel width. This keeps the
@@ -361,9 +372,19 @@ function fixedLand(hex: { hex: Poly; centre: Point; dry: number[]; wet: number[]
     // taper inland towards their available territory, with independently
     // seeded depths. Limit their roots using the adjoining mainland profile
     // so a broad head cannot grow behind an artificially thin bridge.
-    const capAt = (e: number): Poly => {
-      const root = mid(e), depth = fill * span * 0.55 * (hex.bankBias?.[e] ?? 1);
-      const domain = attachedBanks(territory, outline, [e]);
+    const attached = new Map<string, Poly[]>();
+    const domainOf = (roots: number[]) => {
+      const key = roots.join(',');
+      let found = attached.get(key);
+      if (!found) { found = attachedBanks(territory, outline, roots); attached.set(key, found); }
+      return found;
+    };
+    const aims = new Map<number, { root: Point; dx: number; dy: number; length: number; tx: number; ty: number }>();
+    const aimOf = (e: number) => {
+      let found = aims.get(e);
+      if (found) return found;
+      const root = mid(e);
+      const domain = domainOf([e]);
       const total = domain.reduce((sum, p) => sum + polyArea(p), 0);
       const aim = domain.reduce((sum, p) => {
         const c = centroid(p), area = polyArea(p);
@@ -372,6 +393,14 @@ function fixedLand(hex: { hex: Poly; centre: Point; dry: number[]; wet: number[]
       const dx = aim.x - root.x, dy = aim.y - root.y, length = Math.hypot(dx, dy);
       const edge = outline[e]!, end = outline[(e + 1) % 6]!, edgeLength = Math.hypot(end.x - edge.x, end.y - edge.y);
       const tx = (end.x - edge.x) / edgeLength, ty = (end.y - edge.y) / edgeLength;
+      found = { root, dx, dy, length, tx, ty };
+      aims.set(e, found);
+      return found;
+    };
+    return (fill, pockets) => {
+    const capAt = (e: number): Poly => {
+      const depth = fill * span * 0.55 * (hex.bankBias?.[e] ?? 1);
+      const { root, dx, dy, length, tx, ty } = aimOf(e);
       const cap = wound(Array.from({ length: 25 }, (_, k) => {
         const angle = -Math.PI / 2 + k * Math.PI / 24;
         const inland = depth * Math.cos(angle);
@@ -399,14 +428,16 @@ function fixedLand(hex: { hex: Poly; centre: Point; dry: number[]; wet: number[]
         clusters.push({ cap, roots });
       }
       for (const { cap, roots } of clusters) {
-        const domain = attachedBanks(territory, outline, roots);
+        const domain = domainOf(roots);
         banks.push(...attachedBanks(domain.map(p => within(cap, p)).filter(p => p.length > 0), outline, roots));
       }
     }
     const union = banks.flatMap((p, k) => without(p, banks.slice(0, k)));
     const land = attachedBanks(solid(union), outline, dry);
     return pockets ? withPockets(land, outline, wet) : land;
+    };
   }
+  return (fill) => {
   const scale = Math.min(1, fill);
   const rawSectors = dry.map((e): Poly => {
     const whole = wound([centre, outline[e]!, outline[(e + 1) % 6]!]);
@@ -421,6 +452,7 @@ function fixedLand(hex: { hex: Poly; centre: Point; dry: number[]; wet: number[]
   const grown = deeper > 0 ? dry.map((e) => band(e, deeper)).filter((b) => b.length > 0) : [];
   const pieces = [...sectors, ...grown, ...arms(dry)];
   return pieces.flatMap((b, k) => without(b, pieces.slice(0, k)));
+  };
 }
 
 /**
@@ -434,8 +466,9 @@ function withPockets(land: Poly[], outline: Poly, wet: number[]): Poly[] {
 }
 
 /** The fill (see `fixedLand`) at which an isthmus or strait of this width has `target` of the hex as land, or the nearest it can. */
-function fillFor(hex: { hex: Poly; centre: Point; dry: number[]; wet: number[]; junctionSide?: number; bankBias?: readonly number[]; rootHalfWidth?: readonly number[] }, width: number, kind: 'strait' | 'isthmus', target: number, hexArea: number): number {
-  const share = (fill: number, pockets = false) => fixedLand(hex, width, kind, fill, pockets).reduce((sum, p) => sum + polyArea(p), 0) / hexArea;
+function fillFor(hex: FixedHex, width: number, kind: 'strait' | 'isthmus', target: number, hexArea: number): number {
+  const land = fixedLandOf(hex, width, kind);
+  const share = (fill: number, pockets = false) => land(fill, pockets).reduce((sum, p) => sum + polyArea(p), 0) / hexArea;
   const search = (aim: number) => {
     let low = 0;
     let high = 2;
@@ -1250,14 +1283,40 @@ export function areaCoverage(rings: Point[][], options?: {
   /** Limit preparation to this query; other clips use the unrestricted fallback. */
   within?: Poly;
 }): (clip: Poly, lines?: number) => number {
-  const band = 8;
-  const region = options?.within ? boxOf(options.within) : null;
   let unrestricted: ReturnType<typeof areaCoverage> | undefined;
-  const prepared = rings.map(ring => {
-    const box = boxOf(ring);
+  const measure = coverageOf(rings.map(ring => ({
+    box: boxOf(ring),
+    edges: (visit: (a: Point, b: Point) => void) => ring.forEach((a, k) => visit(a, ring[(k + 1) % ring.length]!)),
+  })), (visit) => {
+    for (const ring of options?.stroke?.rings ?? []) for (let k = 0; k + 1 < ring.length; k++) visit(ring[k]!, ring[k + 1]!);
+  }, { evenOdd: options?.evenOdd, reach: options?.stroke?.reach ?? 0, within: options?.within });
+  return (clip, lines = 96) => {
+    if (options?.within && clip !== options.within) {
+      unrestricted ??= areaCoverage(rings, { ...options, within: undefined });
+      return unrestricted(clip, lines);
+    }
+    return measure(clip, lines);
+  };
+}
+
+/** A closed outline as its box and its edges in order, the closing edge included. */
+export interface CoverageRing {
+  box: readonly number[];
+  edges: (visit: (a: Point, b: Point) => void) => void;
+}
+
+/**
+ * The measurement behind `areaCoverage`, from outlines given as edges and the coastline's
+ * stroke as segments in order. An outline whose box misses `within`, and edges that cross
+ * none of its measuring lines, may be left out without changing the result.
+ */
+export function coverageOf(rings: CoverageRing[], strokeSegments: (visit: (a: Point, b: Point) => void) => void,
+  options: { evenOdd?: boolean; reach: number; within?: Poly }): (clip: Poly, lines?: number) => number {
+  const band = 8;
+  const region = options.within ? boxOf(options.within) : null;
+  const prepared = rings.map(({ box, edges }) => {
     const bins = new Map<number, Array<[Point, Point]>>();
-    if (!region || !(box[2] < region[0] || box[0] > region[2] || box[3] < region[1] || box[1] > region[3])) ring.forEach((a, k) => {
-      const b = ring[(k + 1) % ring.length]!;
+    if (!region || !(box[2]! < region[0] || box[0]! > region[2] || box[3]! < region[1] || box[1]! > region[3])) edges((a, b) => {
       if (a.y === b.y) return;
       const first = Math.max(Math.floor(Math.min(a.y, b.y) / band), region ? Math.floor(region[1] / band) : -Infinity);
       const last = Math.min(Math.floor(Math.max(a.y, b.y) / band), region ? Math.floor(region[3] / band) : Infinity);
@@ -1269,24 +1328,19 @@ export function areaCoverage(rings: Point[][], options?: {
     });
     return { box, bins };
   });
-  const radius = options?.stroke?.reach ?? 0;
+  const radius = options.reach;
   const strokes: Array<{ poly: Point[]; a: Point; b: Point; box: number[] }> = [];
-  if (radius > 0) for (const ring of options!.stroke!.rings) for (let k = 0; k + 1 < ring.length; k++) {
-    const a = ring[k]!, b = ring[k + 1]!;
+  if (radius > 0) strokeSegments((a, b) => {
     const box = [Math.min(a.x, b.x) - radius, Math.min(a.y, b.y) - radius,
       Math.max(a.x, b.x) + radius, Math.max(a.y, b.y) + radius];
-    if (region && (box[2]! < region[0] || box[0]! > region[2] || box[3]! < region[1] || box[1]! > region[3])) continue;
+    if (region && (box[2]! < region[0] || box[0]! > region[2] || box[3]! < region[1] || box[1]! > region[3])) return;
     const length = Math.hypot(b.x - a.x, b.y - a.y);
-    if (!length) continue;
+    if (!length) return;
     const dx = (b.y - a.y) / length * radius, dy = (a.x - b.x) / length * radius;
     strokes.push({ poly: [{ x: a.x + dx, y: a.y + dy }, { x: b.x + dx, y: b.y + dy },
       { x: b.x - dx, y: b.y - dy }, { x: a.x - dx, y: a.y - dy }], a, b, box });
-  }
+  });
   return (clip, lines = 96) => {
-    if (region && clip !== options!.within) {
-      unrestricted ??= areaCoverage(rings, { ...options, within: undefined });
-      return unrestricted(clip, lines);
-    }
     const top = Math.min(...clip.map((p) => p.y));
     const bottom = Math.max(...clip.map((p) => p.y));
     const step = (bottom - top) / lines;
@@ -1294,7 +1348,7 @@ export function areaCoverage(rings: Point[][], options?: {
     const nearbyStroke = strokes.filter(s => s.box[2]! >= x0 && s.box[0]! <= x1 && s.box[3]! >= top && s.box[1]! <= bottom);
     // Preserve all ray crossings (including those outside the clip), but discard
     // rings outside its bounds and edges that cannot cross any measuring line.
-    const relevant = prepared.filter(({ box }) => !(box[2] < x0 || box[0] > x1 || box[3] < top || box[1] > bottom));
+    const relevant = prepared.filter(({ box }) => !(box[2]! < x0 || box[0]! > x1 || box[3]! < top || box[1]! > bottom));
     let total = 0;
     for (let n = 0; n < lines; n++) {
       const y = top + (n + 0.5) * step;
@@ -1319,13 +1373,13 @@ export function areaCoverage(rings: Point[][], options?: {
         for (const [a, b] of bins.get(Math.floor(y / band)) ?? []) {
           if (a.y <= y !== b.y <= y) xs.push(a.x + ((y - a.y) / (b.y - a.y)) * (b.x - a.x));
         }
-        if (options?.evenOdd) crossings.push(...xs);
+        if (options.evenOdd) crossings.push(...xs);
         else {
           xs.sort((u, v) => u - v);
           for (let k = 0; k + 1 < xs.length; k += 2) runs.push([Math.max(left, xs[k]!), Math.min(right, xs[k + 1]!)]);
         }
       }
-      if (options?.evenOdd) {
+      if (options.evenOdd) {
         crossings.sort((a, b) => a - b);
         for (let k = 0; k + 1 < crossings.length; k += 2) runs.push([Math.max(left, crossings[k]!), Math.min(right, crossings[k + 1]!)]);
       }

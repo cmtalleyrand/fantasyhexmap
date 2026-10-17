@@ -80,7 +80,7 @@ for (let run = 0; run < runs; run++) {
   const edited = Math.floor(N / 2) * N + Math.floor(N * 0.17);
   base[edited] = base[edited] === 'Sea' ? 'Coastal Land' : 'Sea';
   const t = performance.now();
-  buildStaticScene({ ...map, layers: { ...map.layers, base: { ...map.layers.base, data: base } } }, options);
+  const editedScene = buildStaticScene({ ...map, layers: { ...map.layers, base: { ...map.layers.base, data: base } } }, options);
   const edit = performance.now() - t;
   let prims = 0, commands = 0;
   const walk = (list: Array<{ d?: unknown[]; prims?: unknown[]; clip?: unknown[] }>) => {
@@ -112,5 +112,6 @@ for (let run = 0; run < runs; run++) {
     sceneMB: Number((JSON.stringify(scene).length / 1e6).toFixed(1)), compromises: scene.compromises?.length ?? 0,
     shareErrorPts: { median: q(0.5), p90: q(0.9), max: q(1), over5: errors.filter(e => e > 5).length, of: errors.length },
     hash: createHash('sha256').update(JSON.stringify(scene)).digest('hex').slice(0, 12),
+    editHash: createHash('sha256').update(JSON.stringify(editedScene)).digest('hex').slice(0, 12),
   }));
 }

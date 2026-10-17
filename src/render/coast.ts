@@ -698,21 +698,18 @@ export function coastGeometryOf(
     if ((roughChain || (rough && rough.componentArea?.(chain) !== undefined)) && clearance) {
       component = true;
       aggregate ||= rough!.componentArea?.(chain) !== undefined;
-      let silhouette: ReturnType<typeof componentCoast>;
-      if (chain.closed) {
-        let cache = componentCache.get(rough!);
-        if (!cache) { cache = new Map(); componentCache.set(rough!, cache); }
-        const signature = JSON.stringify([chain.closed, rough!.size, rough!.componentArea?.(chain), rough!.componentInk,
-          chain.edges.map(edge => [edge.from.x, edge.from.y, edge.to.x, edge.to.y, edge.land, edge.water,
-            rough!.amplitude(edge), rough!.lean?.(edge), rough!.displacementLimit?.(edge)]), clearance.signature(chain)]);
-        silhouette = cache.get(signature)!;
-        if (!silhouette) {
-          silhouette = componentCoast(chain, rough!, clearance);
-          cache.set(signature, silhouette);
-        }
-      } else {
-        // Open shorelines being fitted to local shares move on every pass.
+      // A silhouette is a function of its own edges, their policies and the edges near
+      // enough to constrain it, so an unchanged chain (closed, or open along the map's
+      // edge) is reused between fitting passes. A chain whose cuts moved has a new key.
+      let cache = componentCache.get(rough!);
+      if (!cache) { cache = new Map(); componentCache.set(rough!, cache); }
+      const signature = JSON.stringify([chain.closed, rough!.size, rough!.componentArea?.(chain), rough!.componentInk,
+        chain.edges.map(edge => [edge.from.x, edge.from.y, edge.to.x, edge.to.y, edge.land, edge.water,
+          rough!.amplitude(edge), rough!.lean?.(edge), rough!.displacementLimit?.(edge)]), clearance.signature(chain)]);
+      let silhouette = cache.get(signature)!;
+      if (!silhouette) {
         silhouette = componentCoast(chain, rough!, clearance);
+        cache.set(signature, silhouette);
       }
       toLand.push(...silhouette.toLand);
       toWater.push(...silhouette.toWater);
@@ -800,6 +797,25 @@ function roughPath(points: Point[], closed: boolean, piece: Array<Point[] | null
  * counts the overlap twice, and land and sea swap over in part of the page.
  */
 export function drawnLand(geometry: CoastGeometry, width: number, height: number, margin: number): PathCmd[] {
+  const out: PathCmd[] = [];
+  for (const ring of drawnLandLayout(geometry, width, height, margin)) {
+    if ('closed' in ring) { out.push(...geometry.paths[ring.closed]!); continue; }
+    for (const item of ring.open) {
+      if ('point' in item) out.push(['L', item.point.x, item.point.y]);
+      else out.push(...(item.first ? geometry.paths[item.chain]! : geometry.paths[item.chain]!.slice(1)));
+    }
+    out.push(['Z']);
+  }
+  return out;
+}
+
+/**
+ * How `drawnLand` assembles its outlines: each closed chain is one; open chains are joined
+ * end to start, and round the page's edge where the coast leaves the map. It depends on the
+ * chains' ends alone, so it holds for any geometry whose chains end where these do.
+ */
+export type DrawnLandRing = { closed: number } | { open: Array<{ chain: number; first: boolean } | { point: Point }> };
+export function drawnLandLayout(geometry: CoastGeometry, width: number, height: number, margin: number): DrawnLandRing[] {
   const x0 = -margin;
   const y0 = -margin;
   const x1 = width + margin;
@@ -819,23 +835,23 @@ export function drawnLand(geometry: CoastGeometry, width: number, height: number
     return { at: { x: x0, y }, t: (2 * w + h + (y1 - y)) % perimeter };
   };
   const corners = [{ x: x1, y: y0, t: w }, { x: x1, y: y1, t: w + h }, { x: x0, y: y1, t: 2 * w + h }, { x: x0, y: y0, t: 0 }];
-  const out: PathCmd[] = [];
+  const out: DrawnLandRing[] = [];
   /** The open chains, each with where on the page's edge it ends (`exit`) and begins (`entry`). */
-  const open: Array<{ path: PathCmd[]; head: Point; tail: Point; exit: { at: Point; t: number }; entry: { at: Point; t: number } }> = [];
+  const open: Array<{ chain: number; path: PathCmd[]; head: Point; tail: Point; exit: { at: Point; t: number }; entry: { at: Point; t: number } }> = [];
   /** How near the start of one chain the end of another must be for the two to be one coast. */
   const joinTolerance = margin * 0.05;
   geometry.chains.forEach((chain, c) => {
     const path = geometry.paths[c];
     if (!path || path.length === 0) return;
     if (chain.closed) {
-      out.push(...path);
+      out.push({ closed: c });
       return;
     }
     const first = path[0]!;
     const last = path[path.length - 1]!;
     const head = { x: first[1] as number, y: first[2] as number };
     const tail = { x: last.at(-2) as number, y: last.at(-1) as number };
-    open.push({ path, head, tail, exit: nearest(tail), entry: nearest(head) });
+    open.push({ chain: c, path, head, tail, exit: nearest(tail), entry: nearest(head) });
   });
   const ahead = (from: number, to: number) => (to - from + perimeter) % perimeter;
   /** The chains that begin where another ends: they are reached by that one, never from the page's edge. */
@@ -847,12 +863,13 @@ export function drawnLand(geometry: CoastGeometry, width: number, height: number
     if (used.has(start)) continue;
     let k = start;
     let first = true;
+    const ring: Array<{ chain: number; first: boolean } | { point: Point }> = [];
     // Each chain is joined once, so a ring can take no more steps than there are chains.
     for (let guard = 0; guard <= open.length; guard++) {
       used.add(k);
       const chain = open[k]!;
       // On along the chain (its own move-to only at the ring's start), then off the map at its end.
-      out.push(...(first ? chain.path : chain.path.slice(1)));
+      ring.push({ chain: chain.chain, first });
       first = false;
       const free = (j: number) => j === start || !used.has(j);
       // A chain can stop short where the coast was cut into pieces (round a reshaped hex): it goes on
@@ -869,7 +886,7 @@ export function drawnLand(geometry: CoastGeometry, width: number, height: number
       }
       if (next < 0) {
         // Off the map: the next chain to come back onto it, clockwise round the edge from here.
-        out.push(['L', chain.exit.at.x, chain.exit.at.y]);
+        ring.push({ point: chain.exit.at });
         for (let j = 0; j < open.length; j++) {
           if (!free(j) || continued.has(j)) continue;
           if (next < 0 || ahead(chain.exit.t, open[j]!.entry.t) < ahead(chain.exit.t, open[next]!.entry.t)) next = j;
@@ -879,17 +896,17 @@ export function drawnLand(geometry: CoastGeometry, width: number, height: number
         const to = open[next]!.entry;
         const reach = ahead(chain.exit.t, to.t);
         for (const corner of corners.filter((q) => ahead(chain.exit.t, q.t) > 0 && ahead(chain.exit.t, q.t) < reach).sort((a, b) => ahead(chain.exit.t, a.t) - ahead(chain.exit.t, b.t))) {
-          out.push(['L', corner.x, corner.y]);
+          ring.push({ point: { x: corner.x, y: corner.y } });
         }
-        out.push(['L', to.at.x, to.at.y]);
+        ring.push({ point: to.at });
       }
       if (next === start) break;
       // Into the next chain: its first point after the move-to continues this ring.
       const head = open[next]!.path[0]!;
-      out.push(['L', head[1] as number, head[2] as number]);
+      ring.push({ point: { x: head[1] as number, y: head[2] as number } });
       k = next;
     }
-    out.push(['Z']);
+    out.push({ open: ring });
   }
   return out;
 }
