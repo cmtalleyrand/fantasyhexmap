@@ -363,6 +363,40 @@ for 47%).
 | Start of this branch (`c6bced3`) | 34.9 s | 22.5 s | 5.1 / 15.9 / 24.6 | 33 of 64 |
 | Now | 14.1 s | 11.9 s | 3.1 / 14.7 / 24.2 | 25 of 64 |
 
-Still to do: the build itself remains seconds long because of the coupled fitting; the local,
-coupled correction of Phase 3 is the remaining large gain, and with it the unstable hexes such as the
-one above.
+### Coupled fit (Phase 3)
+
+`fitCoastAreas` now fits every hex at once. The coast is carried by a smooth displacement field over
+the plane: each hex contributes a shift towards its sea and a swelling about its centre, weighted by a
+Gaussian (σ = 0.6 hex) normalised over neighbouring hexes. To first order a hex's area changes by the
+field integrated along the coast inside it, so the amounts solve one sparse least-squares system whose
+coupling is the land neighbouring hexes trade; a small penalty on differences between neighbours keeps
+the field smooth. The outline is then measured exactly and the system solved again, for up to eight
+rounds. Because the coast is warped rather than offset along its own normals, its fine detail is carried
+along intact and cannot fold; each round is kept gentle, moves no coast more than three tenths of the way
+to the nearest other coast, and is shortened if it would make the outline cross itself or turn or
+stretch a stretch of coast sharply. Straits and isthmuses are held still through their hex and across
+their joins (their shape outranks their share), their share being found by re-cutting their banks as
+before. The old per-hex fit faded every movement to nothing at hex edges, which is why it could not
+correct hexes whose coast lay near their edges, and the global loop now needs three passes, not seven.
+
+| 30×30 feature map | Cold build | One-hex edit | Share error median / p90 / max | Off by >5 pts | Compromises |
+| --- | ---: | ---: | --- | ---: | ---: |
+| Start of this branch (`c6bced3`) | 34.9 s | 22.5 s | 5.1 / 15.9 / 24.6 | 33 of 64 | 83 |
+| Before the coupled fit (`cacc58c`) | 10.6 s | 8.3 s | 3.1 / 14.7 / 24.2 | 25 of 64 | 79 |
+| Coupled fit | 5.8 s | 4.9 s | 2.4 / 3.5 / 4.3 | 0 of 64 | 5 |
+
+(The share error is measured on the fill alone, without the coastline's ink that the app counts as land,
+so its median of about 2.4 points is the ink; the compromise count uses the app's own measure, ink
+included, and lists hexes more than one point off.) On the plain-coast map compromises fall from 74 to 1.
+In the production app the 30×30 map appears after 3.8 s instead of 20.5 s.
+
+`docs/coast-coupled-fit-before-after.png` shows the gallery before and after. Coastlines move a mean of
+at most 0.05 hex on the gallery fixtures (largest 0.38 hex) and keep their outline counts. One case is
+deliberately worse: two stacked strait hexes with only one bank each asked for 45% land reach 32% and
+29% (before: 42% and 41%). Their banks are full; the old fit reached the higher figure by bulging the
+bank heads beyond their joins, the shape the strait tests forbid, so shape now wins and the shortfall
+is reported with the width as its reason.
+
+Still to do: hexes whose smoothed coast never enters them (a default 90% coast hex with one sea
+neighbour) cannot be moved by the fit and are reported; flat-sided strait banks; feasibility flagging
+as shares are set; asymmetry.

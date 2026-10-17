@@ -564,10 +564,10 @@ function cachedCoast(
   const brackets = new Map([...targets.keys()].map(i => [i, { low: 0, high: 1 }]));
   const previous = new Map<number, { was: number; shows: number }>();
   let best: { shaped: typeof shaped; geometry: typeof geometry; miss: number; shares: Map<number, ShapeTarget> } | null = null;
-  // Neighbouring hexes trade land through the smoothing, so this loop does not converge
-  // per hex; on the coast feature benchmark its result stops improving after about seven
-  // passes, and the local fit on the final outline below takes the residual.
-  const passes = 7;
+  // A first fit of each hex's cut to the land it shows. Neighbouring hexes trade land
+  // through the smoothing, so this loop cannot converge hex by hex; two passes bring the
+  // shapes near enough for the coupled fit on the final outline below to finish.
+  const passes = 3;
   for (let pass = 0; pass < passes && shaped && (smooth || inkReach > 0); pass++) {
     const outlines = pathPolylines(drawnLand(geometry, page.width, page.height, size), 8);
     const strokes = geometry.paths.flatMap(d => pathPolylines(d, 8));
@@ -617,10 +617,9 @@ function cachedCoast(
     ({ shaped, geometry } = trace(aimed));
   }
   if (best) { ({ shaped, geometry } = best); aimed = best.shares; }
-  // Re-bracket explicitly fitted passages with their neighbours held fixed.
-  // Width ceilings must be measured, and simultaneous bounds can become stale
-  // when a neighbouring coastline moves. Ordinary coasts use the local final
-  // silhouette fit below, avoiding repeated whole-map tracing for every hex.
+  // Re-bracket explicitly fitted passages with their neighbours held fixed. The final
+  // fit keeps passages still (their shape outranks their share), so a passage's share is
+  // found here, by re-cutting its banks, whose joins follow them.
   for (const [i, target] of targets) {
     if (!target.fit || lakeLength.has(i)) continue;
     const clip = hexCorners(i % cols, Math.floor(i / cols), size);
@@ -645,7 +644,7 @@ function cachedCoast(
     let low = 0, high = 1;
     let at = aimed.get(i)!.share, shown = shownAt(geometry);
     let last: { at: number; shown: number } | null = null;
-    for (let step = 0; step < 8 && error > 0.002; step++) {
+    for (let step = 0; step < 4 && error > 0.002; step++) {
       if (shown < want) low = at;
       else high = at;
       const slope = last && last.at !== at ? (shown - last.shown) / (at - last.at) : 1;
@@ -662,7 +661,8 @@ function cachedCoast(
   }
   geometry = fitCoastAreas(geometry, new Map([...targets].flatMap(([i, target]) =>
     base[i] === 'Land' || lakeLength.has(i) || (target.width !== undefined && !target.fit) ? []
-      : [[i, { share: wanted.get(i)!, width: target.width }] as const])), cols, rows, size, page, inkReach);
+      : [[i, { share: wanted.get(i)!, width: target.width }] as const])), cols, rows, size, page, inkReach,
+    [...targets].filter(([, target]) => target.width !== undefined).map(([i]) => i));
   const coverage = new Map<number, { wanted: number; shown: number }>();
   if (targets.size) {
     const measure = areaCoverage(pathPolylines(drawnLand(geometry, page.width, page.height, size), 8), {
