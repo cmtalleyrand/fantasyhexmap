@@ -10,6 +10,8 @@ import type { MapStyle } from '../render/styles.js';
 import { SceneRaster } from '../render/raster.js';
 import { ScenePainter } from '../render/scenePainter.js';
 import PaintWorker from '../render/paint.worker.ts?worker';
+import BuildWorker from '../render/build.worker.ts?worker';
+import { SceneBuilder } from '../render/sceneBuilder.js';
 import type { PaintView } from '../render/paintProtocol.js';
 import { MAP_COLOURS } from '../render/palette.js';
 import { riversThroughHex } from '../../shared/derive.js';
@@ -147,28 +149,50 @@ export default function MapView(props: MapViewProps) {
 
   // The map itself is rebuilt only when the data or a display option changes;
   // the pointer moving only rebuilds the hover and selection outlines.
-  const scene = useMemo(
-    (): Scene => {
-      // Do not lay out the entire map twice, first using fallback font widths
-      // and then using the downloaded faces. A font change schedules one layout.
-      if (readyLettering !== lettering) return { ...gridPixelSize(map.cols, map.rows, HEX_SIZE), background: mapStyle.palette.sea, prims: [] };
-      return buildStaticScene(map, {
-        size: HEX_SIZE,
-        visible,
-        labels,
-        riverNames,
-        rangeNames,
-        seaNames,
-        landNames,
-        polityNames,
-        cityStateMax,
-        polityOpacity,
-        style: mapStyle,
-        highlightRiver: props.riverTool?.selectedId ?? null,
-      });
-    },
-    [map, visible, labels, riverNames, rangeNames, seaNames, landNames, polityNames, cityStateMax, polityOpacity, mapStyle, props.riverTool?.selectedId, readyLettering, lettering],
-  );
+  const highlightRiver = props.riverTool?.selectedId ?? null;
+  const sceneOptions = useMemo(() => ({
+    size: HEX_SIZE, visible, labels, riverNames, rangeNames, seaNames, landNames, polityNames, cityStateMax, polityOpacity,
+    style: mapStyle, highlightRiver,
+  }), [visible, labels, riverNames, rangeNames, seaNames, landNames, polityNames, cityStateMax, polityOpacity, mapStyle, highlightRiver]);
+  const blank = useMemo((): Scene => ({ ...gridPixelSize(map.cols, map.rows, HEX_SIZE), background: mapStyle.palette.sea, prims: [] }),
+    [map.cols, map.rows, mapStyle.palette.sea]);
+  // A build can take seconds on a large map with many shaped coasts. It runs in a
+  // worker where one is available, so the page answers while it does: the last scene
+  // stays on show (or a blank sea for a newly opened map) until the new one arrives,
+  // and a run of edits builds only the latest of them.
+  const [builderEnabled, setBuilderEnabled] = useState(() => typeof Worker !== 'undefined' && typeof OffscreenCanvas !== 'undefined');
+  const builder = useRef<SceneBuilder | null>(null);
+  const requestedMap = useRef<string | null>(null);
+  const [built, setBuilt] = useState<{ mapId: string; scene: Scene } | null>(null);
+  useLayoutEffect(() => {
+    if (!builderEnabled) return;
+    try {
+      const next = new SceneBuilder({
+        built: (scene) => setBuilt({ mapId: requestedMap.current ?? '', scene }),
+        failed: () => setBuilderEnabled(false),
+      }, new BuildWorker());
+      builder.current = next;
+      return () => {
+        next.dispose();
+        builder.current = null;
+      };
+    } catch {
+      setBuilderEnabled(false);
+    }
+  }, [builderEnabled]);
+  useEffect(() => {
+    if (!builderEnabled) return;
+    requestedMap.current = map.id;
+    builder.current?.build(map, sceneOptions, lettering);
+  }, [builderEnabled, map, sceneOptions, lettering]);
+  const directScene = useMemo((): Scene | null => {
+    if (builderEnabled) return null;
+    // Do not lay out the entire map twice, first using fallback font widths
+    // and then using the downloaded faces. A font change schedules one layout.
+    if (readyLettering !== lettering) return blank;
+    return buildStaticScene(map, sceneOptions);
+  }, [builderEnabled, map, sceneOptions, readyLettering, lettering, blank]);
+  const scene = directScene ?? (built && built.mapId === map.id ? built.scene : blank);
   const latest = useRef({ scene, view, size });
   latest.current = { scene, view, size };
   const onCompromises = props.onCompromises;
