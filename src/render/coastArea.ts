@@ -79,7 +79,9 @@ function untangle(ring: Point[]): Point[] {
 export function fitCoastAreas(geometry: CoastGeometry, targets: ReadonlyMap<number, { share: number; width?: number }>,
   cols: number, rows: number, size: number, page: { width: number; height: number }, ink: number,
   /** Every strait and isthmus drawn at a set width, whether or not its share is fitted. */
-  passageHexes: Iterable<number> = [], rounds = 8): CoastGeometry {
+  passageHexes: Iterable<number> = [],
+  /** A seeded value in [0, 1) for each hex and key, so the fit differs between hexes and maps. */
+  noise: (hex: number, key: number) => number = () => 0.5, rounds = 8): CoastGeometry {
   if (!geometry.component || !targets.size) return geometry;
   const hexArea = 1.5 * Math.sqrt(3) * size * size;
   const closed = geometry.chains.map(c => c.closed);
@@ -116,7 +118,7 @@ export function fitCoastAreas(geometry: CoastGeometry, targets: ReadonlyMap<numb
   // the passage's hex or across its joins to the land beside it (its share was fitted
   // when its banks were shaped), easing in beyond them.
   const passages = [...new Set([...passageHexes, ...[...targets].filter(([, t]) => t.width !== undefined).map(([h]) => h)])].map(centreOf);
-  const passageFade = (p: Point) => passages.reduce((f, c) => Math.min(f, Math.max(0, Math.min(1, (Math.hypot(p.x - c.x, p.y - c.y) - size * 0.95) / (size * 0.35)))), 1);
+  const passageFade = (p: Point) => passages.reduce((f, c) => Math.min(f, Math.max(0, Math.min(1, (Math.hypot(p.x - c.x, p.y - c.y) - size * 1.05) / (size * 0.4)))), 1);
   const measureAll = (rs: Point[][], hexes: Iterable<number>) => {
     const g = geometryOf(rs);
     const coverage = areaCoverage(pathPolylines(drawnLand(g, page.width, page.height, size), 8),
@@ -125,10 +127,68 @@ export function fitCoastAreas(geometry: CoastGeometry, targets: ReadonlyMap<numb
     for (const h of hexes) out.set(h, coverage(hexCorners(h % cols, Math.floor(h / cols), size), 128) / hexArea);
     return out;
   };
+  function skewAlongShore(rs: Point[][]): Point[][] {
+    const land = evenOddTest(pathPolylines(drawnLand(geometryOf(rs), page.width, page.height, size), 8), size / 8);
+    const along = new Map<number, Point>();
+    rs.forEach(ring => {
+      if (ring.length < 3) return;
+      let votes = 0;
+      const step = Math.max(1, Math.floor(ring.length / 24));
+      for (let j = 0; j + 1 < ring.length; j += step) {
+        const a = ring[j]!, b = ring[j + 1]!, length = Math.hypot(b.x - a.x, b.y - a.y) || 1;
+        votes += land({ x: (a.x + b.x) / 2 + (b.y - a.y) / length * size * 0.08, y: (a.y + b.y) / 2 - (b.x - a.x) / length * size * 0.08 }) ? -1 : 1;
+      }
+      const sign = votes >= 0 ? 1 : -1;
+      for (let j = 0; j + 1 < ring.length; j++) {
+        const a = ring[j]!, b = ring[j + 1]!, length = Math.hypot(b.x - a.x, b.y - a.y);
+        if (!length) continue;
+        const m = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+        // The direction along the shore, oriented the same way round every ring (land on one side).
+        for (const [h, w] of weights(m)) {
+          const t = along.get(h) ?? { x: 0, y: 0 };
+          along.set(h, { x: t.x + sign * (b.x - a.x) * w, y: t.y + sign * (b.y - a.y) * w });
+        }
+      }
+    });
+    const slide = new Map<number, Point>();
+    for (const [h, t] of along) {
+      const length = Math.hypot(t.x, t.y);
+      if (length < size * 0.15) continue;
+      const amount = (noise(h, 3) - 0.5) * size * 0.9;
+      slide.set(h, { x: t.x / length * amount, y: t.y / length * amount });
+    }
+    const moveBy = (scale: number) => rs.map((ring, k) => {
+      if (ring.length < 3) return ring;
+      let arc = 0, total = 0;
+      for (let j = 0; j + 1 < ring.length; j++) total += Math.hypot(ring[j + 1]!.x - ring[j]!.x, ring[j + 1]!.y - ring[j]!.y);
+      return ring.map((p, j) => {
+        if (j) arc += Math.hypot(p.x - ring[j - 1]!.x, p.y - ring[j - 1]!.y);
+        const fade = (closed[k] ? 1 : Math.min(1, arc / size, (total - arc) / size)) * passageFade(p) * scale;
+        if (!fade) return p;
+        let dx = 0, dy = 0;
+        for (const [h, w] of weights(p)) {
+          const v = slide.get(h);
+          if (v) { dx += v.x * w; dy += v.y * w; }
+        }
+        return { x: p.x + dx * fade, y: p.y + dy * fade };
+      });
+    });
+    for (const scale of [1, 0.5, 0.25]) {
+      const trial = moveBy(scale).map((ring, k) => closed[k] && ring.length ? [...ring.slice(0, -1), ring[0]!] : ring);
+      if (!distorts(rs, trial) && !newCrossings(rs, trial, closed, size)) return trial;
+    }
+    return rs;
+  }
   // Every hex the coast runs through takes part: those with a share aim at it, the rest keep theirs.
   const touched = new Set<number>();
   for (const ring of rings) for (const p of ring) touched.add(nearestHex(p, cols, rows, size));
   for (const h of targets.keys()) touched.add(h);
+  // Along a coast running across the grid, every other hex stands half a hex further out,
+  // and each hex keeping its share makes the coast bulge out through each of those: a row
+  // of bulges, each a mirror image of itself. Slide each hex's stretch of coast along the
+  // shore by a seeded amount first (which moves little land), so each bulge leans its own
+  // way with one flank steeper than the other; the fit below then restores every share.
+  rings = skewAlongShore(rings);
   const initial = measureAll(rings, touched);
   const want = new Map([...touched].map(h => [h, targets.get(h)?.share ?? initial.get(h)!]));
   let shown = initial;
@@ -180,8 +240,17 @@ export function fitCoastAreas(geometry: CoastGeometry, targets: ReadonlyMap<numb
     }
     const hexes = [...touched];
     const index = new Map(hexes.map((h, i) => [h, i]));
+    // Each hex swells about a point off its middle by a seeded amount: swelling about the
+    // middle itself grew every hex's coast into the same bulge, a mirror image of itself.
+    const swellCentre = (h: number) => {
+      const c = centreOf(h), angle = noise(h, 1) * Math.PI * 2, reach = size * (0.25 + 0.2 * noise(h, 2));
+      return { x: c.x + Math.cos(angle) * reach, y: c.y + Math.sin(angle) * reach };
+    };
+    const swellCentres = new Map<number, Point>();
     const basis = (h: number, p: Point, w: number): [Point, Point] => {
-      const u = toSea.get(h) ?? { x: 0, y: 0 }, c = centreOf(h);
+      const u = toSea.get(h) ?? { x: 0, y: 0 };
+      let c = swellCentres.get(h);
+      if (!c) { c = swellCentre(h); swellCentres.set(h, c); }
       return [{ x: w * u.x, y: w * u.y }, { x: w * (p.x - c.x) / size, y: w * (p.y - c.y) / size }];
     };
     // Sparse rows of M (area change of hex g per unit of each field) over unknowns

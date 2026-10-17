@@ -430,6 +430,8 @@ export interface Roughness {
   size: number;
   /** Maximum total displacement for explicit neck/channel width constraints, in pixels. */
   displacementLimit?: (edge: CoastEdge) => number;
+  /** Which side of an edge with a displacement limit is the narrow passage the limit protects: the water of a strait or the land of an isthmus. Unset, the limit holds both ways. */
+  narrowSide?: (edge: CoastEdge) => 'water' | 'land' | undefined;
   /** Total land area for a closed component; permits redistribution across its hexes. */
   componentArea?: (chain: CoastChain) => number | undefined;
   /** Stable coarse component identity, including while local fitting disconnects a source fragment. */

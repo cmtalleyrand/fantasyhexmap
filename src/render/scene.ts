@@ -478,15 +478,17 @@ function cachedCoast(
       // A neck or a channel is drawn at its width, which is across the hex: its flat-to-flat span.
       targets.set(i, channel !== null
         ? { share: aimed, kind: base[i] === 'Strait' ? 'channel' : 'neck', width: channel * Math.sqrt(3) * size, fit: channelShareSet(base[i], dimensions, shapes?.[String(i)]) !== null, junctionSide: base[i] === 'Strait' ? shape.straitJunctionSide : undefined,
-          bankBias: base[i] === 'Strait' ? Array.from({ length: 6 }, (_, e) => 0.8 + unit(seed, 'strait-bank', i, e) * 0.4) : undefined }
-        : { share: aimed, kind: 'inset', concentrationSide: shape.concentrationSide, concentration: shape.concentration });
+          bankBias: Array.from({ length: 6 }, (_, e) => 0.8 + unit(seed, 'strait-bank', i, e) * 0.4) }
+        : { share: aimed, kind: 'inset', concentrationSide: shape.concentrationSide, concentration: shape.concentration,
+          bankBias: Array.from({ length: 6 }, (_, e) => 0.8 + unit(seed, 'strait-bank', i, e) * 0.4) });
     } else if (surface.whole[i] === 'land' && aimed < 1 && (share < 1 || seaLength.has(i))) {
       // Whole hexes of land are cut back from the sea; a strait drawn whole is all water.
       const keepJoins = base[i] === 'Coastal Land' && [0, 1, 2, 3, 4, 5].some(e => {
         const n = neighbourOf(i % cols, Math.floor(i / cols), e);
         return inBounds(cols, rows, n.col, n.row) && base[hexIndex(cols, n.col, n.row)] === 'Strait';
       });
-      targets.set(i, { share: aimed, kind: 'inset', keepJoins, joinShare: keepJoins ? share : undefined, concentrationSide: shape.concentrationSide, concentration: shape.concentration });
+      targets.set(i, { share: aimed, kind: 'inset', keepJoins, joinShare: keepJoins ? share : undefined, concentrationSide: shape.concentrationSide, concentration: shape.concentration,
+        bankBias: Array.from({ length: 6 }, (_, e) => 0.8 + unit(seed, 'coast-cut', i, e) * 0.4) });
     }
   }
   /** What each hex is to show, before its ink: the share the loop below aims at once the ink is measured. */
@@ -545,6 +547,8 @@ function cachedCoast(
         componentInk: inkReach,
         amplitude: (edge: CoastEdge) => Math.min(Math.max(amplitudeOf(edge.hex), amplitudeOf(edge.across)), narrowest(edge.hex), narrowest(edge.across)),
         displacementLimit: (edge: CoastEdge) => Math.min(narrowest(edge.hex), narrowest(edge.across)) * size,
+        narrowSide: (edge: CoastEdge) => [edge.hex, edge.across].some(i => i !== undefined && base[i] === 'Strait') ? 'water'
+          : [edge.hex, edge.across].some(i => i !== undefined && base[i] === 'Isthmus') ? 'land' : undefined,
         noise: (x, y, k) => unit(seed, 'coast', Math.round(x * 1000), Math.round(y * 1000), k),
       }
     : undefined;
@@ -662,7 +666,8 @@ function cachedCoast(
   geometry = fitCoastAreas(geometry, new Map([...targets].flatMap(([i, target]) =>
     base[i] === 'Land' || lakeLength.has(i) || (target.width !== undefined && !target.fit) ? []
       : [[i, { share: wanted.get(i)!, width: target.width }] as const])), cols, rows, size, page, inkReach,
-    [...targets].filter(([, target]) => target.width !== undefined).map(([i]) => i));
+    [...targets].filter(([, target]) => target.width !== undefined).map(([i]) => i),
+    (hex, key) => unit(seed, 'coast-fit', hex, key));
   const coverage = new Map<number, { wanted: number; shown: number }>();
   if (targets.size) {
     const measure = areaCoverage(pathPolylines(drawnLand(geometry, page.width, page.height, size), 8), {

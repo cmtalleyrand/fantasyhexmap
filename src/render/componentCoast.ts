@@ -97,6 +97,7 @@ export function componentCoast(chain: CoastChain, rough: Roughness, clearance: R
     amplitude: rough.amplitude(edge),
     lean: rough.lean?.(edge) ?? 0,
     limit: rough.displacementLimit?.(edge) ?? Infinity,
+    narrow: rough.narrowSide?.(edge),
   }]));
   const starts: number[] = [];
   let perimeter = 0;
@@ -203,9 +204,17 @@ export function componentCoast(chain: CoastChain, rough: Roughness, clearance: R
     const target = { x: p.x - dy / len * off, y: p.y + dx / len * off };
     const original = source[i]!;
     // Reserve movement for detail after the silhouette is eased. Explicit geographic limits
-    // divide their budget between this stage and the final irregularity stage.
-    const limit = Math.min(size * (aggregate ? 1.2 : 0.8), clearance(original, chain, i * step, aggregate) * 0.24, edgeSettings.get(donors[i]!)!.limit * 0.6);
+    // divide their budget between this stage and the final irregularity stage. A passage's
+    // width limit holds only against movement that would narrow it (towards the water of a
+    // strait, towards the land of an isthmus): rounding a corner off the other way only
+    // widens it, so a bank cut square against its channel is rounded like any other cape
+    // (to about a fifth of a hex).
     const move = distance(original, target);
+    const towardsLand = ((target.x - original.x) * -dy + (target.y - original.y) * dx) / len > 0;
+    const widthLimit = edgeSettings.get(donors[i]!)!.limit, narrow = edgeSettings.get(donors[i]!)!.narrow;
+    const widens = narrow === 'water' ? towardsLand : narrow === 'land' ? !towardsLand : false;
+    const limit = Math.min(size * (aggregate ? 1.2 : 0.8), clearance(original, chain, i * step, aggregate) * 0.24,
+      widens && widthLimit < Infinity ? Math.max(widthLimit * 0.6, size * 0.18) : widthLimit * 0.6);
     const ends = chain.closed ? 1 : Math.min(1, i * step / (size * 1.5), (perimeter - i * step) / (size * 1.5));
     return lerp(original, target, Math.min(strength, limit / (move || 1)) * ends);
   });

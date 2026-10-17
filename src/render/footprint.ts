@@ -246,6 +246,8 @@ interface Split {
   mode: 'neck' | 'channel' | 'bands';
   /** For `bands`: the sea edges (by index). With them the land is the hex cut back from its sea. */
   wet?: number[];
+  /** Seeded factors near 1, by edge, that vary the cut. */
+  bias?: readonly number[];
   concentrationSide?: number;
   concentration?: number;
 }
@@ -288,7 +290,10 @@ function landAt(hex: Split, r: number): Poly[] {
       const away = Math.min(...edges.map(d => Math.min((e - d + 6) % 6, (d - e + 6) % 6)));
       // Least cut on the side the land is drawn towards, most opposite it.
       const delta = hex.concentrationSide === undefined ? 0 : ((e - hex.concentrationSide + 9) % 6) - 3;
-      const multiplier = (0.45 + 0.275 * (away - 1)) * (hex.concentrationSide === undefined ? 1 : 1 - 0.9 * strength * Math.cos(delta * Math.PI / 3));
+      // Each sea edge is cut a little more or less by a seeded amount, so the land is not
+      // a mirror image about its land edges.
+      const jitter = 1 + ((hex.bias?.[e] ?? 1) - 1) * 0.75;
+      const multiplier = jitter * (0.45 + 0.275 * (away - 1)) * (hex.concentrationSide === undefined ? 1 : 1 - 0.9 * strength * Math.cos(delta * Math.PI / 3));
       shape = cut(shape, outline[e]!, outline[(e + 1) % 6]!, depth * multiplier, 'right');
       if (shape.length < 3) return [];
     }
@@ -344,7 +349,13 @@ function fixedLandOf(hex: FixedHex, width: number, kind: 'strait' | 'isthmus'): 
   const mid = (e: number): Point => ({ x: (outline[e]!.x + outline[(e + 1) % 6]!.x) / 2, y: (outline[e]!.y + outline[(e + 1) % 6]!.y) / 2 });
   // A side-selected junction is inset from that edge by half the channel width. This keeps the
   // channel connected through the selected edge rather than collapsing it to a zero-width point.
-  const chosen = kind === 'strait' && hex.junctionSide !== undefined ? mid(hex.junctionSide) : hexCentre;
+  // An isthmus's junction lies off the hex's middle by a seeded amount, so its neck bends and
+  // its two shores differ; built round the exact middle, the neck was a mirror image of itself.
+  const radius = Math.hypot(outline[0]!.x - hexCentre.x, outline[0]!.y - hexCentre.y);
+  const offCentre = kind === 'isthmus' && hex.bankBias
+    ? { x: hexCentre.x + (hex.bankBias[0]! - 1) * radius * 0.9, y: hexCentre.y + (hex.bankBias[3]! - 1) * radius * 0.9 }
+    : hexCentre;
+  const chosen = kind === 'strait' && hex.junctionSide !== undefined ? mid(hex.junctionSide) : offCentre;
   const distance = Math.hypot(chosen.x - hexCentre.x, chosen.y - hexCentre.y);
   const ratio = distance === 0 ? 0 : Math.max(0, distance - width / 2) / distance;
   const centre = { x: hexCentre.x + (chosen.x - hexCentre.x) * ratio, y: hexCentre.y + (chosen.y - hexCentre.y) * ratio };
@@ -404,20 +415,24 @@ function fixedLandOf(hex: FixedHex, width: number, kind: 'strait' | 'isthmus'): 
       aims.set(e, found);
       return found;
     };
-    return (fill, pockets) => {
-    const capAt = (e: number): Poly => {
-      const depth = fill * span * 0.55 * (hex.bankBias?.[e] ?? 1);
+    // A bank is a rounded headland, its two sides of different breadth and its tip leaning
+    // to one side by seeded amounts (a half-ellipse alone is a mirror image about its axis).
+    const bias = (e: number) => hex.bankBias?.[(e + 6) % 6] ?? 1;
+    const shapeAt = (e: number, depth: number): Poly => {
       const { root, dx, dy, length, tx, ty } = aimOf(e);
-      const cap = wound(Array.from({ length: 25 }, (_, k) => {
+      const halfWidth = Math.min(depth * 0.35, (hex.rootHalfWidth?.[e] ?? Infinity) * 1.4);
+      const sides = [halfWidth * (1 + (bias(e + 2) - 1) * 0.5), halfWidth * (1 + (bias(e + 4) - 1) * 0.5)];
+      const lean = (bias(e + 1) - 1) * depth * 0.4;
+      return wound(Array.from({ length: 25 }, (_, k) => {
         const angle = -Math.PI / 2 + k * Math.PI / 24;
         const inland = depth * Math.cos(angle);
-        const halfWidth = Math.min(depth * 0.35, (hex.rootHalfWidth?.[e] ?? Infinity) * 1.4);
-        const along = halfWidth * Math.sin(angle);
+        const along = sides[angle < 0 ? 0 : 1]! * Math.sin(angle) + lean * Math.cos(angle) ** 2;
         return { x: root.x + dx * inland / length + tx * along,
           y: root.y + dy * inland / length + ty * along };
       }));
-      return within(cap, outline);
     };
+    return (fill, pockets) => {
+    const capAt = (e: number): Poly => within(shapeAt(e, fill * span * 0.55 * bias(e)), outline);
     const banks: Poly[] = [];
     for (const e of dry) {
       if (dry.includes((e + 5) % 6)) continue;
@@ -469,7 +484,9 @@ function fixedLandOf(hex: FixedHex, width: number, kind: 'strait' | 'isthmus'): 
 function withPockets(land: Poly[], outline: Poly, wet: number[]): Poly[] {
   const water = without(outline, land);
   const open = new Set(attachedBanks(water, outline, wet));
-  return [...land, ...water.filter(p => !open.has(p))];
+  // A pocket borders land. Water that only seems shut off, meeting the rest of the water
+  // at a corner alone, is left as water rather than drawn as a detached scrap of land.
+  return [...land, ...water.filter(p => !open.has(p) && land.some(q => sharedEdge(p, q)))];
 }
 
 /** The fill (see `fixedLand`) at which an isthmus or strait of this width has `target` of the hex as land, or the nearest it can. */
@@ -635,13 +652,29 @@ function reshapeCoastHex(
   concentrationSide?: number,
   concentration = 0,
   joins: number[] = [],
+  /** Seeded factors near 1, by edge: how much more or less each sea edge is cut. */
+  bias?: readonly number[],
 ): Reshaped | null {
   if (wet.length === 0 && lake.length === 0) return null;
   if (target >= 1) return null;
   // Edges against a lake count towards the depth but are not cut: the lake is drawn over the hex.
   const allWet = [...wet, ...lake];
   const strength = concentration / 100;
-  const multiplier = (edge: CoastEdge): number => {
+  // Cut back the same depth from every sea edge, each hex along a coast became the same
+  // bulge, a mirror image of itself repeated hex after hex. Each edge is cut a seeded
+  // amount more or less, the depth still found so the hex keeps its share.
+  const jitter = (edge: CoastEdge): number => {
+    if (!bias) return 1;
+    const m = { x: (edge.from.x + edge.to.x) / 2, y: (edge.from.y + edge.to.y) / 2 };
+    let best = 0, distance = Infinity;
+    for (let e = 0; e < 6; e++) {
+      const d = Math.hypot((corners[e]!.x + corners[(e + 1) % 6]!.x) / 2 - m.x, (corners[e]!.y + corners[(e + 1) % 6]!.y) / 2 - m.y);
+      if (d < distance) { distance = d; best = e; }
+    }
+    return bias[best] ?? 1;
+  };
+  const multiplier = (edge: CoastEdge): number => jitter(edge) * concentrationFactor(edge);
+  const concentrationFactor = (edge: CoastEdge): number => {
     if (concentrationSide === undefined || strength === 0) return 1;
     const centre = centroid(corners);
     const midpoint = { x: (edge.from.x + edge.to.x) / 2, y: (edge.from.y + edge.to.y) / 2 };
@@ -689,7 +722,7 @@ function reshapeCoastHex(
     if (shape.length >= 3 && polyArea(shape) / full > share) low = middle;
     else high = middle;
   }
-  const depth = concentrationSide === undefined || strength === 0
+  const depth = (concentrationSide === undefined || strength === 0) && !bias
     ? landInsetDepth(corners, allWet, target)
     : (low + high) / 2;
   const strips: Frag[] = [];
@@ -879,7 +912,8 @@ export function shapeCoast(
         const j = hexIndex(cols, n.col, n.row);
         return surface.split.get(j)?.sides[6 + (e + 3) % 6] === 'land' || surface.whole[j] === 'land';
       }) : [];
-      const result = reshapeCoastHex(corners, wetEdges.get(i) ?? [], share, lakeWet.get(i) ?? [], concentrationSide, concentration, joins);
+      // (A hex joining a passage keeps an even cut: its join is the passage's root.)
+      const result = reshapeCoastHex(corners, wetEdges.get(i) ?? [], share, lakeWet.get(i) ?? [], concentrationSide, concentration, joins, joins.length ? undefined : bankBias);
       return result ? { depth: result.depth, strips: result.strips, grown: [], land: result.land.map((poly) => ({ poly, hex: i, donor: i })) } : null;
     }
     const pieces = split.sides.map((side, p) => ({ side, poly: piecePoints(col, row, p, size), donor: split.donors[p]! }));
@@ -922,7 +956,7 @@ export function shapeCoast(
     const mode = kind === 'channel' ? (wet.length >= 3 ? 'bands' : 'channel') : kind === 'neck' && dry.length < 3 ? 'neck' : 'bands';
     const arms = mode === 'channel' ? wet : dry;
     if (arms.length === 0) return null;
-    const result = reshapeSplit({ land, water, hex: corners, centre: hexCenter(col, row, size), edges: arms, mode, wet: mode === 'bands' && kind === 'inset' ? wet : undefined, concentrationSide, concentration }, share, hexArea);
+    const result = reshapeSplit({ land, water, hex: corners, centre: hexCenter(col, row, size), edges: arms, mode, wet: mode === 'bands' && kind === 'inset' ? wet : undefined, bias: bankBias, concentrationSide, concentration }, share, hexArea);
     const donorAt = (at: Point) => nearest(at, land)?.donor ?? i;
     return {
       strips: result.strips,

@@ -400,3 +400,39 @@ is reported with the width as its reason.
 Still to do: hexes whose smoothed coast never enters them (a default 90% coast hex with one sea
 neighbour) cannot be moved by the fit and are reported; flat-sided strait banks; feasibility flagging
 as shares are set; asymmetry.
+
+### Strait banks and asymmetry (Phase 5)
+
+Strait banks were flat-sided because the silhouette stage limited every bank point's movement to six
+tenths of the passage's width, in both directions, so a bank could not round off without first being
+allowed to narrow the passage. The limit is now one-sided: a strait's banks may move freely in the
+direction that widens its water and an isthmus's in the direction that widens its land, and are held to
+the width limit only when they would narrow it (`narrowSide` on `Roughness`). The caps that bound a strait
+bank's land are lopsided by a seeded bias, with unequal sides and a leaning tip, so the two banks of a
+passage are no longer mirror images. Filling water pockets in banks now requires the pocket to share an
+edge with land; a pocket touching land only at a corner was being filled into an island.
+
+The near-symmetric scallops along coasts come from two places: every coast hex being cut back by the same
+rule, and the fit swelling each hex's coast evenly about its centre. Both now carry seeded variation:
+coast cuts are jittered by up to 20% per corner (`coast-cut` bias), the bands in mainland hexes and the
+junction of an isthmus are moved off-centre, and the fit swells each hex about a seeded point a quarter
+to a half hex from its centre and, before fitting, slides each hex's coast along the shore by up to
+0.45 hex. Hexes joining a passage keep an even cut, and the fit leaves coast within 1.05 hex of a passage
+centre still, so that the rendered banks do not flare.
+
+| 30×30 feature map | Cold build | Share error median / p90 / max | Off by >5 pts | Compromises |
+| --- | ---: | --- | ---: | ---: |
+| Coupled fit (`bfe8f27`) | 5.8 s | 2.4 / 3.5 / 4.3 | 0 of 64 | 5 |
+| Strait banks and asymmetry | 4.8 s | 2.5 / 3.4 / 5.9 | 1 of 64 | 5 |
+
+`scripts/coast-symmetry.ts` measures symmetry as the overlap between each coast hex's land and its mirror
+image about the line through its centre perpendicular to its sea, taken over the minority region; its
+median falls from 0.726 to 0.707. That is a modest number for a visible change: the bulges are required
+by per-hex shares on a zigzag grid, so the change makes them lean and vary rather than removing them.
+`docs/coast-banks-symmetry-before-after.png` shows six gallery fixtures before and after at Wavy.
+Coastlines move a mean of at most 0.1 hex (largest 0.37 hex) and keep their outline counts. Shape
+outranks share, so the one-bank stacked straits asked for 45% now reach about 24% and 21% (from 32% and
+29%), reported as a width compromise. The "rendered banks do not flare" test passes with one seed at
+1.496 against its 1.5 limit, which is marginal.
+
+Left open: hexes whose smoothed coast never enters them, and feasibility flagging as shares are set.
