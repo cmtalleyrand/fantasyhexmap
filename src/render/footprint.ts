@@ -153,13 +153,20 @@ function sharedEdge(a: Poly, b: Poly): boolean {
 function attachedBanks(polys: Poly[], outline: Poly, dry: number[]): Poly[] {
   const kept = new Set<number>();
   const frontier: number[] = [];
+  // Pieces can share an edge only where their boxes meet: test those pairs alone.
+  const boxes = polys.map(boxOf);
+  const meet = (a: readonly number[], b: readonly number[]) =>
+    a[0]! <= b[2]! + 1e-6 && b[0]! <= a[2]! + 1e-6 && a[1]! <= b[3]! + 1e-6 && b[1]! <= a[3]! + 1e-6;
   polys.forEach((p, i) => {
-    if (dry.some(e => sharedEdge(p, [outline[e]!, outline[(e + 1) % 6]!]))) { kept.add(i); frontier.push(i); }
+    if (dry.some(e => {
+      const edge = [outline[e]!, outline[(e + 1) % 6]!];
+      return meet(boxes[i]!, boxOf(edge)) && sharedEdge(p, edge);
+    })) { kept.add(i); frontier.push(i); }
   });
   for (let head = 0; head < frontier.length; head++) {
-    const p = polys[frontier[head]!]!;
+    const k = frontier[head]!, p = polys[k]!;
     polys.forEach((q, i) => {
-      if (!kept.has(i) && sharedEdge(p, q)) { kept.add(i); frontier.push(i); }
+      if (!kept.has(i) && meet(boxes[k]!, boxes[i]!) && sharedEdge(p, q)) { kept.add(i); frontier.push(i); }
     });
   }
   return polys.filter((_, i) => kept.has(i));

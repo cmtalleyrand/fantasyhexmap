@@ -562,8 +562,13 @@ function cachedCoast(
   const page = gridPixelSize(cols, rows, size);
   let aimed = targets;
   const brackets = new Map([...targets.keys()].map(i => [i, { low: 0, high: 1 }]));
+  const previous = new Map<number, { was: number; shows: number }>();
   let best: { shaped: typeof shaped; geometry: typeof geometry; miss: number; shares: Map<number, ShapeTarget> } | null = null;
-  for (let pass = 0; pass < 16 && shaped && (smooth || inkReach > 0); pass++) {
+  // Neighbouring hexes trade land through the smoothing, so this loop does not converge
+  // per hex; on the coast feature benchmark its result stops improving after about seven
+  // passes, and the local fit on the final outline below takes the residual.
+  const passes = 7;
+  for (let pass = 0; pass < passes && shaped && (smooth || inkReach > 0); pass++) {
     const outlines = pathPolylines(drawnLand(geometry, page.width, page.height, size), 8);
     const strokes = geometry.paths.flatMap(d => pathPolylines(d, 8));
     const measure = areaCoverage(outlines, { evenOdd: true, stroke: { rings: strokes, reach: inkReach } });
@@ -589,13 +594,25 @@ function cachedCoast(
       const bracket = brackets.get(i)!;
       if (short > 0) bracket.low = was;
       else bracket.high = was;
-      const share = Math.abs(short) < 0.002 ? was : (bracket.low + bracket.high) / 2;
+      // What is shown follows what is aimed at nearly one for one, the smoothing moving
+      // some land between neighbours: step by the measured slope since the last pass
+      // (or one for one), kept inside the bracket, rather than halving the bracket. A
+      // hex within tolerance, or whose bracket has closed (its share cannot be reached
+      // any nearer), stays as it is; the final local fit takes the rest.
+      let share = was;
+      if (Math.abs(short) >= 0.002 && bracket.high - bracket.low >= 0.001) {
+        const last = previous.get(i);
+        const slope = last && last.was !== was ? (shows - last.shows) / (was - last.was) : 1;
+        share = was + short / (slope > 0.25 && slope < 4 ? slope : 1);
+        if (!(share > bracket.low && share < bracket.high)) share = (bracket.low + bracket.high) / 2;
+      }
+      previous.set(i, { was, shows });
       movement = Math.max(movement, Math.abs(share - was));
       next.set(i, { ...target, share });
     }
     if (!best || miss < best.miss) best = { shaped, geometry, miss, shares: new Map(aimed) };
     // The final candidate has already been measured; avoid an unused trace.
-    if (movement < 0.0001 || pass === 15) break;
+    if (movement < 0.0005 || pass === passes - 1) break;
     aimed = next;
     ({ shaped, geometry } = trace(aimed));
   }
@@ -621,12 +638,24 @@ function cachedCoast(
       if (miss < error) { error = miss; selected = { ...result, share }; }
       return shown;
     };
+    // From where the global fit left it, step by the measured slope, kept inside the
+    // bracket of shares known to show too little and too much; a share the width cannot
+    // reach runs into an end of the range and stops there.
+    const want = wanted.get(i)!;
     let low = 0, high = 1;
-    const minimum = sample(low), maximum = sample(high);
-    if (wanted.get(i)! > minimum && wanted.get(i)! < maximum) for (let step = 0; step < 12 && error > 0.002; step++) {
-      const middle = (low + high) / 2;
-      if (sample(middle) < wanted.get(i)!) low = middle;
-      else high = middle;
+    let at = aimed.get(i)!.share, shown = shownAt(geometry);
+    let last: { at: number; shown: number } | null = null;
+    for (let step = 0; step < 8 && error > 0.002; step++) {
+      if (shown < want) low = at;
+      else high = at;
+      const slope = last && last.at !== at ? (shown - last.shown) / (at - last.at) : 1;
+      let next = at + (want - shown) / (slope > 0.25 && slope < 4 ? slope : 1);
+      next = Math.max(0, Math.min(1, next));
+      if (!(next > low && next < high)) next = next <= low ? (low === 0 && at === 0 ? low : (low + high) / 2) : (high === 1 && at === 1 ? high : (low + high) / 2);
+      if (Math.abs(next - at) < 1e-4) break;
+      last = { at, shown };
+      at = next;
+      shown = sample(at);
     }
     ({ shaped, geometry } = selected);
     aimed.set(i, { ...target, share: selected.share });

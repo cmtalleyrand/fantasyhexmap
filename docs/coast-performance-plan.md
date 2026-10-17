@@ -334,3 +334,35 @@ now kept clear of the coast as drawn.
 
 Remaining, in plan order: the performance phases (unchanged by these fixes: about 35 s for the 30×30
 benchmark), the flat-sided strait banks against their channel, feasibility flagging, and asymmetry.
+
+### Performance work since
+
+Identical-output speedups (scene hashes on the benchmark unchanged): `fitCoastAreas` measures each
+candidate from the outline edges and stroke segments that can reach its hex instead of rebuilding the
+whole map's outline (434 local measurements checked equal to the full ones); `untangle` finds crossings
+from a segment grid; open coastline silhouettes are cached like closed ones; the strait share search
+hoists its fill-independent work; `attachedBanks` tests only pieces whose boxes meet.
+
+Scene construction runs in a worker (`build.worker.ts`, `SceneBuilder`). In the production app with
+the 30×30 feature map, the page previously froze for 19.3 s while the map built; now its longest
+main-thread task is about 120 ms and input waits at most about 200 ms
+(`scripts/render-app-build-responsiveness.mjs`). The map still takes as long to appear.
+
+The global fitting loop steps each hex's aim by the measured slope, kept inside its bracket, and stops
+after seven passes: neighbouring hexes trade land through the smoothing, so the loop does not converge
+per hex, and its result stopped improving after about seven passes. The strait and isthmus re-bracketing
+steps the same way. This changes the drawing slightly; `docs/coast-fit-loop-outlines.png` overlays the
+coastlines before (red) and after (blue), measured with `scripts/coast-outlines.ts` and
+`scripts/coast-outline-compare.mjs`: on the gallery fixtures the mean displacement is at most 0.03 hex
+and the largest 0.16 hex. On the 30×30 map one stray detached loop beside a strait is gone and one
+concentrated coast hex that misses its share either way moved by up to 0.75 hex (22% before, 64% after,
+for 47%).
+
+| 30×30 feature map | Cold build | One-hex edit | Share error median / p90 / max | Off by >5 pts |
+| --- | ---: | ---: | --- | ---: |
+| Start of this branch (`c6bced3`) | 34.9 s | 22.5 s | 5.1 / 15.9 / 24.6 | 33 of 64 |
+| Now | 14.1 s | 11.9 s | 3.1 / 14.7 / 24.2 | 25 of 64 |
+
+Still to do: the build itself remains seconds long because of the coupled fitting; the local,
+coupled correction of Phase 3 is the remaining large gain, and with it the unstable hexes such as the
+one above.
