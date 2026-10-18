@@ -91,6 +91,7 @@ try {
         const clean = { ...s }; delete clean.lastScene; delete clean.lastMap; delete clean.lastOptions;
         return { run, cache: pass ? 'warm-reopen' : 'cold', ...clean, firstNonblankMs: s.displays[0].displayed,
           sharpMs: s.displays.at(-1).displayed, layers: Object.values(s.lastOptions.visible).filter(Boolean).length, labels: s.lastOptions.labels,
+          scenePayload: s.lastScene?.prims ? 'full-scene' : 'metadata',
           sceneBytes: new TextEncoder().encode(JSON.stringify(s.lastScene)).length, mapBytes: new TextEncoder().encode(JSON.stringify(s.lastMap)).length };
       }, { run, pass });
       openings.push(record);

@@ -1,0 +1,453 @@
+{
+  "baseline": "4ed7acd397a21e54b72af6c1db68ed78894b1a3c",
+  "cases": [
+    {
+      "irregular": "Smooth",
+      "kind": "Strait",
+      "extreme": 0,
+      "initialHash": "1a9ac01844df50cd9d2e3a54b0a82e886415b49cce20d4a93bb3e3d9342c808f",
+      "editedHash": "fc8ef8d27ceda947e624afe99b28e95decca8c94c6c016eefe6e9f360aad3953",
+      "identical": true
+    },
+    {
+      "irregular": "Smooth",
+      "kind": "Strait",
+      "extreme": 1,
+      "initialHash": "54e26797d9a57f4b7acf6566fab66e237afa283cc887d5cbc96b30ee189f32ad",
+      "editedHash": "6731a5970a2250d851684ce71fa6ac05ba1dcd6b29cfdd1ddab63b0864cb1749",
+      "identical": true
+    },
+    {
+      "irregular": "Smooth",
+      "kind": "Isthmus",
+      "extreme": 0,
+      "initialHash": "6bdf86c0835e48bc1609541d7c7bb46a7c3b9edd2dd6ba0ae689ae9bf29ea4da",
+      "editedHash": "cadfe88374a31914ba78f5bc507d0083d489d1f58f5b00e9e7d30745991e7145",
+      "identical": true
+    },
+    {
+      "irregular": "Smooth",
+      "kind": "Isthmus",
+      "extreme": 1,
+      "initialHash": "9eafec4de5033871110d1139e8f2a56ec8951ccd7402297c6528fe633bcc7c66",
+      "editedHash": "34d4bb5fc488da34f15b82c05b69c32dd6618372504604f55c450d9568ab974b",
+      "identical": true
+    },
+    {
+      "irregular": "Smooth",
+      "kind": "Coastal Land",
+      "extreme": 0,
+      "initialHash": "99a901d65e3d8098c7ae41fdfad8d249c97add7b990b1382573fd81f973da004",
+      "editedHash": "6b31088e4c80d356183394b433767864d52f4cda6c6f1c8969cec424a17a8dfa",
+      "identical": true
+    },
+    {
+      "irregular": "Smooth",
+      "kind": "Coastal Land",
+      "extreme": 1,
+      "initialHash": "9f92a9d7caf8ba82354a3cf8acc42909ad46960f16bfd850b40c427b072649e7",
+      "editedHash": "6776492620dcc6a67dd50a1c2e40835ab99e572800297b210482083df903326c",
+      "identical": true
+    },
+    {
+      "irregular": "Smooth",
+      "kind": "Lake",
+      "extreme": 0,
+      "initialHash": "464c5d01675491a6653eae3c4f571581ba85996709f97f58bc94f9c22aff499a",
+      "editedHash": "7b90d5a426dee75f8bd23a5eb8d48abc3f9caaa2f4f3d18b184852052e02b552",
+      "identical": true
+    },
+    {
+      "irregular": "Smooth",
+      "kind": "Lake",
+      "extreme": 1,
+      "initialHash": "4ceacd4c89188fd4b90abc412d329c389e52040871a71abb6899ee19d48ccf0e",
+      "editedHash": "eac2da2de78ac5214fb45e9e83127a744bf26cfae1dab87f390bd7083e5d8079",
+      "identical": true
+    },
+    {
+      "irregular": "Smooth",
+      "kind": "Glacier",
+      "extreme": 0,
+      "initialHash": "fa3d91e91e2eaa73f65ff7279e9474b14ae5caf163620b0ad86c8ae3096d848b",
+      "editedHash": "d981eb4f54ae53d5a6530ce26dfeee24b176478f9bda098f3f80c2e6b0672b0e",
+      "identical": true
+    },
+    {
+      "irregular": "Smooth",
+      "kind": "Glacier",
+      "extreme": 1,
+      "initialHash": "5ac81e83aaefb4c1389d93f6e315427c7691451d951882f90b8eb240381b5851",
+      "editedHash": "fcf97e61f1237b7bb80c0306cb072c52da48fc292bc1932cbc41069c392e2eae",
+      "identical": true
+    },
+    {
+      "irregular": "Smooth",
+      "kind": "Sea Ice",
+      "extreme": 0,
+      "initialHash": "8ce539e96888170fc532a752f6a6268a92ec42beb041d0eaf1e5512a6b012a8e",
+      "editedHash": "61e3b3a7a8c6514ad2e18024285c61d5a526903e951de62343889e74de3900c5",
+      "identical": true
+    },
+    {
+      "irregular": "Smooth",
+      "kind": "Sea Ice",
+      "extreme": 1,
+      "initialHash": "7bd9770a125f00b33c6f9e3569a1eb48ae0d7bd8048099a048a9ac1b8babcf78",
+      "editedHash": "d1fa2b70549367d1c86769c19dcbdbc72df4e95ddabb43e8e9a978d2dbf55b51",
+      "identical": true
+    },
+    {
+      "irregular": "Smooth",
+      "kind": "Islands",
+      "extreme": 0,
+      "initialHash": "71006cded73399f23a923a2747eab12d0c9a7507ee796473685750de3b3a86ed",
+      "editedHash": "6074bc4948c659889c6ea8d83508f43259399fae52d5f1df06a16174d404f8f9",
+      "identical": true
+    },
+    {
+      "irregular": "Smooth",
+      "kind": "Islands",
+      "extreme": 1,
+      "initialHash": "75134c20cb27a3d5f020a62ee35e2b74c8a1279d65e31e9d85c6a6ddb0c31a2f",
+      "editedHash": "08881e5db71ae88bb00d03bbf20e723a8d125f56ccea0d661fe1237bd0d40a76",
+      "identical": true
+    },
+    {
+      "irregular": "Wavy",
+      "kind": "Strait",
+      "extreme": 0,
+      "initialHash": "7727a884e4b283d80fd5dbd1b88c70ad4119d9cbcad74a4ead45fb5050d160d7",
+      "editedHash": "068a4caffbf53cb4e577ca9fbbe3dc90d03ca4565820827036e12d9e359bc3dd",
+      "identical": true
+    },
+    {
+      "irregular": "Wavy",
+      "kind": "Strait",
+      "extreme": 1,
+      "initialHash": "769d8124d99dc48539aa607310666c300e7e3795820efffac37c1b985e3e2b70",
+      "editedHash": "22effb045e6f89548b5b54d0054abf0abf873178df282a505cd30f70e67d29a2",
+      "identical": true
+    },
+    {
+      "irregular": "Wavy",
+      "kind": "Isthmus",
+      "extreme": 0,
+      "initialHash": "0d32230cfa0826dc0630372e37f82dd5a0f41c9ca5145080ee1ff8e8e3dcfb60",
+      "editedHash": "306b8b030608be9bf6eab72d149cc3135c93f8026fe051db50dc4a298245f22f",
+      "identical": true
+    },
+    {
+      "irregular": "Wavy",
+      "kind": "Isthmus",
+      "extreme": 1,
+      "initialHash": "fa0ca86560f1357b62f98ba9b175d23f73dfb036b95c857ffb6d027a602335fc",
+      "editedHash": "28aa378fc9927aee5f2d044bd10cf1ee43908f19acbefba0a7a3e0eca20e0747",
+      "identical": true
+    },
+    {
+      "irregular": "Wavy",
+      "kind": "Coastal Land",
+      "extreme": 0,
+      "initialHash": "73f3fa9edabef6d52ddc74bb6eec94d186b903df363247631c87ad4cedbe02a9",
+      "editedHash": "8ffae279b75c199d424594e6931a0c709b61cfcbbfc7ce2bc793823b528b63b2",
+      "identical": true
+    },
+    {
+      "irregular": "Wavy",
+      "kind": "Coastal Land",
+      "extreme": 1,
+      "initialHash": "d0e3e9fbfc8e7e3a71078e250920f675d594a1dcba72d51d73a7679786354a0c",
+      "editedHash": "6a1a3838a70a34fb5098a63b1b80fe04eb83994fa5722ce19b491bdb011b4fca",
+      "identical": true
+    },
+    {
+      "irregular": "Wavy",
+      "kind": "Lake",
+      "extreme": 0,
+      "initialHash": "abace5aa2c4b02919986b050eb466fe36b363bf02e94483785f80f13c968fd53",
+      "editedHash": "7a8cce162eba35f0ed747b3c2003f1ea646b82bfce3e6992e86f264c68ce5e97",
+      "identical": true
+    },
+    {
+      "irregular": "Wavy",
+      "kind": "Lake",
+      "extreme": 1,
+      "initialHash": "c6c2265bac20f8a74fe5100898cc61158bcd8f75ddf2dd5f133630989d707878",
+      "editedHash": "5baa653926881085a7555cb87707315728925098865243565c43e5c526aab769",
+      "identical": true
+    },
+    {
+      "irregular": "Wavy",
+      "kind": "Glacier",
+      "extreme": 0,
+      "initialHash": "a95b97bd87b30efa22b9f2fcb3b6dde933851044f50174b5db9827a74e1ca06e",
+      "editedHash": "0ce5a58b109319ca32028f40af2622f76579fe9fed4b7d6c0962cadebfaf5860",
+      "identical": true
+    },
+    {
+      "irregular": "Wavy",
+      "kind": "Glacier",
+      "extreme": 1,
+      "initialHash": "fedd9503593226fbfa3e1ca4d63a7756599b2b3156aa5a5eefd50f98579e1bc0",
+      "editedHash": "1dde8f7202a41c4ce71f09fed3cd6dc497870217eadc85893107360d8b6288c7",
+      "identical": true
+    },
+    {
+      "irregular": "Wavy",
+      "kind": "Sea Ice",
+      "extreme": 0,
+      "initialHash": "efe6cf471aec75f2087b29ce5673041e6ae0c9ca776b903dbdbd6a5eac6d4253",
+      "editedHash": "3c93f7ba42f30fb3268dabe4b5216c9ab1a4aa6dfd80b88bf4ceec06363703e2",
+      "identical": true
+    },
+    {
+      "irregular": "Wavy",
+      "kind": "Sea Ice",
+      "extreme": 1,
+      "initialHash": "8dd8322e0cf717f49b12b3adbd3ce91e916f249140872d406ceb747287456959",
+      "editedHash": "c90e1e85b1266109feb89ae7adea983d3788f5760d1db3e366b1c2b2aea750df",
+      "identical": true
+    },
+    {
+      "irregular": "Wavy",
+      "kind": "Islands",
+      "extreme": 0,
+      "initialHash": "299d532e983de899dac85cbfd3da86222ec3fcc14fefe65fc97dd8d89fe59749",
+      "editedHash": "da2d9440bfe278a5323fbcfe0dd4100879b614ec9fc80c408704be5940eefffd",
+      "identical": true
+    },
+    {
+      "irregular": "Wavy",
+      "kind": "Islands",
+      "extreme": 1,
+      "initialHash": "1dfa272c20afbd967e2a7a4d36e81c124fe25ee4480c0d1919bc3b175a46df36",
+      "editedHash": "ff0a2353a61922f89734726f1a783a1dce26352dcc975a753b6d7e48d025a53d",
+      "identical": true
+    },
+    {
+      "irregular": "Ragged",
+      "kind": "Strait",
+      "extreme": 0,
+      "initialHash": "06a13fed44ca3bd37cc9911bf39db474c8351e22be4939c0c0e380aefaf897f4",
+      "editedHash": "03ac587eff061db50fca9a512c6ab283c977c039f0c0f3ede4f9f1e7f8c38997",
+      "identical": true
+    },
+    {
+      "irregular": "Ragged",
+      "kind": "Strait",
+      "extreme": 1,
+      "initialHash": "fbb9d43594c1ccb185301c233c9e60f7e1117bb154cbb06cdb86416334af17e5",
+      "editedHash": "5bf2a7b44d38f5a07ef526f378aedb34f2bf7da7f955ce0207f4cf81723d3311",
+      "identical": true
+    },
+    {
+      "irregular": "Ragged",
+      "kind": "Isthmus",
+      "extreme": 0,
+      "initialHash": "42c52e45d767df8cb040fa47c0314dc69c9f3598988203991302e865120a2ea0",
+      "editedHash": "f23b7004ac959eec1c7c93328f48bde4c2e2a34c8f989638c2f8f01d8f1b3e1f",
+      "identical": true
+    },
+    {
+      "irregular": "Ragged",
+      "kind": "Isthmus",
+      "extreme": 1,
+      "initialHash": "ce8a853335e4e54f19d8edd6540ce40724b54f84ecd0ad763d8ea18f5ea2d7e0",
+      "editedHash": "31f1ea12e57996171ef756245978d3fe95e091e2ffbf8ad47517aae1ec668816",
+      "identical": true
+    },
+    {
+      "irregular": "Ragged",
+      "kind": "Coastal Land",
+      "extreme": 0,
+      "initialHash": "3363030fcd5a470b54d71397da7c86ed454eef0d8b633346c11de2dafa0bb7bc",
+      "editedHash": "bdef69ad63e25a286a51c87ca350a8201f7f589c2a0e3a7940370f34a515c4bf",
+      "identical": true
+    },
+    {
+      "irregular": "Ragged",
+      "kind": "Coastal Land",
+      "extreme": 1,
+      "initialHash": "acaef638232ea33b86d4834c9f058569efab1773cf63cd8488aedfded6895113",
+      "editedHash": "bace49b6688a750613e41a3d045df97a0842b31f22e91fac33972622549c01f0",
+      "identical": true
+    },
+    {
+      "irregular": "Ragged",
+      "kind": "Lake",
+      "extreme": 0,
+      "initialHash": "0ad8de80758d58de47a11af619365225bd67b3b36b4c674d30d8426448b7e5b4",
+      "editedHash": "72fda60cbfcfc1d4b5e7ac6f603bc3fecab7ae868b887194da55a33b996cac12",
+      "identical": true
+    },
+    {
+      "irregular": "Ragged",
+      "kind": "Lake",
+      "extreme": 1,
+      "initialHash": "72113160e0c5d61a06b38eed1e1bc1fe4dd59bd84ca9a846d9790ef87a74263d",
+      "editedHash": "ba76453c5d6a9d9f68eb9d692bc2ba6a4d06026fb96e7b88b957860d7fb3f8b9",
+      "identical": true
+    },
+    {
+      "irregular": "Ragged",
+      "kind": "Glacier",
+      "extreme": 0,
+      "initialHash": "532f37c03d3d4b722012e01d56e85ebfc8a4a7c931dc0384492cd4df7bfded92",
+      "editedHash": "df41c30a3d3b03570ec458db478d8783a23a03a46a94ad9c361801944af841a2",
+      "identical": true
+    },
+    {
+      "irregular": "Ragged",
+      "kind": "Glacier",
+      "extreme": 1,
+      "initialHash": "676149f4f672b3d853529698e66ce377712b6ec9b5ec7e6c38ceab83cfedf480",
+      "editedHash": "b5b43a3fd812aa946b5c344706d78e81c8978322466a12f7ede510da83ad9f96",
+      "identical": true
+    },
+    {
+      "irregular": "Ragged",
+      "kind": "Sea Ice",
+      "extreme": 0,
+      "initialHash": "82aa6048faea6f0944714dbd58cf00bc761b6628a02894d534769abe6d6d752e",
+      "editedHash": "f103b271785dd49c54700a1d6118e21142908637e5ba34da312ca682cfc6b478",
+      "identical": true
+    },
+    {
+      "irregular": "Ragged",
+      "kind": "Sea Ice",
+      "extreme": 1,
+      "initialHash": "8b8c99ccfe17264ba95a3a4b4fc133301d4f36b3d398f53e9850c0298755de4b",
+      "editedHash": "5f2e9031ba7ef1dcf20c95eed8747e4716f54f401b5ce5a2c6fb8eea8d48a45a",
+      "identical": true
+    },
+    {
+      "irregular": "Ragged",
+      "kind": "Islands",
+      "extreme": 0,
+      "initialHash": "e19eefeb58d5cb282b2ffcc0511110f2930aec234e1f389a4853212647c731b3",
+      "editedHash": "340c66e4d3536e9921f12a2384584c30d86424b25200c44dd7d64c9992e79ec4",
+      "identical": true
+    },
+    {
+      "irregular": "Ragged",
+      "kind": "Islands",
+      "extreme": 1,
+      "initialHash": "4ae397bfa627e7464306f52e7a1e20c4e39231383634821dfb68b7d422a6a086",
+      "editedHash": "36ab39a91d1908e269ff660d1fe99175519ee61233e85f7c000975ecc75e5a57",
+      "identical": true
+    },
+    {
+      "irregular": "Fractured",
+      "kind": "Strait",
+      "extreme": 0,
+      "initialHash": "ae1abbe7bf6216c8712a0e7b2dfdc8ad969049baa9198f4f8815702b97b21a2b",
+      "editedHash": "65fab3bea6c40505eada0c332fc1da33e6c183615af14286546e1ae6657b7c3d",
+      "identical": true
+    },
+    {
+      "irregular": "Fractured",
+      "kind": "Strait",
+      "extreme": 1,
+      "initialHash": "230670bb0549dfc272cf0e3e22cdc77838ad93e1ca34cd1230995f9360395a2d",
+      "editedHash": "414eecd2442dc7f8a32bbf2b4153305e73bfc51626e92a79bc9bcb454e14bd9d",
+      "identical": true
+    },
+    {
+      "irregular": "Fractured",
+      "kind": "Isthmus",
+      "extreme": 0,
+      "initialHash": "2c81315774f1cabaa4c8b208f0f9c5299bf8e499e6ce309fc892f4a4b1e44260",
+      "editedHash": "3e2b376a1b1e96a127dd9b6c5d373346e5874d8f754b35ec31f8092de487bfbf",
+      "identical": true
+    },
+    {
+      "irregular": "Fractured",
+      "kind": "Isthmus",
+      "extreme": 1,
+      "initialHash": "5fefc42a20903574213bc870d9102ec11517d0f582feb618eb342c6a39999610",
+      "editedHash": "811cf7e76883b719c633419277f6538c60abe4f2d049124a7f59c2ce27dca527",
+      "identical": true
+    },
+    {
+      "irregular": "Fractured",
+      "kind": "Coastal Land",
+      "extreme": 0,
+      "initialHash": "4027c34783c7699a9bd8eab416f0771e307d76c7cca83ef4ac281c5935a3c7a8",
+      "editedHash": "ced44ae5120b3f5e41f404c804570b127919f17af7df2402ebe6012e7edf1fb3",
+      "identical": true
+    },
+    {
+      "irregular": "Fractured",
+      "kind": "Coastal Land",
+      "extreme": 1,
+      "initialHash": "bf4a8ee538af529ecc6eee0a05de02c6de226933193241376310c46bd637d1c7",
+      "editedHash": "3da63de3f48eaabea33089a2d2114d79ace98ce4ab01e89f1500c5da7b728563",
+      "identical": true
+    },
+    {
+      "irregular": "Fractured",
+      "kind": "Lake",
+      "extreme": 0,
+      "initialHash": "57b90144e6e499bfe6a15d06862e97ff3cd4a89861c74d5dd76d9b348ca57012",
+      "editedHash": "1923ef4d5e476e1625ba88e35b57d7d487c16dbf108f7e56437e810ea1278169",
+      "identical": true
+    },
+    {
+      "irregular": "Fractured",
+      "kind": "Lake",
+      "extreme": 1,
+      "initialHash": "bfe5f122f06fb397db488a32f4a0728d67c7549d8c73f3dcb484f0f4520e65b6",
+      "editedHash": "abfb69a4dd194c7a3c0d0c631a96920f779ab83ee0e2dfbcd0fe6fd7f665c93e",
+      "identical": true
+    },
+    {
+      "irregular": "Fractured",
+      "kind": "Glacier",
+      "extreme": 0,
+      "initialHash": "755b121ab505958bb02f0ab29e0a840750b60a33ac2e0f39264392901170f0ec",
+      "editedHash": "23d236307ac521ba16bbd88a7a26c587242dac235625448b8edcd7cc026078c0",
+      "identical": true
+    },
+    {
+      "irregular": "Fractured",
+      "kind": "Glacier",
+      "extreme": 1,
+      "initialHash": "81309e061130a7ae8e2adc34139fed0c905d34390c1ef2d0378554e55efcbc10",
+      "editedHash": "c35ac81432b9efec916a3f2a15a79324e427aae2e2d3688b7d2aaced184e70c4",
+      "identical": true
+    },
+    {
+      "irregular": "Fractured",
+      "kind": "Sea Ice",
+      "extreme": 0,
+      "initialHash": "99613c69af3a6c0a3f676377fbb3fe0fd46db79008804cb52b43f8f5f92616d0",
+      "editedHash": "37b2c620ea8002880bbe260d396202b506e0cce7ff0a40409b974dd18f9b2a7b",
+      "identical": true
+    },
+    {
+      "irregular": "Fractured",
+      "kind": "Sea Ice",
+      "extreme": 1,
+      "initialHash": "ac32b322f1397e6484ccf5d7405b785958c3f048a15e54fe7497b342f2c5e8ad",
+      "editedHash": "61fd013f002b3f2b8ff8f6c9b38818a9c8573da59d6aee8311b4288a8737c4b3",
+      "identical": true
+    },
+    {
+      "irregular": "Fractured",
+      "kind": "Islands",
+      "extreme": 0,
+      "initialHash": "adcc4b11dd0c0eb45bda3e0dc29ded16728978e17be670ad6813281117c9d052",
+      "editedHash": "6dc01851335329ebb165b45ba51c79b3e7abbb0768d1e6e74a55282aee8dbcd1",
+      "identical": true
+    },
+    {
+      "irregular": "Fractured",
+      "kind": "Islands",
+      "extreme": 1,
+      "initialHash": "e559bce95e8f51f6bf9c54b923892980dbaf92a5832b55604cea87a2c94900c5",
+      "editedHash": "255f5a2cfda527e6b3e2d3a32134c4e40f53d0e2fa723248269c111bd3f5c677",
+      "identical": true
+    }
+  ]
+}

@@ -15,6 +15,7 @@ export function openingProbe() {
         if (data.map) {
           state.lastMap = data.map; state.lastOptions = data.options;
           state.latestBuild = { worker, id: data.id };
+          if (data.type === 'build') currentScene = { build: { worker, id: data.id }, version: data.version };
           jobs.set(data.id, { start, kind: 'build' }); state.pending++;
         } else if (data.type === 'scene') {
           currentScene = { scene: data.scene, build: scenes.get(data.scene), version: data.version };
@@ -27,15 +28,19 @@ export function openingProbe() {
       this.addEventListener('message', ({ data }) => {
         const job = jobs.get(data.id);
         if (!job) return;
-        state.pending--; jobs.delete(data.id);
+        if (data.complete !== false) { state.pending--; jobs.delete(data.id); }
         const result = { worker, id: data.id, start: job.start, received: performance.now(), profile: data.profile };
         if (data.error) state.errors.push(data.error);
         if (job.kind === 'build') {
           state.builds.push(result);
           if (data.scene) { scenes.set(data.scene, { worker, id: data.id }); state.lastScene = data.scene; }
+          if (data.metadata) {
+            state.lastScene = data.metadata;
+            currentScene = { scene: data.metadata, build: { worker, id: data.id }, version: data.version };
+          }
         } else {
           state.paints.push(result);
-          if (data.bitmap && job.scene?.prims.length) images.set(data.bitmap, { ...result, frame: job.frame, build: job.build });
+          if (data.bitmap && job.scene && (!job.scene.prims || job.scene.prims.length)) images.set(data.bitmap, { ...result, frame: job.frame, build: job.build });
         }
       });
       this.addEventListener('error', event => state.errors.push(event.message));

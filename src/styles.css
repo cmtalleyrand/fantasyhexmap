@@ -388,6 +388,17 @@ button.eye:hover:not(:disabled) { border-color: var(--line); }
 .map-empty h3 { margin: 0 0 6px; font-size: 15px; }
 .map-empty .hint { margin: 0 0 12px; font-size: 12px; }
 .maphud { max-width: calc(100% - 150px); }
+.map-render-status {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  padding: 5px 9px;
+  border-radius: 4px;
+  background: var(--panel, #f5eddc);
+  color: var(--text, #352b22);
+  pointer-events: none;
+  font-size: 13px;
+}
 
 /* Hidden from sight but still reachable with the keyboard and announced. */
 .visually-hidden {

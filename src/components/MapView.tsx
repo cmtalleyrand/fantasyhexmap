@@ -10,8 +10,6 @@ import type { MapStyle } from '../render/styles.js';
 import { SceneRaster } from '../render/raster.js';
 import { ScenePainter } from '../render/scenePainter.js';
 import PaintWorker from '../render/paint.worker.ts?worker';
-import BuildWorker from '../render/build.worker.ts?worker';
-import { SceneBuilder } from '../render/sceneBuilder.js';
 import type { PaintView } from '../render/paintProtocol.js';
 import { MAP_COLOURS } from '../render/palette.js';
 import { riversThroughHex } from '../../shared/derive.js';
@@ -84,6 +82,7 @@ export default function MapView(props: MapViewProps) {
   const detail = useRef<({ scene: Scene; bitmap: ImageBitmap } & PaintView) | null>(null);
   const [workerEnabled, setWorkerEnabled] = useState(() => typeof Worker !== 'undefined' && typeof OffscreenCanvas !== 'undefined');
   const [rasterVersion, setRasterVersion] = useState(0);
+  const [workerMetadata, setWorkerMetadata] = useState<{ scene: Scene; metadata: Omit<Scene, 'prims'> } | null>(null);
   const sharpViewport = useRef<{ scene: Scene; view: View; size: { width: number; height: number } } | null>(null);
   const [view, setView] = useState<View>({ scale: 1, x: 0, y: 0 });
   // Continuous React events may defer a commit beyond the next browser frame.
@@ -149,56 +148,30 @@ export default function MapView(props: MapViewProps) {
 
   // The map itself is rebuilt only when the data or a display option changes;
   // the pointer moving only rebuilds the hover and selection outlines.
-  const highlightRiver = props.riverTool?.selectedId ?? null;
   const sceneOptions = useMemo(() => ({
-    size: HEX_SIZE, visible, labels, riverNames, rangeNames, seaNames, landNames, polityNames, cityStateMax, polityOpacity,
-    style: mapStyle, highlightRiver, cache: new URLSearchParams(location.search).has('renderFull') ? 'off' as const : undefined,
-  }), [visible, labels, riverNames, rangeNames, seaNames, landNames, polityNames, cityStateMax, polityOpacity, mapStyle, highlightRiver]);
-  const blank = useMemo((): Scene => ({ ...gridPixelSize(map.cols, map.rows, HEX_SIZE), background: mapStyle.palette.sea, prims: [] }),
-    [map.cols, map.rows, mapStyle.palette.sea]);
-  // A build can take seconds on a large map with many shaped coasts. It runs in a
-  // worker where one is available, so the page answers while it does: the last scene
-  // stays on show (or a blank sea for a newly opened map) until the new one arrives,
-  // and a run of edits builds only the latest of them.
-  const [builderEnabled, setBuilderEnabled] = useState(() => typeof Worker !== 'undefined' && typeof OffscreenCanvas !== 'undefined');
-  const builder = useRef<SceneBuilder | null>(null);
-  const requestedMap = useRef<string | null>(null);
-  const [built, setBuilt] = useState<{ mapId: string; scene: Scene } | null>(null);
-  useLayoutEffect(() => {
-    if (!builderEnabled) return;
-    try {
-      const next = new SceneBuilder({
-        built: (scene) => setBuilt({ mapId: requestedMap.current ?? '', scene }),
-        failed: () => setBuilderEnabled(false),
-      }, new BuildWorker());
-      builder.current = next;
-      return () => {
-        next.dispose();
-        builder.current = null;
-      };
-    } catch {
-      setBuilderEnabled(false);
-    }
-  }, [builderEnabled]);
-  useEffect(() => {
-    if (!builderEnabled) return;
-    requestedMap.current = map.id;
-    builder.current?.build(map, sceneOptions, lettering, new URLSearchParams(location.search).has('renderProfile'));
-  }, [builderEnabled, map, sceneOptions, lettering]);
-  const directScene = useMemo((): Scene | null => {
-    if (builderEnabled) return null;
-    // Do not lay out the entire map twice, first using fallback font widths
-    // and then using the downloaded faces. A font change schedules one layout.
-    if (readyLettering !== lettering) return blank;
-    return buildStaticScene(map, sceneOptions);
-  }, [builderEnabled, map, sceneOptions, readyLettering, lettering, blank]);
-  const scene = directScene ?? (built && built.mapId === map.id ? built.scene : blank);
+    size: HEX_SIZE, visible, labels, riverNames, rangeNames, seaNames, landNames,
+    polityNames, cityStateMax, polityOpacity, style: mapStyle,
+    highlightRiver: props.riverTool?.selectedId ?? null,
+    cache: new URLSearchParams(location.search).has('renderFull') ? 'off' as const : undefined,
+  }), [visible, labels, riverNames, rangeNames, seaNames, landNames, polityNames, cityStateMax, polityOpacity, mapStyle, props.riverTool?.selectedId]);
+  const layoutLettering = workerEnabled ? lettering : readyLettering;
+  const scene = useMemo(
+    (): Scene => {
+      // Do not lay out the entire map twice, first using fallback font widths
+      // and then using the downloaded faces. A font change schedules one layout.
+      if (workerEnabled || layoutLettering !== lettering) return { ...gridPixelSize(map.cols, map.rows, HEX_SIZE), background: mapStyle.palette.sea, prims: [] };
+      return buildStaticScene(map, sceneOptions);
+    },
+    [map, sceneOptions, workerEnabled, layoutLettering, lettering, mapStyle.palette.sea],
+  );
+  const metadata = workerEnabled ? (workerMetadata?.scene === scene ? workerMetadata.metadata : null) : scene;
+  const busy = workerEnabled && (!metadata || detail.current?.scene !== scene);
   const latest = useRef({ scene, view, size });
   latest.current = { scene, view, size };
   const onCompromises = props.onCompromises;
   useEffect(() => {
-    onCompromises?.(scene.compromises ?? []);
-  }, [scene, onCompromises]);
+    onCompromises?.(metadata?.compromises ?? []);
+  }, [metadata, onCompromises]);
   const decoration = useMemo(() => {
     const riverDraftSelection = props.riverDraft ? new Set(props.riverDraft) : null;
     return decorationPrims(map, {
@@ -252,6 +225,9 @@ export default function MapView(props: MapViewProps) {
     if (!workerEnabled) return;
     try {
       const renderer = new ScenePainter({
+        built: (scene, metadata) => {
+          if (latest.current.scene === scene) setWorkerMetadata({ scene, metadata });
+        },
         overview: (scene, image) => {
           if (latest.current.scene !== scene) { image.bitmap.close(); return; }
           overview.current?.bitmap.close();
@@ -291,8 +267,8 @@ export default function MapView(props: MapViewProps) {
   }, [workerEnabled]);
 
   useLayoutEffect(() => {
-    if (scene.prims.length > 0) painter.current?.setScene(scene, lettering, new URLSearchParams(location.search).has('renderProfile'));
-  }, [scene, lettering, workerEnabled]);
+    if (workerEnabled) painter.current?.setMap(map, sceneOptions, scene, new URLSearchParams(location.search).has('renderProfile'));
+  }, [scene, map, sceneOptions, workerEnabled]);
 
   useLayoutEffect(() => {
     const sharp = sharpViewport.current;
@@ -309,16 +285,16 @@ export default function MapView(props: MapViewProps) {
     const ctx = canvas.getContext('2d', { alpha: false });
     if (!ctx) return;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.fillStyle = MAP_COLOURS.background;
-    ctx.fillRect(0, 0, size.width, size.height);
     if (workerEnabled && painter.current) {
       const renderer = painter.current;
       renderer.invalidate();
       const image = overview.current;
-      if (image?.scene === scene) {
+      if (image) {
+        ctx.fillStyle = MAP_COLOURS.background;
+        ctx.fillRect(0, 0, size.width, size.height);
         ctx.drawImage(image.bitmap, view.x, view.y, image.width * view.scale, image.height * view.scale);
         const sharp = detail.current;
-        if (sharp?.scene === scene) {
+        if (sharp?.scene === image.scene) {
           const ratio = view.scale / sharp.view.scale;
           ctx.save();
           ctx.beginPath();
@@ -328,12 +304,25 @@ export default function MapView(props: MapViewProps) {
             sharp.size.width * ratio, sharp.size.height * ratio);
           ctx.restore();
         }
-        const timer = window.setTimeout(() => renderer.paint({ view, size, dpr }), 140);
+        const timer = window.setTimeout(() => renderer.paint({ view, size, dpr }), image.scene === scene ? 140 : 0);
         return () => window.clearTimeout(timer);
       }
-      if (scene.prims.length > 0) renderer.paint({ view, size, dpr });
+      // A first sharp frame can arrive before its overview. Retain/copy it
+      // during that short interval rather than clearing the visible map.
+      const sharp = detail.current;
+      if (sharp) {
+        const ratio = view.scale / sharp.view.scale;
+        ctx.drawImage(sharp.bitmap, view.x - sharp.view.x * ratio, view.y - sharp.view.y * ratio,
+          sharp.size.width * ratio, sharp.size.height * ratio);
+      } else {
+        ctx.fillStyle = MAP_COLOURS.background;
+        ctx.fillRect(0, 0, size.width, size.height);
+      }
+      renderer.paint({ view, size, dpr });
       return;
     }
+    ctx.fillStyle = MAP_COLOURS.background;
+    ctx.fillRect(0, 0, size.width, size.height);
     const paintSharp = () => {
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.fillStyle = MAP_COLOURS.background;
@@ -612,12 +601,12 @@ export default function MapView(props: MapViewProps) {
     }
     const cities = map.layers.cities.data?.cities.filter((c) => hexIndex(map.cols, c.col, c.row) === hover) ?? [];
     for (const city of cities) bits.push(`${city.name} (${city.population.toLocaleString()})`);
-    for (const c of scene.compromises ?? []) if (c.hexes.includes(hover)) bits.push(`⚠ ${c.what}`);
+    for (const c of metadata?.compromises ?? []) if (c.hexes.includes(hover)) bits.push(`⚠ ${c.what}`);
     return bits.join(' · ');
   };
 
   return (
-    <div className="mapwrap" ref={wrapRef}>
+    <div className="mapwrap" ref={wrapRef} aria-busy={busy}>
       <canvas
         ref={canvasRef}
         onPointerDown={onPointerDown}
@@ -636,6 +625,7 @@ export default function MapView(props: MapViewProps) {
       <canvas ref={decorationRef} aria-hidden="true" style={{ position: 'absolute', left: 0, top: 0, pointerEvents: 'none' }} />
       {props.overlay && <div className="map-overlay">{props.overlay}</div>}
       {props.banner}
+      {busy && <div className="map-render-status" role="status">Rendering map…</div>}
       <div className="maphud">{hoverText()}</div>
       <div className="mapzoom" role="toolbar" aria-label="Map navigation">
         <div className="map-tool-toggle" aria-label="Pointer tool">

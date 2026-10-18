@@ -83,3 +83,68 @@ test('moving again cancels a sharp reply but can retain its whole-map overview',
   assert.deepEqual(f.overviews, [f.scene], 'a whole-map overview remains valid after a view change');
   assert.equal(f.messages.filter(message => message.type === 'paint').length, 1);
 });
+
+test('construction keeps only the latest pending map and waits before painting', async () => {
+  const { createMapState } = await import('../shared/layers.ts');
+  const { defaultVisibility } = await import('../src/render/scene.ts');
+  const f = fixture();
+  const map = createMapState('worker', 4, 4);
+  const opts = { size: 26, visible: defaultVisibility(), labels: true };
+  f.painter.setMap(map, opts, f.scene);
+  f.painter.paint(f.view(10));
+  const first = f.messages.at(-1)!;
+  assert.equal(first.type, 'build');
+  f.painter.setMap({ ...map, description: 'intermediate' }, opts, { ...f.scene });
+  f.painter.setMap({ ...map, description: 'latest' }, opts, { ...f.scene });
+  f.painter.paint(f.view(30));
+  assert.equal(f.messages.length, 1);
+  if (first.type !== 'build') throw new Error('missing build');
+  f.reply({ version: first.version, id: first.id, metadata: { width: 100, height: 100, background: '#fff' } });
+  const latest = f.messages.at(-1)!;
+  assert.equal(latest.type, 'build');
+  if (latest.type !== 'build') throw new Error('missing latest build');
+  assert.equal(latest.map.description, 'latest');
+  f.reply({ version: latest.version, id: latest.id, metadata: { width: 100, height: 100, background: '#fff' } });
+  const paint = f.messages.at(-1)!;
+  assert.equal(paint.type, 'paint');
+  if (paint.type !== 'paint') throw new Error('missing paint');
+  assert.equal(paint.view.x, 30);
+});
+
+test('an early sharp bitmap does not release the job before the overview', () => {
+  const f = fixture();
+  f.painter.setScene(f.scene, 'classic');
+  f.painter.paint(f.view(0));
+  const first = f.messages.at(-1)!;
+  if (first.type !== 'paint') throw new Error('missing paint');
+  f.reply({ version: first.version, id: first.id, bitmap: {} as ImageBitmap, complete: false });
+  assert.deepEqual(f.painted, [0]);
+  f.painter.paint(f.view(20));
+  assert.equal(f.messages.filter(m => m.type === 'paint').length, 1);
+  f.reply({ version: first.version, id: first.id, overview: { bitmap: {} as ImageBitmap, width: 100, height: 100 } });
+  assert.equal(f.messages.filter(m => m.type === 'paint').length, 2);
+  f.painter.dispose();
+  let closed = 0;
+  f.reply({ version: first.version, id: first.id, bitmap: { close: () => closed++ } as ImageBitmap });
+  assert.equal(closed, 1);
+});
+
+test('profiling is opt-in and follows unified construction into viewport painting', async () => {
+  const { createMapState } = await import('../shared/layers.ts');
+  const { defaultVisibility } = await import('../src/render/scene.ts');
+  const map = createMapState('profile worker', 4, 4);
+  const opts = { size: 26, visible: defaultVisibility(), labels: true };
+  const f = fixture();
+  f.painter.setMap(map, opts, f.scene, true);
+  f.painter.paint(f.view(0));
+  const build = f.messages.at(-1)!;
+  if (build.type !== 'build') throw new Error('missing build');
+  assert.equal(build.profile, true);
+  f.reply({ version: build.version, id: build.id, metadata: { width: 100, height: 100, background: '#fff' } });
+  const paint = f.messages.at(-1)!;
+  assert.equal(paint.type, 'paint');
+  assert.equal(paint.profile, true);
+  const plain = fixture();
+  plain.painter.setMap(map, opts, plain.scene);
+  assert.equal(Object.hasOwn(plain.messages[0]!, 'profile'), false);
+});

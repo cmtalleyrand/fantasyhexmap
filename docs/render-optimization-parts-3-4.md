@@ -5,6 +5,16 @@ Parts 3 and 4 follow the populated-map profiling and calculation reuse in
 build were saved in `work/part34-baseline` before these changes. The populated
 input remains the frozen 40×40 all-layer fixture.
 
+Publication integration: the measurements below precede main's unified-worker
+and PNG-export changes in PRs #140 and #141. Those changes were subsequently
+merged into this branch at `7585d36` and preserved. The historical timing table
+is not a benchmark of the combined worker path. Post-merge verification passes
+all 53 test files with test concurrency 2, application/fixture type checks and
+the production build. A production-browser smoke run exercises all eight
+layers, four inspector edits, a rapid burst and desktop/mobile scrolling with
+no page errors and metadata-only worker replies. Its concurrent test workload
+means its timings are not used as a new performance baseline.
+
 ## Coast dependencies and invalidation
 
 `coastGeometryOf` keeps bounded component records containing the silhouette,

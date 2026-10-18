@@ -1,0 +1,53 @@
+{
+  "size": 50,
+  "runs": 3,
+  "results": [
+    {
+      "revision": "current",
+      "layout": "continent",
+      "size": 50,
+      "coldMs": 11350.092067,
+      "displayMs": 14.36612199999945,
+      "editMs": 11687.280916,
+      "hashes": [
+        "3512e42a5f176a1e4bf8eff28866431ad320647a6fb53b848d5a510ededd5267",
+        "2d6b66e6d8bf0c864788786dfd16cfceed0261e3234d29a99912d4da94a7dce7",
+        "0488d6099dd8d72981225aa2d5f0496762c81a7213aebe6885d4cd8a2322bffb"
+      ]
+    },
+    {
+      "revision": "current",
+      "layout": "archipelago",
+      "size": 50,
+      "coldMs": 17127.817987999995,
+      "displayMs": 12.342378999994253,
+      "editMs": 18185.018243999977,
+      "hashes": [
+        "06122aa386e274daed9e9da50aa162062426de634e292253eba2ee7cadbcc9ba",
+        "ff44695f88a2908e1da128c4cdb93a2fcf9b5ef14b08efb90fa746d156a0ff48",
+        "3f53d9fe66ea9283ba8b1e5e6ba4460a0ddefb89872bfee206aaf9bba9ec80f8"
+      ]
+    },
+    {
+      "revision": "current",
+      "layout": "lakes",
+      "size": 50,
+      "coldMs": 635.230103000009,
+      "displayMs": 246.71242500000517,
+      "editMs": 649.7445859999862,
+      "hashes": [
+        "04ec7115a7a19da7fec36a429ffb3acb7b862e7453ce334c067cd79c753e2536",
+        "d4c4dda5cefe75e368b13dc09c87f88967b8e705caae78e4af6a887ef8fbef51",
+        "9e4af8fcf3b69ae74e118eaa6d8c364f3d56cbe78e1b2712aa6807c62504b154"
+      ]
+    }
+  ],
+  "assessment": {
+    "date": "2026-10-18",
+    "revision": "c6bced3",
+    "command": "node --import tsx scripts/render-performance.ts --size 50 --runs 3",
+    "node": "24.19.0",
+    "cpuQuota": "200000/100000 (2 cores)",
+    "scope": "Node scene construction; synthetic base-only fixtures; no browser drawing"
+  }
+}
