@@ -128,3 +128,23 @@ test('an early sharp bitmap does not release the job before the overview', () =>
   f.reply({ version: first.version, id: first.id, bitmap: { close: () => closed++ } as ImageBitmap });
   assert.equal(closed, 1);
 });
+
+test('profiling is opt-in and follows unified construction into viewport painting', async () => {
+  const { createMapState } = await import('../shared/layers.ts');
+  const { defaultVisibility } = await import('../src/render/scene.ts');
+  const map = createMapState('profile worker', 4, 4);
+  const opts = { size: 26, visible: defaultVisibility(), labels: true };
+  const f = fixture();
+  f.painter.setMap(map, opts, f.scene, true);
+  f.painter.paint(f.view(0));
+  const build = f.messages.at(-1)!;
+  if (build.type !== 'build') throw new Error('missing build');
+  assert.equal(build.profile, true);
+  f.reply({ version: build.version, id: build.id, metadata: { width: 100, height: 100, background: '#fff' } });
+  const paint = f.messages.at(-1)!;
+  assert.equal(paint.type, 'paint');
+  assert.equal(paint.profile, true);
+  const plain = fixture();
+  plain.painter.setMap(map, opts, plain.scene);
+  assert.equal(Object.hasOwn(plain.messages[0]!, 'profile'), false);
+});

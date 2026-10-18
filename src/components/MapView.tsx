@@ -152,6 +152,7 @@ export default function MapView(props: MapViewProps) {
     size: HEX_SIZE, visible, labels, riverNames, rangeNames, seaNames, landNames,
     polityNames, cityStateMax, polityOpacity, style: mapStyle,
     highlightRiver: props.riverTool?.selectedId ?? null,
+    cache: new URLSearchParams(location.search).has('renderFull') ? 'off' as const : undefined,
   }), [visible, labels, riverNames, rangeNames, seaNames, landNames, polityNames, cityStateMax, polityOpacity, mapStyle, props.riverTool?.selectedId]);
   const layoutLettering = workerEnabled ? lettering : readyLettering;
   const scene = useMemo(
@@ -266,7 +267,7 @@ export default function MapView(props: MapViewProps) {
   }, [workerEnabled]);
 
   useLayoutEffect(() => {
-    if (workerEnabled) painter.current?.setMap(map, sceneOptions, scene);
+    if (workerEnabled) painter.current?.setMap(map, sceneOptions, scene, new URLSearchParams(location.search).has('renderProfile'));
   }, [scene, map, sceneOptions, workerEnabled]);
 
   useLayoutEffect(() => {

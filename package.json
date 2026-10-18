@@ -11,7 +11,12 @@
     "build": "tsc -b tsconfig.json && vite build",
     "test": "tsx --test test/*.test.ts",
     "typecheck": "tsc -b tsconfig.json tsconfig.server.json",
-    "preview": "vite preview"
+    "typecheck:render-fixtures": "tsc --noEmit --target ES2022 --module ESNext --moduleResolution Bundler --allowImportingTsExtensions --resolveJsonModule --skipLibCheck --types vite/client --strict scripts/render-edit-fixtures.ts",
+    "preview": "vite preview",
+    "perf:construction": "tsx scripts/render-construction-profile.ts",
+    "perf:opening": "node scripts/render-opening-performance.mjs",
+    "perf:coast": "node scripts/render-coast-validation.mjs",
+    "perf:incremental": "node scripts/render-incremental-validation.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.124.0",

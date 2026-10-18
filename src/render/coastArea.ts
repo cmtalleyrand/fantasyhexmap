@@ -1,7 +1,8 @@
+import { profileCount, profilePhases, profileTime } from './profile.js';
 /** Fit every hex's share on the final coastline (see `fitCoastAreas`). */
 import { hexCenter, hexCorners, type Point } from '../../shared/hex.js';
 import { coastClearance } from './componentCoast.js';
-import { drawnLand, evenOddTest, type CoastChain, type CoastGeometry } from './coast.js';
+import { drawnLand, drawnLandLayout, evenOddTest, type CoastChain, type CoastGeometry } from './coast.js';
 import { areaCoverage, nearestHex, nearestOn } from './footprint.js';
 import { pathPolylines } from './ice.js';
 import type { PathCmd } from './prims.js';
@@ -83,6 +84,8 @@ export function fitCoastAreas(geometry: CoastGeometry, targets: ReadonlyMap<numb
   /** A seeded value in [0, 1) for each hex and key, so the fit differs between hexes and maps. */
   noise: (hex: number, key: number) => number = () => 0.5, rounds = 8): CoastGeometry {
   if (!geometry.component || !targets.size) return geometry;
+  const phase = profilePhases('fit');
+  phase('prepare');
   const hexArea = 1.5 * Math.sqrt(3) * size * size;
   const closed = geometry.chains.map(c => c.closed);
   let rings = geometry.paths.map((d, k) => {
@@ -97,11 +100,37 @@ export function fitCoastAreas(geometry: CoastGeometry, targets: ReadonlyMap<numb
     return d;
   });
   const geometryOf = (rs: Point[][]): CoastGeometry => ({ ...geometry, paths: pathsOf(rs) });
-  const centreOf = (h: number) => hexCenter(h % cols, Math.floor(h / cols), size);
+  // Fixed for the duration of a solve. Moving point-dependent inputs stay separate.
+  const centres = Array.from({ length: cols * rows }, (_, h) => hexCenter(h % cols, Math.floor(h / cols), size));
+  const centreOf = (h: number) => centres[h]!;
+  const corners = new Map<number, Point[]>();
+  const cornersOf = (h: number) => {
+    let hit = corners.get(h);
+    if (!hit) { hit = hexCorners(h % cols, Math.floor(h / cols), size); corners.set(h, hit); }
+    return hit;
+  };
+  // Open ends never move: the field fades to zero there. Reuse the page-edge joins,
+  // then supply the evolving polylines directly, including the original Z closure.
+  const layout = drawnLandLayout(geometryOf(rings), page.width, page.height, size);
+  const strokeRings = (rs: Point[][]) => rs.flatMap((ring, k) => ring.length > 1
+    ? [closed[k] ? [...ring, ring[0]!] : ring] : []);
+  const landRings = (rs: Point[][]): Point[][] => {
+    if (rs.some(ring => ring.length < 2)) return pathPolylines(drawnLand(geometryOf(rs), page.width, page.height, size), 8);
+    return layout.map(item => {
+      if ('closed' in item) { const ring = rs[item.closed]!; return [...ring, ring[0]!]; }
+      const ring: Point[] = [];
+      for (const part of item.open) {
+        if ('point' in part) ring.push(part.point);
+        else ring.push(...(part.first ? rs[part.chain]! : rs[part.chain]!.slice(1)));
+      }
+      if (ring.length) ring.push(ring[0]!);
+      return ring;
+    }).filter(ring => ring.length > 1);
+  };
   const sigma = size * 0.6;
   /** Each hex near `p`, with its weight in the field there. */
   const weights = (p: Point): Array<[number, number]> => {
-    const home = nearestHex(p, cols, rows, size), hc = home % cols, hr = Math.floor(home / cols);
+    const home = nearestHex(p, cols, rows, size, centres), hc = home % cols, hr = Math.floor(home / cols);
     const out: Array<[number, number]> = [];
     let total = 0;
     for (let r = hr - 2; r <= hr + 2; r++) for (let c = hc - 2; c <= hc + 2; c++) {
@@ -112,23 +141,27 @@ export function fitCoastAreas(geometry: CoastGeometry, targets: ReadonlyMap<numb
       out.push([h, w]);
       total += w;
     }
-    return out.map(([h, w]) => [h, w / total]);
+    const result: Array<[number, number]> = out.map(([h, w]) => [h, w / total]);
+    return result;
   };
   // A strait or isthmus keeps its shape, which outranks its share: no movement through
   // the passage's hex or across its joins to the land beside it (its share was fitted
   // when its banks were shaped), easing in beyond them.
   const passages = [...new Set([...passageHexes, ...[...targets].filter(([, t]) => t.width !== undefined).map(([h]) => h)])].map(centreOf);
-  const passageFade = (p: Point) => passages.reduce((f, c) => Math.min(f, Math.max(0, Math.min(1, (Math.hypot(p.x - c.x, p.y - c.y) - size * 1.05) / (size * 0.4)))), 1);
+  const passageFade = (p: Point) => {
+    const fade = passages.reduce((f, c) => Math.min(f, Math.max(0, Math.min(1, (Math.hypot(p.x - c.x, p.y - c.y) - size * 1.05) / (size * 0.4)))), 1);
+    return fade;
+  };
   const measureAll = (rs: Point[][], hexes: Iterable<number>) => {
-    const g = geometryOf(rs);
-    const coverage = areaCoverage(pathPolylines(drawnLand(g, page.width, page.height, size), 8),
-      { evenOdd: true, stroke: { rings: g.paths.flatMap(d => pathPolylines(d, 8)), reach: ink } });
+    profileCount('fit.measurements');
+    const coverage = areaCoverage(landRings(rs),
+      { evenOdd: true, stroke: { rings: strokeRings(rs), reach: ink }, reuseScanlines: true });
     const out = new Map<number, number>();
-    for (const h of hexes) out.set(h, coverage(hexCorners(h % cols, Math.floor(h / cols), size), 128) / hexArea);
+    for (const h of hexes) { profileCount('fit.hexMeasurements'); out.set(h, coverage(cornersOf(h), 128) / hexArea); }
     return out;
   };
   function skewAlongShore(rs: Point[][]): Point[][] {
-    const land = evenOddTest(pathPolylines(drawnLand(geometryOf(rs), page.width, page.height, size), 8), size / 8);
+    const land = evenOddTest(landRings(rs), size / 8);
     const along = new Map<number, Point>();
     rs.forEach(ring => {
       if (ring.length < 3) return;
@@ -181,23 +214,45 @@ export function fitCoastAreas(geometry: CoastGeometry, targets: ReadonlyMap<numb
   }
   // Every hex the coast runs through takes part: those with a share aim at it, the rest keep theirs.
   const touched = new Set<number>();
-  for (const ring of rings) for (const p of ring) touched.add(nearestHex(p, cols, rows, size));
+  for (const ring of rings) for (const p of ring) touched.add(nearestHex(p, cols, rows, size, centres));
   for (const h of targets.keys()) touched.add(h);
   // Along a coast running across the grid, every other hex stands half a hex further out,
   // and each hex keeping its share makes the coast bulge out through each of those: a row
   // of bulges, each a mirror image of itself. Slide each hex's stretch of coast along the
   // shore by a seeded amount first (which moves little land), so each bulge leans its own
   // way with one flank steeper than the other; the fit below then restores every share.
+  const hexes = [...touched];
+  const index = new Map(hexes.map((h, i) => [h, i]));
+  const neighbours: Array<[number, number]> = [];
+  hexes.forEach((h, i) => {
+    const c = centreOf(h), hc = h % cols, hr = Math.floor(h / cols);
+    const nearby: number[] = [];
+    for (let r = Math.max(0, hr - 2); r <= Math.min(rows - 1, hr + 2); r++) {
+      for (let col = Math.max(0, hc - 2); col <= Math.min(cols - 1, hc + 2); col++) {
+        const k = r * cols + col, j = index.get(k);
+        if (j === undefined || j <= i) continue;
+        const q = centreOf(k);
+        if (Math.hypot(c.x - q.x, c.y - q.y) <= size * 1.9) nearby.push(j);
+      }
+    }
+    // Preserve the old matrix accumulation order, which followed touched insertion order.
+    nearby.sort((a, b) => a - b);
+    for (const j of nearby) neighbours.push([i, j]);
+  });
+  const swellCentres = new Map<number, Point>();
+  const forward = new Float64Array(hexes.length), transpose = new Float64Array(hexes.length * 2);
   rings = skewAlongShore(rings);
-  const initial = measureAll(rings, touched);
+  const initial = profileTime('fit.measure', () => measureAll(rings, touched));
   const want = new Map([...touched].map(h => [h, targets.get(h)?.share ?? initial.get(h)!]));
   let shown = initial;
   for (let round = 0; round < rounds; round++) {
+    phase('field');
+    profileCount('fit.rounds');
     const short = new Map([...touched].map(h => [h, (want.get(h)! - shown.get(h)!) * hexArea]));
     if (Math.max(...[...targets.keys()].map(h => Math.abs(short.get(h)!))) < 0.003 * hexArea) break;
     // The direction to the sea along each ring (its orientation found by probing which
     // side is land), and how much room each hex's coast has before it meets another.
-    const land = evenOddTest(pathPolylines(drawnLand(geometryOf(rings), page.width, page.height, size), 8), size / 8);
+    const land = evenOddTest(landRings(rings), size / 8);
     const chains: CoastChain[] = rings.map((ring, k) => ({ closed: closed[k]!, points: ring,
       edges: ring.slice(0, -1).map((p, j) => ({ from: p, to: ring[j + 1]!, land: -1, water: -1 })) }));
     const clearance = coastClearance(chains, size);
@@ -219,7 +274,7 @@ export function fitCoastAreas(geometry: CoastGeometry, targets: ReadonlyMap<numb
       for (let j = 0; j + 1 < ring.length; j++) {
         const a = ring[j]!, b = ring[j + 1]!, length = Math.hypot(b.x - a.x, b.y - a.y);
         if (!length) continue;
-        const m = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }, hex = nearestHex(m, cols, rows, size);
+        const m = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }, hex = nearestHex(m, cols, rows, size, centres);
         const ends = closed[k] ? 1 : Math.min(1, (arc + length / 2) / size, (total - arc - length / 2) / size);
         arc += length;
         segments.push({ m, n: { x: sign * (b.y - a.y) / length, y: -sign * (b.x - a.x) / length }, length, hex, fade: ends * passageFade(m), weights: weights(m) });
@@ -238,15 +293,12 @@ export function fitCoastAreas(geometry: CoastGeometry, targets: ReadonlyMap<numb
       const length = Math.hypot(u.x, u.y);
       toSea.set(h, length > size * 0.15 ? { x: u.x / length, y: u.y / length } : { x: 0, y: 0 });
     }
-    const hexes = [...touched];
-    const index = new Map(hexes.map((h, i) => [h, i]));
     // Each hex swells about a point off its middle by a seeded amount: swelling about the
     // middle itself grew every hex's coast into the same bulge, a mirror image of itself.
     const swellCentre = (h: number) => {
       const c = centreOf(h), angle = noise(h, 1) * Math.PI * 2, reach = size * (0.25 + 0.2 * noise(h, 2));
       return { x: c.x + Math.cos(angle) * reach, y: c.y + Math.sin(angle) * reach };
     };
-    const swellCentres = new Map<number, Point>();
     const basis = (h: number, p: Point, w: number): [Point, Point] => {
       const u = toSea.get(h) ?? { x: 0, y: 0 };
       let c = swellCentres.get(h);
@@ -271,30 +323,36 @@ export function fitCoastAreas(geometry: CoastGeometry, targets: ReadonlyMap<numb
     }
     // Least squares with a small penalty on the amounts, by conjugate gradients on the
     // normal equations; then each amount is held inside its hex's room.
+    phase('solve');
+    // Freeze the sparse row order once per round instead of allocating Map iterators
+    // for every conjugate-gradient multiplication. Summation order is unchanged.
+    const matrixRows = [...matrix].map(([g, row]) => ({ g, indices: Int32Array.from(row.keys()), values: Float64Array.from(row.values()) }));
     const unknowns = hexes.length * 2;
     const times = (x: Float64Array) => {
-      const out = new Float64Array(hexes.length);
-      for (const [g, row] of matrix) { let sum = 0; for (const [j, m] of row) sum += m * x[j]!; out[g] = sum; }
+      const out = forward;
+      out.fill(0);
+      for (const { g, indices, values } of matrixRows) {
+        let sum = 0;
+        for (let k = 0; k < indices.length; k++) sum += values[k]! * x[indices[k]!]!;
+        out[g] = sum;
+      }
       return out;
     };
     const timesT = (y: Float64Array) => {
-      const out = new Float64Array(unknowns);
-      for (const [g, row] of matrix) for (const [j, m] of row) out[j] = out[j]! + m * y[g]!;
+      const out = transpose;
+      out.fill(0);
+      for (const { g, indices, values } of matrixRows) for (let k = 0; k < indices.length; k++) {
+        const j = indices[k]!;
+        out[j] = out[j]! + values[k]! * y[g]!;
+      }
       return out;
     };
     // A small penalty on the amounts, and a larger one on how they differ between
     // neighbouring hexes: neighbours pushing opposite ways draw the coast out into spikes.
     const lambda = (size * 0.15) ** 2, mu = (size * 0.2) ** 2;
-    const pairs: Array<[number, number, number]> = [];
-    hexes.forEach((h, i) => {
-      const c = centreOf(h);
-      hexes.forEach((k, j) => {
-        if (j <= i) return;
-        const q = centreOf(k);
-        if (Math.hypot(c.x - q.x, c.y - q.y) > size * 1.9) return;
-        const u = toSea.get(h) ?? { x: 0, y: 0 }, v = toSea.get(k) ?? { x: 0, y: 0 };
-        pairs.push([i, j, u.x * v.x + u.y * v.y]);
-      });
+    const pairs: Array<[number, number, number]> = neighbours.map(([i, j]) => {
+      const u = toSea.get(hexes[i]!) ?? { x: 0, y: 0 }, v = toSea.get(hexes[j]!) ?? { x: 0, y: 0 };
+      return [i, j, u.x * v.x + u.y * v.y];
     });
     const normal = (x: Float64Array) => {
       const out = timesT(times(x));
@@ -313,6 +371,7 @@ export function fitCoastAreas(geometry: CoastGeometry, targets: ReadonlyMap<numb
     let r = Float64Array.from(rhs), dir = Float64Array.from(r);
     let rr = r.reduce((sum, v) => sum + v * v, 0);
     for (let iteration = 0; iteration < 200 && rr > 1e-12; iteration++) {
+      profileCount('fit.solverIterations');
       const q = normal(dir);
       const alpha = rr / (dir.reduce((sum, v, j) => sum + v * q[j]!, 0) || 1);
       for (let j = 0; j < unknowns; j++) { x[j] = x[j]! + alpha * dir[j]!; r[j] = r[j]! - alpha * q[j]!; }
@@ -350,15 +409,18 @@ export function fitCoastAreas(geometry: CoastGeometry, targets: ReadonlyMap<numb
         return { x: p.x + dx * fade, y: p.y + dy * fade };
       });
     });
+    phase('moveAndCheck');
     let next: Point[][] | null = null;
     for (const scale of [1, 0.5, 0.25, 0.125]) {
+      profileCount('fit.trials');
       const trial = moveBy(scale);
       if (!distorts(rings, trial) && !newCrossings(rings, trial, closed, size)) { next = trial; break; }
     }
     if (!next) break;
     // Keep closed rings closed on their first point.
     next = next.map((ring, k) => closed[k] && ring.length ? [...ring.slice(0, -1), ring[0]!] : ring);
-    const measured = measureAll(next, touched);
+    phase('measureAndAccept');
+    const measured = profileTime('fit.measure', () => measureAll(next!, touched));
     // Accept the round only if it brought the targets nearer overall.
     const error = (m: Map<number, number>) => [...targets.keys()].reduce((s, h) => s + (want.get(h)! - m.get(h)!) ** 2, 0)
       + [...touched].filter(h => !targets.has(h)).reduce((s, h) => s + 0.25 * (want.get(h)! - m.get(h)!) ** 2, 0);
@@ -366,9 +428,12 @@ export function fitCoastAreas(geometry: CoastGeometry, targets: ReadonlyMap<numb
     rings = next;
     shown = measured;
   }
+  phase('anchors');
   const paths = pathsOf(rings);
   const all = paths.flatMap(d => pathPolylines(d, 8));
-  return { ...geometry, paths, anchors: new Map([...geometry.anchors].map(([key, p]) => [key, nearestOn(p, all).at])) };
+  const result = { ...geometry, paths, anchors: new Map([...geometry.anchors].map(([key, p]) => [key, nearestOn(p, all).at])) };
+  phase();
+  return result;
 }
 
 /**

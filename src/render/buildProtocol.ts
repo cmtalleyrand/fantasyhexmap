@@ -1,3 +1,4 @@
+import type { RenderProfile } from './profile.js';
 import type { MapState } from '../../shared/types.js';
 import type { LetteringId } from './lettering.js';
 import type { Scene, SceneOptions } from './scene.js';
@@ -8,10 +9,12 @@ export interface BuildRequest {
   map: MapState;
   options: SceneOptions;
   lettering: LetteringId;
+  profile?: boolean;
 }
 
 export interface BuildReply {
   id: number;
   scene?: Scene;
+  profile?: RenderProfile;
   error?: string;
 }

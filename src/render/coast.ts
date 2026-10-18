@@ -1,3 +1,5 @@
+import { BoundedMemo } from './cache.js';
+import { profileCount } from './profile.js';
 /**
  * Coastlines.
  *
@@ -668,9 +670,20 @@ function hasArea(d: PathCmd[]): boolean {
   return edge > 0 && Math.abs(sum) / edge > 0.05;
 }
 
-// Scoped to one coast build's immutable policy; discarded when that policy is
-// released. Reuse unchanged components across the land-share fitting passes.
-const componentCache = new WeakMap<Roughness, Map<string, ReturnType<typeof componentCoast>>>();
+export interface CoastComponentRecord {
+  path: PathCmd[];
+  toLand: Sliver[];
+  toWater: Sliver[];
+  anchors: Map<string, Point>;
+  component: boolean;
+  aggregate: boolean;
+}
+export interface CoastComponentReuse {
+  cache: BoundedMemo<CoastComponentRecord>;
+  /** Caller promises identical seeded noise for this scope; other policies are in the key. */
+  policyKey: string;
+}
+const componentCache = new WeakMap<Roughness, BoundedMemo<CoastComponentRecord>>();
 
 /**
  * The coast along `edges` (from `surfaceEdges`, or `shapeCoast` when hexes have
@@ -683,6 +696,7 @@ export function coastGeometryOf(
   smooth: boolean,
   rough?: Roughness,
   reshaped?: { strips: Sliver[]; grown: Sliver[]; water: Map<number, PathCmd[]>; land: Map<number, Point[][]> },
+  reuse?: CoastComponentReuse,
 ): CoastGeometry {
   const strips: Sliver[] = reshaped?.strips ?? [];
   const chains = chainEdges(edges);
@@ -691,8 +705,13 @@ export function coastGeometryOf(
   const toLand: Sliver[] = [];
   const anchors = new Map<string, Point>();
   let component = false, aggregate = false;
-  const paths = chains.map((chain) => {
-    if (!smooth || chain.points.length < 3) return hexPath(chain);
+  const compute = (chain: CoastChain): CoastComponentRecord => {
+    profileCount('coast.componentBuilds');
+    const toLand: Sliver[] = [], toWater: Sliver[] = [];
+    const anchors = new Map<string, Point>();
+    let component = false, aggregate = false;
+    const finish = (path: PathCmd[]): CoastComponentRecord => ({ path, toLand, toWater, anchors, component, aggregate });
+    if (!smooth || chain.points.length < 3) return finish(hexPath(chain));
     const { points, edges, closed } = chain;
     const n = points.length;
     const edgeAmplitude = edges.map((edge) => rough?.amplitude(edge) ?? 0);
@@ -703,20 +722,11 @@ export function coastGeometryOf(
       // A silhouette is a function of its own edges, their policies and the edges near
       // enough to constrain it, so an unchanged chain (closed, or open along the map's
       // edge) is reused between fitting passes. A chain whose cuts moved has a new key.
-      let cache = componentCache.get(rough!);
-      if (!cache) { cache = new Map(); componentCache.set(rough!, cache); }
-      const signature = JSON.stringify([chain.closed, rough!.size, rough!.componentArea?.(chain), rough!.componentInk,
-        chain.edges.map(edge => [edge.from.x, edge.from.y, edge.to.x, edge.to.y, edge.land, edge.water,
-          rough!.amplitude(edge), rough!.lean?.(edge), rough!.displacementLimit?.(edge)]), clearance.signature(chain)]);
-      let silhouette = cache.get(signature)!;
-      if (!silhouette) {
-        silhouette = componentCoast(chain, rough!, clearance);
-        cache.set(signature, silhouette);
-      }
+      const silhouette = componentCoast(chain, rough!, clearance);
       toLand.push(...silhouette.toLand);
       toWater.push(...silhouette.toWater);
       silhouette.anchors.forEach((point, id) => anchors.set(id, point));
-      return silhouette.path;
+      return finish(silhouette.path);
     }
     // Legacy Smooth geometry, with optional lean used by ice margins.
     const piece: Array<Point[] | null> = points.map(() => null);
@@ -754,7 +764,28 @@ export function coastGeometryOf(
       if (turn > 0) toWater.push({ d, donor: incoming.water });
       else toLand.push({ d, donor: incoming.land });
     }
-    return piece.some(Boolean) ? roughPath(points, closed, piece) : smoothPath(points, closed);
+    return finish(piece.some(Boolean) ? roughPath(points, closed, piece) : smoothPath(points, closed));
+  };
+  let cache = reuse?.cache ?? (rough ? componentCache.get(rough) : undefined);
+  if (!cache && rough) { cache = new BoundedMemo<CoastComponentRecord>(128, 12_000_000); componentCache.set(rough, cache); }
+  const paths = chains.map(chain => {
+    // An edit that splits/joins a ring changes this content key. Clearance includes
+    // every nearby edge it may inspect, so approaching components invalidate too.
+    const signature = cache ? JSON.stringify([reuse?.policyKey, smooth, chain.closed, rough?.size,
+      rough?.componentArea?.(chain), rough?.componentInk, rough?.featureSeed?.(chain),
+      chain.edges.map(edge => [edge.from.x, edge.from.y, edge.to.x, edge.to.y, edge.land, edge.water,
+        edge.hex, edge.across, rough?.amplitude(edge), rough?.lean?.(edge), rough?.displacementLimit?.(edge), rough?.narrowSide?.(edge)]),
+      clearance?.signature(chain)]) : '';
+    let record = cache?.get(signature);
+    if (record) profileCount('coast.componentHits');
+    else {
+      record = compute(chain);
+      cache?.set(signature, record, record.path.length * 192 + (record.toLand.length + record.toWater.length) * 256 + record.anchors.size * 64);
+    }
+    component ||= record.component; aggregate ||= record.aggregate;
+    toLand.push(...record.toLand); toWater.push(...record.toWater);
+    record.anchors.forEach((point, id) => anchors.set(id, point));
+    return record.path;
   });
   return { component, aggregate, chains, strips, paths, toWater, toLand, grown: reshaped?.grown ?? [], water: reshaped?.water ?? new Map(), land: reshaped?.land ?? new Map(), anchors };
 }

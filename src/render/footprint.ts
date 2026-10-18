@@ -1147,7 +1147,7 @@ const centroid = (poly: Poly): Point => ({
 });
 
 /** The hex a point lies in: the one whose centre is nearest. */
-export function nearestHex(p: Point, cols: number, rows: number, size: number): number {
+export function nearestHex(p: Point, cols: number, rows: number, size: number, centres?: readonly Point[]): number {
   // Pointy-top odd-r layout: estimate the row, then look at the hexes round it.
   const row0 = Math.round((p.y - size) / (size * 1.5));
   let best = -1;
@@ -1155,7 +1155,7 @@ export function nearestHex(p: Point, cols: number, rows: number, size: number): 
   for (let row = Math.max(0, row0 - 1); row <= Math.min(rows - 1, row0 + 1); row++) {
     const col0 = Math.round((p.x - (size * Math.sqrt(3)) / 2) / (size * Math.sqrt(3)) - 0.5 * (row & 1));
     for (let col = Math.max(0, col0 - 1); col <= Math.min(cols - 1, col0 + 1); col++) {
-      const c = hexCenter(col, row, size);
+      const c = centres?.[row * cols + col] ?? hexCenter(col, row, size);
       const dist = (c.x - p.x) ** 2 + (c.y - p.y) ** 2;
       if (dist < bestDist) {
         bestDist = dist;
@@ -1320,6 +1320,9 @@ export function coveredArea(rings: Point[][], clip: Poly, lines = 96): number {
 /** Prepare immutable outlines for repeated area measurements within one fitting pass. */
 export function areaCoverage(rings: Point[][], options?: {
   evenOdd?: boolean;
+  /** Reuse exact scanline intersections across many hex queries on this fixed geometry.
+   * Bounded and opt-in: local one-off queries should not retain scanline data. */
+  reuseScanlines?: boolean;
   stroke?: { rings: Point[][]; reach: number };
   /** Limit preparation to this query; other clips use the unrestricted fallback. */
   within?: Poly;
@@ -1330,7 +1333,7 @@ export function areaCoverage(rings: Point[][], options?: {
     edges: (visit: (a: Point, b: Point) => void) => ring.forEach((a, k) => visit(a, ring[(k + 1) % ring.length]!)),
   })), (visit) => {
     for (const ring of options?.stroke?.rings ?? []) for (let k = 0; k + 1 < ring.length; k++) visit(ring[k]!, ring[k + 1]!);
-  }, { evenOdd: options?.evenOdd, reach: options?.stroke?.reach ?? 0, within: options?.within });
+  }, { evenOdd: options?.evenOdd, reach: options?.stroke?.reach ?? 0, within: options?.within, reuseScanlines: options?.reuseScanlines });
   return (clip, lines = 96) => {
     if (options?.within && clip !== options.within) {
       unrestricted ??= areaCoverage(rings, { ...options, within: undefined });
@@ -1352,7 +1355,7 @@ export interface CoverageRing {
  * none of its measuring lines, may be left out without changing the result.
  */
 export function coverageOf(rings: CoverageRing[], strokeSegments: (visit: (a: Point, b: Point) => void) => void,
-  options: { evenOdd?: boolean; reach: number; within?: Poly }): (clip: Poly, lines?: number) => number {
+  options: { evenOdd?: boolean; reach: number; within?: Poly; reuseScanlines?: boolean }): (clip: Poly, lines?: number) => number {
   const band = 8;
   const region = options.within ? boxOf(options.within) : null;
   const prepared = rings.map(({ box, edges }) => {
@@ -1381,12 +1384,39 @@ export function coverageOf(rings: CoverageRing[], strokeSegments: (visit: (a: Po
     strokes.push({ poly: [{ x: a.x + dx, y: a.y + dy }, { x: b.x + dx, y: b.y + dy },
       { x: b.x - dx, y: b.y - dy }, { x: a.x - dx, y: a.y - dy }], a, b, box });
   });
+  // Hexes in one row query exactly the same y coordinates. Cache their un-clipped
+  // intersections, never clipped/parity-filtered results: holes and enclosing rings
+  // must still participate independently in every query.
+  type Prepared = typeof prepared[number];
+  type Scanline = { fill: Map<Prepared, number[]> };
+  const scanlines = new Map<number, Scanline>();
+  let cachedEntries = 0;
+  const scanlineAt = (y: number): Scanline => {
+    let hit = scanlines.get(y);
+    if (!hit) {
+      // This cache lives only as long as this coverage function. Bound it even for
+      // callers querying many unrelated clips or sampling densities.
+      if (scanlines.size >= 8192 || cachedEntries >= 131072) { scanlines.clear(); cachedEntries = 0; }
+      hit = { fill: new Map() };
+      scanlines.set(y, hit);
+    }
+    return hit;
+  };
   return (clip, lines = 96) => {
     const top = Math.min(...clip.map((p) => p.y));
     const bottom = Math.max(...clip.map((p) => p.y));
     const step = (bottom - top) / lines;
     const x0 = Math.min(...clip.map(p => p.x)), x1 = Math.max(...clip.map(p => p.x));
     const nearbyStroke = strokes.filter(s => s.box[2]! >= x0 && s.box[0]! <= x1 && s.box[3]! >= top && s.box[1]! <= bottom);
+    const localInkBins = new Map<number, typeof strokes>();
+    if (options.reuseScanlines) for (const stroke of nearbyStroke) {
+      const first = Math.floor(Math.max(top, stroke.box[1]!) / band), last = Math.floor(Math.min(bottom, stroke.box[3]!) / band);
+      for (let bandY = first; bandY <= last; bandY++) {
+        let bin = localInkBins.get(bandY);
+        if (!bin) { bin = []; localInkBins.set(bandY, bin); }
+        bin.push(stroke);
+      }
+    }
     // Preserve all ray crossings (including those outside the clip), but discard
     // rings outside its bounds and edges that cannot cross any measuring line.
     const relevant = prepared.filter(({ box }) => !(box[2]! < x0 || box[0]! > x1 || box[3]! < top || box[1]! > bottom));
@@ -1409,10 +1439,15 @@ export function coverageOf(rings: CoverageRing[], strokeSegments: (visit: (a: Po
       // Where each outline is on this line, as stretches of x.
       const runs: Array<[number, number]> = [];
       const crossings: number[] = [];
-      for (const { bins } of relevant) {
-        const xs: number[] = [];
-        for (const [a, b] of bins.get(Math.floor(y / band)) ?? []) {
-          if (a.y <= y !== b.y <= y) xs.push(a.x + ((y - a.y) / (b.y - a.y)) * (b.x - a.x));
+      const line = options.reuseScanlines ? scanlineAt(y) : undefined;
+      for (const ring of relevant) {
+        let xs = line?.fill.get(ring);
+        if (!xs) {
+          xs = [];
+          for (const [a, b] of ring.bins.get(Math.floor(y / band)) ?? []) {
+            if (a.y <= y !== b.y <= y) xs.push(a.x + ((y - a.y) / (b.y - a.y)) * (b.x - a.x));
+          }
+          if (line) { line.fill.set(ring, xs); cachedEntries += xs.length + 1; }
         }
         if (options.evenOdd) crossings.push(...xs);
         else {
@@ -1426,7 +1461,7 @@ export function coverageOf(rings: CoverageRing[], strokeSegments: (visit: (a: Po
       }
       // Union the round coastline stroke with land, rather than estimating ink
       // as perimeter times width (which counts overlaps and outside-hex ink).
-      for (const s of nearbyStroke) {
+      for (const s of (line ? localInkBins.get(Math.floor(y / band)) ?? [] : nearbyStroke)) {
         if (y < s.box[1]! || y > s.box[3]!) continue;
         const xs: number[] = [];
         for (let k = 0; k < 4; k++) {

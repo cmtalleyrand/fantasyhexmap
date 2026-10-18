@@ -1,3 +1,6 @@
+import { BoundedMemo, renderCachesEnabled, withRenderCaches } from './cache.js';
+import { cachedPlacement, clearPlacementCache } from './placementCache.js';
+import { profileCount, profileTime, profilePhases } from './profile.js';
 /**
  * The scene model.
  *
@@ -38,7 +41,6 @@ import {
   type Irregularity,
   lakeShoreIrregularity,
   type BaseGeo,
-  type CitiesData,
   type Climate,
   type Elevation,
   type LayerId,
@@ -95,6 +97,7 @@ import {
   landInsetDepth,
   lakeComponents,
   type CoastGeometry,
+  type CoastComponentRecord,
   type CoastEdge,
   type Roughness,
   raggedEdge,
@@ -263,6 +266,8 @@ export interface SceneOptions {
   /** Screen-only: the river being edited, drawn with a halo and a handle on each hex. */
   highlightRiver?: string | null;
   transparentBackground?: boolean;
+  /** Diagnostic reference: bypass persistent coast and placement caches. */
+  cache?: 'off';
 }
 
 export function defaultVisibility(): VisibleLayers {
@@ -289,16 +294,6 @@ export function thematicLayer(
   ) ?? null;
 }
 
-/**
- * Placement is a search over the territory, and the scene is rebuilt whenever
- * a display option changes, so the result is remembered per data identity.
- * Layer edits are immutable (a new `owner` array / cities object each time).
- */
-const labelCache = new WeakMap<
-  object,
-  { cities: object | null; polities: object; key: string; land: unknown[]; labels: PolityLabel[]; notes: PolityLabelNote[] }
->();
-
 /** Width in em of `text` set in a lettering role, tracking included. */
 function roleEm(role: FaceRole, text: string, weight = role.weight): number {
   return role.tracking > 0
@@ -316,7 +311,6 @@ function lighterWeight(role: FaceRole): number {
 
 function cachedPolityLabels(
   data: PolitiesData,
-  cities: CitiesData | null,
   cols: number,
   rows: number,
   size: number,
@@ -332,33 +326,20 @@ function cachedPolityLabels(
   land: (p: Point) => boolean,
   landKey: unknown[],
 ): { labels: PolityLabel[]; notes: PolityLabelNote[] } {
-  const key = `${cols}x${rows}@${size}/${minHexes ?? ''}/${sizing}/${letteringId}/${measureEpoch}/${[...unnamed].sort().join(',')}`;
-  const hit = labelCache.get(data.owner);
-  if (hit && hit.key === key && hit.cities === cities && hit.polities === data.polities && hit.land.length === landKey.length && hit.land.every((v, k) => v === landKey[k])) {
-    return { labels: hit.labels, notes: hit.notes };
-  }
-  const notes: PolityLabelNote[] = [];
-  const labels = placePolityLabels({
-    land,
-    notes,
-    cols,
-    rows,
-    size,
-    owner: data.owner,
-    polities: unnamed.size > 0 ? data.polities.filter((p) => !unnamed.has(p.id)) : data.polities,
-    obstacles,
-    minHexes,
-    sizing,
-    lakes,
-    measure: (text) => roleEm(role, text),
+  return cachedPlacement('polityLabels', [data.owner, data.polities.map(p => [p.id, p.name, p.shortName]),
+    cols, rows, size, obstacles, minHexes, sizing, role, letteringId, measureEpoch,
+    [...lakes], [...unnamed].sort(), landKey], () => {
+    const notes: PolityLabelNote[] = [];
+    const labels = placePolityLabels({ land, notes, cols, rows, size, owner: data.owner,
+      polities: unnamed.size > 0 ? data.polities.filter(p => !unnamed.has(p.id)) : data.polities,
+      obstacles, minHexes, sizing, lakes, measure: text => roleEm(role, text) });
+    return { labels, notes };
   });
-  labelCache.set(data.owner, { cities, polities: data.polities, key, land: landKey, labels, notes });
-  return { labels, notes };
 }
 
 /**
- * The coast only depends on the base layer, so it is traced once per base
- * array. Lakes are drawn as bodies of their own (see `lakeBodyPath`), so they
+ * The coast depends on base content and drawing policy. Lakes are drawn as
+ * bodies of their own (see `lakeBodyPath`), so they
  * are traced as land here, and so are islands that stand in a lake.
  */
 interface TracedCoast {
@@ -380,16 +361,50 @@ interface TracedCoast {
   onLand: (p: Point) => boolean;
 }
 
-const coastCache = new WeakMap<object, Map<string, TracedCoast>>();
+const coastCache = new BoundedMemo<TracedCoast>(4, 20_000_000);
+const coastComponents = new BoundedMemo<CoastComponentRecord>(192, 16_000_000);
+const coastFits = new BoundedMemo<Pick<CoastGeometry, 'paths' | 'anchors'>>(8, 12_000_000);
 
-/** Where each hex's relief and vegetation symbols were fitted to the land of a traced coast (see `keepToLand`). */
-const symbolFits = new WeakMap<object, { dry: ((p: Point) => boolean) | null; fits: Map<string, Fitted> }>();
+/** The sea predicate can be reused with a traced coast; symbol fitting has a separate land dependency below. */
+let symbolFits = new WeakMap<object, { dry: ((p: Point) => boolean) | null }>();
+interface SymbolFitRecord { revision: { id: number }; fit: Fitted; probes: Array<{ at: Point; land: boolean }> }
+const symbolPlacements = new BoundedMemo<SymbolFitRecord>(10000, 16_000_000);
+const terrainRevisions = new BoundedMemo<{ id: number }>(4, 1_000_000);
+let terrainRevisionNumber = 0;
 
 /** Hexes already cut to their shares, kept between scenes so that editing one hex does not cut the rest again. */
 const shapeMemo: ShapeMemo = new Map();
 
 /** The size islands are drawn at to cover their share, by everything that fixes their shape (see `islandScale`). */
 const islandScaleMemo = new Map<string, number>();
+
+let sceneCacheScope = '';
+function prepareSceneCacheScope(map: MapState, size: number): void {
+  if (!renderCachesEnabled()) return;
+  const scope = JSON.stringify([map.id, map.cols, map.rows, size]);
+  if (scope === sceneCacheScope) return;
+  sceneCacheScope = scope;
+  coastCache.clear(); coastComponents.clear(); coastFits.clear(); symbolPlacements.clear(); terrainRevisions.clear();
+  symbolFits = new WeakMap(); clearPlacementCache(); shapeMemo.clear(); islandScaleMemo.clear();
+}
+
+/** The numerical solve and its stopping tests couple all fitting rings. Its exact
+ * inputs form one dependency group; changing one input rebuilds that group. */
+function cachedCoastFit(geometry: CoastGeometry, targets: ReadonlyMap<number, { share: number; width?: number }>,
+  cols: number, rows: number, size: number, page: { width: number; height: number }, ink: number,
+  passages: number[], seed: string): CoastGeometry {
+  if (!geometry.component || !targets.size) return geometry;
+  const key = JSON.stringify([seed, cols, rows, size, page, ink, passages, [...targets],
+    geometry.chains.map(c => c.closed), geometry.paths, [...geometry.anchors]]);
+  const hit = coastFits.get(key);
+  if (hit) { profileCount('coast.fitGroupHits'); return { ...geometry, ...hit }; }
+  profileCount('coast.fitGroupBuilds');
+  const fitted = fitCoastAreas(geometry, targets, cols, rows, size, page, ink, passages,
+    (hex, k) => unit(seed, 'coast-fit', hex, k));
+  coastFits.set(key, { paths: fitted.paths, anchors: fitted.anchors },
+    fitted.paths.reduce((n, path) => n + path.length * 48, 0) + fitted.anchors.size * 64);
+  return fitted;
+}
 
 /** How far (in hex sizes) a smoothed coast may stray from its plain line, by irregularity. */
 /** How an island's outline is roughened by irregularity: its wobble against the usual (Irregular), extra control points, and skerries off each large island. */
@@ -402,17 +417,8 @@ const ISLE_IRREGULARITY: Record<Irregularity, { wobble: number; extraPoints: num
 
 const COAST_AMPLITUDE: Record<Irregularity, number> = { Smooth: 0, Wavy: 0.06, Ragged: 0.12, Fractured: 0.2 };
 
-/** A stable signature of the hexes' shape settings, computed once per settings object. */
-const shapesSignatures = new WeakMap<object, string>();
-function shapesSignature(shapes: Record<string, HexShape> | undefined): string {
-  if (!shapes) return '';
-  let hit = shapesSignatures.get(shapes);
-  if (hit === undefined) {
-    hit = JSON.stringify(shapes);
-    shapesSignatures.set(shapes, hit);
-  }
-  return hit;
-}
+/** Content snapshots also make shape edits safe across worker cloning and undo. */
+function shapesSignature(shapes: Record<string, HexShape> | undefined): string { return JSON.stringify(shapes) ?? ''; }
 
 function cachedCoast(
   base: ReadonlyArray<BaseGeo | null>,
@@ -427,10 +433,12 @@ function cachedCoast(
   /** Half the coastline's stroke width: what its ink adds outside the land, which counts as land (0 with no coastline). */
   inkReach: number,
 ): TracedCoast {
-  const key = `${cols}x${rows}@${size}/${smooth}/${inkReach}/${seed}/${defaultIrregularity ?? ''}/${shapesSignature(shapes)}/${dimensions.coastalLandPercent},${dimensions.lakeLandPercent},${dimensions.glacierPercent},${dimensions.isthmusWidth},${dimensions.straitWidth},${dimensions.isthmusPercent ?? ''},${dimensions.straitPercent ?? ''},${dimensions.mainlandPercent}`;
-  const cached = coastCache.get(base);
-  const hit = cached?.get(key);
-  if (hit) return hit;
+  const key = JSON.stringify([base, cols, rows, size, smooth, inkReach, seed, defaultIrregularity, shapesSignature(shapes), dimensions]);
+  const hit = coastCache.get(key);
+  if (hit) { profileCount('coast.cacheHit'); return hit; }
+  profileCount('coast.cacheMiss');
+  const coastPhase = profilePhases('coast');
+  coastPhase('topology');
   const lakeIslands = lakeIslandsOf(base, cols, rows);
   const surface = surfaceMap(base, cols, rows, lakeIslands);
   const { lakes } = lakeComponents(base, cols, rows, surface);
@@ -553,11 +561,13 @@ function cachedCoast(
         noise: (x, y, k) => unit(seed, 'coast', Math.round(x * 1000), Math.round(y * 1000), k),
       }
     : undefined;
-  if (shapeMemo.size > 30000) shapeMemo.clear();
-  const memo = shapeMemo;
+  if (renderCachesEnabled() && shapeMemo.size > 30000) shapeMemo.clear();
+  const memo = renderCachesEnabled() ? shapeMemo : new Map();
+  coastPhase('initialTrace');
   const trace = (shares: ReadonlyMap<number, ShapeTarget>) => {
-    const shaped = shares.size > 0 ? shapeCoast(seaEdges, surface, size, shares, lakeEdges, memo) : null;
-    return { shaped, geometry: coastGeometryOf(shaped?.edges ?? seaEdges, smooth, rough, shaped ?? undefined) };
+    profileCount('coast.traces');
+    const shaped = shares.size > 0 ? profileTime('coast.shape', () => shapeCoast(seaEdges, surface, size, shares, lakeEdges, memo)) : null;
+    return { shaped, geometry: profileTime('coast.silhouette', () => coastGeometryOf(shaped?.edges ?? seaEdges, smooth, rough, shaped ?? undefined, { cache: coastComponents, policyKey: JSON.stringify([seed, cols, rows, size]) })) };
   };
   let { shaped, geometry } = trace(targets);
   // Fit the final outline and stroke, not requested area plus signed correction
@@ -572,8 +582,10 @@ function cachedCoast(
   // A first fit of each hex's cut to the land it shows. Neighbouring hexes trade land
   // through the smoothing, so this loop cannot converge hex by hex; two passes bring the
   // shapes near enough for the coupled fit on the final outline below to finish.
+  coastPhase('globalPasses');
   const passes = 3;
   for (let pass = 0; pass < passes && shaped && (smooth || inkReach > 0); pass++) {
+    profileCount('coast.globalPasses');
     const outlines = pathPolylines(drawnLand(geometry, page.width, page.height, size), 8);
     const strokes = geometry.paths.flatMap(d => pathPolylines(d, 8));
     const measure = areaCoverage(outlines, { evenOdd: true, stroke: { rings: strokes, reach: inkReach } });
@@ -622,6 +634,7 @@ function cachedCoast(
     ({ shaped, geometry } = trace(aimed));
   }
   if (best) { ({ shaped, geometry } = best); aimed = best.shares; }
+  coastPhase('passageBracketing');
   // Re-bracket explicitly fitted passages with their neighbours held fixed. The final
   // fit keeps passages still (their shape outranks their share), so a passage's share is
   // found here, by re-cutting its banks, whose joins follow them.
@@ -664,11 +677,13 @@ function cachedCoast(
     ({ shaped, geometry } = selected);
     aimed.set(i, { ...target, share: selected.share });
   }
-  geometry = fitCoastAreas(geometry, new Map([...targets].flatMap(([i, target]) =>
+  coastPhase('coupledFit');
+  geometry = profileTime('coast.fit', () => cachedCoastFit(geometry, new Map([...targets].flatMap(([i, target]) =>
     base[i] === 'Land' || lakeLength.has(i) || (target.width !== undefined && !target.fit) ? []
       : [[i, { share: wanted.get(i)!, width: target.width }] as const])), cols, rows, size, page, inkReach,
     [...targets].filter(([, target]) => target.width !== undefined).map(([i]) => i),
-    (hex, key) => unit(seed, 'coast-fit', hex, key));
+    seed));
+  coastPhase('coverageAndLakes');
   const coverage = new Map<number, { wanted: number; shown: number }>();
   if (targets.size) {
     const measure = areaCoverage(pathPolylines(drawnLand(geometry, page.width, page.height, size), 8), {
@@ -698,10 +713,9 @@ function cachedCoast(
   }
   for (const i of lakeInsets.keys()) lakeAim.set(i, { land: landFraction('Lake', undefined, dimensions, shapes?.[String(i)]), lake: true });
   const entry = { key, geometry, coverage, lakes, lakeIslands, surface, insets: shaped?.insets ?? new Map<number, number>(), lakeInsets, lakeAim, onLand: landTest(surface, shaped?.land ?? new Map(), size) };
-  const variants = cached ?? new Map<string, TracedCoast>();
-  if (variants.size >= 3) variants.delete(variants.keys().next().value!);
-  variants.set(key, entry);
-  coastCache.set(base, variants);
+  coastCache.set(key, entry, geometry.paths.reduce((n, path) => n + path.length * 192, 0)
+    + (geometry.toLand.length + geometry.toWater.length) * 256 + base.length * 128);
+  coastPhase();
   return entry;
 }
 
@@ -820,6 +834,14 @@ export function decorationPrims(map: MapState, opts: SceneOptions): Prim[] {
 
 /** Everything but the hover and selection outlines. */
 export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
+  return withRenderCaches(opts.cache !== 'off', () => profileTime('scene.total', () => {
+    prepareSceneCacheScope(map, opts.size);
+    return buildStaticSceneInner(map, opts);
+  }));
+}
+function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
+  const phase = profilePhases('scene');
+  phase('setup');
   const { cols, rows, layers } = map;
   const { size } = opts;
   const style = opts.style ?? CLASSIC_STYLE;
@@ -846,13 +868,15 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
 
   // Half the coastline's stroke width: what its ink adds outside the land, which counts as land (0 with no coastline).
   const inkReachOf = knobs.coast === 'none' ? 0 : Math.max(0.8, size * palette.coastWidth * knobs.lineWeight) / 2;
+  phase('coast');
   const traced = base ? cachedCoast(base, cols, rows, size, knobs.coast === 'smooth', map.hexShapes, map.defaultIrregularity, normaliseHexDimensions(map.hexDimensions), seed, inkReachOf) : null;
+  phase('landAndFills');
   // The one answer to "is this point land?" for everything placed on the map (with the islands
   // and lake bodies added once they are laid out: see `landAt`): inside the sea coast as drawn,
-  // smoothed and roughened, the outline the realm bands are clipped to. It and each hex's symbol
-  // fitting are kept with the traced coast, so a redraw that leaves the coast alone reuses them.
-  const memo = traced ? symbolFits.get(traced) ?? { dry: null, fits: new Map<string, Fitted>() } : null;
-  if (traced && memo && !symbolFits.has(traced)) symbolFits.set(traced, memo);
+  // smoothed and roughened, the outline the realm bands are clipped to. Its predicate
+  // is kept with the traced coast; symbol placements validate their own land dependencies.
+  const memo = traced ? (renderCachesEnabled() ? symbolFits.get(traced) : undefined) ?? { dry: null } : null;
+  if (renderCachesEnabled() && traced && memo && !symbolFits.has(traced)) symbolFits.set(traced, memo);
   const seaCoastLand: ((p: Point) => boolean) | null = memo?.dry
     ?? (traced && traced.geometry.paths.length > 0
       ? evenOddTest(pathPolylines(drawnLand(traced.geometry, width, height, size), 6), size / 8)
@@ -875,7 +899,12 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
   const trace = (hex: number, placed: Placed[]) => {
     for (const p of placed) traces.push({ hex, points: samplePoints(p) });
   };
-  /** A hex's symbols fitted to its land (see `keepToLand`), searched once per traced coast. */
+  const symbolLandInputs = JSON.stringify([seed, cols, rows, size, base, map.hexShapes, normaliseHexDimensions(map.hexDimensions),
+    map.defaultIrregularity, map.defaultLakeIrregularity, map.islandSpecs, knobs.coast, knobs.islands, inkReachOf]);
+  const symbolLandRevision = terrainRevisions.get(symbolLandInputs) ?? { id: ++terrainRevisionNumber };
+  terrainRevisions.set(symbolLandInputs, symbolLandRevision);
+  /** Replaying every land probe also validates failed candidates: a newly available
+   * earlier placement must invalidate the cached choice, not just validate its final position. */
   const fitSymbols = (
     key: string,
     draw: (at: Point, s: number) => Placed[],
@@ -883,10 +912,24 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
     onLand: (p: Point) => boolean,
     inHex: (p: Point) => boolean,
   ): Fitted => {
-    const known = memo?.fits.get(key);
-    if (known) return { ...known, placed: refit(draw, known, size) };
-    const fitted = keepToLand(draw, centre, size, onLand, inHex);
-    memo?.fits.set(key, { ...fitted, placed: [] });
+    const cacheKey = `${seed}/${cols}/${rows}/${size}/${key}`;
+    const known = symbolPlacements.get(cacheKey);
+    if (known && (known.revision === symbolLandRevision || known.probes.every(p => onLand(p.at) === p.land))) {
+      if (known.revision !== symbolLandRevision) profileCount('symbols.revalidatedFits');
+      known.revision = symbolLandRevision;
+      profileCount('symbols.cacheHits');
+      return { ...known.fit, placed: refit(draw, known.fit, size) };
+    }
+    if (known) profileCount('symbols.invalidatedFits');
+    profileCount('symbols.searches');
+    const probes: SymbolFitRecord['probes'] = [];
+    const fitted = keepToLand(draw, centre, size, p => {
+      const land = onLand(p);
+      probes.push({ at: { ...p }, land });
+      return land;
+    }, inHex);
+    const fit = { ...fitted, placed: [] };
+    symbolPlacements.set(cacheKey, { revision: symbolLandRevision, fit, probes }, probes.length * 48 + 128);
     return fitted;
   };
   /** Records a hex whose symbols (`what`, such as "hills symbols") were drawn smaller than asked, or left out. */
@@ -1902,9 +1945,9 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
     const want = islandCover(i);
     // What fixes the islands' shapes and places, and so the size that covers `want`.
     if (base![i] === 'Mainland and islands') mainlandNear(i);
-    const mainland = base![i] === 'Mainland and islands' ? [...mainlandOf(i).map((ring) => ring.map((q) => `${Math.round(q.x * 10)},${Math.round(q.y * 10)}`).join(' ')), mainlandKeys.get(i) ?? ''] : [];
-    const memoKey = JSON.stringify([size, seed, inkReach, i, cols, levelOf(i), knobs.islands, spec, Math.round(coastward(i, spec) * 1000), want, dimensions.largeIslandPercent, dimensions.smallIslandPercent, mainland]);
-    let times = islandScaleMemo.get(memoKey);
+    const mainland = base![i] === 'Mainland and islands' ? [...mainlandOf(i).map((ring) => ring.map(q => [q.x, q.y])), mainlandKeys.get(i) ?? ''] : [];
+    const memoKey = JSON.stringify([size, seed, inkReach, i, cols, levelOf(i), knobs.islands, spec, coastward(i, spec), want, dimensions.largeIslandPercent, dimensions.smallIslandPercent, mainland]);
+    let times = renderCachesEnabled() ? islandScaleMemo.get(memoKey) : undefined;
     if (times === undefined) {
       times = 1;
       const floor = islandFloor(i);
@@ -1950,8 +1993,8 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
         // Islands that cannot all fit at their share are drawn smaller, not run together.
         times = fits > 0 && over < Infinity ? Math.min(best.t, fits) : best.t;
       }
-      if (islandScaleMemo.size > 20000) islandScaleMemo.clear();
-      islandScaleMemo.set(memoKey, times);
+      if (renderCachesEnabled() && islandScaleMemo.size > 20000) islandScaleMemo.clear();
+      if (renderCachesEnabled()) islandScaleMemo.set(memoKey, times);
     }
     islandScales.set(i, times);
     return times;
@@ -2107,6 +2150,7 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
     if (clip && drawn.length > 0) prims.push({ kind: 'group', clip, clipRule: componentWaterClip ? 'evenodd' : 'nonzero', prims: drawn });
   }
 
+  phase('lakes');
   // --- lakes ----------------------------------------------------------------------
   /**
    * A land hex with lake on two sides that do not touch: a strip between two
@@ -2285,6 +2329,7 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
       return inside;
     });
 
+  phase('islands');
   // --- islands ------------------------------------------------------------------
   const islandLand = uniformLand ? palette.land : palette.island;
   for (const i of islands) {
@@ -2384,6 +2429,7 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
     );
   }
 
+  phase('borders');
   // --- polity borders ------------------------------------------------------
   // Each realm's border is traced as continuous loops round its hexes and
   // drawn as a band clipped to the inside of the realm, so corners join
@@ -2634,6 +2680,7 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
     }
   }
 
+  phase('symbols');
   // --- drawn relief and vegetation ----------------------------------------------------
   /** Where each drawn relief or vegetation symbol sits in `prims`, so names can later fade those under them. */
   const reliefRuns: Array<{ hex: number; at: Point; from: number; to: number }> = [];
@@ -2700,6 +2747,7 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
   /** A city marker's radius: grows with population, at a little under the old markers' weight. */
   const markerRadius = (population: number) =>
     0.85 * Math.max(size * 0.16, Math.min(size * 0.46, size * 0.1 * Math.log10(Math.max(10, population))));
+  phase('rivers');
   // --- rivers --------------------------------------------------------------
   const rivers = opts.visible.rivers ? layers.rivers.data : null;
   const tapered = knobs.rivers === 'tapered';
@@ -2880,6 +2928,7 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
     prims.push({ kind: 'texture', x: 0, y: 0, width, height, tile: grainTile(palette.grain, palette.grainStrength) });
   }
 
+  phase('cities');
   // --- cities --------------------------------------------------------------
   const cities = opts.visible.cities ? layers.cities.data : null;
   const riverIcons = new Map<string, Point>([...tapering.values()].flatMap((course) => course.icons.map((icon) => [icon.id, icon.at] as [string, Point])));
@@ -2938,6 +2987,7 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
     }
   }
 
+  phase('polityLabels');
   // --- labels --------------------------------------------------------------
   // Realm names are placed first and avoid only the city markers; river and
   // range names follow their features; city names then take whichever slot
@@ -2979,34 +3029,42 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
     const nameNotes = nameNotesOut;
     if (maxDepth === 0) {
       // The land as drawn depends on the traced coast and on how the islands are laid out.
-      const landKey = [traced, map.islandSpecs, map.hexDimensions, knobs.islands, knobs.coast];
-      const named = cachedPolityLabels(namingPolities!, cities, cols, rows, size, obstacles, opts.polityNames, knobs.realmNames, realmRole, lettering.id, labelLakes, unnamed, quickLandAt, landKey);
+      const landKey = [symbolLandRevision.id];
+      const named = cachedPolityLabels(namingPolities!, cols, rows, size, obstacles, opts.polityNames, knobs.realmNames, realmRole, lettering.id, labelLakes, unnamed, quickLandAt, landKey);
       nameNotes.push(...named.notes);
       levels.push({ labels: named.labels, depth: 0 });
     } else {
-      const claimed: LabelObstacle[] = [...obstacles];
-      for (let depth = 0; depth <= maxDepth; depth++) {
-        const labels = placePolityLabels({
-          cols,
-          rows,
-          size,
-          owner: ownersAtDepth(polities.polities, namingPolities!.owner, depth),
-          polities: polities.polities.filter((p) => depths.get(p.id) === depth && !unnamed.has(p.id)),
-          obstacles: claimed,
-          minHexes: opts.polityNames,
-          scale: depth === 0 ? 1 : 0.62 ** depth,
-          sizing: knobs.realmNames,
-          lakes: labelLakes,
-          land: quickLandAt,
-          notes: nameNotes,
-          measure: (text) => roleEm(realmRole, text, depth === 0 ? realmRole.weight : subWeight),
-        });
-        for (const label of labels) {
-          const em = Math.max(...label.lines.map((line) => roleEm(realmRole, line, depth === 0 ? realmRole.weight : subWeight)));
-          claimed.push(claimBox(label.at, em * label.size, label.size * LABEL_LINE_EM * label.lines.length, label.rotation, label.size));
+      const named = cachedPlacement('hierarchyLabels', [namingPolities!.owner,
+        polities.polities.map(p => [p.id, p.name, p.shortName, p.parentId]), cols, rows, size,
+        obstacles, opts.polityNames, knobs.realmNames, realmRole, subWeight, measureEpoch,
+        [...labelLakes], [...unnamed].sort(), symbolLandRevision.id], () => {
+        const cachedLevels: typeof levels = [], cachedNotes: PolityLabelNote[] = [];
+        const claimed: LabelObstacle[] = [...obstacles];
+        for (let depth = 0; depth <= maxDepth; depth++) {
+          const labels = placePolityLabels({
+            cols,
+            rows,
+            size,
+            owner: ownersAtDepth(polities.polities, namingPolities!.owner, depth),
+            polities: polities.polities.filter((p) => depths.get(p.id) === depth && !unnamed.has(p.id)),
+            obstacles: claimed,
+            minHexes: opts.polityNames,
+            scale: depth === 0 ? 1 : 0.62 ** depth,
+            sizing: knobs.realmNames,
+            lakes: labelLakes,
+            land: quickLandAt,
+            notes: cachedNotes,
+            measure: (text) => roleEm(realmRole, text, depth === 0 ? realmRole.weight : subWeight),
+          });
+          for (const label of labels) {
+            const em = Math.max(...label.lines.map((line) => roleEm(realmRole, line, depth === 0 ? realmRole.weight : subWeight)));
+            claimed.push(claimBox(label.at, em * label.size, label.size * LABEL_LINE_EM * label.lines.length, label.rotation, label.size));
+          }
+          cachedLevels.push({ labels, depth });
         }
-        levels.push({ labels, depth });
-      }
+        return { levels: cachedLevels, notes: cachedNotes };
+      });
+      levels.push(...named.levels); nameNotes.push(...named.notes);
     }
     for (const { labels, depth } of levels) {
       for (const label of labels) {
@@ -3081,10 +3139,16 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
     return { cx: c.x, cy: c.y, halfW: reach, halfH: reach, rotation: 0 };
   });
 
+  phase('featureLabels');
   // --- river and mountain range names -------------------------------------
   if (rivers && opts.riverNames) {
     const pathFor = tapered ? (id: string) => courses.get(id) ?? null : undefined;
-    for (const l of placeRiverLabels(rivers.rivers, size, pathFor, lettering.river, [...taken, ...cityBoxes], (id) => meanWidths.get(id), inLakeWater, (id) => widthProfiles.get(id))) {
+    const riverObstacles = [...taken, ...cityBoxes];
+    const riverNames = cachedPlacement('riverLabels', [rivers.rivers, size, lettering.river, measureEpoch,
+      riverObstacles, tapered ? [...courses] : null, [...meanWidths], [...widthProfiles], lakeShores],
+    () => placeRiverLabels(rivers.rivers, size, pathFor, lettering.river, riverObstacles,
+      (id) => meanWidths.get(id), inLakeWater, (id) => widthProfiles.get(id)));
+    for (const l of riverNames) {
       prims.push({
         kind: 'text',
         at: l.at,
@@ -3108,7 +3172,9 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
   }
   if (opts.rangeNames && showElevation && layers.elevation.data) {
     const rangeRole = lettering.range;
-    for (const l of placeRangeLabels(map.mountainRanges ?? [], layers.elevation.data, cols, size, rangeRole)) {
+    const rangeNames = cachedPlacement('rangeLabels', [map.mountainRanges, layers.elevation.data, cols, size, rangeRole, measureEpoch],
+      () => placeRangeLabels(map.mountainRanges ?? [], layers.elevation.data!, cols, size, rangeRole));
+    for (const l of rangeNames) {
       prims.push({
         kind: 'text',
         at: l.at,
@@ -3137,7 +3203,10 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
       .map((n) => ({ name: n.name, hexes: liveHexes(n, geoEligibility(n.kind, base!, cols, rows)) }))
       .filter((n) => n.hexes.length > 0);
   if (opts.seaNames && base) {
-    for (const l of placeWaterLabels(liveNames(['sea', 'lake']), cols, size, lettering.water, base, rows)) {
+    const waterAreas = liveNames(['sea', 'lake']);
+    const waterNames = cachedPlacement('waterLabels', [waterAreas, cols, rows, size, lettering.water, base, measureEpoch],
+      () => placeWaterLabels(waterAreas, cols, size, lettering.water, base, rows));
+    for (const l of waterNames) {
       prims.push({
         kind: 'text',
         at: l.at,
@@ -3160,7 +3229,10 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
   }
   if (opts.landNames && base) {
     const landRole = lettering.range;
-    for (const l of placeAreaLabels(liveNames(['land', 'island']), cols, size, landRole)) {
+    const landAreas = liveNames(['land', 'island']);
+    const landNames = cachedPlacement('areaLabels', [landAreas, cols, size, landRole, measureEpoch],
+      () => placeAreaLabels(landAreas, cols, size, landRole));
+    for (const l of landNames) {
       prims.push({
         kind: 'text',
         at: l.at,
@@ -3186,20 +3258,22 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
     // A capital, or the seat of a city-state, is named in capitals.
     const shown = (city: { id?: string; name: string; capital?: boolean }) =>
       city.capital || (city.id && seatIds.has(city.id)) ? city.name.toLocaleUpperCase() : city.name;
-    const placements = placeCityNames(
-      cities.cities.map((city) => ({
-        id: city.id,
-        name: shown(city),
-        at: siteOf(city),
-        r: markerReach(city.population, city.capital),
-        population: city.population,
-      })),
+    const cityInputs = cities.cities.map((city) => ({
+      id: city.id,
+      name: shown(city),
+      at: siteOf(city),
+      r: markerReach(city.population, city.capital),
+      population: city.population,
+    }));
+    const placements = cachedPlacement('cityLabels', [cityInputs, fontSize, lettering.city, measureEpoch,
+      taken, width, height, knobs.cityNames], () => placeCityNames(
+      cityInputs,
       fontSize,
       (text) => roleEm(lettering.city, text) * fontSize,
       taken,
       { width, height },
       knobs.cityNames,
-    );
+    ));
     const byId = new Map(cities.cities.map((c) => [c.id, c]));
     for (const p of placements) {
       prims.push({
@@ -3232,6 +3306,8 @@ export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
       return { cx: c.x, cy: c.y, halfW: reach, halfH: reach, rotation: 0 };
     }),
   };
+  phase();
+  profileCount('scene.primitives', prims.length);
   landTests.set(scene, landAt);
   symbolTraces.set(scene, traces);
   return scene;

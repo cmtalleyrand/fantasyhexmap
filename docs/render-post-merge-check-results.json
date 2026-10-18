@@ -1,0 +1,69 @@
+{
+  "integratedMain": "7585d36",
+  "scope": "Functional smoke check, not a calibrated performance comparison",
+  "allLayers": 8,
+  "labels": true,
+  "scenePayload": "metadata",
+  "metadataJsonBytes": 16702,
+  "inspectorEdits": 4,
+  "latestBurst": {
+    "value": "Land",
+    "displayed": {
+      "worker": 1,
+      "id": 76
+    },
+    "latest": {
+      "worker": 1,
+      "id": 76
+    }
+  },
+  "nativeScrolling": [
+    {
+      "mobile": false,
+      "moved": true
+    },
+    {
+      "mobile": true,
+      "moved": true
+    }
+  ],
+  "pageErrors": [],
+  "tests": {
+    "files": 53,
+    "concurrency": 2,
+    "passed": true
+  },
+  "workerProfiles": [
+    {
+      "coast.cacheMiss": 1,
+      "coast.traces": 3,
+      "coast.componentBuilds": 118,
+      "coast.globalPasses": 3,
+      "coast.fitGroupHits": 1,
+      "symbols.revalidatedFits": 539,
+      "symbols.cacheHits": 539,
+      "polityLabels.searches": 1,
+      "placement.searches": 1,
+      "riverLabels.cacheHits": 1,
+      "placement.cacheHits": 5,
+      "rangeLabels.cacheHits": 1,
+      "waterLabels.cacheHits": 1,
+      "areaLabels.cacheHits": 1,
+      "cityLabels.cacheHits": 1,
+      "scene.primitives": 5945
+    },
+    {
+      "coast.cacheHit": 1,
+      "coast.componentBuilds": 25,
+      "symbols.cacheHits": 539,
+      "polityLabels.cacheHits": 1,
+      "placement.cacheHits": 6,
+      "riverLabels.cacheHits": 1,
+      "rangeLabels.cacheHits": 1,
+      "waterLabels.cacheHits": 1,
+      "areaLabels.cacheHits": 1,
+      "cityLabels.cacheHits": 1,
+      "scene.primitives": 5945
+    }
+  ]
+}

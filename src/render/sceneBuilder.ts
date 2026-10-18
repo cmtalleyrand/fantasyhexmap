@@ -11,7 +11,7 @@ import type { Scene, SceneOptions } from './scene.js';
 export class SceneBuilder {
   private latest = 0;
   private inFlight: number | null = null;
-  private pending: { id: number; map: MapState; options: SceneOptions; lettering: LetteringId } | null = null;
+  private pending: { id: number; map: MapState; options: SceneOptions; lettering: LetteringId; profile: boolean } | null = null;
 
   constructor(callbacks: {
     built: (scene: Scene) => void;
@@ -26,8 +26,8 @@ export class SceneBuilder {
     };
   }
 
-  build(map: MapState, options: SceneOptions, lettering: LetteringId): void {
-    this.pending = { id: ++this.latest, map, options, lettering };
+  build(map: MapState, options: SceneOptions, lettering: LetteringId, profile = false): void {
+    this.pending = { id: ++this.latest, map, options, lettering, profile };
     this.flush();
   }
 
