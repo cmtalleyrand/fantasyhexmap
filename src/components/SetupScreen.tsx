@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { lazy, Suspense, useState } from 'react';
 import {
   DEFAULT_HEX_DIMENSIONS,
   LAYER_ORDER,
@@ -6,10 +6,15 @@ import {
   MIN_DIM,
   type HexDimensions,
   type LayerId,
+  type MapState,
 } from '../../shared/types.js';
+import { createMapState } from '../../shared/layers.js';
+import { reducer } from '../state/store.js';
 import type { Transport } from '../api/client.js';
 import LayerPicker from './LayerPicker.js';
 import HexSizeInput from './HexSizeInput.js';
+
+const WebchatDialog = lazy(() => import('./WebchatDialog.js'));
 
 const EXAMPLE =
   'The Sundered Coast: a long north-south continent on the western edge of a warm inland sea. ' +
@@ -21,6 +26,7 @@ const EXAMPLE =
 export default function SetupScreen({
   onCreate,
   onImport,
+  onCreateFromWebchat,
   transport,
   keyPresent,
   onOpenSettings,
@@ -34,6 +40,7 @@ export default function SetupScreen({
     hexDimensions: HexDimensions,
   ) => void;
   onImport: (file: File) => void;
+  onCreateFromWebchat: (map: MapState) => void;
   transport: Transport;
   /** Whether generation can actually run: a key is set, or the offline generator is on. */
   keyPresent: boolean;
@@ -45,12 +52,53 @@ export default function SetupScreen({
   const [rows, setRows] = useState('22');
   const [layers, setLayers] = useState<LayerId[]>([...LAYER_ORDER]);
   const [hexDimensions, setHexDimensions] = useState<HexDimensions>({ ...DEFAULT_HEX_DIMENSIONS });
+  // Keep the draft here: opening or cancelling a prompt must not create an autosaved map.
+  const [webchatDraft, setWebchatDraft] = useState<MapState | null>(null);
 
   const clamp = (v: string) =>
     Math.max(MIN_DIM, Math.min(MAX_DIM, Math.round(Number(v) || MIN_DIM)));
 
   return (
     <div className="setup">
+      {webchatDraft && (
+        <Suspense fallback={<div className="notice info" role="status">Preparing the prompt…</div>}>
+          <WebchatDialog
+            map={webchatDraft}
+            layer="base"
+            instruction={null}
+            initialLayers={webchatDraft.enabledLayers}
+            onClose={() => setWebchatDraft(null)}
+            onApply={(result) => onCreateFromWebchat(reducer(webchatDraft, {
+              type: 'applyGeneration',
+              layer: 'base',
+              data: result.data,
+              warnings: result.warnings,
+              notes: result.notes,
+              decisions: result.decisions,
+              model: result.source || null,
+              imported: true,
+              instruction: null,
+            }))}
+            onApplyMany={(results, source) => {
+              let next = webchatDraft;
+              for (const { layer, result } of results) {
+                next = reducer(next, {
+                  type: 'applyGeneration',
+                  layer,
+                  data: result.data,
+                  warnings: result.warnings,
+                  notes: result.notes,
+                  decisions: result.decisions,
+                  model: source || null,
+                  imported: true,
+                  instruction: null,
+                });
+              }
+              onCreateFromWebchat(next);
+            }}
+          />
+        </Suspense>
+      )}
       <h1>Fantasy hex map generator</h1>
       <p className="lede">
         Describe a world, choose a grid, and build it up one layer at a time - geography, elevation,
@@ -169,6 +217,14 @@ export default function SetupScreen({
           >
             Create map
           </button>
+          <button
+            disabled={description.trim().length === 0}
+            onClick={() => setWebchatDraft(createMapState(
+              description.trim(), clamp(cols), clamp(rows), name.trim() || 'Untitled map', layers, { ...hexDimensions },
+            ))}
+          >
+            Create prompt for chat AI…
+          </button>
           <label className="file-button">
             Import a map JSON
             <input
@@ -182,6 +238,10 @@ export default function SetupScreen({
             />
           </label>
         </div>
+        <p className="hint">
+          Start in a chat AI before creating a map: copy a prompt for Base Geography or your selected
+          layers, then paste the reply back to create the map. No API key required.
+        </p>
       </div>
     </div>
   );

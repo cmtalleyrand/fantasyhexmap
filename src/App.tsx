@@ -792,6 +792,10 @@ export default function App() {
           keyPresent={apiKey.trim().length > 0 || prefs.offline}
           onOpenSettings={() => setShowSettings(true)}
           onImport={handleImport}
+          onCreateFromWebchat={(created) => {
+            dispatch({ type: 'load', map: created });
+            setError(null);
+          }}
           onCreate={(description, cols, rows, name, layers, hexDimensions) =>
             dispatch({ type: 'load', map: createMapState(description, cols, rows, name, layers, hexDimensions) })
           }
