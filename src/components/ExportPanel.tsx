@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { LAYER_META, plannedLayers } from '../../shared/layers.js';
 import { type LayerId, type MapState } from '../../shared/types.js';
 import type { AuditIssue } from '../render/audit.js';
@@ -81,10 +81,22 @@ export default function ExportPanel({
   const [furniture, setFurniture] = useState<MarginaliaOptions>({ frame: false, title: false, scaleBar: false, compass: false });
   const [overlaps, setOverlaps] = useState<AuditIssue[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const running = useRef(false);
+  const [busy, setBusy] = useState(false);
 
-  const run = (fn: () => Promise<void>) => {
+  const run = async (fn: () => Promise<void>) => {
+    if (running.current) return;
+    running.current = true;
+    setBusy(true);
     setError(null);
-    fn().catch((e) => setError(e instanceof Error ? e.message : String(e)));
+    try {
+      await fn();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      running.current = false;
+      setBusy(false);
+    }
   };
 
   const opts = {
@@ -110,7 +122,7 @@ export default function ExportPanel({
   return (
     <div className="section">
       <h2>Export image</h2>
-      <div className="stack">
+      <fieldset className="stack" disabled={busy} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
         <div className="row">
           <select value={format} onChange={(e) => setFormat(e.target.value as 'png' | 'svg')}>
             <option value="png">PNG (raster)</option>
@@ -291,8 +303,9 @@ export default function ExportPanel({
           )}
         </div>
 
-        {error && <div className="notice error">{error}</div>}
-      </div>
+        {busy && <div className="hint" role="status">Preparing export…</div>}
+        {error && <div className="notice error" role="alert">{error}</div>}
+      </fieldset>
     </div>
   );
 }

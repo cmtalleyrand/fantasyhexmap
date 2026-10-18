@@ -14,39 +14,15 @@ import {
   VEGETATION_GROUPS,
   VEGETATION_VALUES,
 } from '../../shared/types.js';
-import type { PolityNameMin } from './labels.js';
 import { straitSharers } from '../../shared/straits.js';
-import { renderToCanvas } from './canvas.js';
-import { appendLegend, legendSections, type LegendOptions } from './legend.js';
+import { legendSections, type LegendOptions } from './legend.js';
 import { auditScene, type AuditIssue } from './audit.js';
-import { addMarginalia, marginaliaWanted, type MarginaliaOptions } from './marginalia.js';
-import { buildScene, singleLayerVisibility, type Scene, type VisibleLayers } from './scene.js';
+import { singleLayerVisibility, type VisibleLayers } from './scene.js';
+import { buildExportScene, type ExportOptions } from './exportScene.js';
 import { sceneToSvg } from './svg.js';
-import { CLASSIC_STYLE, elevationStyleOf, type ElevationStyle, type MapStyle } from './styles.js';
+import { CLASSIC_STYLE, type ElevationStyle, type MapStyle } from './styles.js';
 
-export interface ExportOptions {
-  format: 'png' | 'svg';
-  labels: boolean;
-  riverNames?: boolean;
-  rangeNames?: boolean;
-  seaNames?: boolean;
-  landNames?: boolean;
-  polityNames?: PolityNameMin;
-  cityStateMax?: number;
-  elevationStyle?: ElevationStyle;
-  polityOpacity?: number;
-  uniformLand?: boolean;
-  style?: MapStyle;
-  /** Hex circumradius in px used to lay the scene out. */
-  size?: number;
-  /** PNG pixel multiplier on top of `size`. */
-  scale?: number;
-  transparentBackground?: boolean;
-  /** Append a legend panel to the right of the map. Omit or null for a bare map. */
-  legend?: LegendOptions | null;
-  /** Frame, title, scale bar and compass. Omit or null for a bare map. */
-  marginalia?: MarginaliaOptions | null;
-}
+export { buildExportScene, type ExportOptions } from './exportScene.js';
 
 function download(blob: Blob, filename: string): void {
   const url = URL.createObjectURL(blob);
@@ -69,43 +45,6 @@ function slug(s: string): string {
   return s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'map';
 }
 
-/** The scene an export draws: the map, plus its legend when one is requested. */
-export function buildExportScene(map: MapState, visible: VisibleLayers, opts: ExportOptions): Scene {
-  const size = opts.size ?? 32;
-  const scene = buildScene(map, {
-    size,
-    visible,
-    labels: opts.labels,
-    riverNames: opts.riverNames,
-    rangeNames: opts.rangeNames,
-    seaNames: opts.seaNames,
-    landNames: opts.landNames,
-    polityNames: opts.polityNames,
-    cityStateMax: opts.cityStateMax,
-    elevationStyle: opts.elevationStyle,
-    polityOpacity: opts.polityOpacity,
-    uniformLand: opts.uniformLand,
-    style: opts.style,
-    selection: null,
-    hover: null,
-    transparentBackground: opts.transparentBackground ?? false,
-  });
-  const furniture = marginaliaWanted(opts.marginalia) ? opts.marginalia : null;
-  let out = scene;
-  if (opts.legend) {
-    const sections = legendSections(
-      map,
-      visible,
-      opts.elevationStyle ?? elevationStyleOf(opts.style ?? CLASSIC_STYLE),
-      opts.legend,
-      opts.style,
-    );
-    // A title set on the map is not repeated at the head of the legend.
-    out = appendLegend(scene, sections, opts.legend.title && !furniture?.title ? map.name : null, size);
-  }
-  return furniture ? addMarginalia(map, out, size, furniture, opts.style) : out;
-}
-
 /**
  * Lay the export out as `exportComposite` would and report every overlap among
  * its names and map furniture (see audit.ts). Nothing is downloaded.
@@ -122,22 +61,20 @@ async function emit(
   opts: ExportOptions,
   nameSuffix: string,
 ): Promise<void> {
+  const filename = `${slug(map.name)}-${nameSuffix}.${opts.format}`;
+  if (opts.format === 'png') {
+    const { exportPng } = await import('./exportPng.js');
+    download(await exportPng(map, visible, opts), filename);
+    return;
+  }
   // The bundled fonts are loaded before the scene is laid out, so names are
   // measured and drawn in them (the module is browser-only, hence the import).
   const fonts = await import('./fontFiles.js');
   await fonts.loadLettering((opts.style ?? CLASSIC_STYLE).knobs.lettering);
   const scene = buildExportScene(map, visible, opts);
-  const filename = `${slug(map.name)}-${nameSuffix}.${opts.format}`;
-  if (opts.format === 'svg') {
-    download(new Blob([sceneToSvg(scene, `${map.name} - ${nameSuffix}`, await fonts.embeddedFontCss(scene))], {
-      type: 'image/svg+xml;charset=utf-8',
-    }), filename);
-    return;
-  }
-  const canvas = renderToCanvas(scene, opts.scale ?? 2);
-  const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png'));
-  if (!blob) throw new Error('The browser could not encode the PNG.');
-  download(blob, filename);
+  download(new Blob([sceneToSvg(scene, `${map.name} - ${nameSuffix}`, await fonts.embeddedFontCss(scene))], {
+    type: 'image/svg+xml;charset=utf-8',
+  }), filename);
 }
 
 export function exportLayer(map: MapState, layer: LayerId, opts: ExportOptions): Promise<void> {
