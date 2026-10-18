@@ -33,7 +33,7 @@ export function workerProbe() {
   window.workerDurations = [];
   window.lastSharpFrame = 0;
   window.sharpFramesPending = 0;
-  let scene;
+  let scene, build;
   const jobs = new Map();
   const nativeDrawImage = CanvasRenderingContext2D.prototype.drawImage;
   CanvasRenderingContext2D.prototype.drawImage = function(source, ...args) {
@@ -48,7 +48,8 @@ export function workerProbe() {
     }
     return nativeDrawImage.call(this, source, ...args);
   };
-  window.workerReference = (draw, frame, background, compositeClips = false) => {
+  window.workerReference = (draw, frame, background, compositeClips = false, buildScene) => {
+    if (!frame.scene) frame = { ...frame, scene: buildScene(frame.build.map, frame.build.options) };
     const canvas = new OffscreenCanvas(Math.max(1, Math.floor(frame.size.width * frame.dpr)), Math.max(1, Math.floor(frame.size.height * frame.dpr)));
     const ctx = canvas.getContext('2d');
     ctx.setTransform(frame.dpr, 0, 0, frame.dpr, 0, 0);
@@ -70,21 +71,24 @@ export function workerProbe() {
       super(...args);
       this.addEventListener('message', event => {
         if (event.data?.id !== undefined) {
-          window.workerJobs--;
-          window.workerPaints++;
-          window.lastWorkerPaint = performance.now();
+          if (event.data.complete !== false) window.workerJobs--;
+          if (event.data.bitmap || event.data.overview) {
+            window.workerPaints++;
+            window.lastWorkerPaint = performance.now();
+          }
           const job = jobs.get(event.data.id);
-          if (job) window.workerDurations.push(performance.now() - job.started);
+          if (job && event.data.complete !== false) window.workerDurations.push(performance.now() - job.started);
           if (event.data.bitmap) window.workerLastFrame = jobs.get(event.data.id);
-          jobs.delete(event.data.id);
+          if (event.data.complete !== false) jobs.delete(event.data.id);
         }
       });
     }
     postMessage(...args) {
-      if (args[0]?.type === 'scene') scene = args[0].scene;
-      if (args[0]?.type === 'paint') {
+      if (args[0]?.type === 'scene') { scene = args[0].scene; build = undefined; }
+      if (args[0]?.type === 'build') { build = args[0]; scene = undefined; }
+      if (args[0]?.type === 'paint' || args[0]?.type === 'build') {
         window.workerJobs++;
-        jobs.set(args[0].id, { ...args[0], scene, started: performance.now() });
+        jobs.set(args[0].id, { ...args[0], scene, build, started: performance.now() });
       }
       super.postMessage(...args);
     }

@@ -380,7 +380,7 @@ interface TracedCoast {
   onLand: (p: Point) => boolean;
 }
 
-const coastCache = new WeakMap<object, TracedCoast & { key: string }>();
+const coastCache = new WeakMap<object, Map<string, TracedCoast>>();
 
 /** Where each hex's relief and vegetation symbols were fitted to the land of a traced coast (see `keepToLand`). */
 const symbolFits = new WeakMap<object, { dry: ((p: Point) => boolean) | null; fits: Map<string, Fitted> }>();
@@ -428,8 +428,9 @@ function cachedCoast(
   inkReach: number,
 ): TracedCoast {
   const key = `${cols}x${rows}@${size}/${smooth}/${inkReach}/${seed}/${defaultIrregularity ?? ''}/${shapesSignature(shapes)}/${dimensions.coastalLandPercent},${dimensions.lakeLandPercent},${dimensions.glacierPercent},${dimensions.isthmusWidth},${dimensions.straitWidth},${dimensions.isthmusPercent ?? ''},${dimensions.straitPercent ?? ''},${dimensions.mainlandPercent}`;
-  const hit = coastCache.get(base);
-  if (hit && hit.key === key) return hit;
+  const cached = coastCache.get(base);
+  const hit = cached?.get(key);
+  if (hit) return hit;
   const lakeIslands = lakeIslandsOf(base, cols, rows);
   const surface = surfaceMap(base, cols, rows, lakeIslands);
   const { lakes } = lakeComponents(base, cols, rows, surface);
@@ -697,7 +698,10 @@ function cachedCoast(
   }
   for (const i of lakeInsets.keys()) lakeAim.set(i, { land: landFraction('Lake', undefined, dimensions, shapes?.[String(i)]), lake: true });
   const entry = { key, geometry, coverage, lakes, lakeIslands, surface, insets: shaped?.insets ?? new Map<number, number>(), lakeInsets, lakeAim, onLand: landTest(surface, shaped?.land ?? new Map(), size) };
-  coastCache.set(base, entry);
+  const variants = cached ?? new Map<string, TracedCoast>();
+  if (variants.size >= 3) variants.delete(variants.keys().next().value!);
+  variants.set(key, entry);
+  coastCache.set(base, variants);
   return entry;
 }
 
