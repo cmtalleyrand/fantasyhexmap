@@ -1,3 +1,4 @@
+import type { RenderProfile } from './profile.js';
 import type { LetteringId } from './lettering.js';
 import type { Scene } from './scene.js';
 import type { View } from './view.js';
@@ -9,7 +10,7 @@ export interface PaintView {
 }
 
 export type PaintRequest =
-  | { type: 'scene'; version: number; scene: Scene; lettering: LetteringId }
+  | { type: 'scene'; version: number; scene: Scene; lettering: LetteringId; profile?: boolean }
   | ({ type: 'paint'; version: number; id: number } & PaintView);
 
 export interface PaintReply {
@@ -18,4 +19,5 @@ export interface PaintReply {
   bitmap?: ImageBitmap;
   overview?: { bitmap: ImageBitmap; width: number; height: number };
   error?: string;
+  profile?: RenderProfile;
 }

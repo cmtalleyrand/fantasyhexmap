@@ -152,7 +152,7 @@ export default function MapView(props: MapViewProps) {
   const highlightRiver = props.riverTool?.selectedId ?? null;
   const sceneOptions = useMemo(() => ({
     size: HEX_SIZE, visible, labels, riverNames, rangeNames, seaNames, landNames, polityNames, cityStateMax, polityOpacity,
-    style: mapStyle, highlightRiver,
+    style: mapStyle, highlightRiver, cache: new URLSearchParams(location.search).has('renderFull') ? 'off' as const : undefined,
   }), [visible, labels, riverNames, rangeNames, seaNames, landNames, polityNames, cityStateMax, polityOpacity, mapStyle, highlightRiver]);
   const blank = useMemo((): Scene => ({ ...gridPixelSize(map.cols, map.rows, HEX_SIZE), background: mapStyle.palette.sea, prims: [] }),
     [map.cols, map.rows, mapStyle.palette.sea]);
@@ -183,7 +183,7 @@ export default function MapView(props: MapViewProps) {
   useEffect(() => {
     if (!builderEnabled) return;
     requestedMap.current = map.id;
-    builder.current?.build(map, sceneOptions, lettering);
+    builder.current?.build(map, sceneOptions, lettering, new URLSearchParams(location.search).has('renderProfile'));
   }, [builderEnabled, map, sceneOptions, lettering]);
   const directScene = useMemo((): Scene | null => {
     if (builderEnabled) return null;
@@ -291,7 +291,7 @@ export default function MapView(props: MapViewProps) {
   }, [workerEnabled]);
 
   useLayoutEffect(() => {
-    if (scene.prims.length > 0) painter.current?.setScene(scene, lettering);
+    if (scene.prims.length > 0) painter.current?.setScene(scene, lettering, new URLSearchParams(location.search).has('renderProfile'));
   }, [scene, lettering, workerEnabled]);
 
   useLayoutEffect(() => {

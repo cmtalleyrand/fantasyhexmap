@@ -4,11 +4,6 @@ import type { PathCmd } from './prims.js';
 import { polygonSliver } from './sliver.js';
 const lerp = (a: Point, b: Point, t: number): Point => ({ x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t });
 const distance = (a: Point, b: Point) => Math.hypot(a.x - b.x, a.y - b.y);
-function segmentDistance(p: Point, e: CoastEdge): number {
-  const dx = e.to.x - e.from.x, dy = e.to.y - e.from.y;
-  const t = Math.max(0, Math.min(1, ((p.x - e.from.x) * dx + (p.y - e.from.y) * dy) / (dx * dx + dy * dy || 1)));
-  return distance(p, lerp(e.from, e.to, t));
-}
 /** Spatial index shared by all component rings: nearby islands and holes constrain each other. */
 export function coastClearance(chains: CoastChain[], size: number) {
   type Entry = {
@@ -16,6 +11,8 @@ export function coastClearance(chains: CoastChain[], size: number) {
     chain: CoastChain;
     arc: number;
     length: number;
+    x0: number; y0: number; x1: number; y1: number;
+    dx: number; dy: number; length2: number;
   };
   const bins = new Map<number, Map<number, Entry[]>>();
   const lengths = new Map<CoastChain, number>();
@@ -23,7 +20,12 @@ export function coastClearance(chains: CoastChain[], size: number) {
     let arc = 0;
     for (const edge of chain.edges) {
       const length = distance(edge.from, edge.to);
-      const entry = { edge, chain, arc, length };
+      const dx = edge.to.x - edge.from.x, dy = edge.to.y - edge.from.y;
+      // Fixed while this spatial index is in use; all queries share these bounds
+      // and projection coefficients. Rebuild the index when a fit moves the rings.
+      const entry = { edge, chain, arc, length, dx, dy, length2: dx * dx + dy * dy || 1,
+        x0: Math.min(edge.from.x, edge.to.x), x1: Math.max(edge.from.x, edge.to.x),
+        y0: Math.min(edge.from.y, edge.to.y), y1: Math.max(edge.from.y, edge.to.y) };
       for (let x = Math.floor(Math.min(edge.from.x, edge.to.x) / size); x <= Math.floor(Math.max(edge.from.x, edge.to.x) / size); x++)
         for (let y = Math.floor(Math.min(edge.from.y, edge.to.y) / size); y <= Math.floor(Math.max(edge.from.y, edge.to.y) / size); y++) {
           let column = bins.get(x);
@@ -57,11 +59,12 @@ export function coastClearance(chains: CoastChain[], size: number) {
         if (chain.closed) gap = Math.min(gap, lengths.get(chain)! - gap);
         if (gap < size * 2 + e.length / 2) continue;
       }
-      const a = e.edge.from, b = e.edge.to;
-      const bx = Math.max(0, Math.min(a.x, b.x) - p.x, p.x - Math.max(a.x, b.x));
-      const by = Math.max(0, Math.min(a.y, b.y) - p.y, p.y - Math.max(a.y, b.y));
+      const a = e.edge.from;
+      const bx = Math.max(0, e.x0 - p.x, p.x - e.x1);
+      const by = Math.max(0, e.y0 - p.y, p.y - e.y1);
       if (bx * bx + by * by > nearest * nearest) continue;
-      nearest = Math.min(nearest, segmentDistance(p, e.edge));
+      const t = Math.max(0, Math.min(1, ((p.x - a.x) * e.dx + (p.y - a.y) * e.dy) / e.length2));
+      nearest = Math.min(nearest, Math.hypot(p.x - (a.x + e.dx * t), p.y - (a.y + e.dy * t)));
     }
     return nearest;
   };

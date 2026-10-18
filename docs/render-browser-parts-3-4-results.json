@@ -1,0 +1,4783 @@
+{
+  "browser": "151.0.7922.173",
+  "fixtureSha256": "22fafabf1b6bd3bdbbd73aa0d052a4572d442a18d2da2f63ab5f576ebdeb4a38",
+  "source": {
+    "src/render/scene.ts": {
+      "before": "9951ece8b8aafbc86325ed1b7eb4da7afc0f16ab9d9f7dbff276f51b728c2495",
+      "after": "19a2d3ef3720805de728fd1818703c5f264ac83dcdeb819b39d9c7724258bfa5"
+    },
+    "src/render/coast.ts": {
+      "before": "6273641941c5693596f968552e0f6206eb649197cdc3fd5dfda3561df7293c28",
+      "after": "38458d3bd1a93c7d3c1b3869e1337d4a3fbbbfade632ce2cae8c219d03a2246a"
+    },
+    "src/render/cache.ts": {
+      "before": null,
+      "after": "313f595d811bff38eb90fe9a21b5aca7772e1104204898a1224f3fdf592d7688"
+    },
+    "src/render/placementCache.ts": {
+      "before": null,
+      "after": "388dbcc82f530ce8bcdd7c8dd78b01e4ee6f1ef65f974ff27f1dcec7eb165a75"
+    },
+    "src/render/fontFiles.ts": {
+      "before": "370fecb0414b52681aa6fa84d9f91727fbf5d1c08d111184b18abcaac277a70d",
+      "after": "b802f19d4c12576ec1c96c840bcedbb3ff53c1bbaa7e872295927c877d26f7d5"
+    },
+    "scripts/render-edit-fixtures.ts": {
+      "before": null,
+      "after": "703311a719ac565d520b2af8cd5f097374ff6cf1b3890956897bd8ea0653c810"
+    }
+  },
+  "production": {
+    "populated": {
+      "before": {
+        "fixtureSha256": "22fafabf1b6bd3bdbbd73aa0d052a4572d442a18d2da2f63ab5f576ebdeb4a38",
+        "opening": {
+          "median": 4929.5,
+          "p95": 5107,
+          "max": 5107
+        },
+        "edits": {
+          "median": 3319.2999999970198,
+          "p95": 3769.1999999955297,
+          "max": 3995.10000000149
+        },
+        "gates": {
+          "coldOpeningUnder1000ms": false,
+          "editInputUnder33ms": true,
+          "editCadenceUnder33_5ms": false,
+          "nativeScrollingMoved": true
+        },
+        "navigationTested": true,
+        "errors": [],
+        "openings": [
+          {
+            "run": 0,
+            "cache": "cold",
+            "firstNonblankMs": 4929.5,
+            "sharpMs": 4929.5,
+            "layers": 8,
+            "labels": true
+          },
+          {
+            "run": 0,
+            "cache": "warm-reopen",
+            "firstNonblankMs": 4561.29999999702,
+            "sharpMs": 4561.29999999702,
+            "layers": 8,
+            "labels": true
+          },
+          {
+            "run": 1,
+            "cache": "cold",
+            "firstNonblankMs": 4742.20000000298,
+            "sharpMs": 4742.20000000298,
+            "layers": 8,
+            "labels": true
+          },
+          {
+            "run": 1,
+            "cache": "warm-reopen",
+            "firstNonblankMs": 4662.80000000447,
+            "sharpMs": 4662.80000000447,
+            "layers": 8,
+            "labels": true
+          },
+          {
+            "run": 2,
+            "cache": "cold",
+            "firstNonblankMs": 4848.89999999851,
+            "sharpMs": 4848.89999999851,
+            "layers": 8,
+            "labels": true
+          },
+          {
+            "run": 2,
+            "cache": "warm-reopen",
+            "firstNonblankMs": 4440.60000000149,
+            "sharpMs": 4440.60000000149,
+            "layers": 8,
+            "labels": true
+          },
+          {
+            "run": 3,
+            "cache": "cold",
+            "firstNonblankMs": 4754.29999999702,
+            "sharpMs": 4754.29999999702,
+            "layers": 8,
+            "labels": true
+          },
+          {
+            "run": 3,
+            "cache": "warm-reopen",
+            "firstNonblankMs": 4798.5,
+            "sharpMs": 4798.5,
+            "layers": 8,
+            "labels": true
+          },
+          {
+            "run": 4,
+            "cache": "cold",
+            "firstNonblankMs": 4894.10000000149,
+            "sharpMs": 4894.10000000149,
+            "layers": 8,
+            "labels": true
+          },
+          {
+            "run": 4,
+            "cache": "warm-reopen",
+            "firstNonblankMs": 4479.89999999851,
+            "sharpMs": 4479.89999999851,
+            "layers": 8,
+            "labels": true
+          },
+          {
+            "run": 5,
+            "cache": "cold",
+            "firstNonblankMs": 4984.39999999851,
+            "sharpMs": 4984.39999999851,
+            "layers": 8,
+            "labels": true
+          },
+          {
+            "run": 5,
+            "cache": "warm-reopen",
+            "firstNonblankMs": 4353.70000000298,
+            "sharpMs": 4353.70000000298,
+            "layers": 8,
+            "labels": true
+          },
+          {
+            "run": 6,
+            "cache": "cold",
+            "firstNonblankMs": 5107,
+            "sharpMs": 5107,
+            "layers": 8,
+            "labels": true
+          },
+          {
+            "run": 6,
+            "cache": "warm-reopen",
+            "firstNonblankMs": 4639.80000000447,
+            "sharpMs": 4639.80000000447,
+            "layers": 8,
+            "labels": true
+          },
+          {
+            "run": 7,
+            "cache": "cold",
+            "firstNonblankMs": 4949.0999999940395,
+            "sharpMs": 4949.0999999940395,
+            "layers": 8,
+            "labels": true
+          },
+          {
+            "run": 7,
+            "cache": "warm-reopen",
+            "firstNonblankMs": 4382.10000000149,
+            "sharpMs": 4382.10000000149,
+            "layers": 8,
+            "labels": true
+          },
+          {
+            "run": 8,
+            "cache": "cold",
+            "firstNonblankMs": 4804,
+            "sharpMs": 4804,
+            "layers": 8,
+            "labels": true
+          },
+          {
+            "run": 8,
+            "cache": "warm-reopen",
+            "firstNonblankMs": 4485.10000000149,
+            "sharpMs": 4485.10000000149,
+            "layers": 8,
+            "labels": true
+          },
+          {
+            "run": 9,
+            "cache": "cold",
+            "firstNonblankMs": 4950,
+            "sharpMs": 4950,
+            "layers": 8,
+            "labels": true
+          },
+          {
+            "run": 9,
+            "cache": "warm-reopen",
+            "firstNonblankMs": 4372.20000000298,
+            "sharpMs": 4372.20000000298,
+            "layers": 8,
+            "labels": true
+          }
+        ],
+        "editSamples": [
+          {
+            "edit": 0,
+            "sharpMs": 3573.2000000029802,
+            "input": {
+              "median": 11.799999997019768,
+              "p95": 11.799999997019768,
+              "max": 11.799999997019768
+            },
+            "frames": {
+              "median": 16.699999999999818,
+              "p95": 16.799999999999272,
+              "max": 100
+            },
+            "longTasks": 1,
+            "builds": 1
+          },
+          {
+            "edit": 1,
+            "sharpMs": 3442.3000000044703,
+            "input": {
+              "median": 11,
+              "p95": 11,
+              "max": 11
+            },
+            "frames": {
+              "median": 16.69999999999891,
+              "p95": 16.700000000000728,
+              "max": 99.89999999999964
+            },
+            "longTasks": 1,
+            "builds": 1
+          },
+          {
+            "edit": 2,
+            "sharpMs": 3247.39999999851,
+            "input": {
+              "median": 12.700000002980232,
+              "p95": 12.700000002980232,
+              "max": 12.700000002980232
+            },
+            "frames": {
+              "median": 16.69999999999891,
+              "p95": 16.700000000000728,
+              "max": 116.60000000000036
+            },
+            "longTasks": 2,
+            "builds": 1
+          },
+          {
+            "edit": 3,
+            "sharpMs": 3768.2000000029802,
+            "input": {
+              "median": 11,
+              "p95": 11,
+              "max": 11
+            },
+            "frames": {
+              "median": 16.69999999999709,
+              "p95": 16.799999999999272,
+              "max": 100
+            },
+            "longTasks": 2,
+            "builds": 1
+          },
+          {
+            "edit": 4,
+            "sharpMs": 3399.5999999940395,
+            "input": {
+              "median": 11,
+              "p95": 11,
+              "max": 11
+            },
+            "frames": {
+              "median": 16.700000000000728,
+              "p95": 16.799999999999272,
+              "max": 166.6999999999971
+            },
+            "longTasks": 2,
+            "builds": 1
+          },
+          {
+            "edit": 5,
+            "sharpMs": 3380.60000000149,
+            "input": {
+              "median": 11.399999998509884,
+              "p95": 11.399999998509884,
+              "max": 11.399999998509884
+            },
+            "frames": {
+              "median": 16.700000000000728,
+              "p95": 16.799999999999272,
+              "max": 100
+            },
+            "longTasks": 2,
+            "builds": 1
+          },
+          {
+            "edit": 6,
+            "sharpMs": 3247.39999999851,
+            "input": {
+              "median": 13.299999997019768,
+              "p95": 13.299999997019768,
+              "max": 13.299999997019768
+            },
+            "frames": {
+              "median": 16.700000000000728,
+              "p95": 16.700000000000728,
+              "max": 116.59999999999854
+            },
+            "longTasks": 2,
+            "builds": 1
+          },
+          {
+            "edit": 7,
+            "sharpMs": 3164.2000000029802,
+            "input": {
+              "median": 13.399999998509884,
+              "p95": 13.399999998509884,
+              "max": 13.399999998509884
+            },
+            "frames": {
+              "median": 16.69999999999709,
+              "p95": 16.799999999995634,
+              "max": 100
+            },
+            "longTasks": 1,
+            "builds": 1
+          },
+          {
+            "edit": 8,
+            "sharpMs": 3284,
+            "input": {
+              "median": 16.100000001490116,
+              "p95": 16.100000001490116,
+              "max": 16.100000001490116
+            },
+            "frames": {
+              "median": 16.69999999999709,
+              "p95": 16.700000000004366,
+              "max": 116.59999999999854
+            },
+            "longTasks": 2,
+            "builds": 1
+          },
+          {
+            "edit": 9,
+            "sharpMs": 2869.10000000149,
+            "input": {
+              "median": 13,
+              "p95": 13,
+              "max": 13
+            },
+            "frames": {
+              "median": 16.69999999999709,
+              "p95": 16.799999999995634,
+              "max": 83.29999999999563
+            },
+            "longTasks": 1,
+            "builds": 1
+          },
+          {
+            "edit": 10,
+            "sharpMs": 3319.2999999970198,
+            "input": {
+              "median": 13.200000002980232,
+              "p95": 13.200000002980232,
+              "max": 13.200000002980232
+            },
+            "frames": {
+              "median": 16.69999999999709,
+              "p95": 16.700000000004366,
+              "max": 100
+            },
+            "longTasks": 2,
+            "builds": 1
+          },
+          {
+            "edit": 11,
+            "sharpMs": 3067.7000000029802,
+            "input": {
+              "median": 12.099999994039536,
+              "p95": 12.099999994039536,
+              "max": 12.099999994039536
+            },
+            "frames": {
+              "median": 16.69999999999709,
+              "p95": 16.80000000000291,
+              "max": 83.40000000000146
+            },
+            "longTasks": 2,
+            "builds": 1
+          },
+          {
+            "edit": 12,
+            "sharpMs": 3769.1999999955297,
+            "input": {
+              "median": 10.599999994039536,
+              "p95": 10.599999994039536,
+              "max": 10.599999994039536
+            },
+            "frames": {
+              "median": 16.69999999999709,
+              "p95": 16.799999999995634,
+              "max": 116.59999999999854
+            },
+            "longTasks": 2,
+            "builds": 1
+          },
+          {
+            "edit": 13,
+            "sharpMs": 3494.10000000149,
+            "input": {
+              "median": 10,
+              "p95": 10,
+              "max": 10
+            },
+            "frames": {
+              "median": 16.69999999999709,
+              "p95": 16.799999999995634,
+              "max": 100
+            },
+            "longTasks": 2,
+            "builds": 1
+          },
+          {
+            "edit": 14,
+            "sharpMs": 3517.4000000059605,
+            "input": {
+              "median": 12.599999994039536,
+              "p95": 12.599999994039536,
+              "max": 12.599999994039536
+            },
+            "frames": {
+              "median": 16.69999999999709,
+              "p95": 16.799999999995634,
+              "max": 133.3000000000029
+            },
+            "longTasks": 2,
+            "builds": 1
+          },
+          {
+            "edit": 15,
+            "sharpMs": 3995.10000000149,
+            "input": {
+              "median": 9.5,
+              "p95": 9.5,
+              "max": 9.5
+            },
+            "frames": {
+              "median": 16.69999999999709,
+              "p95": 16.80000000000291,
+              "max": 233.29999999999563
+            },
+            "longTasks": 2,
+            "builds": 1
+          },
+          {
+            "edit": 16,
+            "sharpMs": 3150.5,
+            "input": {
+              "median": 13.100000001490116,
+              "p95": 13.100000001490116,
+              "max": 13.100000001490116
+            },
+            "frames": {
+              "median": 16.69999999999709,
+              "p95": 16.80000000000291,
+              "max": 116.70000000001164
+            },
+            "longTasks": 2,
+            "builds": 1
+          },
+          {
+            "edit": 17,
+            "sharpMs": 3043.3000000044703,
+            "input": {
+              "median": 11.699999995529652,
+              "p95": 11.699999995529652,
+              "max": 11.699999995529652
+            },
+            "frames": {
+              "median": 16.69999999999709,
+              "p95": 16.79999999998836,
+              "max": 100
+            },
+            "longTasks": 1,
+            "builds": 1
+          },
+          {
+            "edit": 18,
+            "sharpMs": 3231.5,
+            "input": {
+              "median": 12.5,
+              "p95": 12.5,
+              "max": 12.5
+            },
+            "frames": {
+              "median": 16.69999999999709,
+              "p95": 16.70000000001164,
+              "max": 100
+            },
+            "longTasks": 2,
+            "builds": 1
+          },
+          {
+            "edit": 19,
+            "sharpMs": 3061.5,
+            "input": {
+              "median": 11.800000004470348,
+              "p95": 11.800000004470348,
+              "max": 11.800000004470348
+            },
+            "frames": {
+              "median": 16.69999999999709,
+              "p95": 16.79999999998836,
+              "max": 116.60000000000582
+            },
+            "longTasks": 2,
+            "builds": 1
+          }
+        ],
+        "input": {
+          "median": 9.5,
+          "p95": 13.299999997019768,
+          "max": 16.100000001490116
+        },
+        "frames": {
+          "median": 16.69999999999709,
+          "p95": 16.799999999995634,
+          "max": 233.29999999999563
+        },
+        "navigation": [
+          {
+            "mobile": false,
+            "moved": true,
+            "input": {
+              "median": 0.6000000014901161,
+              "p95": 2.9000000059604645,
+              "max": 2.9000000059604645
+            },
+            "frames": {
+              "median": 16.69999999999709,
+              "p95": 16.80000000000291,
+              "max": 16.80000000000291
+            },
+            "longTasks": 0
+          },
+          {
+            "mobile": true,
+            "moved": true,
+            "input": {
+              "median": 1,
+              "p95": 1.6000000014901161,
+              "max": 1.6000000014901161
+            },
+            "frames": {
+              "median": 16.69999999999709,
+              "p95": 16.70000000001164,
+              "max": 16.70000000001164
+            },
+            "longTasks": 0
+          }
+        ]
+      },
+      "after": {
+        "fixtureSha256": "22fafabf1b6bd3bdbbd73aa0d052a4572d442a18d2da2f63ab5f576ebdeb4a38",
+        "opening": {
+          "median": 5055.89999999851,
+          "p95": 5744.70000000298,
+          "max": 5744.70000000298
+        },
+        "edits": {
+          "median": 1087.8999999985099,
+          "p95": 1239.1000000014901,
+          "max": 3823.39999999851
+        },
+        "gates": {
+          "coldOpeningUnder1000ms": false,
+          "editInputUnder33ms": true,
+          "editCadenceUnder33_5ms": false,
+          "nativeScrollingMoved": true
+        },
+        "navigationTested": true,
+        "errors": [],
+        "openings": [
+          {
+            "run": 0,
+            "cache": "cold",
+            "firstNonblankMs": 5067.5,
+            "sharpMs": 5067.5,
+            "layers": 8,
+            "labels": true
+          },
+          {
+            "run": 0,
+            "cache": "warm-reopen",
+            "firstNonblankMs": 4645.79999999702,
+            "sharpMs": 4645.79999999702,
+            "layers": 8,
+            "labels": true
+          },
+          {
+            "run": 1,
+            "cache": "cold",
+            "firstNonblankMs": 5119,
+            "sharpMs": 5119,
+            "layers": 8,
+            "labels": true
+          },
+          {
+            "run": 1,
+            "cache": "warm-reopen",
+            "firstNonblankMs": 4582.4000000059605,
+            "sharpMs": 4582.4000000059605,
+            "layers": 8,
+            "labels": true
+          },
+          {
+            "run": 2,
+            "cache": "cold",
+            "firstNonblankMs": 5055.89999999851,
+            "sharpMs": 5055.89999999851,
+            "layers": 8,
+            "labels": true
+          },
+          {
+            "run": 2,
+            "cache": "warm-reopen",
+            "firstNonblankMs": 5578.39999999851,
+            "sharpMs": 5578.39999999851,
+            "layers": 8,
+            "labels": true
+          },
+          {
+            "run": 3,
+            "cache": "cold",
+            "firstNonblankMs": 5744.70000000298,
+            "sharpMs": 5744.70000000298,
+            "layers": 8,
+            "labels": true
+          },
+          {
+            "run": 3,
+            "cache": "warm-reopen",
+            "firstNonblankMs": 4668.70000000298,
+            "sharpMs": 4668.70000000298,
+            "layers": 8,
+            "labels": true
+          },
+          {
+            "run": 4,
+            "cache": "cold",
+            "firstNonblankMs": 4803,
+            "sharpMs": 4803,
+            "layers": 8,
+            "labels": true
+          },
+          {
+            "run": 4,
+            "cache": "warm-reopen",
+            "firstNonblankMs": 4542.79999999702,
+            "sharpMs": 4542.79999999702,
+            "layers": 8,
+            "labels": true
+          },
+          {
+            "run": 5,
+            "cache": "cold",
+            "firstNonblankMs": 4964,
+            "sharpMs": 4964,
+            "layers": 8,
+            "labels": true
+          },
+          {
+            "run": 5,
+            "cache": "warm-reopen",
+            "firstNonblankMs": 4512.10000000149,
+            "sharpMs": 4512.10000000149,
+            "layers": 8,
+            "labels": true
+          },
+          {
+            "run": 6,
+            "cache": "cold",
+            "firstNonblankMs": 4950.80000000447,
+            "sharpMs": 4950.80000000447,
+            "layers": 8,
+            "labels": true
+          },
+          {
+            "run": 6,
+            "cache": "warm-reopen",
+            "firstNonblankMs": 4320.39999999851,
+            "sharpMs": 4320.39999999851,
+            "layers": 8,
+            "labels": true
+          },
+          {
+            "run": 7,
+            "cache": "cold",
+            "firstNonblankMs": 4622.5999999940395,
+            "sharpMs": 4622.5999999940395,
+            "layers": 8,
+            "labels": true
+          },
+          {
+            "run": 7,
+            "cache": "warm-reopen",
+            "firstNonblankMs": 4680.20000000298,
+            "sharpMs": 4680.20000000298,
+            "layers": 8,
+            "labels": true
+          },
+          {
+            "run": 8,
+            "cache": "cold",
+            "firstNonblankMs": 5040.60000000149,
+            "sharpMs": 5040.60000000149,
+            "layers": 8,
+            "labels": true
+          },
+          {
+            "run": 8,
+            "cache": "warm-reopen",
+            "firstNonblankMs": 4827,
+            "sharpMs": 4827,
+            "layers": 8,
+            "labels": true
+          },
+          {
+            "run": 9,
+            "cache": "cold",
+            "firstNonblankMs": 5450.10000000149,
+            "sharpMs": 5450.10000000149,
+            "layers": 8,
+            "labels": true
+          },
+          {
+            "run": 9,
+            "cache": "warm-reopen",
+            "firstNonblankMs": 4874.5,
+            "sharpMs": 4874.5,
+            "layers": 8,
+            "labels": true
+          }
+        ],
+        "editSamples": [
+          {
+            "edit": 0,
+            "sharpMs": 3823.39999999851,
+            "input": {
+              "median": 8.600000001490116,
+              "p95": 8.600000001490116,
+              "max": 8.600000001490116
+            },
+            "frames": {
+              "median": 16.699999999999818,
+              "p95": 16.800000000000182,
+              "max": 66.69999999999891
+            },
+            "longTasks": 1,
+            "builds": 1
+          },
+          {
+            "edit": 1,
+            "sharpMs": 1110.6000000014901,
+            "input": {
+              "median": 8.899999998509884,
+              "p95": 8.899999998509884,
+              "max": 8.899999998509884
+            },
+            "frames": {
+              "median": 16.69999999999891,
+              "p95": 16.799999999999272,
+              "max": 83.29999999999927
+            },
+            "longTasks": 1,
+            "builds": 1
+          },
+          {
+            "edit": 2,
+            "sharpMs": 1121,
+            "input": {
+              "median": 11.199999995529652,
+              "p95": 11.199999995529652,
+              "max": 11.199999995529652
+            },
+            "frames": {
+              "median": 16.69999999999891,
+              "p95": 16.799999999999272,
+              "max": 150
+            },
+            "longTasks": 2,
+            "builds": 1
+          },
+          {
+            "edit": 3,
+            "sharpMs": 1155.5,
+            "input": {
+              "median": 13.099999994039536,
+              "p95": 13.099999994039536,
+              "max": 13.099999994039536
+            },
+            "frames": {
+              "median": 16.69999999999891,
+              "p95": 16.80000000000109,
+              "max": 116.69999999999891
+            },
+            "longTasks": 1,
+            "builds": 1
+          },
+          {
+            "edit": 4,
+            "sharpMs": 1005,
+            "input": {
+              "median": 11.399999998509884,
+              "p95": 11.399999998509884,
+              "max": 11.399999998509884
+            },
+            "frames": {
+              "median": 16.69999999999891,
+              "p95": 16.80000000000109,
+              "max": 83.5
+            },
+            "longTasks": 1,
+            "builds": 1
+          },
+          {
+            "edit": 5,
+            "sharpMs": 1036.1999999955297,
+            "input": {
+              "median": 11.399999998509884,
+              "p95": 11.399999998509884,
+              "max": 11.399999998509884
+            },
+            "frames": {
+              "median": 16.700000000000728,
+              "p95": 16.80000000000109,
+              "max": 150.10000000000036
+            },
+            "longTasks": 2,
+            "builds": 1
+          },
+          {
+            "edit": 6,
+            "sharpMs": 1139.5999999940395,
+            "input": {
+              "median": 12.5,
+              "p95": 12.5,
+              "max": 12.5
+            },
+            "frames": {
+              "median": 16.69999999999709,
+              "p95": 16.799999999999272,
+              "max": 150.09999999999854
+            },
+            "longTasks": 1,
+            "builds": 1
+          },
+          {
+            "edit": 7,
+            "sharpMs": 1019.8999999985099,
+            "input": {
+              "median": 14.5,
+              "p95": 14.5,
+              "max": 14.5
+            },
+            "frames": {
+              "median": 16.69999999999709,
+              "p95": 16.700000000000728,
+              "max": 83.29999999999927
+            },
+            "longTasks": 2,
+            "builds": 1
+          },
+          {
+            "edit": 8,
+            "sharpMs": 1035.5,
+            "input": {
+              "median": 17.19999999552965,
+              "p95": 17.19999999552965,
+              "max": 17.19999999552965
+            },
+            "frames": {
+              "median": 16.700000000000728,
+              "p95": 16.799999999999272,
+              "max": 100
+            },
+            "longTasks": 2,
+            "builds": 1
+          },
+          {
+            "edit": 9,
+            "sharpMs": 1069,
+            "input": {
+              "median": 13.100000001490116,
+              "p95": 13.100000001490116,
+              "max": 13.100000001490116
+            },
+            "frames": {
+              "median": 16.69999999999709,
+              "p95": 16.700000000000728,
+              "max": 133.39999999999782
+            },
+            "longTasks": 2,
+            "builds": 1
+          },
+          {
+            "edit": 10,
+            "sharpMs": 1122.7000000029802,
+            "input": {
+              "median": 12,
+              "p95": 12,
+              "max": 12
+            },
+            "frames": {
+              "median": 16.700000000000728,
+              "p95": 16.799999999999272,
+              "max": 150
+            },
+            "longTasks": 2,
+            "builds": 1
+          },
+          {
+            "edit": 11,
+            "sharpMs": 1171.2999999970198,
+            "input": {
+              "median": 12.799999997019768,
+              "p95": 12.799999997019768,
+              "max": 12.799999997019768
+            },
+            "frames": {
+              "median": 16.700000000000728,
+              "p95": 16.799999999999272,
+              "max": 150
+            },
+            "longTasks": 1,
+            "builds": 1
+          },
+          {
+            "edit": 12,
+            "sharpMs": 1103.8000000044703,
+            "input": {
+              "median": 13.799999997019768,
+              "p95": 13.799999997019768,
+              "max": 13.799999997019768
+            },
+            "frames": {
+              "median": 16.69999999999709,
+              "p95": 16.799999999999272,
+              "max": 100
+            },
+            "longTasks": 2,
+            "builds": 1
+          },
+          {
+            "edit": 13,
+            "sharpMs": 1005.3999999985099,
+            "input": {
+              "median": 12.299999997019768,
+              "p95": 12.299999997019768,
+              "max": 12.299999997019768
+            },
+            "frames": {
+              "median": 16.700000000000728,
+              "p95": 16.799999999999272,
+              "max": 100
+            },
+            "longTasks": 2,
+            "builds": 1
+          },
+          {
+            "edit": 14,
+            "sharpMs": 973.6000000014901,
+            "input": {
+              "median": 12.200000002980232,
+              "p95": 12.200000002980232,
+              "max": 12.200000002980232
+            },
+            "frames": {
+              "median": 16.700000000000728,
+              "p95": 16.80000000000291,
+              "max": 100
+            },
+            "longTasks": 1,
+            "builds": 1
+          },
+          {
+            "edit": 15,
+            "sharpMs": 1004.1999999955297,
+            "input": {
+              "median": 11.800000004470348,
+              "p95": 11.800000004470348,
+              "max": 11.800000004470348
+            },
+            "frames": {
+              "median": 16.700000000000728,
+              "p95": 16.799999999999272,
+              "max": 100
+            },
+            "longTasks": 1,
+            "builds": 1
+          },
+          {
+            "edit": 16,
+            "sharpMs": 1035,
+            "input": {
+              "median": 14.400000005960464,
+              "p95": 14.400000005960464,
+              "max": 14.400000005960464
+            },
+            "frames": {
+              "median": 16.69999999999709,
+              "p95": 16.799999999999272,
+              "max": 166.60000000000218
+            },
+            "longTasks": 2,
+            "builds": 1
+          },
+          {
+            "edit": 17,
+            "sharpMs": 1035.2999999970198,
+            "input": {
+              "median": 12.899999998509884,
+              "p95": 12.899999998509884,
+              "max": 12.899999998509884
+            },
+            "frames": {
+              "median": 16.700000000000728,
+              "p95": 16.799999999999272,
+              "max": 116.70000000000073
+            },
+            "longTasks": 1,
+            "builds": 1
+          },
+          {
+            "edit": 18,
+            "sharpMs": 1087.8999999985099,
+            "input": {
+              "median": 13.300000004470348,
+              "p95": 13.300000004470348,
+              "max": 13.300000004470348
+            },
+            "frames": {
+              "median": 16.69999999999709,
+              "p95": 16.799999999999272,
+              "max": 133.40000000000146
+            },
+            "longTasks": 2,
+            "builds": 1
+          },
+          {
+            "edit": 19,
+            "sharpMs": 1239.1000000014901,
+            "input": {
+              "median": 12.800000004470348,
+              "p95": 12.800000004470348,
+              "max": 12.800000004470348
+            },
+            "frames": {
+              "median": 16.69999999999709,
+              "p95": 16.80000000000291,
+              "max": 150
+            },
+            "longTasks": 2,
+            "builds": 1
+          }
+        ],
+        "input": {
+          "median": 8.600000001490116,
+          "p95": 14.400000005960464,
+          "max": 17.19999999552965
+        },
+        "frames": {
+          "median": 16.69999999999891,
+          "p95": 16.799999999999272,
+          "max": 166.60000000000218
+        },
+        "navigation": [
+          {
+            "mobile": false,
+            "moved": true,
+            "input": {
+              "median": 0.5999999940395355,
+              "p95": 2.2999999970197678,
+              "max": 2.2999999970197678
+            },
+            "frames": {
+              "median": 16.69999999999709,
+              "p95": 16.80000000000291,
+              "max": 16.80000000000291
+            },
+            "longTasks": 0
+          },
+          {
+            "mobile": true,
+            "moved": true,
+            "input": {
+              "median": 0.9000000059604645,
+              "p95": 2,
+              "max": 2
+            },
+            "frames": {
+              "median": 16.69999999999709,
+              "p95": 16.700000000004366,
+              "max": 16.700000000004366
+            },
+            "longTasks": 0
+          }
+        ]
+      },
+      "burst": {
+        "value": "Land",
+        "displayed": {
+          "worker": 1,
+          "id": 33
+        },
+        "latest": {
+          "worker": 1,
+          "id": 33
+        }
+      }
+    },
+    "components": {
+      "before": {
+        "fixtureSha256": "121a30938fd06594717827cae2b345b7f557e8c77ff263d03920175beaa30d5d",
+        "opening": {
+          "median": 1176.2000000029802,
+          "p95": 1383.5,
+          "max": 1383.5
+        },
+        "edits": {
+          "median": 305.6000000014901,
+          "p95": 322.09999999403954,
+          "max": 335.3999999985099
+        },
+        "gates": {
+          "coldOpeningUnder1000ms": false,
+          "editInputUnder33ms": true,
+          "editCadenceUnder33_5ms": true,
+          "nativeScrollingMoved": true
+        },
+        "navigationTested": true,
+        "errors": [],
+        "openings": [
+          {
+            "run": 0,
+            "cache": "cold",
+            "firstNonblankMs": 876,
+            "sharpMs": 1175.3999999985099,
+            "layers": 8,
+            "labels": true
+          },
+          {
+            "run": 1,
+            "cache": "cold",
+            "firstNonblankMs": 899.5,
+            "sharpMs": 1149.2000000029802,
+            "layers": 8,
+            "labels": true
+          },
+          {
+            "run": 2,
+            "cache": "cold",
+            "firstNonblankMs": 930.6000000014901,
+            "sharpMs": 1229.3999999985099,
+            "layers": 8,
+            "labels": true
+          },
+          {
+            "run": 3,
+            "cache": "cold",
+            "firstNonblankMs": 937,
+            "sharpMs": 1234.0999999940395,
+            "layers": 8,
+            "labels": true
+          },
+          {
+            "run": 4,
+            "cache": "cold",
+            "firstNonblankMs": 1000,
+            "sharpMs": 1276.3999999985099,
+            "layers": 8,
+            "labels": true
+          },
+          {
+            "run": 5,
+            "cache": "cold",
+            "firstNonblankMs": 1253.6000000014901,
+            "sharpMs": 1383.5,
+            "layers": 8,
+            "labels": true
+          },
+          {
+            "run": 6,
+            "cache": "cold",
+            "firstNonblankMs": 874.6999999955297,
+            "sharpMs": 1124.6999999955297,
+            "layers": 8,
+            "labels": true
+          },
+          {
+            "run": 7,
+            "cache": "cold",
+            "firstNonblankMs": 892.8999999985099,
+            "sharpMs": 1176.2000000029802,
+            "layers": 8,
+            "labels": true
+          },
+          {
+            "run": 8,
+            "cache": "cold",
+            "firstNonblankMs": 819.1000000014901,
+            "sharpMs": 1119.3999999985099,
+            "layers": 8,
+            "labels": true
+          },
+          {
+            "run": 9,
+            "cache": "cold",
+            "firstNonblankMs": 708.6000000014901,
+            "sharpMs": 1025.2999999970198,
+            "layers": 8,
+            "labels": true
+          }
+        ],
+        "editSamples": [
+          {
+            "edit": 0,
+            "sharpMs": 311.6000000014901,
+            "input": {
+              "median": 10.799999997019768,
+              "p95": 10.799999997019768,
+              "max": 10.799999997019768
+            },
+            "frames": {
+              "median": 16.699999999999818,
+              "p95": 16.700000000000273,
+              "max": 16.800000000000182
+            },
+            "longTasks": 0,
+            "builds": 1
+          },
+          {
+            "edit": 1,
+            "sharpMs": 318.6000000014901,
+            "input": {
+              "median": 10.5,
+              "p95": 10.5,
+              "max": 10.5
+            },
+            "frames": {
+              "median": 16.699999999999818,
+              "p95": 16.799999999999727,
+              "max": 16.799999999999727
+            },
+            "longTasks": 0,
+            "builds": 1
+          },
+          {
+            "edit": 2,
+            "sharpMs": 302.5,
+            "input": {
+              "median": 10.200000002980232,
+              "p95": 10.200000002980232,
+              "max": 10.200000002980232
+            },
+            "frames": {
+              "median": 16.699999999999818,
+              "p95": 16.799999999999727,
+              "max": 16.800000000000182
+            },
+            "longTasks": 0,
+            "builds": 1
+          },
+          {
+            "edit": 3,
+            "sharpMs": 308.79999999701977,
+            "input": {
+              "median": 12.300000004470348,
+              "p95": 12.300000004470348,
+              "max": 12.300000004470348
+            },
+            "frames": {
+              "median": 16.699999999999818,
+              "p95": 16.800000000000182,
+              "max": 16.800000000000182
+            },
+            "longTasks": 0,
+            "builds": 1
+          },
+          {
+            "edit": 4,
+            "sharpMs": 317.79999999701977,
+            "input": {
+              "median": 11.5,
+              "p95": 11.5,
+              "max": 11.5
+            },
+            "frames": {
+              "median": 16.699999999999818,
+              "p95": 16.700000000000728,
+              "max": 16.700000000000728
+            },
+            "longTasks": 0,
+            "builds": 1
+          },
+          {
+            "edit": 5,
+            "sharpMs": 302.6000000014901,
+            "input": {
+              "median": 12.699999995529652,
+              "p95": 12.699999995529652,
+              "max": 12.699999995529652
+            },
+            "frames": {
+              "median": 16.699999999999818,
+              "p95": 16.700000000000728,
+              "max": 16.700000000000728
+            },
+            "longTasks": 0,
+            "builds": 1
+          },
+          {
+            "edit": 6,
+            "sharpMs": 296.80000000447035,
+            "input": {
+              "median": 12.700000002980232,
+              "p95": 12.700000002980232,
+              "max": 12.700000002980232
+            },
+            "frames": {
+              "median": 16.699999999999818,
+              "p95": 16.800000000000182,
+              "max": 16.800000000000182
+            },
+            "longTasks": 0,
+            "builds": 1
+          },
+          {
+            "edit": 7,
+            "sharpMs": 302.70000000298023,
+            "input": {
+              "median": 7.399999998509884,
+              "p95": 7.399999998509884,
+              "max": 7.399999998509884
+            },
+            "frames": {
+              "median": 16.699999999999818,
+              "p95": 16.699999999999818,
+              "max": 16.799999999999272
+            },
+            "longTasks": 0,
+            "builds": 1
+          },
+          {
+            "edit": 8,
+            "sharpMs": 300.29999999701977,
+            "input": {
+              "median": 12.200000002980232,
+              "p95": 12.200000002980232,
+              "max": 12.200000002980232
+            },
+            "frames": {
+              "median": 16.699999999999818,
+              "p95": 16.700000000000728,
+              "max": 16.700000000000728
+            },
+            "longTasks": 0,
+            "builds": 1
+          },
+          {
+            "edit": 9,
+            "sharpMs": 302.3999999985099,
+            "input": {
+              "median": 9.400000005960464,
+              "p95": 9.400000005960464,
+              "max": 9.400000005960464
+            },
+            "frames": {
+              "median": 16.699999999999818,
+              "p95": 16.800000000000182,
+              "max": 16.800000000000182
+            },
+            "longTasks": 0,
+            "builds": 1
+          },
+          {
+            "edit": 10,
+            "sharpMs": 305.8999999985099,
+            "input": {
+              "median": 10.800000004470348,
+              "p95": 10.800000004470348,
+              "max": 10.800000004470348
+            },
+            "frames": {
+              "median": 16.699999999999818,
+              "p95": 16.800000000000182,
+              "max": 16.800000000000182
+            },
+            "longTasks": 0,
+            "builds": 1
+          },
+          {
+            "edit": 11,
+            "sharpMs": 293.1000000014901,
+            "input": {
+              "median": 10.599999994039536,
+              "p95": 10.599999994039536,
+              "max": 10.599999994039536
+            },
+            "frames": {
+              "median": 16.69999999999891,
+              "p95": 16.799999999999272,
+              "max": 16.800000000000182
+            },
+            "longTasks": 0,
+            "builds": 1
+          },
+          {
+            "edit": 12,
+            "sharpMs": 300,
+            "input": {
+              "median": 12.899999998509884,
+              "p95": 12.899999998509884,
+              "max": 12.899999998509884
+            },
+            "frames": {
+              "median": 16.69999999999891,
+              "p95": 16.700000000000728,
+              "max": 16.700000000000728
+            },
+            "longTasks": 0,
+            "builds": 1
+          },
+          {
+            "edit": 13,
+            "sharpMs": 317.79999999701977,
+            "input": {
+              "median": 12.699999995529652,
+              "p95": 12.699999995529652,
+              "max": 12.699999995529652
+            },
+            "frames": {
+              "median": 16.69999999999891,
+              "p95": 16.80000000000109,
+              "max": 16.80000000000109
+            },
+            "longTasks": 0,
+            "builds": 1
+          },
+          {
+            "edit": 14,
+            "sharpMs": 321,
+            "input": {
+              "median": 11.200000002980232,
+              "p95": 11.200000002980232,
+              "max": 11.200000002980232
+            },
+            "frames": {
+              "median": 16.700000000000728,
+              "p95": 16.799999999999272,
+              "max": 16.80000000000109
+            },
+            "longTasks": 0,
+            "builds": 1
+          },
+          {
+            "edit": 15,
+            "sharpMs": 335.3999999985099,
+            "input": {
+              "median": 13.700000002980232,
+              "p95": 13.700000002980232,
+              "max": 13.700000002980232
+            },
+            "frames": {
+              "median": 16.69999999999891,
+              "p95": 16.799999999999272,
+              "max": 16.799999999999272
+            },
+            "longTasks": 0,
+            "builds": 1
+          },
+          {
+            "edit": 16,
+            "sharpMs": 322.09999999403954,
+            "input": {
+              "median": 11.799999997019768,
+              "p95": 11.799999997019768,
+              "max": 11.799999997019768
+            },
+            "frames": {
+              "median": 16.69999999999891,
+              "p95": 16.700000000000728,
+              "max": 16.700000000000728
+            },
+            "longTasks": 0,
+            "builds": 1
+          },
+          {
+            "edit": 17,
+            "sharpMs": 301.6000000014901,
+            "input": {
+              "median": 13.100000001490116,
+              "p95": 13.100000001490116,
+              "max": 13.100000001490116
+            },
+            "frames": {
+              "median": 16.69999999999891,
+              "p95": 16.700000000000728,
+              "max": 16.799999999999272
+            },
+            "longTasks": 0,
+            "builds": 1
+          },
+          {
+            "edit": 18,
+            "sharpMs": 305.6000000014901,
+            "input": {
+              "median": 12,
+              "p95": 12,
+              "max": 12
+            },
+            "frames": {
+              "median": 16.69999999999891,
+              "p95": 16.700000000000728,
+              "max": 16.700000000000728
+            },
+            "longTasks": 0,
+            "builds": 1
+          },
+          {
+            "edit": 19,
+            "sharpMs": 301.19999999552965,
+            "input": {
+              "median": 11.099999994039536,
+              "p95": 11.099999994039536,
+              "max": 11.099999994039536
+            },
+            "frames": {
+              "median": 16.69999999999891,
+              "p95": 16.700000000000728,
+              "max": 16.799999999999272
+            },
+            "longTasks": 0,
+            "builds": 1
+          }
+        ],
+        "input": {
+          "median": 7.399999998509884,
+          "p95": 12.899999998509884,
+          "max": 13.700000002980232
+        },
+        "frames": {
+          "median": 16.699999999999818,
+          "p95": 16.700000000000728,
+          "max": 16.80000000000109
+        },
+        "navigation": [
+          {
+            "mobile": false,
+            "moved": true,
+            "input": {
+              "median": 0.5,
+              "p95": 0.8999999985098839,
+              "max": 0.8999999985098839
+            },
+            "frames": {
+              "median": 16.69999999999891,
+              "p95": 16.700000000000728,
+              "max": 16.80000000000109
+            },
+            "longTasks": 0
+          },
+          {
+            "mobile": true,
+            "moved": true,
+            "input": {
+              "median": 0.8000000044703484,
+              "p95": 1,
+              "max": 1
+            },
+            "frames": {
+              "median": 16.700000000000728,
+              "p95": 16.799999999999272,
+              "max": 16.80000000000109
+            },
+            "longTasks": 0
+          }
+        ]
+      },
+      "after": {
+        "fixtureSha256": "121a30938fd06594717827cae2b345b7f557e8c77ff263d03920175beaa30d5d",
+        "opening": {
+          "median": 1119.2000000029802,
+          "p95": 1276.5,
+          "max": 1276.5
+        },
+        "edits": {
+          "median": 288.29999999701977,
+          "p95": 313.29999999701977,
+          "max": 320
+        },
+        "gates": {
+          "coldOpeningUnder1000ms": false,
+          "editInputUnder33ms": true,
+          "editCadenceUnder33_5ms": true,
+          "nativeScrollingMoved": true
+        },
+        "navigationTested": true,
+        "errors": [],
+        "openings": [
+          {
+            "run": 0,
+            "cache": "cold",
+            "firstNonblankMs": 791.5999999940395,
+            "sharpMs": 1276.5,
+            "layers": 8,
+            "labels": true
+          },
+          {
+            "run": 1,
+            "cache": "cold",
+            "firstNonblankMs": 830.5,
+            "sharpMs": 1129.7999999970198,
+            "layers": 8,
+            "labels": true
+          },
+          {
+            "run": 2,
+            "cache": "cold",
+            "firstNonblankMs": 843.1999999955297,
+            "sharpMs": 1043.2999999970198,
+            "layers": 8,
+            "labels": true
+          },
+          {
+            "run": 3,
+            "cache": "cold",
+            "firstNonblankMs": 722.1999999955297,
+            "sharpMs": 954.3999999985099,
+            "layers": 8,
+            "labels": true
+          },
+          {
+            "run": 4,
+            "cache": "cold",
+            "firstNonblankMs": 981.5,
+            "sharpMs": 1213.7000000029802,
+            "layers": 8,
+            "labels": true
+          },
+          {
+            "run": 5,
+            "cache": "cold",
+            "firstNonblankMs": 855.3000000044703,
+            "sharpMs": 1119.2000000029802,
+            "layers": 8,
+            "labels": true
+          },
+          {
+            "run": 6,
+            "cache": "cold",
+            "firstNonblankMs": 783,
+            "sharpMs": 1016.3999999985099,
+            "layers": 8,
+            "labels": true
+          },
+          {
+            "run": 7,
+            "cache": "cold",
+            "firstNonblankMs": 865.8999999985099,
+            "sharpMs": 1123.1999999955297,
+            "layers": 8,
+            "labels": true
+          },
+          {
+            "run": 8,
+            "cache": "cold",
+            "firstNonblankMs": 827.5,
+            "sharpMs": 1075.8999999985099,
+            "layers": 8,
+            "labels": true
+          },
+          {
+            "run": 9,
+            "cache": "cold",
+            "firstNonblankMs": 701,
+            "sharpMs": 1047.2999999970198,
+            "layers": 8,
+            "labels": true
+          }
+        ],
+        "editSamples": [
+          {
+            "edit": 0,
+            "sharpMs": 313.29999999701977,
+            "input": {
+              "median": 10.100000001490116,
+              "p95": 10.100000001490116,
+              "max": 10.100000001490116
+            },
+            "frames": {
+              "median": 16.699999999999818,
+              "p95": 16.799999999999955,
+              "max": 16.799999999999955
+            },
+            "longTasks": 0,
+            "builds": 1
+          },
+          {
+            "edit": 1,
+            "sharpMs": 300.90000000596046,
+            "input": {
+              "median": 10.299999997019768,
+              "p95": 10.299999997019768,
+              "max": 10.299999997019768
+            },
+            "frames": {
+              "median": 16.699999999999818,
+              "p95": 16.799999999999727,
+              "max": 16.799999999999727
+            },
+            "longTasks": 0,
+            "builds": 1
+          },
+          {
+            "edit": 2,
+            "sharpMs": 272.5,
+            "input": {
+              "median": 11.899999998509884,
+              "p95": 11.899999998509884,
+              "max": 11.899999998509884
+            },
+            "frames": {
+              "median": 16.699999999999818,
+              "p95": 16.800000000000182,
+              "max": 16.800000000000182
+            },
+            "longTasks": 0,
+            "builds": 1
+          },
+          {
+            "edit": 3,
+            "sharpMs": 305,
+            "input": {
+              "median": 12.200000002980232,
+              "p95": 12.200000002980232,
+              "max": 12.200000002980232
+            },
+            "frames": {
+              "median": 16.699999999999818,
+              "p95": 16.700000000000273,
+              "max": 16.800000000000182
+            },
+            "longTasks": 0,
+            "builds": 1
+          },
+          {
+            "edit": 4,
+            "sharpMs": 286.8999999985099,
+            "input": {
+              "median": 11.699999995529652,
+              "p95": 11.699999995529652,
+              "max": 11.699999995529652
+            },
+            "frames": {
+              "median": 16.699999999999818,
+              "p95": 16.800000000000182,
+              "max": 16.800000000000182
+            },
+            "longTasks": 0,
+            "builds": 1
+          },
+          {
+            "edit": 5,
+            "sharpMs": 289.1000000014901,
+            "input": {
+              "median": 10.099999994039536,
+              "p95": 10.099999994039536,
+              "max": 10.099999994039536
+            },
+            "frames": {
+              "median": 16.699999999999818,
+              "p95": 16.800000000000182,
+              "max": 16.800000000000182
+            },
+            "longTasks": 0,
+            "builds": 1
+          },
+          {
+            "edit": 6,
+            "sharpMs": 287,
+            "input": {
+              "median": 9.100000001490116,
+              "p95": 9.100000001490116,
+              "max": 9.100000001490116
+            },
+            "frames": {
+              "median": 16.699999999999818,
+              "p95": 16.800000000000182,
+              "max": 16.800000000000182
+            },
+            "longTasks": 0,
+            "builds": 1
+          },
+          {
+            "edit": 7,
+            "sharpMs": 284.29999999701977,
+            "input": {
+              "median": 11.900000005960464,
+              "p95": 11.900000005960464,
+              "max": 11.900000005960464
+            },
+            "frames": {
+              "median": 16.699999999999818,
+              "p95": 16.700000000000728,
+              "max": 16.700000000000728
+            },
+            "longTasks": 0,
+            "builds": 1
+          },
+          {
+            "edit": 8,
+            "sharpMs": 300.80000000447035,
+            "input": {
+              "median": 10.100000001490116,
+              "p95": 10.100000001490116,
+              "max": 10.100000001490116
+            },
+            "frames": {
+              "median": 16.699999999999818,
+              "p95": 16.700000000000728,
+              "max": 16.700000000000728
+            },
+            "longTasks": 0,
+            "builds": 1
+          },
+          {
+            "edit": 9,
+            "sharpMs": 289.8999999985099,
+            "input": {
+              "median": 11.600000001490116,
+              "p95": 11.600000001490116,
+              "max": 11.600000001490116
+            },
+            "frames": {
+              "median": 16.699999999999818,
+              "p95": 16.699999999999818,
+              "max": 16.700000000000728
+            },
+            "longTasks": 0,
+            "builds": 1
+          },
+          {
+            "edit": 10,
+            "sharpMs": 256.5,
+            "input": {
+              "median": 12.199999995529652,
+              "p95": 12.199999995529652,
+              "max": 12.199999995529652
+            },
+            "frames": {
+              "median": 16.699999999999818,
+              "p95": 16.699999999999818,
+              "max": 16.799999999999272
+            },
+            "longTasks": 0,
+            "builds": 1
+          },
+          {
+            "edit": 11,
+            "sharpMs": 304.79999999701977,
+            "input": {
+              "median": 15.399999998509884,
+              "p95": 15.399999998509884,
+              "max": 15.399999998509884
+            },
+            "frames": {
+              "median": 16.699999999999818,
+              "p95": 16.700000000000728,
+              "max": 16.700000000000728
+            },
+            "longTasks": 0,
+            "builds": 1
+          },
+          {
+            "edit": 12,
+            "sharpMs": 288.29999999701977,
+            "input": {
+              "median": 13.399999998509884,
+              "p95": 13.399999998509884,
+              "max": 13.399999998509884
+            },
+            "frames": {
+              "median": 16.69999999999891,
+              "p95": 16.799999999999272,
+              "max": 16.80000000000109
+            },
+            "longTasks": 0,
+            "builds": 1
+          },
+          {
+            "edit": 13,
+            "sharpMs": 320,
+            "input": {
+              "median": 12.5,
+              "p95": 12.5,
+              "max": 12.5
+            },
+            "frames": {
+              "median": 16.69999999999891,
+              "p95": 16.700000000000728,
+              "max": 16.799999999999272
+            },
+            "longTasks": 0,
+            "builds": 1
+          },
+          {
+            "edit": 14,
+            "sharpMs": 256.29999999701977,
+            "input": {
+              "median": 12.399999998509884,
+              "p95": 12.399999998509884,
+              "max": 12.399999998509884
+            },
+            "frames": {
+              "median": 16.69999999999891,
+              "p95": 16.700000000000728,
+              "max": 16.799999999999272
+            },
+            "longTasks": 0,
+            "builds": 1
+          },
+          {
+            "edit": 15,
+            "sharpMs": 272.6000000014901,
+            "input": {
+              "median": 12.5,
+              "p95": 12.5,
+              "max": 12.5
+            },
+            "frames": {
+              "median": 16.69999999999891,
+              "p95": 16.700000000000728,
+              "max": 16.80000000000109
+            },
+            "longTasks": 0,
+            "builds": 1
+          },
+          {
+            "edit": 16,
+            "sharpMs": 272.6000000014901,
+            "input": {
+              "median": 14.299999997019768,
+              "p95": 14.299999997019768,
+              "max": 14.299999997019768
+            },
+            "frames": {
+              "median": 16.69999999999891,
+              "p95": 16.80000000000109,
+              "max": 16.80000000000109
+            },
+            "longTasks": 0,
+            "builds": 1
+          },
+          {
+            "edit": 17,
+            "sharpMs": 307.70000000298023,
+            "input": {
+              "median": 16.5,
+              "p95": 16.5,
+              "max": 16.5
+            },
+            "frames": {
+              "median": 16.69999999999891,
+              "p95": 16.799999999999272,
+              "max": 16.799999999999272
+            },
+            "longTasks": 0,
+            "builds": 1
+          },
+          {
+            "edit": 18,
+            "sharpMs": 286.59999999403954,
+            "input": {
+              "median": 14.299999997019768,
+              "p95": 14.299999997019768,
+              "max": 14.299999997019768
+            },
+            "frames": {
+              "median": 16.69999999999891,
+              "p95": 16.700000000000728,
+              "max": 16.80000000000109
+            },
+            "longTasks": 0,
+            "builds": 1
+          },
+          {
+            "edit": 19,
+            "sharpMs": 284.19999999552965,
+            "input": {
+              "median": 11.600000001490116,
+              "p95": 11.600000001490116,
+              "max": 11.600000001490116
+            },
+            "frames": {
+              "median": 16.69999999999891,
+              "p95": 16.700000000000728,
+              "max": 16.700000000000728
+            },
+            "longTasks": 0,
+            "builds": 1
+          }
+        ],
+        "input": {
+          "median": 9.100000001490116,
+          "p95": 14.299999997019768,
+          "max": 16.5
+        },
+        "frames": {
+          "median": 16.699999999999818,
+          "p95": 16.700000000000728,
+          "max": 16.80000000000109
+        },
+        "navigation": [
+          {
+            "mobile": false,
+            "moved": true,
+            "input": {
+              "median": 0.5999999940395355,
+              "p95": 0.8000000044703484,
+              "max": 0.8000000044703484
+            },
+            "frames": {
+              "median": 16.69999999999891,
+              "p95": 16.799999999999272,
+              "max": 16.799999999999272
+            },
+            "longTasks": 0
+          },
+          {
+            "mobile": true,
+            "moved": true,
+            "input": {
+              "median": 0.7999999970197678,
+              "p95": 0.8999999985098839,
+              "max": 0.8999999985098839
+            },
+            "frames": {
+              "median": 16.69999999999891,
+              "p95": 16.80000000000109,
+              "max": 16.80000000000109
+            },
+            "longTasks": 0
+          }
+        ]
+      },
+      "burst": {
+        "value": "Land",
+        "displayed": {
+          "worker": 1,
+          "id": 33
+        },
+        "latest": {
+          "worker": 1,
+          "id": 33
+        }
+      }
+    },
+    "opacity": {
+      "before": {
+        "fixtureSha256": "22fafabf1b6bd3bdbbd73aa0d052a4572d442a18d2da2f63ab5f576ebdeb4a38",
+        "opening": {
+          "median": 5402.5,
+          "p95": 5803.29999999702,
+          "max": 5803.29999999702
+        },
+        "edits": {
+          "median": 1107.5,
+          "p95": 1259.8000000044703,
+          "max": 1331.8000000044703
+        },
+        "gates": {
+          "coldOpeningUnder1000ms": false,
+          "editInputUnder33ms": false,
+          "editCadenceUnder33_5ms": false,
+          "nativeScrollingMoved": true
+        },
+        "navigationTested": false,
+        "errors": [],
+        "openings": [
+          {
+            "run": 0,
+            "cache": "cold",
+            "firstNonblankMs": 4907.20000000298,
+            "sharpMs": 4907.20000000298,
+            "layers": 8,
+            "labels": true
+          },
+          {
+            "run": 1,
+            "cache": "cold",
+            "firstNonblankMs": 5010.5,
+            "sharpMs": 5010.5,
+            "layers": 8,
+            "labels": true
+          },
+          {
+            "run": 2,
+            "cache": "cold",
+            "firstNonblankMs": 5357,
+            "sharpMs": 5357,
+            "layers": 8,
+            "labels": true
+          },
+          {
+            "run": 3,
+            "cache": "cold",
+            "firstNonblankMs": 5119.89999999851,
+            "sharpMs": 5119.89999999851,
+            "layers": 8,
+            "labels": true
+          },
+          {
+            "run": 4,
+            "cache": "cold",
+            "firstNonblankMs": 5402.5,
+            "sharpMs": 5402.5,
+            "layers": 8,
+            "labels": true
+          },
+          {
+            "run": 5,
+            "cache": "cold",
+            "firstNonblankMs": 5089.60000000149,
+            "sharpMs": 5089.60000000149,
+            "layers": 8,
+            "labels": true
+          },
+          {
+            "run": 6,
+            "cache": "cold",
+            "firstNonblankMs": 5408.5,
+            "sharpMs": 5408.5,
+            "layers": 8,
+            "labels": true
+          },
+          {
+            "run": 7,
+            "cache": "cold",
+            "firstNonblankMs": 5803.29999999702,
+            "sharpMs": 5803.29999999702,
+            "layers": 8,
+            "labels": true
+          },
+          {
+            "run": 8,
+            "cache": "cold",
+            "firstNonblankMs": 5501.39999999851,
+            "sharpMs": 5501.39999999851,
+            "layers": 8,
+            "labels": true
+          },
+          {
+            "run": 9,
+            "cache": "cold",
+            "firstNonblankMs": 5784.69999999553,
+            "sharpMs": 5784.69999999553,
+            "layers": 8,
+            "labels": true
+          }
+        ],
+        "editSamples": [
+          {
+            "edit": 0,
+            "sharpMs": 1108.2000000029802,
+            "input": {
+              "median": 34.5,
+              "p95": 34.5,
+              "max": 34.5
+            },
+            "frames": {
+              "median": 16.69999999999891,
+              "p95": 33.30000000000109,
+              "max": 83.30000000000109
+            },
+            "longTasks": 2,
+            "builds": 1
+          },
+          {
+            "edit": 1,
+            "sharpMs": 1192.7000000029802,
+            "input": {
+              "median": 40.79999999701977,
+              "p95": 40.79999999701977,
+              "max": 40.79999999701977
+            },
+            "frames": {
+              "median": 16.69999999999891,
+              "p95": 16.799999999999272,
+              "max": 83.30000000000109
+            },
+            "longTasks": 1,
+            "builds": 1
+          },
+          {
+            "edit": 2,
+            "sharpMs": 1259.8000000044703,
+            "input": {
+              "median": 40.70000000298023,
+              "p95": 40.70000000298023,
+              "max": 40.70000000298023
+            },
+            "frames": {
+              "median": 16.700000000000728,
+              "p95": 16.80000000000291,
+              "max": 133.29999999999927
+            },
+            "longTasks": 1,
+            "builds": 1
+          },
+          {
+            "edit": 3,
+            "sharpMs": 1129,
+            "input": {
+              "median": 17.399999998509884,
+              "p95": 17.399999998509884,
+              "max": 17.399999998509884
+            },
+            "frames": {
+              "median": 16.700000000000728,
+              "p95": 50,
+              "max": 83.29999999999927
+            },
+            "longTasks": 2,
+            "builds": 1
+          },
+          {
+            "edit": 4,
+            "sharpMs": 1134.6000000014901,
+            "input": {
+              "median": 41.30000000447035,
+              "p95": 41.30000000447035,
+              "max": 41.30000000447035
+            },
+            "frames": {
+              "median": 16.69999999999709,
+              "p95": 33.30000000000291,
+              "max": 99.90000000000146
+            },
+            "longTasks": 1,
+            "builds": 1
+          },
+          {
+            "edit": 5,
+            "sharpMs": 1132.1000000014901,
+            "input": {
+              "median": 5.5,
+              "p95": 5.5,
+              "max": 5.5
+            },
+            "frames": {
+              "median": 16.69999999999709,
+              "p95": 33.29999999999927,
+              "max": 83.39999999999782
+            },
+            "longTasks": 1,
+            "builds": 1
+          },
+          {
+            "edit": 6,
+            "sharpMs": 1066.6999999955297,
+            "input": {
+              "median": 39.899999998509884,
+              "p95": 39.899999998509884,
+              "max": 39.899999998509884
+            },
+            "frames": {
+              "median": 16.700000000000728,
+              "p95": 49.89999999999782,
+              "max": 100
+            },
+            "longTasks": 2,
+            "builds": 1
+          },
+          {
+            "edit": 7,
+            "sharpMs": 1072.5,
+            "input": {
+              "median": 13.099999994039536,
+              "p95": 13.099999994039536,
+              "max": 13.099999994039536
+            },
+            "frames": {
+              "median": 16.69999999999709,
+              "p95": 16.799999999999272,
+              "max": 83.30000000000291
+            },
+            "longTasks": 1,
+            "builds": 1
+          },
+          {
+            "edit": 8,
+            "sharpMs": 1053.3999999985099,
+            "input": {
+              "median": 35,
+              "p95": 35,
+              "max": 35
+            },
+            "frames": {
+              "median": 16.69999999999709,
+              "p95": 33.299999999995634,
+              "max": 83.30000000000291
+            },
+            "longTasks": 1,
+            "builds": 1
+          },
+          {
+            "edit": 9,
+            "sharpMs": 982.6000000014901,
+            "input": {
+              "median": 29.100000001490116,
+              "p95": 29.100000001490116,
+              "max": 29.100000001490116
+            },
+            "frames": {
+              "median": 16.69999999999709,
+              "p95": 33.299999999995634,
+              "max": 83.30000000000291
+            },
+            "longTasks": 2,
+            "builds": 1
+          },
+          {
+            "edit": 10,
+            "sharpMs": 1102,
+            "input": {
+              "median": 29.299999997019768,
+              "p95": 29.299999997019768,
+              "max": 29.299999997019768
+            },
+            "frames": {
+              "median": 16.69999999999709,
+              "p95": 33.299999999995634,
+              "max": 116.60000000000582
+            },
+            "longTasks": 1,
+            "builds": 1
+          },
+          {
+            "edit": 11,
+            "sharpMs": 1051.2000000029802,
+            "input": {
+              "median": 4.399999998509884,
+              "p95": 4.399999998509884,
+              "max": 4.399999998509884
+            },
+            "frames": {
+              "median": 16.69999999999709,
+              "p95": 16.80000000000291,
+              "max": 83.30000000000291
+            },
+            "longTasks": 1,
+            "builds": 1
+          },
+          {
+            "edit": 12,
+            "sharpMs": 1084.1000000014901,
+            "input": {
+              "median": 43.70000000298023,
+              "p95": 43.70000000298023,
+              "max": 43.70000000298023
+            },
+            "frames": {
+              "median": 16.69999999999709,
+              "p95": 50,
+              "max": 83.30000000000291
+            },
+            "longTasks": 2,
+            "builds": 1
+          },
+          {
+            "edit": 13,
+            "sharpMs": 1075.0999999940395,
+            "input": {
+              "median": 11.899999998509884,
+              "p95": 11.899999998509884,
+              "max": 11.899999998509884
+            },
+            "frames": {
+              "median": 16.69999999999709,
+              "p95": 16.799999999995634,
+              "max": 100
+            },
+            "longTasks": 1,
+            "builds": 1
+          },
+          {
+            "edit": 14,
+            "sharpMs": 1107.5,
+            "input": {
+              "median": 27.899999998509884,
+              "p95": 27.899999998509884,
+              "max": 27.899999998509884
+            },
+            "frames": {
+              "median": 16.69999999999709,
+              "p95": 33.19999999999709,
+              "max": 116.69999999999709
+            },
+            "longTasks": 1,
+            "builds": 1
+          },
+          {
+            "edit": 15,
+            "sharpMs": 1100.8999999985099,
+            "input": {
+              "median": 11.600000001490116,
+              "p95": 11.600000001490116,
+              "max": 11.600000001490116
+            },
+            "frames": {
+              "median": 16.69999999999709,
+              "p95": 50.099999999998545,
+              "max": 100
+            },
+            "longTasks": 2,
+            "builds": 1
+          },
+          {
+            "edit": 16,
+            "sharpMs": 1202.8999999985099,
+            "input": {
+              "median": 39.70000000298023,
+              "p95": 39.70000000298023,
+              "max": 39.70000000298023
+            },
+            "frames": {
+              "median": 16.69999999999709,
+              "p95": 33.30000000000291,
+              "max": 133.3000000000029
+            },
+            "longTasks": 1,
+            "builds": 1
+          },
+          {
+            "edit": 17,
+            "sharpMs": 1140.6999999955297,
+            "input": {
+              "median": 15.700000002980232,
+              "p95": 15.700000002980232,
+              "max": 15.700000002980232
+            },
+            "frames": {
+              "median": 16.69999999999709,
+              "p95": 16.80000000000291,
+              "max": 83.30000000000291
+            },
+            "longTasks": 1,
+            "builds": 1
+          },
+          {
+            "edit": 18,
+            "sharpMs": 1093,
+            "input": {
+              "median": 30.799999997019768,
+              "p95": 30.799999997019768,
+              "max": 30.799999997019768
+            },
+            "frames": {
+              "median": 16.69999999999709,
+              "p95": 33.299999999995634,
+              "max": 116.59999999999854
+            },
+            "longTasks": 1,
+            "builds": 1
+          },
+          {
+            "edit": 19,
+            "sharpMs": 1331.8000000044703,
+            "input": {
+              "median": 40.100000001490116,
+              "p95": 40.100000001490116,
+              "max": 40.100000001490116
+            },
+            "frames": {
+              "median": 16.69999999999709,
+              "p95": 33.39999999999418,
+              "max": 99.89999999999418
+            },
+            "longTasks": 1,
+            "builds": 1
+          }
+        ],
+        "input": {
+          "median": 30.799999997019768,
+          "p95": 41.30000000447035,
+          "max": 43.70000000298023
+        },
+        "frames": {
+          "median": 16.69999999999709,
+          "p95": 33.299999999995634,
+          "max": 133.3000000000029
+        },
+        "navigation": []
+      },
+      "after": {
+        "fixtureSha256": "22fafabf1b6bd3bdbbd73aa0d052a4572d442a18d2da2f63ab5f576ebdeb4a38",
+        "opening": {
+          "median": 5184.0999999940395,
+          "p95": 5408.69999999553,
+          "max": 5408.69999999553
+        },
+        "edits": {
+          "median": 1120.0999999940395,
+          "p95": 1226.8999999985099,
+          "max": 1652.7999999970198
+        },
+        "gates": {
+          "coldOpeningUnder1000ms": false,
+          "editInputUnder33ms": false,
+          "editCadenceUnder33_5ms": false,
+          "nativeScrollingMoved": true
+        },
+        "navigationTested": false,
+        "errors": [],
+        "openings": [
+          {
+            "run": 0,
+            "cache": "cold",
+            "firstNonblankMs": 4885.5,
+            "sharpMs": 4885.5,
+            "layers": 8,
+            "labels": true
+          },
+          {
+            "run": 1,
+            "cache": "cold",
+            "firstNonblankMs": 5366.80000000447,
+            "sharpMs": 5366.80000000447,
+            "layers": 8,
+            "labels": true
+          },
+          {
+            "run": 2,
+            "cache": "cold",
+            "firstNonblankMs": 5110.10000000149,
+            "sharpMs": 5110.10000000149,
+            "layers": 8,
+            "labels": true
+          },
+          {
+            "run": 3,
+            "cache": "cold",
+            "firstNonblankMs": 5297.5,
+            "sharpMs": 5297.5,
+            "layers": 8,
+            "labels": true
+          },
+          {
+            "run": 4,
+            "cache": "cold",
+            "firstNonblankMs": 4812.69999999553,
+            "sharpMs": 4812.69999999553,
+            "layers": 8,
+            "labels": true
+          },
+          {
+            "run": 5,
+            "cache": "cold",
+            "firstNonblankMs": 4926.39999999851,
+            "sharpMs": 4926.39999999851,
+            "layers": 8,
+            "labels": true
+          },
+          {
+            "run": 6,
+            "cache": "cold",
+            "firstNonblankMs": 5226,
+            "sharpMs": 5226,
+            "layers": 8,
+            "labels": true
+          },
+          {
+            "run": 7,
+            "cache": "cold",
+            "firstNonblankMs": 5009.60000000149,
+            "sharpMs": 5009.60000000149,
+            "layers": 8,
+            "labels": true
+          },
+          {
+            "run": 8,
+            "cache": "cold",
+            "firstNonblankMs": 5408.69999999553,
+            "sharpMs": 5408.69999999553,
+            "layers": 8,
+            "labels": true
+          },
+          {
+            "run": 9,
+            "cache": "cold",
+            "firstNonblankMs": 5184.0999999940395,
+            "sharpMs": 5184.0999999940395,
+            "layers": 8,
+            "labels": true
+          }
+        ],
+        "editSamples": [
+          {
+            "edit": 0,
+            "sharpMs": 1652.7999999970198,
+            "input": {
+              "median": 52.20000000298023,
+              "p95": 52.20000000298023,
+              "max": 52.20000000298023
+            },
+            "frames": {
+              "median": 16.69999999999891,
+              "p95": 16.80000000000109,
+              "max": 116.59999999999854
+            },
+            "longTasks": 1,
+            "builds": 1
+          },
+          {
+            "edit": 1,
+            "sharpMs": 1120.1000000014901,
+            "input": {
+              "median": 41.600000001490116,
+              "p95": 41.600000001490116,
+              "max": 41.600000001490116
+            },
+            "frames": {
+              "median": 16.69999999999891,
+              "p95": 33.399999999999636,
+              "max": 116.60000000000036
+            },
+            "longTasks": 1,
+            "builds": 1
+          },
+          {
+            "edit": 2,
+            "sharpMs": 1095.7000000029802,
+            "input": {
+              "median": 50.399999998509884,
+              "p95": 50.399999998509884,
+              "max": 50.399999998509884
+            },
+            "frames": {
+              "median": 16.700000000000728,
+              "p95": 33.30000000000291,
+              "max": 166.60000000000218
+            },
+            "longTasks": 2,
+            "builds": 1
+          },
+          {
+            "edit": 3,
+            "sharpMs": 1217.8999999985099,
+            "input": {
+              "median": 35.5,
+              "p95": 35.5,
+              "max": 35.5
+            },
+            "frames": {
+              "median": 16.69999999999709,
+              "p95": 33.30000000000291,
+              "max": 116.69999999999709
+            },
+            "longTasks": 1,
+            "builds": 1
+          },
+          {
+            "edit": 4,
+            "sharpMs": 1036.3999999985099,
+            "input": {
+              "median": 32.100000001490116,
+              "p95": 32.100000001490116,
+              "max": 32.100000001490116
+            },
+            "frames": {
+              "median": 16.700000000000728,
+              "p95": 33.39999999999782,
+              "max": 116.70000000000073
+            },
+            "longTasks": 1,
+            "builds": 1
+          },
+          {
+            "edit": 5,
+            "sharpMs": 1029.7999999970198,
+            "input": {
+              "median": 31.100000001490116,
+              "p95": 31.100000001490116,
+              "max": 31.100000001490116
+            },
+            "frames": {
+              "median": 16.700000000000728,
+              "p95": 33.400000000001455,
+              "max": 100
+            },
+            "longTasks": 1,
+            "builds": 1
+          },
+          {
+            "edit": 6,
+            "sharpMs": 1111.2000000029802,
+            "input": {
+              "median": 42.19999999552965,
+              "p95": 42.19999999552965,
+              "max": 42.19999999552965
+            },
+            "frames": {
+              "median": 16.69999999999709,
+              "p95": 33.39999999999782,
+              "max": 116.60000000000218
+            },
+            "longTasks": 1,
+            "builds": 1
+          },
+          {
+            "edit": 7,
+            "sharpMs": 1140.1000000014901,
+            "input": {
+              "median": 5.899999998509884,
+              "p95": 5.899999998509884,
+              "max": 5.899999998509884
+            },
+            "frames": {
+              "median": 16.69999999999709,
+              "p95": 50,
+              "max": 133.3000000000029
+            },
+            "longTasks": 2,
+            "builds": 1
+          },
+          {
+            "edit": 8,
+            "sharpMs": 1226.8999999985099,
+            "input": {
+              "median": 51,
+              "p95": 51,
+              "max": 51
+            },
+            "frames": {
+              "median": 16.69999999999709,
+              "p95": 50,
+              "max": 116.69999999999709
+            },
+            "longTasks": 2,
+            "builds": 1
+          },
+          {
+            "edit": 9,
+            "sharpMs": 1218.3999999985099,
+            "input": {
+              "median": 54.899999998509884,
+              "p95": 54.899999998509884,
+              "max": 54.899999998509884
+            },
+            "frames": {
+              "median": 16.69999999999709,
+              "p95": 50,
+              "max": 166.59999999999854
+            },
+            "longTasks": 2,
+            "builds": 1
+          },
+          {
+            "edit": 10,
+            "sharpMs": 1055.6999999955297,
+            "input": {
+              "median": 10.699999995529652,
+              "p95": 10.699999995529652,
+              "max": 10.699999995529652
+            },
+            "frames": {
+              "median": 16.69999999999709,
+              "p95": 16.700000000004366,
+              "max": 100
+            },
+            "longTasks": 1,
+            "builds": 1
+          },
+          {
+            "edit": 11,
+            "sharpMs": 1120.0999999940395,
+            "input": {
+              "median": 43.79999999701977,
+              "p95": 43.79999999701977,
+              "max": 43.79999999701977
+            },
+            "frames": {
+              "median": 16.69999999999709,
+              "p95": 49.900000000001455,
+              "max": 166.6999999999971
+            },
+            "longTasks": 2,
+            "builds": 1
+          },
+          {
+            "edit": 12,
+            "sharpMs": 1131.6000000014901,
+            "input": {
+              "median": 36.600000001490116,
+              "p95": 36.600000001490116,
+              "max": 36.600000001490116
+            },
+            "frames": {
+              "median": 16.69999999999709,
+              "p95": 33.30000000000291,
+              "max": 100
+            },
+            "longTasks": 1,
+            "builds": 1
+          },
+          {
+            "edit": 13,
+            "sharpMs": 1151.3999999985099,
+            "input": {
+              "median": 10.5,
+              "p95": 10.5,
+              "max": 10.5
+            },
+            "frames": {
+              "median": 16.69999999999709,
+              "p95": 33.30000000000291,
+              "max": 100
+            },
+            "longTasks": 2,
+            "builds": 1
+          },
+          {
+            "edit": 14,
+            "sharpMs": 949.1000000014901,
+            "input": {
+              "median": 40.30000000447035,
+              "p95": 40.30000000447035,
+              "max": 40.30000000447035
+            },
+            "frames": {
+              "median": 16.69999999999709,
+              "p95": 33.30000000000291,
+              "max": 116.59999999999854
+            },
+            "longTasks": 1,
+            "builds": 1
+          },
+          {
+            "edit": 15,
+            "sharpMs": 996.3999999985099,
+            "input": {
+              "median": 35.100000001490116,
+              "p95": 35.100000001490116,
+              "max": 35.100000001490116
+            },
+            "frames": {
+              "median": 16.69999999999709,
+              "p95": 33.30000000000291,
+              "max": 100
+            },
+            "longTasks": 1,
+            "builds": 1
+          },
+          {
+            "edit": 16,
+            "sharpMs": 1113.2999999970198,
+            "input": {
+              "median": 12.899999998509884,
+              "p95": 12.899999998509884,
+              "max": 12.899999998509884
+            },
+            "frames": {
+              "median": 16.69999999999709,
+              "p95": 33.299999999995634,
+              "max": 83.30000000000291
+            },
+            "longTasks": 1,
+            "builds": 1
+          },
+          {
+            "edit": 17,
+            "sharpMs": 1042,
+            "input": {
+              "median": 45.70000000298023,
+              "p95": 45.70000000298023,
+              "max": 45.70000000298023
+            },
+            "frames": {
+              "median": 16.69999999999709,
+              "p95": 33.30000000000291,
+              "max": 150
+            },
+            "longTasks": 2,
+            "builds": 1
+          },
+          {
+            "edit": 18,
+            "sharpMs": 995.3999999985099,
+            "input": {
+              "median": 40.399999998509884,
+              "p95": 40.399999998509884,
+              "max": 40.399999998509884
+            },
+            "frames": {
+              "median": 16.69999999999709,
+              "p95": 33.30000000000291,
+              "max": 100.10000000000582
+            },
+            "longTasks": 1,
+            "builds": 1
+          },
+          {
+            "edit": 19,
+            "sharpMs": 1188.0999999940395,
+            "input": {
+              "median": 6,
+              "p95": 6,
+              "max": 6
+            },
+            "frames": {
+              "median": 16.69999999999709,
+              "p95": 50,
+              "max": 116.69999999999709
+            },
+            "longTasks": 1,
+            "builds": 1
+          }
+        ],
+        "input": {
+          "median": 40.30000000447035,
+          "p95": 52.20000000298023,
+          "max": 54.899999998509884
+        },
+        "frames": {
+          "median": 16.69999999999709,
+          "p95": 33.39999999999418,
+          "max": 166.6999999999971
+        },
+        "navigation": []
+      }
+    }
+  },
+  "construction": {
+    "populated-opacity": {
+      "before": {
+        "total": {
+          "median": 193.10000000149012,
+          "p95": 289.20000000298023,
+          "max": 311.5
+        },
+        "symbolAndLabelPhases": {
+          "median": 82.89999999850988,
+          "p95": 103.5,
+          "max": 108.5
+        },
+        "samples": [
+          {
+            "run": 0,
+            "ms": 311.5,
+            "counters": {
+              "coast.cacheHit": 1,
+              "symbols.cacheHits": 539,
+              "polityLabels.searches": 1,
+              "scene.primitives": 5945
+            }
+          },
+          {
+            "run": 1,
+            "ms": 273.3999999985099,
+            "counters": {
+              "coast.cacheHit": 1,
+              "symbols.cacheHits": 539,
+              "polityLabels.searches": 1,
+              "scene.primitives": 5945
+            }
+          },
+          {
+            "run": 2,
+            "ms": 198.89999999850988,
+            "counters": {
+              "coast.cacheHit": 1,
+              "symbols.cacheHits": 539,
+              "polityLabels.searches": 1,
+              "scene.primitives": 5945
+            }
+          },
+          {
+            "run": 3,
+            "ms": 207.39999999850988,
+            "counters": {
+              "coast.cacheHit": 1,
+              "symbols.cacheHits": 539,
+              "polityLabels.searches": 1,
+              "scene.primitives": 5945
+            }
+          },
+          {
+            "run": 4,
+            "ms": 198.29999999701977,
+            "counters": {
+              "coast.cacheHit": 1,
+              "symbols.cacheHits": 539,
+              "polityLabels.searches": 1,
+              "scene.primitives": 5945
+            }
+          },
+          {
+            "run": 5,
+            "ms": 201.80000000447035,
+            "counters": {
+              "coast.cacheHit": 1,
+              "symbols.cacheHits": 539,
+              "polityLabels.searches": 1,
+              "scene.primitives": 5945
+            }
+          },
+          {
+            "run": 6,
+            "ms": 179.5,
+            "counters": {
+              "coast.cacheHit": 1,
+              "symbols.cacheHits": 539,
+              "polityLabels.searches": 1,
+              "scene.primitives": 5945
+            }
+          },
+          {
+            "run": 7,
+            "ms": 270.29999999701977,
+            "counters": {
+              "coast.cacheHit": 1,
+              "symbols.cacheHits": 539,
+              "polityLabels.searches": 1,
+              "scene.primitives": 5945
+            }
+          },
+          {
+            "run": 8,
+            "ms": 193.10000000149012,
+            "counters": {
+              "coast.cacheHit": 1,
+              "symbols.cacheHits": 539,
+              "polityLabels.searches": 1,
+              "scene.primitives": 5945
+            }
+          },
+          {
+            "run": 9,
+            "ms": 180.30000000447035,
+            "counters": {
+              "coast.cacheHit": 1,
+              "symbols.cacheHits": 539,
+              "polityLabels.searches": 1,
+              "scene.primitives": 5945
+            }
+          },
+          {
+            "run": 10,
+            "ms": 166.39999999850988,
+            "counters": {
+              "coast.cacheHit": 1,
+              "symbols.cacheHits": 539,
+              "polityLabels.searches": 1,
+              "scene.primitives": 5945
+            }
+          },
+          {
+            "run": 11,
+            "ms": 158.89999999850988,
+            "counters": {
+              "coast.cacheHit": 1,
+              "symbols.cacheHits": 539,
+              "polityLabels.searches": 1,
+              "scene.primitives": 5945
+            }
+          },
+          {
+            "run": 12,
+            "ms": 159.5,
+            "counters": {
+              "coast.cacheHit": 1,
+              "symbols.cacheHits": 539,
+              "polityLabels.searches": 1,
+              "scene.primitives": 5945
+            }
+          },
+          {
+            "run": 13,
+            "ms": 275.70000000298023,
+            "counters": {
+              "coast.cacheHit": 1,
+              "symbols.cacheHits": 539,
+              "polityLabels.searches": 1,
+              "scene.primitives": 5945
+            }
+          },
+          {
+            "run": 14,
+            "ms": 175.39999999850988,
+            "counters": {
+              "coast.cacheHit": 1,
+              "symbols.cacheHits": 539,
+              "polityLabels.searches": 1,
+              "scene.primitives": 5945
+            }
+          },
+          {
+            "run": 15,
+            "ms": 161.20000000298023,
+            "counters": {
+              "coast.cacheHit": 1,
+              "symbols.cacheHits": 539,
+              "polityLabels.searches": 1,
+              "scene.primitives": 5945
+            }
+          },
+          {
+            "run": 16,
+            "ms": 171.20000000298023,
+            "counters": {
+              "coast.cacheHit": 1,
+              "symbols.cacheHits": 539,
+              "polityLabels.searches": 1,
+              "scene.primitives": 5945
+            }
+          },
+          {
+            "run": 17,
+            "ms": 186.10000000149012,
+            "counters": {
+              "coast.cacheHit": 1,
+              "symbols.cacheHits": 539,
+              "polityLabels.searches": 1,
+              "scene.primitives": 5945
+            }
+          },
+          {
+            "run": 18,
+            "ms": 192.19999999552965,
+            "counters": {
+              "coast.cacheHit": 1,
+              "symbols.cacheHits": 539,
+              "polityLabels.searches": 1,
+              "scene.primitives": 5945
+            }
+          },
+          {
+            "run": 19,
+            "ms": 289.20000000298023,
+            "counters": {
+              "coast.cacheHit": 1,
+              "symbols.cacheHits": 539,
+              "polityLabels.searches": 1,
+              "scene.primitives": 5945
+            }
+          }
+        ]
+      },
+      "after": {
+        "total": {
+          "median": 117.39999999850988,
+          "p95": 255.69999999552965,
+          "max": 293.1000000014901
+        },
+        "symbolAndLabelPhases": {
+          "median": 11.100000001490116,
+          "p95": 19.299999997019768,
+          "max": 20.80000000447035
+        },
+        "samples": [
+          {
+            "run": 0,
+            "ms": 143.20000000298023,
+            "counters": {
+              "coast.cacheHit": 1,
+              "coast.componentBuilds": 25,
+              "symbols.cacheHits": 539,
+              "polityLabels.cacheHits": 1,
+              "placement.cacheHits": 6,
+              "riverLabels.cacheHits": 1,
+              "rangeLabels.cacheHits": 1,
+              "waterLabels.cacheHits": 1,
+              "areaLabels.cacheHits": 1,
+              "cityLabels.cacheHits": 1,
+              "scene.primitives": 5945
+            }
+          },
+          {
+            "run": 1,
+            "ms": 233.69999999552965,
+            "counters": {
+              "coast.cacheHit": 1,
+              "coast.componentBuilds": 25,
+              "symbols.cacheHits": 539,
+              "polityLabels.cacheHits": 1,
+              "placement.cacheHits": 6,
+              "riverLabels.cacheHits": 1,
+              "rangeLabels.cacheHits": 1,
+              "waterLabels.cacheHits": 1,
+              "areaLabels.cacheHits": 1,
+              "cityLabels.cacheHits": 1,
+              "scene.primitives": 5945
+            }
+          },
+          {
+            "run": 2,
+            "ms": 133.30000000447035,
+            "counters": {
+              "coast.cacheHit": 1,
+              "coast.componentBuilds": 25,
+              "symbols.cacheHits": 539,
+              "polityLabels.cacheHits": 1,
+              "placement.cacheHits": 6,
+              "riverLabels.cacheHits": 1,
+              "rangeLabels.cacheHits": 1,
+              "waterLabels.cacheHits": 1,
+              "areaLabels.cacheHits": 1,
+              "cityLabels.cacheHits": 1,
+              "scene.primitives": 5945
+            }
+          },
+          {
+            "run": 3,
+            "ms": 117.39999999850988,
+            "counters": {
+              "coast.cacheHit": 1,
+              "coast.componentBuilds": 25,
+              "symbols.cacheHits": 539,
+              "polityLabels.cacheHits": 1,
+              "placement.cacheHits": 6,
+              "riverLabels.cacheHits": 1,
+              "rangeLabels.cacheHits": 1,
+              "waterLabels.cacheHits": 1,
+              "areaLabels.cacheHits": 1,
+              "cityLabels.cacheHits": 1,
+              "scene.primitives": 5945
+            }
+          },
+          {
+            "run": 4,
+            "ms": 112.5,
+            "counters": {
+              "coast.cacheHit": 1,
+              "coast.componentBuilds": 25,
+              "symbols.cacheHits": 539,
+              "polityLabels.cacheHits": 1,
+              "placement.cacheHits": 6,
+              "riverLabels.cacheHits": 1,
+              "rangeLabels.cacheHits": 1,
+              "waterLabels.cacheHits": 1,
+              "areaLabels.cacheHits": 1,
+              "cityLabels.cacheHits": 1,
+              "scene.primitives": 5945
+            }
+          },
+          {
+            "run": 5,
+            "ms": 105.29999999701977,
+            "counters": {
+              "coast.cacheHit": 1,
+              "coast.componentBuilds": 25,
+              "symbols.cacheHits": 539,
+              "polityLabels.cacheHits": 1,
+              "placement.cacheHits": 6,
+              "riverLabels.cacheHits": 1,
+              "rangeLabels.cacheHits": 1,
+              "waterLabels.cacheHits": 1,
+              "areaLabels.cacheHits": 1,
+              "cityLabels.cacheHits": 1,
+              "scene.primitives": 5945
+            }
+          },
+          {
+            "run": 6,
+            "ms": 105.59999999403954,
+            "counters": {
+              "coast.cacheHit": 1,
+              "coast.componentBuilds": 25,
+              "symbols.cacheHits": 539,
+              "polityLabels.cacheHits": 1,
+              "placement.cacheHits": 6,
+              "riverLabels.cacheHits": 1,
+              "rangeLabels.cacheHits": 1,
+              "waterLabels.cacheHits": 1,
+              "areaLabels.cacheHits": 1,
+              "cityLabels.cacheHits": 1,
+              "scene.primitives": 5945
+            }
+          },
+          {
+            "run": 7,
+            "ms": 293.1000000014901,
+            "counters": {
+              "coast.cacheHit": 1,
+              "coast.componentBuilds": 25,
+              "symbols.cacheHits": 539,
+              "polityLabels.cacheHits": 1,
+              "placement.cacheHits": 6,
+              "riverLabels.cacheHits": 1,
+              "rangeLabels.cacheHits": 1,
+              "waterLabels.cacheHits": 1,
+              "areaLabels.cacheHits": 1,
+              "cityLabels.cacheHits": 1,
+              "scene.primitives": 5945
+            }
+          },
+          {
+            "run": 8,
+            "ms": 160.59999999403954,
+            "counters": {
+              "coast.cacheHit": 1,
+              "coast.componentBuilds": 25,
+              "symbols.cacheHits": 539,
+              "polityLabels.cacheHits": 1,
+              "placement.cacheHits": 6,
+              "riverLabels.cacheHits": 1,
+              "rangeLabels.cacheHits": 1,
+              "waterLabels.cacheHits": 1,
+              "areaLabels.cacheHits": 1,
+              "cityLabels.cacheHits": 1,
+              "scene.primitives": 5945
+            }
+          },
+          {
+            "run": 9,
+            "ms": 130.80000000447035,
+            "counters": {
+              "coast.cacheHit": 1,
+              "coast.componentBuilds": 25,
+              "symbols.cacheHits": 539,
+              "polityLabels.cacheHits": 1,
+              "placement.cacheHits": 6,
+              "riverLabels.cacheHits": 1,
+              "rangeLabels.cacheHits": 1,
+              "waterLabels.cacheHits": 1,
+              "areaLabels.cacheHits": 1,
+              "cityLabels.cacheHits": 1,
+              "scene.primitives": 5945
+            }
+          },
+          {
+            "run": 10,
+            "ms": 153.5,
+            "counters": {
+              "coast.cacheHit": 1,
+              "coast.componentBuilds": 25,
+              "symbols.cacheHits": 539,
+              "polityLabels.cacheHits": 1,
+              "placement.cacheHits": 6,
+              "riverLabels.cacheHits": 1,
+              "rangeLabels.cacheHits": 1,
+              "waterLabels.cacheHits": 1,
+              "areaLabels.cacheHits": 1,
+              "cityLabels.cacheHits": 1,
+              "scene.primitives": 5945
+            }
+          },
+          {
+            "run": 11,
+            "ms": 100.5,
+            "counters": {
+              "coast.cacheHit": 1,
+              "coast.componentBuilds": 25,
+              "symbols.cacheHits": 539,
+              "polityLabels.cacheHits": 1,
+              "placement.cacheHits": 6,
+              "riverLabels.cacheHits": 1,
+              "rangeLabels.cacheHits": 1,
+              "waterLabels.cacheHits": 1,
+              "areaLabels.cacheHits": 1,
+              "cityLabels.cacheHits": 1,
+              "scene.primitives": 5945
+            }
+          },
+          {
+            "run": 12,
+            "ms": 99.10000000149012,
+            "counters": {
+              "coast.cacheHit": 1,
+              "coast.componentBuilds": 25,
+              "symbols.cacheHits": 539,
+              "polityLabels.cacheHits": 1,
+              "placement.cacheHits": 6,
+              "riverLabels.cacheHits": 1,
+              "rangeLabels.cacheHits": 1,
+              "waterLabels.cacheHits": 1,
+              "areaLabels.cacheHits": 1,
+              "cityLabels.cacheHits": 1,
+              "scene.primitives": 5945
+            }
+          },
+          {
+            "run": 13,
+            "ms": 246.5,
+            "counters": {
+              "coast.cacheHit": 1,
+              "coast.componentBuilds": 25,
+              "symbols.cacheHits": 539,
+              "polityLabels.cacheHits": 1,
+              "placement.cacheHits": 6,
+              "riverLabels.cacheHits": 1,
+              "rangeLabels.cacheHits": 1,
+              "waterLabels.cacheHits": 1,
+              "areaLabels.cacheHits": 1,
+              "cityLabels.cacheHits": 1,
+              "scene.primitives": 5945
+            }
+          },
+          {
+            "run": 14,
+            "ms": 101.89999999850988,
+            "counters": {
+              "coast.cacheHit": 1,
+              "coast.componentBuilds": 25,
+              "symbols.cacheHits": 539,
+              "polityLabels.cacheHits": 1,
+              "placement.cacheHits": 6,
+              "riverLabels.cacheHits": 1,
+              "rangeLabels.cacheHits": 1,
+              "waterLabels.cacheHits": 1,
+              "areaLabels.cacheHits": 1,
+              "cityLabels.cacheHits": 1,
+              "scene.primitives": 5945
+            }
+          },
+          {
+            "run": 15,
+            "ms": 101.89999999850988,
+            "counters": {
+              "coast.cacheHit": 1,
+              "coast.componentBuilds": 25,
+              "symbols.cacheHits": 539,
+              "polityLabels.cacheHits": 1,
+              "placement.cacheHits": 6,
+              "riverLabels.cacheHits": 1,
+              "rangeLabels.cacheHits": 1,
+              "waterLabels.cacheHits": 1,
+              "areaLabels.cacheHits": 1,
+              "cityLabels.cacheHits": 1,
+              "scene.primitives": 5945
+            }
+          },
+          {
+            "run": 16,
+            "ms": 112.5,
+            "counters": {
+              "coast.cacheHit": 1,
+              "coast.componentBuilds": 25,
+              "symbols.cacheHits": 539,
+              "polityLabels.cacheHits": 1,
+              "placement.cacheHits": 6,
+              "riverLabels.cacheHits": 1,
+              "rangeLabels.cacheHits": 1,
+              "waterLabels.cacheHits": 1,
+              "areaLabels.cacheHits": 1,
+              "cityLabels.cacheHits": 1,
+              "scene.primitives": 5945
+            }
+          },
+          {
+            "run": 17,
+            "ms": 113.89999999850988,
+            "counters": {
+              "coast.cacheHit": 1,
+              "coast.componentBuilds": 25,
+              "symbols.cacheHits": 539,
+              "polityLabels.cacheHits": 1,
+              "placement.cacheHits": 6,
+              "riverLabels.cacheHits": 1,
+              "rangeLabels.cacheHits": 1,
+              "waterLabels.cacheHits": 1,
+              "areaLabels.cacheHits": 1,
+              "cityLabels.cacheHits": 1,
+              "scene.primitives": 5945
+            }
+          },
+          {
+            "run": 18,
+            "ms": 117.10000000149012,
+            "counters": {
+              "coast.cacheHit": 1,
+              "coast.componentBuilds": 25,
+              "symbols.cacheHits": 539,
+              "polityLabels.cacheHits": 1,
+              "placement.cacheHits": 6,
+              "riverLabels.cacheHits": 1,
+              "rangeLabels.cacheHits": 1,
+              "waterLabels.cacheHits": 1,
+              "areaLabels.cacheHits": 1,
+              "cityLabels.cacheHits": 1,
+              "scene.primitives": 5945
+            }
+          },
+          {
+            "run": 19,
+            "ms": 255.69999999552965,
+            "counters": {
+              "coast.cacheHit": 1,
+              "coast.componentBuilds": 25,
+              "symbols.cacheHits": 539,
+              "polityLabels.cacheHits": 1,
+              "placement.cacheHits": 6,
+              "riverLabels.cacheHits": 1,
+              "rangeLabels.cacheHits": 1,
+              "waterLabels.cacheHits": 1,
+              "areaLabels.cacheHits": 1,
+              "cityLabels.cacheHits": 1,
+              "scene.primitives": 5945
+            }
+          }
+        ]
+      }
+    },
+    "independent-shore": {
+      "before": {
+        "total": {
+          "median": 10.300000004470348,
+          "p95": 15.299999997019768,
+          "max": 16.100000001490116
+        },
+        "symbolAndLabelPhases": {
+          "median": 0.10000000149011612,
+          "p95": 0.29999999701976776,
+          "max": 0.6999999955296516
+        },
+        "samples": [
+          {
+            "run": 0,
+            "ms": 11.600000001490116,
+            "counters": {
+              "coast.cacheMiss": 1,
+              "coast.traces": 1,
+              "polityLabels.searches": 1,
+              "scene.primitives": 8
+            }
+          },
+          {
+            "run": 1,
+            "ms": 15.199999995529652,
+            "counters": {
+              "coast.cacheMiss": 1,
+              "coast.traces": 1,
+              "polityLabels.searches": 1,
+              "scene.primitives": 8
+            }
+          },
+          {
+            "run": 2,
+            "ms": 10.300000004470348,
+            "counters": {
+              "coast.cacheMiss": 1,
+              "coast.traces": 1,
+              "polityLabels.searches": 1,
+              "scene.primitives": 8
+            }
+          },
+          {
+            "run": 3,
+            "ms": 14.100000001490116,
+            "counters": {
+              "coast.cacheMiss": 1,
+              "coast.traces": 1,
+              "polityLabels.searches": 1,
+              "scene.primitives": 8
+            }
+          },
+          {
+            "run": 4,
+            "ms": 15.299999997019768,
+            "counters": {
+              "coast.cacheMiss": 1,
+              "coast.traces": 1,
+              "polityLabels.searches": 1,
+              "scene.primitives": 8
+            }
+          },
+          {
+            "run": 5,
+            "ms": 9.600000001490116,
+            "counters": {
+              "coast.cacheMiss": 1,
+              "coast.traces": 1,
+              "polityLabels.searches": 1,
+              "scene.primitives": 8
+            }
+          },
+          {
+            "run": 6,
+            "ms": 16.100000001490116,
+            "counters": {
+              "coast.cacheMiss": 1,
+              "coast.traces": 1,
+              "polityLabels.searches": 1,
+              "scene.primitives": 8
+            }
+          },
+          {
+            "run": 7,
+            "ms": 9.899999998509884,
+            "counters": {
+              "coast.cacheMiss": 1,
+              "coast.traces": 1,
+              "polityLabels.searches": 1,
+              "scene.primitives": 8
+            }
+          },
+          {
+            "run": 8,
+            "ms": 8.700000002980232,
+            "counters": {
+              "coast.cacheMiss": 1,
+              "coast.traces": 1,
+              "polityLabels.searches": 1,
+              "scene.primitives": 8
+            }
+          },
+          {
+            "run": 9,
+            "ms": 8.899999998509884,
+            "counters": {
+              "coast.cacheMiss": 1,
+              "coast.traces": 1,
+              "polityLabels.searches": 1,
+              "scene.primitives": 8
+            }
+          },
+          {
+            "run": 10,
+            "ms": 12.899999998509884,
+            "counters": {
+              "coast.cacheMiss": 1,
+              "coast.traces": 1,
+              "polityLabels.searches": 1,
+              "scene.primitives": 8
+            }
+          },
+          {
+            "run": 11,
+            "ms": 12,
+            "counters": {
+              "coast.cacheMiss": 1,
+              "coast.traces": 1,
+              "polityLabels.searches": 1,
+              "scene.primitives": 8
+            }
+          },
+          {
+            "run": 12,
+            "ms": 9.600000001490116,
+            "counters": {
+              "coast.cacheMiss": 1,
+              "coast.traces": 1,
+              "polityLabels.searches": 1,
+              "scene.primitives": 8
+            }
+          },
+          {
+            "run": 13,
+            "ms": 8.700000002980232,
+            "counters": {
+              "coast.cacheMiss": 1,
+              "coast.traces": 1,
+              "polityLabels.searches": 1,
+              "scene.primitives": 8
+            }
+          },
+          {
+            "run": 14,
+            "ms": 10.299999997019768,
+            "counters": {
+              "coast.cacheMiss": 1,
+              "coast.traces": 1,
+              "polityLabels.searches": 1,
+              "scene.primitives": 8
+            }
+          },
+          {
+            "run": 15,
+            "ms": 12.899999998509884,
+            "counters": {
+              "coast.cacheMiss": 1,
+              "coast.traces": 1,
+              "polityLabels.searches": 1,
+              "scene.primitives": 8
+            }
+          },
+          {
+            "run": 16,
+            "ms": 7.800000004470348,
+            "counters": {
+              "coast.cacheMiss": 1,
+              "coast.traces": 1,
+              "polityLabels.searches": 1,
+              "scene.primitives": 8
+            }
+          },
+          {
+            "run": 17,
+            "ms": 8.5,
+            "counters": {
+              "coast.cacheMiss": 1,
+              "coast.traces": 1,
+              "polityLabels.searches": 1,
+              "scene.primitives": 8
+            }
+          },
+          {
+            "run": 18,
+            "ms": 10.5,
+            "counters": {
+              "coast.cacheMiss": 1,
+              "coast.traces": 1,
+              "polityLabels.searches": 1,
+              "scene.primitives": 8
+            }
+          },
+          {
+            "run": 19,
+            "ms": 7.100000001490116,
+            "counters": {
+              "coast.cacheMiss": 1,
+              "coast.traces": 1,
+              "polityLabels.searches": 1,
+              "scene.primitives": 8
+            }
+          }
+        ]
+      },
+      "after": {
+        "total": {
+          "median": 2.2999999970197678,
+          "p95": 6.899999998509884,
+          "max": 9.899999998509884
+        },
+        "symbolAndLabelPhases": {
+          "median": 0.20000000298023224,
+          "p95": 2.5,
+          "max": 2.6000000089406967
+        },
+        "samples": [
+          {
+            "run": 0,
+            "ms": 9.899999998509884,
+            "counters": {
+              "coast.cacheMiss": 1,
+              "coast.traces": 1,
+              "coast.componentBuilds": 1,
+              "coast.componentHits": 1,
+              "polityLabels.searches": 1,
+              "placement.searches": 2,
+              "riverLabels.cacheHits": 1,
+              "placement.cacheHits": 4,
+              "rangeLabels.cacheHits": 1,
+              "waterLabels.searches": 1,
+              "areaLabels.cacheHits": 1,
+              "cityLabels.cacheHits": 1,
+              "scene.primitives": 8
+            }
+          },
+          {
+            "run": 1,
+            "ms": 2.100000001490116,
+            "counters": {
+              "coast.cacheHit": 1,
+              "polityLabels.cacheHits": 1,
+              "placement.cacheHits": 6,
+              "riverLabels.cacheHits": 1,
+              "rangeLabels.cacheHits": 1,
+              "waterLabels.cacheHits": 1,
+              "areaLabels.cacheHits": 1,
+              "cityLabels.cacheHits": 1,
+              "scene.primitives": 8
+            }
+          },
+          {
+            "run": 2,
+            "ms": 3.100000001490116,
+            "counters": {
+              "coast.cacheHit": 1,
+              "polityLabels.cacheHits": 1,
+              "placement.cacheHits": 6,
+              "riverLabels.cacheHits": 1,
+              "rangeLabels.cacheHits": 1,
+              "waterLabels.cacheHits": 1,
+              "areaLabels.cacheHits": 1,
+              "cityLabels.cacheHits": 1,
+              "scene.primitives": 8
+            }
+          },
+          {
+            "run": 3,
+            "ms": 2.7000000029802322,
+            "counters": {
+              "coast.cacheHit": 1,
+              "polityLabels.cacheHits": 1,
+              "placement.cacheHits": 6,
+              "riverLabels.cacheHits": 1,
+              "rangeLabels.cacheHits": 1,
+              "waterLabels.cacheHits": 1,
+              "areaLabels.cacheHits": 1,
+              "cityLabels.cacheHits": 1,
+              "scene.primitives": 8
+            }
+          },
+          {
+            "run": 4,
+            "ms": 2.7000000029802322,
+            "counters": {
+              "coast.cacheHit": 1,
+              "polityLabels.cacheHits": 1,
+              "placement.cacheHits": 6,
+              "riverLabels.cacheHits": 1,
+              "rangeLabels.cacheHits": 1,
+              "waterLabels.cacheHits": 1,
+              "areaLabels.cacheHits": 1,
+              "cityLabels.cacheHits": 1,
+              "scene.primitives": 8
+            }
+          },
+          {
+            "run": 5,
+            "ms": 2.0999999940395355,
+            "counters": {
+              "coast.cacheHit": 1,
+              "polityLabels.cacheHits": 1,
+              "placement.cacheHits": 6,
+              "riverLabels.cacheHits": 1,
+              "rangeLabels.cacheHits": 1,
+              "waterLabels.cacheHits": 1,
+              "areaLabels.cacheHits": 1,
+              "cityLabels.cacheHits": 1,
+              "scene.primitives": 8
+            }
+          },
+          {
+            "run": 6,
+            "ms": 2.2999999970197678,
+            "counters": {
+              "coast.cacheHit": 1,
+              "polityLabels.cacheHits": 1,
+              "placement.cacheHits": 6,
+              "riverLabels.cacheHits": 1,
+              "rangeLabels.cacheHits": 1,
+              "waterLabels.cacheHits": 1,
+              "areaLabels.cacheHits": 1,
+              "cityLabels.cacheHits": 1,
+              "scene.primitives": 8
+            }
+          },
+          {
+            "run": 7,
+            "ms": 2.100000001490116,
+            "counters": {
+              "coast.cacheHit": 1,
+              "polityLabels.cacheHits": 1,
+              "placement.cacheHits": 6,
+              "riverLabels.cacheHits": 1,
+              "rangeLabels.cacheHits": 1,
+              "waterLabels.cacheHits": 1,
+              "areaLabels.cacheHits": 1,
+              "cityLabels.cacheHits": 1,
+              "scene.primitives": 8
+            }
+          },
+          {
+            "run": 8,
+            "ms": 2.2999999970197678,
+            "counters": {
+              "coast.cacheHit": 1,
+              "polityLabels.cacheHits": 1,
+              "placement.cacheHits": 6,
+              "riverLabels.cacheHits": 1,
+              "rangeLabels.cacheHits": 1,
+              "waterLabels.cacheHits": 1,
+              "areaLabels.cacheHits": 1,
+              "cityLabels.cacheHits": 1,
+              "scene.primitives": 8
+            }
+          },
+          {
+            "run": 9,
+            "ms": 6.899999998509884,
+            "counters": {
+              "coast.cacheHit": 1,
+              "polityLabels.cacheHits": 1,
+              "placement.cacheHits": 6,
+              "riverLabels.cacheHits": 1,
+              "rangeLabels.cacheHits": 1,
+              "waterLabels.cacheHits": 1,
+              "areaLabels.cacheHits": 1,
+              "cityLabels.cacheHits": 1,
+              "scene.primitives": 8
+            }
+          },
+          {
+            "run": 10,
+            "ms": 4.200000002980232,
+            "counters": {
+              "coast.cacheHit": 1,
+              "polityLabels.cacheHits": 1,
+              "placement.cacheHits": 6,
+              "riverLabels.cacheHits": 1,
+              "rangeLabels.cacheHits": 1,
+              "waterLabels.cacheHits": 1,
+              "areaLabels.cacheHits": 1,
+              "cityLabels.cacheHits": 1,
+              "scene.primitives": 8
+            }
+          },
+          {
+            "run": 11,
+            "ms": 2.1999999955296516,
+            "counters": {
+              "coast.cacheHit": 1,
+              "polityLabels.cacheHits": 1,
+              "placement.cacheHits": 6,
+              "riverLabels.cacheHits": 1,
+              "rangeLabels.cacheHits": 1,
+              "waterLabels.cacheHits": 1,
+              "areaLabels.cacheHits": 1,
+              "cityLabels.cacheHits": 1,
+              "scene.primitives": 8
+            }
+          },
+          {
+            "run": 12,
+            "ms": 3.2999999970197678,
+            "counters": {
+              "coast.cacheHit": 1,
+              "polityLabels.cacheHits": 1,
+              "placement.cacheHits": 6,
+              "riverLabels.cacheHits": 1,
+              "rangeLabels.cacheHits": 1,
+              "waterLabels.cacheHits": 1,
+              "areaLabels.cacheHits": 1,
+              "cityLabels.cacheHits": 1,
+              "scene.primitives": 8
+            }
+          },
+          {
+            "run": 13,
+            "ms": 2.2999999970197678,
+            "counters": {
+              "coast.cacheHit": 1,
+              "polityLabels.cacheHits": 1,
+              "placement.cacheHits": 6,
+              "riverLabels.cacheHits": 1,
+              "rangeLabels.cacheHits": 1,
+              "waterLabels.cacheHits": 1,
+              "areaLabels.cacheHits": 1,
+              "cityLabels.cacheHits": 1,
+              "scene.primitives": 8
+            }
+          },
+          {
+            "run": 14,
+            "ms": 2.899999998509884,
+            "counters": {
+              "coast.cacheHit": 1,
+              "polityLabels.cacheHits": 1,
+              "placement.cacheHits": 6,
+              "riverLabels.cacheHits": 1,
+              "rangeLabels.cacheHits": 1,
+              "waterLabels.cacheHits": 1,
+              "areaLabels.cacheHits": 1,
+              "cityLabels.cacheHits": 1,
+              "scene.primitives": 8
+            }
+          },
+          {
+            "run": 15,
+            "ms": 2,
+            "counters": {
+              "coast.cacheHit": 1,
+              "polityLabels.cacheHits": 1,
+              "placement.cacheHits": 6,
+              "riverLabels.cacheHits": 1,
+              "rangeLabels.cacheHits": 1,
+              "waterLabels.cacheHits": 1,
+              "areaLabels.cacheHits": 1,
+              "cityLabels.cacheHits": 1,
+              "scene.primitives": 8
+            }
+          },
+          {
+            "run": 16,
+            "ms": 2.100000001490116,
+            "counters": {
+              "coast.cacheHit": 1,
+              "polityLabels.cacheHits": 1,
+              "placement.cacheHits": 6,
+              "riverLabels.cacheHits": 1,
+              "rangeLabels.cacheHits": 1,
+              "waterLabels.cacheHits": 1,
+              "areaLabels.cacheHits": 1,
+              "cityLabels.cacheHits": 1,
+              "scene.primitives": 8
+            }
+          },
+          {
+            "run": 17,
+            "ms": 1.8999999985098839,
+            "counters": {
+              "coast.cacheHit": 1,
+              "polityLabels.cacheHits": 1,
+              "placement.cacheHits": 6,
+              "riverLabels.cacheHits": 1,
+              "rangeLabels.cacheHits": 1,
+              "waterLabels.cacheHits": 1,
+              "areaLabels.cacheHits": 1,
+              "cityLabels.cacheHits": 1,
+              "scene.primitives": 8
+            }
+          },
+          {
+            "run": 18,
+            "ms": 2,
+            "counters": {
+              "coast.cacheHit": 1,
+              "polityLabels.cacheHits": 1,
+              "placement.cacheHits": 6,
+              "riverLabels.cacheHits": 1,
+              "rangeLabels.cacheHits": 1,
+              "waterLabels.cacheHits": 1,
+              "areaLabels.cacheHits": 1,
+              "cityLabels.cacheHits": 1,
+              "scene.primitives": 8
+            }
+          },
+          {
+            "run": 19,
+            "ms": 1.7999999970197678,
+            "counters": {
+              "coast.cacheHit": 1,
+              "polityLabels.cacheHits": 1,
+              "placement.cacheHits": 6,
+              "riverLabels.cacheHits": 1,
+              "rangeLabels.cacheHits": 1,
+              "waterLabels.cacheHits": 1,
+              "areaLabels.cacheHits": 1,
+              "cityLabels.cacheHits": 1,
+              "scene.primitives": 8
+            }
+          }
+        ]
+      }
+    },
+    "independent-unique-shore": {
+      "before": {
+        "total": {
+          "median": 21.5,
+          "p95": 168.10000000149012,
+          "max": 213.5
+        },
+        "symbolAndLabelPhases": {
+          "median": 0.19999999552965164,
+          "p95": 0.4000000059604645,
+          "max": 0.5
+        },
+        "samples": [
+          {
+            "run": 0,
+            "ms": 168.10000000149012,
+            "counters": {
+              "coast.cacheMiss": 1,
+              "coast.traces": 3,
+              "coast.globalPasses": 3,
+              "fit.measurements": 5,
+              "fit.hexMeasurements": 150,
+              "fit.rounds": 5,
+              "fit.solverIterations": 151,
+              "fit.trials": 4,
+              "polityLabels.searches": 1,
+              "scene.primitives": 8
+            }
+          },
+          {
+            "run": 1,
+            "ms": 10.599999994039536,
+            "counters": {
+              "coast.cacheMiss": 1,
+              "coast.traces": 1,
+              "polityLabels.searches": 1,
+              "scene.primitives": 8
+            }
+          },
+          {
+            "run": 2,
+            "ms": 8.100000001490116,
+            "counters": {
+              "coast.cacheMiss": 1,
+              "coast.traces": 1,
+              "polityLabels.searches": 1,
+              "scene.primitives": 8
+            }
+          },
+          {
+            "run": 3,
+            "ms": 8.700000002980232,
+            "counters": {
+              "coast.cacheMiss": 1,
+              "coast.traces": 1,
+              "polityLabels.searches": 1,
+              "scene.primitives": 8
+            }
+          },
+          {
+            "run": 4,
+            "ms": 32,
+            "counters": {
+              "coast.cacheMiss": 1,
+              "coast.traces": 1,
+              "polityLabels.searches": 1,
+              "scene.primitives": 8
+            }
+          },
+          {
+            "run": 5,
+            "ms": 15.900000005960464,
+            "counters": {
+              "coast.cacheMiss": 1,
+              "coast.traces": 1,
+              "polityLabels.searches": 1,
+              "scene.primitives": 8
+            }
+          },
+          {
+            "run": 6,
+            "ms": 109.79999999701977,
+            "counters": {
+              "coast.cacheMiss": 1,
+              "coast.traces": 3,
+              "coast.globalPasses": 3,
+              "fit.measurements": 5,
+              "fit.hexMeasurements": 190,
+              "fit.rounds": 5,
+              "fit.solverIterations": 157,
+              "fit.trials": 4,
+              "polityLabels.searches": 1,
+              "scene.primitives": 8
+            }
+          },
+          {
+            "run": 7,
+            "ms": 121.30000000447035,
+            "counters": {
+              "coast.cacheMiss": 1,
+              "coast.traces": 3,
+              "coast.globalPasses": 3,
+              "fit.measurements": 5,
+              "fit.hexMeasurements": 190,
+              "fit.rounds": 5,
+              "fit.solverIterations": 163,
+              "fit.trials": 4,
+              "polityLabels.searches": 1,
+              "scene.primitives": 8
+            }
+          },
+          {
+            "run": 8,
+            "ms": 50,
+            "counters": {
+              "coast.cacheMiss": 1,
+              "coast.traces": 1,
+              "polityLabels.searches": 1,
+              "scene.primitives": 8
+            }
+          },
+          {
+            "run": 9,
+            "ms": 25,
+            "counters": {
+              "coast.cacheMiss": 1,
+              "coast.traces": 1,
+              "polityLabels.searches": 1,
+              "scene.primitives": 8
+            }
+          },
+          {
+            "run": 10,
+            "ms": 16.80000000447035,
+            "counters": {
+              "coast.cacheMiss": 1,
+              "coast.traces": 1,
+              "polityLabels.searches": 1,
+              "scene.primitives": 8
+            }
+          },
+          {
+            "run": 11,
+            "ms": 15.299999997019768,
+            "counters": {
+              "coast.cacheMiss": 1,
+              "coast.traces": 1,
+              "polityLabels.searches": 1,
+              "scene.primitives": 8
+            }
+          },
+          {
+            "run": 12,
+            "ms": 21.5,
+            "counters": {
+              "coast.cacheMiss": 1,
+              "coast.traces": 1,
+              "polityLabels.searches": 1,
+              "scene.primitives": 8
+            }
+          },
+          {
+            "run": 13,
+            "ms": 30.5,
+            "counters": {
+              "coast.cacheMiss": 1,
+              "coast.traces": 1,
+              "polityLabels.searches": 1,
+              "scene.primitives": 8
+            }
+          },
+          {
+            "run": 14,
+            "ms": 10.900000005960464,
+            "counters": {
+              "coast.cacheMiss": 1,
+              "coast.traces": 1,
+              "polityLabels.searches": 1,
+              "scene.primitives": 8
+            }
+          },
+          {
+            "run": 15,
+            "ms": 213.5,
+            "counters": {
+              "coast.cacheMiss": 1,
+              "coast.traces": 3,
+              "coast.globalPasses": 3,
+              "fit.measurements": 6,
+              "fit.hexMeasurements": 246,
+              "fit.rounds": 6,
+              "fit.solverIterations": 211,
+              "fit.trials": 5,
+              "polityLabels.searches": 1,
+              "scene.primitives": 8
+            }
+          },
+          {
+            "run": 16,
+            "ms": 34.29999999701977,
+            "counters": {
+              "coast.cacheMiss": 1,
+              "coast.traces": 1,
+              "polityLabels.searches": 1,
+              "scene.primitives": 8
+            }
+          },
+          {
+            "run": 17,
+            "ms": 15.600000001490116,
+            "counters": {
+              "coast.cacheMiss": 1,
+              "coast.traces": 1,
+              "polityLabels.searches": 1,
+              "scene.primitives": 8
+            }
+          },
+          {
+            "run": 18,
+            "ms": 11.799999997019768,
+            "counters": {
+              "coast.cacheMiss": 1,
+              "coast.traces": 1,
+              "polityLabels.searches": 1,
+              "scene.primitives": 8
+            }
+          },
+          {
+            "run": 19,
+            "ms": 20.399999998509884,
+            "counters": {
+              "coast.cacheMiss": 1,
+              "coast.traces": 1,
+              "polityLabels.searches": 1,
+              "scene.primitives": 8
+            }
+          }
+        ]
+      },
+      "after": {
+        "total": {
+          "median": 14.399999998509884,
+          "p95": 141.39999999850988,
+          "max": 146.20000000298023
+        },
+        "symbolAndLabelPhases": {
+          "median": 0.29999999701976776,
+          "p95": 0.5000000074505806,
+          "max": 0.6000000014901161
+        },
+        "samples": [
+          {
+            "run": 0,
+            "ms": 128.19999999552965,
+            "counters": {
+              "coast.cacheMiss": 1,
+              "coast.traces": 3,
+              "coast.componentBuilds": 7,
+              "coast.globalPasses": 3,
+              "coast.componentHits": 2,
+              "coast.fitGroupBuilds": 1,
+              "fit.measurements": 5,
+              "fit.hexMeasurements": 150,
+              "fit.rounds": 5,
+              "fit.solverIterations": 151,
+              "fit.trials": 4,
+              "polityLabels.searches": 1,
+              "placement.searches": 2,
+              "riverLabels.cacheHits": 1,
+              "placement.cacheHits": 4,
+              "rangeLabels.cacheHits": 1,
+              "waterLabels.searches": 1,
+              "areaLabels.cacheHits": 1,
+              "cityLabels.cacheHits": 1,
+              "scene.primitives": 8
+            }
+          },
+          {
+            "run": 1,
+            "ms": 8.700000002980232,
+            "counters": {
+              "coast.cacheMiss": 1,
+              "coast.traces": 1,
+              "coast.componentBuilds": 1,
+              "coast.componentHits": 1,
+              "polityLabels.searches": 1,
+              "placement.searches": 2,
+              "riverLabels.cacheHits": 1,
+              "placement.cacheHits": 4,
+              "rangeLabels.cacheHits": 1,
+              "waterLabels.searches": 1,
+              "areaLabels.cacheHits": 1,
+              "cityLabels.cacheHits": 1,
+              "scene.primitives": 8
+            }
+          },
+          {
+            "run": 2,
+            "ms": 11,
+            "counters": {
+              "coast.cacheMiss": 1,
+              "coast.traces": 1,
+              "coast.componentBuilds": 1,
+              "coast.componentHits": 1,
+              "polityLabels.searches": 1,
+              "placement.searches": 2,
+              "riverLabels.cacheHits": 1,
+              "placement.cacheHits": 4,
+              "rangeLabels.cacheHits": 1,
+              "waterLabels.searches": 1,
+              "areaLabels.cacheHits": 1,
+              "cityLabels.cacheHits": 1,
+              "scene.primitives": 8
+            }
+          },
+          {
+            "run": 3,
+            "ms": 9.899999998509884,
+            "counters": {
+              "coast.cacheMiss": 1,
+              "coast.traces": 1,
+              "coast.componentBuilds": 1,
+              "coast.componentHits": 1,
+              "polityLabels.searches": 1,
+              "placement.searches": 2,
+              "riverLabels.cacheHits": 1,
+              "placement.cacheHits": 4,
+              "rangeLabels.cacheHits": 1,
+              "waterLabels.searches": 1,
+              "areaLabels.cacheHits": 1,
+              "cityLabels.cacheHits": 1,
+              "scene.primitives": 8
+            }
+          },
+          {
+            "run": 4,
+            "ms": 14.699999995529652,
+            "counters": {
+              "coast.cacheMiss": 1,
+              "coast.traces": 1,
+              "coast.componentBuilds": 1,
+              "coast.componentHits": 1,
+              "polityLabels.searches": 1,
+              "placement.searches": 2,
+              "riverLabels.cacheHits": 1,
+              "placement.cacheHits": 4,
+              "rangeLabels.cacheHits": 1,
+              "waterLabels.searches": 1,
+              "areaLabels.cacheHits": 1,
+              "cityLabels.cacheHits": 1,
+              "scene.primitives": 8
+            }
+          },
+          {
+            "run": 5,
+            "ms": 9.300000004470348,
+            "counters": {
+              "coast.cacheMiss": 1,
+              "coast.traces": 1,
+              "coast.componentBuilds": 1,
+              "coast.componentHits": 1,
+              "polityLabels.searches": 1,
+              "placement.searches": 2,
+              "riverLabels.cacheHits": 1,
+              "placement.cacheHits": 4,
+              "rangeLabels.cacheHits": 1,
+              "waterLabels.searches": 1,
+              "areaLabels.cacheHits": 1,
+              "cityLabels.cacheHits": 1,
+              "scene.primitives": 8
+            }
+          },
+          {
+            "run": 6,
+            "ms": 141.39999999850988,
+            "counters": {
+              "coast.cacheMiss": 1,
+              "coast.traces": 3,
+              "coast.componentHits": 3,
+              "coast.componentBuilds": 6,
+              "coast.globalPasses": 3,
+              "coast.fitGroupBuilds": 1,
+              "fit.measurements": 5,
+              "fit.hexMeasurements": 190,
+              "fit.rounds": 5,
+              "fit.solverIterations": 157,
+              "fit.trials": 4,
+              "polityLabels.searches": 1,
+              "placement.searches": 2,
+              "riverLabels.cacheHits": 1,
+              "placement.cacheHits": 4,
+              "rangeLabels.cacheHits": 1,
+              "waterLabels.searches": 1,
+              "areaLabels.cacheHits": 1,
+              "cityLabels.cacheHits": 1,
+              "scene.primitives": 8
+            }
+          },
+          {
+            "run": 7,
+            "ms": 123.79999999701977,
+            "counters": {
+              "coast.cacheMiss": 1,
+              "coast.traces": 3,
+              "coast.componentHits": 3,
+              "coast.componentBuilds": 6,
+              "coast.globalPasses": 3,
+              "coast.fitGroupBuilds": 1,
+              "fit.measurements": 5,
+              "fit.hexMeasurements": 190,
+              "fit.rounds": 5,
+              "fit.solverIterations": 163,
+              "fit.trials": 4,
+              "polityLabels.searches": 1,
+              "placement.searches": 2,
+              "riverLabels.cacheHits": 1,
+              "placement.cacheHits": 4,
+              "rangeLabels.cacheHits": 1,
+              "waterLabels.searches": 1,
+              "areaLabels.cacheHits": 1,
+              "cityLabels.cacheHits": 1,
+              "scene.primitives": 8
+            }
+          },
+          {
+            "run": 8,
+            "ms": 13.400000005960464,
+            "counters": {
+              "coast.cacheMiss": 1,
+              "coast.traces": 1,
+              "coast.componentBuilds": 1,
+              "coast.componentHits": 1,
+              "polityLabels.searches": 1,
+              "placement.searches": 2,
+              "riverLabels.cacheHits": 1,
+              "placement.cacheHits": 4,
+              "rangeLabels.cacheHits": 1,
+              "waterLabels.searches": 1,
+              "areaLabels.cacheHits": 1,
+              "cityLabels.cacheHits": 1,
+              "scene.primitives": 8
+            }
+          },
+          {
+            "run": 9,
+            "ms": 10,
+            "counters": {
+              "coast.cacheMiss": 1,
+              "coast.traces": 1,
+              "coast.componentBuilds": 1,
+              "coast.componentHits": 1,
+              "polityLabels.searches": 1,
+              "placement.searches": 2,
+              "riverLabels.cacheHits": 1,
+              "placement.cacheHits": 4,
+              "rangeLabels.cacheHits": 1,
+              "waterLabels.searches": 1,
+              "areaLabels.cacheHits": 1,
+              "cityLabels.cacheHits": 1,
+              "scene.primitives": 8
+            }
+          },
+          {
+            "run": 10,
+            "ms": 35.5,
+            "counters": {
+              "coast.cacheMiss": 1,
+              "coast.traces": 1,
+              "coast.componentBuilds": 1,
+              "coast.componentHits": 1,
+              "polityLabels.searches": 1,
+              "placement.searches": 2,
+              "riverLabels.cacheHits": 1,
+              "placement.cacheHits": 4,
+              "rangeLabels.cacheHits": 1,
+              "waterLabels.searches": 1,
+              "areaLabels.cacheHits": 1,
+              "cityLabels.cacheHits": 1,
+              "scene.primitives": 8
+            }
+          },
+          {
+            "run": 11,
+            "ms": 15.300000004470348,
+            "counters": {
+              "coast.cacheMiss": 1,
+              "coast.traces": 1,
+              "coast.componentBuilds": 2,
+              "coast.componentHits": 1,
+              "polityLabels.searches": 1,
+              "placement.searches": 2,
+              "riverLabels.cacheHits": 1,
+              "placement.cacheHits": 4,
+              "rangeLabels.cacheHits": 1,
+              "waterLabels.searches": 1,
+              "areaLabels.cacheHits": 1,
+              "cityLabels.cacheHits": 1,
+              "scene.primitives": 8
+            }
+          },
+          {
+            "run": 12,
+            "ms": 14.199999995529652,
+            "counters": {
+              "coast.cacheMiss": 1,
+              "coast.traces": 1,
+              "coast.componentBuilds": 2,
+              "coast.componentHits": 1,
+              "polityLabels.searches": 1,
+              "placement.searches": 2,
+              "riverLabels.cacheHits": 1,
+              "placement.cacheHits": 4,
+              "rangeLabels.cacheHits": 1,
+              "waterLabels.searches": 1,
+              "areaLabels.cacheHits": 1,
+              "cityLabels.cacheHits": 1,
+              "scene.primitives": 8
+            }
+          },
+          {
+            "run": 13,
+            "ms": 8,
+            "counters": {
+              "coast.cacheMiss": 1,
+              "coast.traces": 1,
+              "coast.componentBuilds": 2,
+              "coast.componentHits": 1,
+              "polityLabels.searches": 1,
+              "placement.searches": 2,
+              "riverLabels.cacheHits": 1,
+              "placement.cacheHits": 4,
+              "rangeLabels.cacheHits": 1,
+              "waterLabels.searches": 1,
+              "areaLabels.cacheHits": 1,
+              "cityLabels.cacheHits": 1,
+              "scene.primitives": 8
+            }
+          },
+          {
+            "run": 14,
+            "ms": 9.400000005960464,
+            "counters": {
+              "coast.cacheMiss": 1,
+              "coast.traces": 1,
+              "coast.componentBuilds": 1,
+              "coast.componentHits": 1,
+              "polityLabels.searches": 1,
+              "placement.searches": 2,
+              "riverLabels.cacheHits": 1,
+              "placement.cacheHits": 4,
+              "rangeLabels.cacheHits": 1,
+              "waterLabels.searches": 1,
+              "areaLabels.cacheHits": 1,
+              "cityLabels.cacheHits": 1,
+              "scene.primitives": 8
+            }
+          },
+          {
+            "run": 15,
+            "ms": 146.20000000298023,
+            "counters": {
+              "coast.cacheMiss": 1,
+              "coast.traces": 3,
+              "coast.componentHits": 3,
+              "coast.componentBuilds": 6,
+              "coast.globalPasses": 3,
+              "coast.fitGroupBuilds": 1,
+              "fit.measurements": 6,
+              "fit.hexMeasurements": 246,
+              "fit.rounds": 6,
+              "fit.solverIterations": 211,
+              "fit.trials": 5,
+              "polityLabels.searches": 1,
+              "placement.searches": 2,
+              "riverLabels.cacheHits": 1,
+              "placement.cacheHits": 4,
+              "rangeLabels.cacheHits": 1,
+              "waterLabels.searches": 1,
+              "areaLabels.cacheHits": 1,
+              "cityLabels.cacheHits": 1,
+              "scene.primitives": 8
+            }
+          },
+          {
+            "run": 16,
+            "ms": 38,
+            "counters": {
+              "coast.cacheMiss": 1,
+              "coast.traces": 1,
+              "coast.componentBuilds": 1,
+              "coast.componentHits": 1,
+              "polityLabels.searches": 1,
+              "placement.searches": 2,
+              "riverLabels.cacheHits": 1,
+              "placement.cacheHits": 4,
+              "rangeLabels.cacheHits": 1,
+              "waterLabels.searches": 1,
+              "areaLabels.cacheHits": 1,
+              "cityLabels.cacheHits": 1,
+              "scene.primitives": 8
+            }
+          },
+          {
+            "run": 17,
+            "ms": 40,
+            "counters": {
+              "coast.cacheMiss": 1,
+              "coast.traces": 1,
+              "coast.componentBuilds": 1,
+              "coast.componentHits": 1,
+              "polityLabels.searches": 1,
+              "placement.searches": 2,
+              "riverLabels.cacheHits": 1,
+              "placement.cacheHits": 4,
+              "rangeLabels.cacheHits": 1,
+              "waterLabels.searches": 1,
+              "areaLabels.cacheHits": 1,
+              "cityLabels.cacheHits": 1,
+              "scene.primitives": 8
+            }
+          },
+          {
+            "run": 18,
+            "ms": 14.399999998509884,
+            "counters": {
+              "coast.cacheMiss": 1,
+              "coast.traces": 1,
+              "coast.componentBuilds": 1,
+              "coast.componentHits": 1,
+              "polityLabels.searches": 1,
+              "placement.searches": 2,
+              "riverLabels.cacheHits": 1,
+              "placement.cacheHits": 4,
+              "rangeLabels.cacheHits": 1,
+              "waterLabels.searches": 1,
+              "areaLabels.cacheHits": 1,
+              "cityLabels.cacheHits": 1,
+              "scene.primitives": 8
+            }
+          },
+          {
+            "run": 19,
+            "ms": 13.600000001490116,
+            "counters": {
+              "coast.cacheMiss": 1,
+              "coast.traces": 1,
+              "coast.componentBuilds": 1,
+              "coast.componentHits": 1,
+              "polityLabels.searches": 1,
+              "placement.searches": 2,
+              "riverLabels.cacheHits": 1,
+              "placement.cacheHits": 4,
+              "rangeLabels.cacheHits": 1,
+              "waterLabels.searches": 1,
+              "areaLabels.cacheHits": 1,
+              "cityLabels.cacheHits": 1,
+              "scene.primitives": 8
+            }
+          }
+        ]
+      }
+    }
+  },
+  "pixels": {
+    "incremental": {
+      "cases": 59,
+      "comparisons": 944,
+      "identicalScenes": true,
+      "changedPixels": 0,
+      "nonemptyFitCoastMasks": true
+    },
+    "baseline": {
+      "cases": 4,
+      "comparisons": 96,
+      "identicalScenes": true,
+      "changedPixels": 0,
+      "nonemptyFitCoastMasks": true
+    }
+  },
+  "workerPlacement": [
+    {
+      "coastAndSymbolInputsReused": false,
+      "counters": {
+        "coast.cacheMiss": 1,
+        "coast.traces": 3,
+        "coast.componentBuilds": 118,
+        "coast.globalPasses": 3,
+        "coast.fitGroupHits": 1,
+        "symbols.revalidatedFits": 539,
+        "symbols.cacheHits": 539,
+        "polityLabels.searches": 1,
+        "placement.searches": 1,
+        "riverLabels.cacheHits": 1,
+        "placement.cacheHits": 5,
+        "rangeLabels.cacheHits": 1,
+        "waterLabels.cacheHits": 1,
+        "areaLabels.cacheHits": 1,
+        "cityLabels.cacheHits": 1,
+        "scene.primitives": 5945
+      }
+    },
+    {
+      "coastAndSymbolInputsReused": true,
+      "counters": {
+        "coast.cacheHit": 1,
+        "coast.componentBuilds": 25,
+        "symbols.cacheHits": 539,
+        "polityLabels.cacheHits": 1,
+        "placement.cacheHits": 6,
+        "riverLabels.cacheHits": 1,
+        "rangeLabels.cacheHits": 1,
+        "waterLabels.cacheHits": 1,
+        "areaLabels.cacheHits": 1,
+        "cityLabels.cacheHits": 1,
+        "scene.primitives": 5945
+      }
+    }
+  ]
+}

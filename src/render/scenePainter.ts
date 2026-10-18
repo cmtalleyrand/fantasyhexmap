@@ -35,11 +35,11 @@ export class ScenePainter {
     };
   }
 
-  setScene(scene: Scene, lettering: LetteringId): void {
+  setScene(scene: Scene, lettering: LetteringId, profile = false): void {
     this.scene = scene;
     this.version++;
     this.invalidate();
-    this.worker.postMessage({ type: 'scene', version: this.version, scene, lettering });
+    this.worker.postMessage({ type: 'scene', version: this.version, scene, lettering, profile });
   }
 
   invalidate(): void {

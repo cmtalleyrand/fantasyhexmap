@@ -55,6 +55,9 @@ function loadFace(face: BundledFace): Promise<void> {
     });
     await font.load();
     fonts.add(font);
+    // A new face can replace fallback measurements. Reusing an already loaded
+    // face must preserve the epoch, including on every build-worker request.
+    invalidateTextMeasures();
   })().catch(() => {
     // A face that fails to load falls back to the stack's next font; drop the
     // failed attempt so a later call can try again.
@@ -73,7 +76,6 @@ export async function loadLettering(id: LetteringId): Promise<void> {
   const faces = letteringFaces(id);
   if (faces.length === 0) return;
   await Promise.all(faces.map(loadFace));
-  invalidateTextMeasures();
 }
 
 const dataUris = new Map<string, Promise<string>>();
