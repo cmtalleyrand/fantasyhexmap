@@ -76,7 +76,7 @@ try{
   if(version==='after')await page.waitForFunction(()=>window.workerJobs===0&&performance.now()-window.lastWorkerPaint>300,{timeout:30000});
   const zoom=await page.evaluate(()=>({counts:{...window.counts},changed:document.querySelector('canvas').toDataURL()}));
   results.push({version,initialHash:createHash('sha256').update(initial.image).digest('hex'),hover,hoverMedianMs:moves.sort((a,b)=>a-b)[7],zoomRedrew:zoom.changed!==initial.image,zoomStrokes:zoom.counts.stroke,selection,immediateZoom});
-  if(version==='after')workerReference=await page.evaluate(()=>window.workerReference(afterApi.drawScene,window.initialWorkerFrame,afterApi.MAP_COLOURS.background,true));
+  if(version==='after')workerReference=await page.evaluate(()=>window.workerReference(afterApi.drawScene,window.initialWorkerFrame,afterApi.MAP_COLOURS.background,true,afterApi.buildScene));
   await page.close();
  }
  console.log(results);

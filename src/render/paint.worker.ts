@@ -2,23 +2,44 @@ import { drawScene } from './canvas.js';
 import { loadLettering } from './fontFiles.js';
 import { MAP_COLOURS } from './palette.js';
 import type { PaintReply, PaintRequest } from './paintProtocol.js';
+import { buildStaticScene, type Scene } from './scene.js';
+import { SceneInputs } from './sceneInputs.js';
 
 const host = globalThis as unknown as {
   onmessage: (event: MessageEvent<PaintRequest>) => void;
   postMessage: (reply: PaintReply, transfer: Transferable[]) => void;
 };
-let current: { message: Extract<PaintRequest, { type: 'scene' }>; fonts: Promise<void>; overview: boolean } | null = null;
+let current: { version: number; scene: Scene; fonts: Promise<void>; overview: boolean } | null = null;
+const inputs = new SceneInputs();
 
 host.onmessage = async ({ data }) => {
   if (data.type === 'scene') {
-    current = { message: data, fonts: loadLettering(data.lettering), overview: false };
+    current = { version: data.version, scene: data.scene, fonts: loadLettering(data.lettering), overview: false };
+    return;
+  }
+  if (data.type === 'build') {
+    try {
+      const start = performance.now();
+      await loadLettering(data.options.style?.knobs.lettering ?? 'classic');
+      const scene = buildStaticScene(inputs.retain(data.map), data.options);
+      current = { version: data.version, scene, fonts: Promise.resolve(), overview: false };
+      const { prims: _prims, ...metadata } = scene;
+      host.postMessage({ version: data.version, id: data.id, metadata, timings: { buildMs: performance.now() - start } }, []);
+    } catch (error) {
+      host.postMessage({ version: data.version, id: data.id, error: String(error) }, []);
+    }
     return;
   }
   const entry = current;
-  if (!entry || entry.message.version !== data.version) return;
+  if (!entry || entry.version !== data.version) return;
   try {
     await entry.fonts;
-    const scene = entry.message.scene;
+    if (current !== entry) {
+      host.postMessage({ version: data.version, id: data.id }, []);
+      return;
+    }
+    const start = performance.now();
+    const scene = entry.scene;
     const canvas = new OffscreenCanvas(Math.max(1, Math.floor(data.size.width * data.dpr)), Math.max(1, Math.floor(data.size.height * data.dpr)));
     const ctx = canvas.getContext('2d', { alpha: false });
     if (!ctx) throw new Error('Offscreen canvas unavailable');
@@ -33,9 +54,17 @@ host.onmessage = async ({ data }) => {
     drawScene(ctx, scene, { left: -data.view.x / data.view.scale - margin, top: -data.view.y / data.view.scale - margin,
       right: (data.size.width - data.view.x) / data.view.scale + margin, bottom: (data.size.height - data.view.y) / data.view.scale + margin }, true);
     const bitmap = canvas.transferToImageBitmap();
-    const reply: PaintReply = { version: data.version, id: data.id, bitmap };
-    const transfer: Transferable[] = [bitmap];
+    // Deliver the useful viewport before rasterizing the whole map. The job
+    // stays in flight until its overview arrives, bounding the worker queue.
+    host.postMessage({ version: data.version, id: data.id, bitmap, complete: entry.overview,
+      timings: { paintMs: performance.now() - start } }, [bitmap]);
     if (!entry.overview) {
+      await new Promise(resolve => setTimeout(resolve, 0));
+      if (current !== entry) {
+        host.postMessage({ version: data.version, id: data.id }, []);
+        return;
+      }
+      const overviewStart = performance.now();
       // Every navigation position has a bounded whole-map fallback. A pan
       // outside the last sharp viewport never needs synchronous path painting.
       const density = Math.min(data.dpr * data.view.scale, Math.sqrt(4_000_000 / Math.max(1, scene.width * scene.height)));
@@ -46,11 +75,11 @@ host.onmessage = async ({ data }) => {
       context.fillStyle = scene.background;
       context.fillRect(0, 0, scene.width, scene.height);
       drawScene(context, scene, undefined, true);
-      reply.overview = { bitmap: overview.transferToImageBitmap(), width: scene.width, height: scene.height };
-      transfer.push(reply.overview.bitmap);
+      const image = { bitmap: overview.transferToImageBitmap(), width: scene.width, height: scene.height };
       entry.overview = true;
+      host.postMessage({ version: data.version, id: data.id, overview: image,
+        timings: { overviewMs: performance.now() - overviewStart } }, [image.bitmap]);
     }
-    host.postMessage(reply, transfer);
   } catch (error) {
     host.postMessage({ version: data.version, id: data.id, error: String(error) }, []);
   }
