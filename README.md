@@ -268,6 +268,11 @@ Brennmark        | #3f7a8c
 
 ## Generating somewhere else
 
+Before creating a map, fill in the setup screen and choose **Create prompt for chat AI…**.
+It uses your description, grid size and selected layers without needing an API key or an existing
+map. Choose Base Geography only or several layers, copy the prompt into your chat AI, and paste
+the reply back. Importing creates the map; cancelling returns to setup with your choices intact.
+
 **Prompt for webchat…** in the inspector compiles exactly what the app would have sent — the same
 system and user prompts, plus the response schema and a worked example — into one block of text to
 paste into any chat window. Paste the reply back and it is validated and applied like any other
