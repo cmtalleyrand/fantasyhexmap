@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { hexCenter } from '../shared/hex.ts';
-import { createMapState } from '../shared/layers.ts';
+import { createMapState } from './seededMap.ts';
 import type { BaseGeo, MapState } from '../shared/types.ts';
 import { drawnLand, evenOddTest, type CoastGeometry } from '../src/render/coast.ts';
 import { pathPolylines } from '../src/render/ice.ts';

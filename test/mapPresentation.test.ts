@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { createMapState } from '../shared/layers.ts';
+import { createMapState } from './seededMap.ts';
 import { hexCenter, pixelToOffset } from '../shared/hex.ts';
 import { contrastingPolityColours } from '../src/render/palette.ts';
 import { buildScene, citySymbolForPopulation, defaultVisibility } from '../src/render/scene.ts';

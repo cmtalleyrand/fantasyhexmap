@@ -3,7 +3,7 @@ import test from 'node:test';
 import { chainEdges, coastEdges, evenOddTest, surfaceMap } from '../src/render/coast.ts';
 import { areaCoverage, polyArea, shapeCoast } from '../src/render/footprint.ts';
 import { hexCenter, hexCorners, neighbourOf, type Point } from '../shared/hex.ts';
-import { createMapState } from '../shared/layers.ts';
+import { createMapState } from './seededMap.ts';
 import { buildScene, defaultVisibility } from '../src/render/scene.ts';
 import { resolveStyle } from '../src/render/styles.ts';
 import { pathPolylines } from '../src/render/ice.ts';

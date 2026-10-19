@@ -42,7 +42,7 @@ test('a coast carried to the page edge leaves junctions inside the map alone', a
 });
 
 test('pack ice reaches the page edge across the rim notches', async () => {
-  const { createMapState } = await import('../shared/layers.js');
+  const { createMapState } = await import('./seededMap.ts');
   const { buildScene, defaultVisibility } = await import('../src/render/scene.js');
   const { resolveStyle } = await import('../src/render/styles.js');
   const map = createMapState('Pack', 3, 2);
@@ -57,7 +57,7 @@ test('pack ice reaches the page edge across the rim notches', async () => {
 });
 
 test('where a glacier ends on land its edge is its own line, shaded by the height it climbs', async () => {
-  const { createMapState } = await import('../shared/layers.js');
+  const { createMapState } = await import('./seededMap.ts');
   const { buildScene, defaultVisibility } = await import('../src/render/scene.js');
   const { resolveStyle } = await import('../src/render/styles.js');
   const style = resolveStyle({ preset: 'parchment', overrides: {} });

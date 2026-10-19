@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { hexCenter, hexEdgePoints, hexIndex, inBounds, neighbourOf } from '../shared/hex.ts';
-import { createMapState } from '../shared/layers.ts';
+import { createMapState } from './seededMap.ts';
 import type { BaseGeo, MapState } from '../shared/types.ts';
 import { alike, chainEdges, coastEdges, coastGeometry, coastKey, drawnLand, raggedEdge, sideOf } from '../src/render/coast.ts';
 import type { PathCmd, Prim } from '../src/render/prims.ts';

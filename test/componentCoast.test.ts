@@ -175,7 +175,7 @@ test('irregularity survives the silhouette stage, grows with its level, and does
 });
 
 test('the final land silhouette has ground beneath folds in its donor patches', async () => {
-  const { createMapState } = await import('../shared/layers.ts');
+  const { createMapState } = await import('./seededMap.ts');
   const { buildScene, defaultVisibility, landTestOf } = await import('../src/render/scene.ts');
   const { resolveStyle } = await import('../src/render/styles.ts');
   const map = createMapState('Coast evidence', cols, rows);
@@ -245,7 +245,7 @@ test('a component area target removes hex-join waists without removing roughness
 });
 
 test('scene coast tracing uses component area before per-hex reshaping can split the component', async () => {
-  const { createMapState } = await import('../shared/layers.ts');
+  const { createMapState } = await import('./seededMap.ts');
   const { buildScene, defaultVisibility } = await import('../src/render/scene.ts');
   const { resolveStyle } = await import('../src/render/styles.ts');
   const style = resolveStyle({ preset: 'parchment' });

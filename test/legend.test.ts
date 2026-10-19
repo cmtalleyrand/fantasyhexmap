@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { createMapState } from '../shared/layers.ts';
+import { createMapState } from './seededMap.ts';
 import type { MapState } from '../shared/types.ts';
 import { buildExportScene, serializeLegendText } from '../src/render/export.ts';
 import {
@@ -196,7 +196,7 @@ test('the legend lists a capital entry only when the map has a capital', () => {
 });
 
 test('the river city swatch follows how the style sits a city with its river', async () => {
-  const { createMapState } = await import('../shared/layers.ts');
+  const { createMapState } = await import('./seededMap.ts');
   const { resolveStyle } = await import('../src/render/styles.ts');
   const labels = new Set<string>();
   for (const cityRiver of ['beside', 'overlay', 'outline', 'wash'] as const) {

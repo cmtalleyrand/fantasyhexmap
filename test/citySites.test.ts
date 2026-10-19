@@ -4,7 +4,7 @@ import { citySite } from '../src/render/sites.ts';
 import { landTest, surfaceMap, surfaceEdges } from '../src/render/coast.ts';
 import { hexCenter } from '../shared/hex.ts';
 import type { BaseGeo, City } from '../shared/types.ts';
-import { createMapState } from '../shared/layers.ts';
+import { createMapState } from './seededMap.ts';
 import { reducer } from '../src/state/store.ts';
 import { buildScene, defaultVisibility } from '../src/render/scene.ts';
 import { resolveStyle } from '../src/render/styles.ts';

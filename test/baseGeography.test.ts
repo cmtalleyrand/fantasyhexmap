@@ -28,7 +28,7 @@ test('Glacier is land and Sea Ice is water', async () => {
 });
 
 test('maps saved with the old Ice type load it as Sea Ice', async () => {
-  const { createMapState } = await import('../shared/layers.js');
+  const { createMapState } = await import('./seededMap.ts');
   const { migrateLegacyIslands } = await import('../shared/islandMigration.js');
   const map = createMapState('Old ice', 3, 1);
   map.layers.base.data = ['Land', 'Ice', 'Sea'] as unknown as BaseGeo[];
@@ -38,7 +38,7 @@ test('maps saved with the old Ice type load it as Sea Ice', async () => {
 });
 
 test('a glacier is shaded by its elevation and sea ice is drawn as a body of pack ice', async () => {
-  const { createMapState } = await import('../shared/layers.js');
+  const { createMapState } = await import('./seededMap.ts');
   const { buildScene, defaultVisibility } = await import('../src/render/scene.js');
   const { resolveStyle } = await import('../src/render/styles.js');
   const map = createMapState('Ice', 4, 1);

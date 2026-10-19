@@ -6,7 +6,7 @@ import { pathPolylines } from '../src/render/ice.ts';
 import { buildScene, defaultVisibility } from '../src/render/scene.ts';
 import { resolveStyle } from '../src/render/styles.ts';
 import { hexCenter, hexCorners, neighbourOf, inBounds, type Point } from '../shared/hex.ts';
-import { createMapState } from '../shared/layers.ts';
+import { createMapState } from './seededMap.ts';
 import type { BaseGeo, Irregularity } from '../shared/types.ts';
 import type { Prim } from '../src/render/prims.ts';
 

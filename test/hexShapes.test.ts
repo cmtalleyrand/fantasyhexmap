@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { createMapState } from '../shared/layers.ts';
+import { createMapState } from './seededMap.ts';
 import { landFraction, normaliseHexDimensions, politySurfaceAreas } from '../shared/surfaceArea.ts';
 import { CHANNEL_WIDTH_PERCENT, CHANNEL_WIDTH_VALUES, DEFAULT_HEX_DIMENSIONS, hexShapeFor, type BaseGeo, type ChannelWidth, type MapState } from '../shared/types.ts';
 import { reducer } from '../src/state/store.ts';
