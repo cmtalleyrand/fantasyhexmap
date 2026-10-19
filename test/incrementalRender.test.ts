@@ -6,6 +6,7 @@ import { beginRenderProfile, endRenderProfile } from '../src/render/profile.ts';
 import { invalidateTextMeasures } from '../src/render/fonts.ts';
 import { islandSpecFor } from '../shared/types.ts';
 import { componentFixture, placementFixture, editOptions, editCases } from '../scripts/render-edit-fixtures.ts';
+import { createMapState } from './seededMap.ts';
 
 function profiled(map: ReturnType<typeof componentFixture>, options = editOptions()) {
   beginRenderProfile();
@@ -29,6 +30,26 @@ test('a distant component reuses its silhouette and performs no fitting after a 
   assert.ok(profile.counters['coast.componentHits']! >= 1);
   assert.equal(profile.counters['fit.rounds'] ?? 0, 0);
   assert.deepEqual(scene, buildStaticScene(edited, { ...editOptions(), cache: 'off' }));
+});
+test('unchanged glacier margins reuse their exact geometry and invalidate on terrain or policy edits', () => {
+  const map = createMapState('Glacier cache', 5, 4);
+  map.layers.base.data = Array(20).fill('Land');
+  map.layers.base.data![6] = 'Glacier';
+  map.layers.elevation.data = Array(20).fill('Hills');
+  const options = editOptions();
+  profiled(map, options);
+  const warm = profiled(structuredClone(map), { ...options, polityOpacity: .3 });
+  assert.equal(warm.profile.counters['coast.componentBuilds'] ?? 0, 0, 'warm redraw must not retrace ice margins');
+  assert.deepEqual(warm.scene, buildStaticScene(map, { ...options, polityOpacity: .3, cache: 'off' }));
+  const check = (changed: typeof map, opts = options) => {
+    const result = profiled(changed, opts);
+    assert.ok(result.profile.counters['glacier.marginBuilds']! > 0, 'changed geometry inputs rebuild');
+    assert.deepEqual(result.scene, buildStaticScene(structuredClone(changed), { ...opts, cache: 'off' }));
+  };
+  const raised = structuredClone(map); raised.layers.elevation.data![7] = 'Mountains'; check(raised);
+  const rough = structuredClone(map); rough.defaultIrregularity = 'Fractured'; check(rough);
+  const sea = structuredClone(map); sea.layers.base.data![7] = 'Sea'; check(sea);
+  const resized = structuredClone(map); check(resized, { ...options, size: options.size + 1 });
 });
 test('incremental rebuilds equal uncached rebuilds after merges, splits, settings, islands, hierarchy and obstacle edits', () => {
   const cases = editCases();

@@ -375,6 +375,7 @@ interface TracedCoast {
 const coastCache = new BoundedMemo<TracedCoast>(4, 20_000_000);
 const coastComponents = new BoundedMemo<CoastComponentRecord>(192, 16_000_000);
 const coastFits = new BoundedMemo<Pick<CoastGeometry, 'paths' | 'anchors'>>(8, 12_000_000);
+const glacierMargins = new BoundedMemo<CoastGeometry>(4, 8_000_000);
 
 /** The sea predicate can be reused with a traced coast; symbol fitting has a separate land dependency below. */
 let symbolFits = new WeakMap<object, { dry: ((p: Point) => boolean) | null }>();
@@ -395,7 +396,7 @@ function prepareSceneCacheScope(map: MapState, size: number): void {
   const scope = JSON.stringify([map.id, map.cols, map.rows, size]);
   if (scope === sceneCacheScope) return;
   sceneCacheScope = scope;
-  coastCache.clear(); coastComponents.clear(); coastFits.clear(); symbolPlacements.clear(); terrainRevisions.clear();
+  coastCache.clear(); coastComponents.clear(); coastFits.clear(); glacierMargins.clear(); symbolPlacements.clear(); terrainRevisions.clear();
   symbolFits = new WeakMap(); clearPlacementCache(); shapeMemo.clear(); islandScaleMemo.clear();
 }
 
@@ -1280,16 +1281,28 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
   let iceMargin: CoastGeometry | null = null;
   if (base && texturedIce && glacierHexes.length > 0) {
     if (organicIce) {
-      iceMargin = glacierEdges({
-        cols,
-        rows,
-        size,
-        glacier: new Set(glacierHexes),
-        isWater: (j) => sideOf(base[j]) === 'water',
-        levelOf,
-        rankOf: (j) => (elevationData?.[j] ? ELEVATION_RANK[elevationData[j]!] : null),
-        noise: (x, y, k) => unit(seed, 'ice-margin', Math.round(x * 1000), Math.round(y * 1000), k),
-      });
+      // Only geometry inputs belong here: ownership, colours and opacity do not move ice.
+      // Content keys survive worker cloning and undo, while cache:'off' remains independent.
+      const marginKey = JSON.stringify([seed, cols, rows, size, base, elevationData, map.hexShapes, map.defaultIrregularity]);
+      iceMargin = glacierMargins.get(marginKey) ?? null;
+      if (iceMargin) profileCount('glacier.marginHits');
+      else {
+        profileCount('glacier.marginBuilds');
+        iceMargin = glacierEdges({
+          cols,
+          rows,
+          size,
+          glacier: new Set(glacierHexes),
+          isWater: (j) => sideOf(base[j]) === 'water',
+          levelOf,
+          rankOf: (j) => (elevationData?.[j] ? ELEVATION_RANK[elevationData[j]!] : null),
+          noise: (x, y, k) => unit(seed, 'ice-margin', Math.round(x * 1000), Math.round(y * 1000), k),
+        });
+        const weight = iceMargin.paths.reduce((n, path) => n + path.length * 64, 0)
+          + [...iceMargin.toLand, ...iceMargin.toWater].reduce((n, sliver) => n + sliver.d.length * 64, 0)
+          + iceMargin.chains.reduce((n, chain) => n + chain.edges.length * 256, 0);
+        glacierMargins.set(marginKey, iceMargin, weight);
+      }
       // Ground regained from the ice and ice gained over the ground beside it,
       // each in the colours of the hex it belongs to.
       for (const sliver of [...iceMargin.toWater, ...iceMargin.toLand]) {
