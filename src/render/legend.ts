@@ -25,9 +25,9 @@ import {
 import { CLASSIC_STYLE, type ElevationStyle, type MapStyle } from './styles.js';
 import { polityDisplayColours } from './hierarchy.js';
 import { descendantsOf } from '../../shared/polityTree.js';
-import { mix, thematicLayer, withLandOf, type CitySymbol, type Prim, type Scene, type VisibleLayers } from './scene.js';
+import { buildStaticScene, mix, thematicLayer, withLandOf, type CitySymbol, type Prim, type Scene, type VisibleLayers } from './scene.js';
 import { LAYER_META } from '../../shared/layers.js';
-import { formatLength, riverLength } from '../../shared/riverLength.js';
+import { formatLength, riverLength, type RiverMeasurement } from '../../shared/riverLength.js';
 import { riverLabel } from '../../shared/riverEdit.js';
 import { formatArea, normaliseHexDimensions, politySurfaceAreas } from '../../shared/surfaceArea.js';
 import {
@@ -143,6 +143,7 @@ export function legendSections(
   elevationStyle: ElevationStyle,
   options: LegendOptions,
   style: MapStyle = CLASSIC_STYLE,
+  riverMeasurements?: Record<string, RiverMeasurement>,
 ): LegendSection[] {
   const { palette } = style;
   const baseColour: Record<string, string> = {
@@ -219,10 +220,13 @@ export function legendSections(
         }
         if (options.riverLengths) {
           const dims = normaliseHexDimensions(map.hexDimensions);
+          const measurements = riverMeasurements ?? buildStaticScene(map, {
+            size: 26, visible, labels: false, style, elevationStyle,
+          }).riverMeasurements;
           for (const river of map.layers.rivers.data?.rivers ?? []) {
             entries.push({
               swatch: { kind: 'line', colour: palette.river, width: 1.6 },
-              label: `${riverLabel(river, map.layers.rivers.data?.rivers ?? [])} - ${formatLength(riverLength(river, dims), dims.unit, dims.lengthRounding)}`,
+              label: `${riverLabel(river, map.layers.rivers.data?.rivers ?? [])} - ${formatLength(measurements?.[river.id]?.length ?? riverLength(river, dims), dims.unit, dims.lengthRounding)}`,
             });
           }
         }

@@ -6,6 +6,7 @@ import { isLakeNeck, lakeEdgesOf } from '../render/sites.js';
 import { holdersOf } from '../../shared/polityShares.js';
 import type { RiverNotice, RiverTool } from '../state/riverTools.js';
 import RiverEditor from './RiverEditor.js';
+import type { RiverMeasurement } from '../../shared/riverLength.js';
 import type { DrawingCompromise } from '../render/scene.js';
 import GeoNamesEditor from './GeoNamesEditor.js';
 import { LAYER_META, missingRequirements, stalenessOf } from '../../shared/layers.js';
@@ -65,6 +66,7 @@ import type { EditorMode } from '../state/workspace.js';
 const PER_HEX: LayerId[] = ['base', 'elevation', 'climate', 'vegetation', 'population'];
 
 export interface InspectorProps {
+  riverMeasurements?: Record<string, RiverMeasurement>;
   /** AI mode shows prompting and generation; manual mode shows hand editing. Never both. */
   mode: EditorMode;
   map: MapState;

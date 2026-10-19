@@ -106,6 +106,7 @@ import { polygonPath, type CitySymbol, type PathCmd, type Prim } from './prims.j
 import { capitalCrown, cityMarker, iconClearance, iconDrop, markerExtent, symbolMarker } from './cityMarkers.js';
 import { riverStance, riverThroughIcon, showsRiver } from './riverCity.js';
 import { landBySide, riverCourses, type RiverCourse } from './rivers.js';
+import { measureRiverCourse, type RiverMeasurement } from '../../shared/riverLength.js';
 import { citySite, lakeEdgesOf, resolvedSite } from './sites.js';
 import { FIT_SCALES, escarpment, hillshade, keepToLand, refit, samplePoints, type Fitted, reliefSymbols, standsOnLand, symbolAnchor, vegetationSymbols, type Placed } from './symbols.js';
 import { ownersAtDepth, polityDepths, polityDisplayColours, toned } from './hierarchy.js';
@@ -172,6 +173,8 @@ export interface Scene {
   height: number;
   background: string;
   prims: Prim[];
+  /** Measurements of the same centreline used to draw each river, in map units. */
+  riverMeasurements?: Record<string, RiverMeasurement>;
   /** City markers (with the room names leave round them), for collision checks. */
   markers?: OrientedBox[];
   /** Where the map's own top-left corner lies on the page, once a frame has grown the page around it. */
@@ -2752,6 +2755,8 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
   const rivers = opts.visible.rivers ? layers.rivers.data : null;
   const tapered = knobs.rivers === 'tapered';
   const courses = new Map<string, Point[]>();
+  const riverMeasurements: Record<string, RiverMeasurement> = {};
+  const riverDims = normaliseHexDimensions(map.hexDimensions);
   const meanWidths = new Map<string, number>();
   const widthProfiles = new Map<string, number[]>();
   // The land as drawn, coast and all, which a river keeps to and which a river into the sea ends at.
@@ -2824,6 +2829,7 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
         const course = tapering.get(river.id);
         if (!course) return [];
         courses.set(river.id, course.centreline);
+        riverMeasurements[river.id] = measureRiverCourse(course.centreline, riverDims, size);
         widthProfiles.set(river.id, course.widths);
         meanWidths.set(river.id, course.widths.reduce((sum, w) => sum + w, 0) / course.widths.length);
         return [{ river, course }];
@@ -2886,7 +2892,20 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
       if (tail && tail.length > 1 && inLakeWater(tail.at(-1)!) && !inLakeWater(tail.at(-2)!)) {
         tail[tail.length - 1] = toShore(tail.at(-1)!, tail.at(-2)!);
       }
+      const measuredLine: Point[] = [];
       for (const r of runs) {
+        // Sample the same quadratic smoothing used by the canvas and SVG back ends.
+        const d: PathCmd[] = r.points.length ? [['M', r.points[0]!.x, r.points[0]!.y]] : [];
+        for (let i = 1; i < r.points.length - 1; i++) {
+          const p = r.points[i]!;
+          const next = r.points[i + 1]!;
+          d.push(['Q', p.x, p.y, (p.x + next.x) / 2, (p.y + next.y) / 2]);
+        }
+        const last = r.points.at(-1);
+        if (last) d.push(['L', last.x, last.y]);
+        const sampled = pathPolylines(d, 16)[0] ?? [];
+        // Runs share a boundary point, including when navigability changes.
+        measuredLine.push(...sampled);
         riverPrims(river).push({
           kind: 'polyline',
           points: r.points,
@@ -2896,6 +2915,7 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
           smooth: true,
         });
       }
+      riverMeasurements[river.id] = measureRiverCourse(measuredLine, riverDims, size);
     }
   }
 
@@ -3299,6 +3319,7 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
     // read as more sea rather than as a black serrated border.
     background: opts.transparentBackground ? 'transparent' : palette.sea,
     prims,
+    riverMeasurements,
     ...(compromises.length > 0 ? { compromises } : {}),
     markers: (cities?.cities ?? []).map((city) => {
       const c = siteOf(city);

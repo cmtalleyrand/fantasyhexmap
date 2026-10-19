@@ -13,7 +13,7 @@ import PaintWorker from '../render/paint.worker.ts?worker';
 import type { PaintView } from '../render/paintProtocol.js';
 import { MAP_COLOURS } from '../render/palette.js';
 import { riversThroughHex } from '../../shared/derive.js';
-import { formatLength, riverLength } from '../../shared/riverLength.js';
+import { formatLength, riverLength, type RiverMeasurement } from '../../shared/riverLength.js';
 import { riverLabel } from '../../shared/riverEdit.js';
 import { normaliseHexDimensions } from '../../shared/surfaceArea.js';
 import type { RiverTool } from '../state/riverTools.js';
@@ -66,6 +66,7 @@ export interface MapViewProps {
   banner?: React.ReactNode;
   /** Told, each time the map is drawn, where the drawing could not do everything asked of it. */
   onCompromises?: (compromises: DrawingCompromise[]) => void;
+  onRiverMeasurements?: (measurements: Record<string, RiverMeasurement> | undefined) => void;
 }
 
 export default function MapView(props: MapViewProps) {
@@ -165,6 +166,10 @@ export default function MapView(props: MapViewProps) {
     [map, sceneOptions, workerEnabled, layoutLettering, lettering, mapStyle.palette.sea],
   );
   const metadata = workerEnabled ? (workerMetadata?.scene === scene ? workerMetadata.metadata : null) : scene;
+  const onRiverMeasurements = props.onRiverMeasurements;
+  useEffect(() => {
+    onRiverMeasurements?.(metadata?.riverMeasurements);
+  }, [metadata, onRiverMeasurements]);
   const busy = workerEnabled && (!metadata || detail.current?.scene !== scene);
   const latest = useRef({ scene, view, size });
   latest.current = { scene, view, size };
@@ -596,7 +601,7 @@ export default function MapView(props: MapViewProps) {
       const seg = river.segments.find((x) => x.col === col && x.row === row);
       const dims = normaliseHexDimensions(map.hexDimensions);
       bits.push(
-        `${riverLabel(river, map.layers.rivers.data?.rivers ?? [])} (${seg?.navigable ? 'navigable' : 'not navigable'}, ${formatLength(riverLength(river, dims), dims.unit, dims.lengthRounding)})`,
+        `${riverLabel(river, map.layers.rivers.data?.rivers ?? [])} (${seg?.navigable ? 'navigable' : 'not navigable'}, ${formatLength(metadata?.riverMeasurements?.[river.id]?.length ?? riverLength(river, dims), dims.unit, dims.lengthRounding)})`,
       );
     }
     const cities = map.layers.cities.data?.cities.filter((c) => hexIndex(map.cols, c.col, c.row) === hover) ?? [];
