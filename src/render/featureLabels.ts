@@ -13,6 +13,7 @@ import { LETTERINGS } from './lettering.js';
 import { insideBox, type OrientedBox } from './labels.js';
 import { glyphAdvances, glyphsAlong, glyphsStraight, type Glyph } from './glyphs.js';
 import { depthWithin, ridgePath } from './depth.js';
+import { textBoxes } from './collide.js';
 
 /**
  * Largest type for a water name, in hex sizes: a body only a hex or two deep
@@ -37,6 +38,23 @@ export interface FeatureLabel {
   glyphs?: Glyph[];
   /** Length of the set text in px. */
   width?: number;
+}
+
+/** Check the finished lettering boxes, including rotated glyph corners. */
+function labelOnSide(label: FeatureLabel, face: FaceRole, onSide: (p: Point) => boolean): boolean {
+  const boxes = textBoxes({
+    kind: 'text', at: label.at, text: label.text, size: label.size, fill: '#000', anchor: 'middle',
+    font: face.family, weight: face.weight, italic: face.italic, rotation: label.rotation, glyphs: label.glyphs,
+  });
+  for (const b of boxes) {
+    const across = Math.max(2, Math.ceil(b.halfW)), down = Math.max(2, Math.ceil(b.halfH));
+    const c = Math.cos(b.rotation), s = Math.sin(b.rotation);
+    for (let x = 0; x <= across; x++) for (let y = 0; y <= down; y++) {
+      const u = (2 * x / across - 1) * b.halfW, v = (2 * y / down - 1) * b.halfH;
+      if (!onSide({ x: b.cx + u * c - v * s, y: b.cy + u * s + v * c })) return false;
+    }
+  }
+  return true;
 }
 
 
@@ -93,6 +111,7 @@ function openWaterLabel(
   size: number,
   face: FaceRole,
   base: ReadonlyArray<BaseGeo | null>,
+  onWater?: (p: Point) => boolean,
 ): FeatureLabel | null {
   const inBody = new Set(hexes);
   // Open water: the body's sea and lake hexes, not those holding land.
@@ -127,7 +146,7 @@ function openWaterLabel(
   const wet = (x: number, y: number, margin: number) =>
     [[0, 0], [margin, 0], [-margin, 0], [0, margin], [0, -margin]].every(([dx, dy]) => {
       const { col, row } = pixelToOffset(x + dx!, y + dy!, size);
-      return inBounds(cols, height, col, row) && open(hexIndex(cols, col, row));
+      return inBounds(cols, height, col, row) && open(hexIndex(cols, col, row)) && (!onWater || onWater({ x: x + dx!, y: y + dy! }));
     });
   const em = glyphAdvances(text, 1, face.tracking, face.weight, face.family, face.italic).width;
   const angles = [0, Math.PI / 6, -Math.PI / 6, Math.PI / 3, -Math.PI / 3, Math.PI / 2];
@@ -193,6 +212,7 @@ function spineLabel(
   size: number,
   face: FaceRole,
   base: ReadonlyArray<BaseGeo | null>,
+  onWater?: (p: Point) => boolean,
 ): FeatureLabel | null {
   if (hexes.length > 6000) return null;
   const inBody = new Set(hexes);
@@ -224,7 +244,7 @@ function spineLabel(
   const wet = (x: number, y: number, margin: number) =>
     [[0, 0], [margin, 0], [-margin, 0], [0, margin], [0, -margin]].every(([dx, dy]) => {
       const { col, row } = pixelToOffset(x + dx!, y + dy!, size);
-      return inBounds(cols, height, col, row) && open(hexIndex(cols, col, row));
+      return inBounds(cols, height, col, row) && open(hexIndex(cols, col, row)) && (!onWater || onWater({ x: x + dx!, y: y + dy! }));
     });
   const em = glyphAdvances(text, 1, face.tracking, face.weight, face.family, face.italic).width;
   const options = { tracking: face.tracking, weight: face.weight, family: face.family, italic: face.italic };
@@ -273,6 +293,7 @@ function splitLabel(
   size: number,
   face: FaceRole,
   base: ReadonlyArray<BaseGeo | null>,
+  onWater?: (p: Point) => boolean,
 ): FeatureLabel | null {
   const words = text.split(/\s+/).filter(Boolean);
   if (words.length < 2 || hexes.length > 6000) return null;
@@ -292,7 +313,7 @@ function splitLabel(
   const wet = (x: number, y: number, margin: number) =>
     [[0, 0], [margin, 0], [-margin, 0], [0, margin], [0, -margin]].every(([dx, dy]) => {
       const { col, row } = pixelToOffset(x + dx!, y + dy!, size);
-      return inBounds(cols, height, col, row) && open(hexIndex(cols, col, row));
+      return inBounds(cols, height, col, row) && open(hexIndex(cols, col, row)) && (!onWater || onWater({ x: x + dx!, y: y + dy! }));
     });
   const options = { tracking: face.tracking, weight: face.weight, family: face.family, italic: face.italic };
   const emOf = (t: string) => glyphAdvances(t, 1, face.tracking, face.weight, face.family, face.italic).width;
@@ -508,7 +529,13 @@ export function placeRiverLabels(
   inWater?: (p: Point) => boolean,
   /** The drawn width at each point of the river's line, where it has one: a name prefers the slimmer stretches. */
   profileFor?: (riverId: string) => number[] | undefined,
+  /** Land as drawn; a mouth does not license a river name in open sea. */
+  onLand?: (p: Point) => boolean,
 ): FeatureLabel[] {
+  if (onLand) {
+    const previous = placeRiverLabels(rivers, size, pathFor, face, avoid, widthFor, inWater, profileFor);
+    if (previous.every(label => labelOnSide(label, face, onLand))) return previous;
+  }
   const out: FeatureLabel[] = [];
   // Every river's line, so a name keeps off the other rivers it might cross.
   const lines = new Map<string, Point[]>();
@@ -578,6 +605,7 @@ export function placeRiverLabels(
         for (const side of [1, -1] as const) {
           let hits = 0;
           let samples = 0;
+          let overWater = false;
           for (let j = 0; j <= 8; j++) {
             const d = start + (width * j) / 8;
             const p = pointAt(pts, cum, d);
@@ -589,6 +617,7 @@ export function placeRiverLabels(
               const x = p.x + Math.sin(angle) * off;
               const y = p.y - Math.cos(angle) * off;
               samples++;
+              if (onLand && !onLand({ x, y })) overWater = true;
               if (avoid.some((box) => insideBox(box, x, y)) || placed.some((box) => insideBox(box, x, y))) hits += 2;
               else if (inWater?.({ x, y })) hits += 2;
               else if (nearOthers(x, y, font * 0.45)) hits += 2;
@@ -596,6 +625,7 @@ export function placeRiverLabels(
               else if (nearOwn(x, y, font * 0.6, i => Math.abs(cum[i]! - d) >= font * 2.5)) hits += 2;
             }
           }
+          if (overWater) continue;
           const covered = hits / (2 * samples);
           const score = (deviation / size) * 0.5 + centreBias * 0.3 + covered * 4 + (wide / size) * 1.5 + Math.max(0, turn - 0.2) * 2.5 + (side === 1 ? 0 : 0.02);
           if (!best || score < best.score) best = { font, lift, start, side, score, turn, covered };
@@ -618,12 +648,14 @@ export function placeRiverLabels(
     const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
     const signed = lift * pick.side;
     const glyphs = glyphsAlong(text, font, pts, pick.start, { tracking: face.tracking, lift: signed, weight: face.weight, family: face.family, italic: face.italic });
+    const at = { x: mid.x + Math.sin(rotation) * signed, y: mid.y - Math.cos(rotation) * signed };
+    if (onLand && !labelOnSide({text,size:font,rotation,at,glyphs,width},face,onLand)) continue;
     for (const g of glyphs) placed.push({ cx: g.x, cy: g.y, halfW: font * 0.4, halfH: font * 0.6, rotation: g.rotation });
     out.push({
       text,
       size: font,
       rotation,
-      at: { x: mid.x + Math.sin(rotation) * signed, y: mid.y - Math.cos(rotation) * signed },
+      at,
       glyphs,
       width,
     });
@@ -759,23 +791,32 @@ export function placeWaterLabels(
   face: FaceRole = LETTERINGS.classic.water,
   base: ReadonlyArray<BaseGeo | null> | null = null,
   rows = Infinity,
+  /** The shared drawn coastline; the grid above only chooses the named body. */
+  onWater?: (p: Point) => boolean,
 ): FeatureLabel[] {
   const out: FeatureLabel[] = [];
   for (const body of bodies) {
     const text = body.name.trim().toUpperCase();
     if (!text || body.hexes.length === 0) continue;
-    const straight = base ? openWaterLabel(text, body.hexes, cols, rows, size, face, base) : null;
+    if (onWater) {
+      const previous = placeWaterLabels([body], cols, size, face, base, rows)[0];
+      if (previous && labelOnSide(previous, face, onWater)) {
+        out.push(previous);
+        continue;
+      }
+    }
+    const straight = base ? openWaterLabel(text, body.hexes, cols, rows, size, face, base, onWater) : null;
     // A winding body may hold only a small straight name; a name along its
     // water is worth taking when its type is meaningfully larger.
     const winding = base && (!straight || straight.size < size * WATER_FONT_SHALLOW)
-      ? spineLabel(text, body.hexes, cols, rows, size, face, base)
+      ? spineLabel(text, body.hexes, cols, rows, size, face, base, onWater)
       : null;
     const single = winding && (!straight || winding.size > straight.size * 1.25) ? winding : straight;
     // An ocean cut by islands may carry only a small single run; its words,
     // set either side of the obstruction, can be meaningfully larger.
-    const divided = base ? splitLabel(text, body.hexes, cols, rows, size, face, base) : null;
+    const divided = base ? splitLabel(text, body.hexes, cols, rows, size, face, base, onWater) : null;
     const open = divided && (!single || divided.size > single.size * 1.25) ? divided : single;
-    if (open) {
+    if (open && (!onWater || labelOnSide(open,face,onWater))) {
       out.push(open);
       continue;
     }
@@ -854,7 +895,8 @@ export function placeWaterLabels(
       }
     }
     const glyphs = glyphsAlong(text, font, line, mid - width / 2, { tracking: face.tracking, weight: face.weight, family: face.family, italic: face.italic });
-    out.push({ text, at: mean, size: font, rotation: axis, glyphs, width });
+    const fallback = { text, at: mean, size: font, rotation: axis, glyphs, width };
+    if (!onWater || labelOnSide(fallback, face, onWater)) out.push(fallback);
   }
   return out;
 }

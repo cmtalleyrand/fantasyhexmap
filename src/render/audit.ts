@@ -26,6 +26,8 @@ export type AuditKind =
   | 'name-overlaps-name'
   | 'name-overlaps-marker'
   | 'sea-name-over-land'
+  | 'river-name-over-water'
+  | 'city-marker-over-water'
   | 'realm-name-covers-own-land'
   | 'realm-name-over-foreign-land'
   | 'furniture-overlaps-furniture'
@@ -142,6 +144,17 @@ export function auditScene(map: MapState, scene: Scene, size: number): AuditIssu
     const type = i === null || !base ? null : base[i];
     return !!type && type !== 'Sea' && type !== 'Lake' && type !== 'Sea Ice';
   };
+
+  if (drawn) {
+    for (const marker of markers) {
+      const at = { x: marker.cx, y: marker.cy };
+      if (!landAt(at)) issues.push({ kind: 'city-marker-over-water', message: 'A city marker is centred over water', at });
+    }
+    for (const label of labels.filter(l => l.prim.tag!.kind === 'river')) {
+      const wet = samplesOver(label.boxes, Math.min(2, step)).find(p => !landAt(p));
+      if (wet) issues.push({ kind: 'river-name-over-water', message: `${name(label)} lies over open water`, at: wet });
+    }
+  }
 
   // Relief, vegetation and elevation marks stand on land: no part of one is drawn over water.
   if (drawn) {
