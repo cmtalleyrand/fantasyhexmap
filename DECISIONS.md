@@ -1255,4 +1255,5 @@ after installing Chromium, retaining their evidence even on failure.
 **Cost and validation.** Development-only package and browser downloads; no app bundle or redraw cost.
 Both drawing commands pass with the installed checkout driver and an explicit system-Chromium override.
 The managed environment blocks `cdn.playwright.dev` with HTTP 403, so the standard browser download
-could not be verified here; CI exercises the documented default setup without either override.
+could not be verified here. PR #146's Drawing tests CI run (39327929544) passed the documented
+default setup and both package commands without either override.
