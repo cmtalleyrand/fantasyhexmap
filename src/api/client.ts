@@ -20,6 +20,7 @@
  */
 
 import { excludedLayers } from '../../shared/layers.js';
+import { geoNamesOf } from '../../shared/geoNames.js';
 import type { Decision, LayerDataMap, LayerId, MapState } from '../../shared/types.js';
 import type { PassSelection, Roster } from '../../core/rosters.js';
 import type { DirectOptions } from './direct.js';
@@ -134,6 +135,10 @@ export async function generateLayer(
         description: map.description,
         cols: map.cols,
         rows: map.rows,
+        hexDimensions: map.hexDimensions,
+        islandSpecs: map.islandSpecs,
+        hexShapes: map.hexShapes,
+        geoNames: geoNamesOf(map),
         instruction,
         layers,
         excluded: excludedLayers(map),

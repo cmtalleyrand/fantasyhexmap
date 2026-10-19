@@ -14,6 +14,41 @@ import type { PassSelection } from './passes.js';
 import { canSplit, rosterFromContext } from './passes.js';
 import { normaliseRoster, targetHexes, type Roster } from './rosters.js';
 import type { PromptContext } from './prompts.js';
+import * as z from 'zod/v4';
+import { BASE_GEO_VALUES, CHANNEL_WIDTH_VALUES, IRREGULARITY_VALUES } from '../shared/types.js';
+import { normaliseHexDimensions } from '../shared/surfaceArea.js';
+
+const percent = z.number().min(0).max(100);
+const positive = z.number().positive();
+const channel = z.enum(CHANNEL_WIDTH_VALUES as [string, ...string[]]);
+const dimensionsSchema = z.object({
+  width: positive, height: positive, unit: z.string().trim().min(1),
+  coastalLandPercent: percent.optional(), lakeLandPercent: percent.optional(),
+  largeIslandPercent: percent.optional(), smallIslandPercent: percent.optional(),
+  mainlandPercent: percent.optional(), glacierPercent: percent.optional(),
+  isthmusWidth: channel.optional(), straitWidth: channel.optional(),
+  isthmusPercent: percent.optional(), straitPercent: percent.optional(),
+  areaRounding: positive.optional(), lengthRounding: positive.optional(),
+});
+const contextSchema = z.object({
+  islandSpecs: z.record(z.string(), z.object({
+    large: z.number().int().min(0).max(2), small: z.number().int().min(0).max(6),
+    arrangement: z.enum(['scattered', 'chain', 'arc', 'barrier', 'ring']).optional(),
+    orientation: z.enum(['free', 'along', 'across']).optional(), layoutSeed: z.number().optional(),
+    coastal: z.object({ large: z.boolean().optional(), small: z.boolean().optional() }).optional(),
+    side: z.number().int().min(0).max(5).optional(),
+  })).optional(),
+  hexShapes: z.record(z.string(), z.object({
+    type: z.enum(BASE_GEO_VALUES as [string, ...string[]]), land: percent.optional(), width: channel.optional(),
+    irregular: z.enum(IRREGULARITY_VALUES as [string, ...string[]]).optional(),
+    straitJunctionSide: z.number().int().min(0).max(5).optional(),
+    concentrationSide: z.number().int().min(0).max(5).optional(), concentration: percent.optional(),
+  })).optional(),
+  geoNames: z.array(z.object({
+    id: z.string(), name: z.string(), kind: z.enum(['sea', 'lake', 'land', 'island']),
+    hidden: z.boolean().optional(), hexes: z.array(z.number().int().nonnegative()),
+  })).optional(),
+});
 
 const SELECTIONS: PassSelection[] = ['both', 'roster', 'paint'];
 
@@ -22,6 +57,10 @@ export interface GenerateBody {
   description?: string;
   cols?: number;
   rows?: number;
+  hexDimensions?: unknown;
+  islandSpecs?: unknown;
+  hexShapes?: unknown;
+  geoNames?: unknown;
   instruction?: string | null;
   layers?: Partial<Record<LayerId, unknown>>;
   /** Layers this map has chosen not to have; changes how absent context is described. */
@@ -65,7 +104,10 @@ function validateRoster(layer: LayerId, raw: unknown): { error: string } | { ros
           return {
             key: '',
             name: String(item.name).trim(),
+            ...(typeof item.previousName === 'string' ? { previousName: item.previousName } : {}),
             colour: typeof item.colour === 'string' ? item.colour.trim() : '',
+            ...(typeof item.shortName === 'string' ? { shortName: item.shortName } : {}),
+            ...(typeof item.parent === 'string' ? { parent: item.parent } : {}),
             ...targetHexes(item.hexes),
           };
         }),
@@ -79,6 +121,7 @@ function validateRoster(layer: LayerId, raw: unknown): { error: string } | { ros
         const item = e as Record<string, unknown>;
         return {
           name: String(item.name).trim(),
+          ...(typeof item.previousName === 'string' ? { previousName: item.previousName } : {}),
           course: typeof item.course === 'string' ? item.course.trim() : '',
         };
       }),
@@ -101,10 +144,20 @@ export function validateGenerateBody(body: GenerateBody): { error: string } | { 
   }
 
   const supplied = (body.layers ?? {}) as Record<string, unknown>;
+  let hexDimensions: PromptContext['hexDimensions'];
+  if (body.hexDimensions !== undefined) {
+    const parsed = dimensionsSchema.safeParse(body.hexDimensions);
+    if (!parsed.success) return { error: `Invalid hexDimensions: ${parsed.error.message}` };
+    hexDimensions = normaliseHexDimensions(parsed.data as Partial<NonNullable<PromptContext['hexDimensions']>>);
+  }
+  const extra = contextSchema.safeParse(body);
+  if (!extra.success) return { error: `Invalid map context: ${extra.error.message}` };
   const ctx: PromptContext = {
     description: String(body.description ?? ''),
     cols,
     rows,
+    hexDimensions,
+    ...extra.data as Pick<PromptContext, 'islandSpecs' | 'hexShapes' | 'geoNames'>,
     base: (supplied.base as PromptContext['base']) ?? null,
     elevation: (supplied.elevation as PromptContext['elevation']) ?? null,
     climate: (supplied.climate as PromptContext['climate']) ?? null,

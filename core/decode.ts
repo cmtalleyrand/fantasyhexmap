@@ -16,6 +16,8 @@
  */
 
 import { withValidParents } from '../shared/polityTree.js';
+import { pruneShares } from '../shared/polityShares.js';
+import { applyAutoShade } from '../shared/polityShade.js';
 import {
   decodeBase,
   decodeClimate,
@@ -42,6 +44,7 @@ import type {
   LayerId,
   Polity,
   River,
+  HexShare,
 } from '../shared/types.js';
 import type { PromptContext } from './prompts.js';
 import { keyedToRows, type CellKind } from './grid.js';
@@ -228,6 +231,7 @@ export function decodeLayer(
   existing?: ExistingFeatures,
 ): DecodedLayer {
   const { cols, rows } = ctx;
+  existing ??= { rivers: ctx.rivers?.rivers, cities: ctx.cities?.cities, polities: ctx.polities?.polities };
   const warnings: string[] = [];
   let data: LayerDataMap[LayerId];
   let notes: string | null = null;
@@ -281,9 +285,16 @@ export function decodeLayer(
     case 'rivers': {
       const r = parsed as RiversResponse;
       notes = r.notes;
+      // Roster-only is an internal operation, not model-supplied geometry.
+      // Keep exact entry/exit edges, mouths, links and manual reach guidance.
+      if ((parsed as { rosterOnly?: boolean }).rosterOnly && ctx.rivers) {
+        data = { rivers: ctx.rivers.rivers.map((river, i) => ({ ...river, name: r.rivers[i]?.name ?? river.name })) };
+        break;
+      }
       // A distributary may be unnamed: it has no name to reuse an id by or to be referred to by.
       const ids = r.rivers.map(
         (input, i) =>
+          (input.previousName ? reuseIdByName(existing?.rivers, input.previousName) : null) ??
           (input.name.trim() ? reuseIdByName(existing?.rivers, input.name) : null) ?? stableId('riv', input.name, i),
       );
       const idByName = new Map(
@@ -324,6 +335,16 @@ export function decodeLayer(
       // laid out once before any of them is linked to another.
       const built = build(build([], true), false);
       const checked = validateRivers(built, ctx.base!, cols, rows);
+      // Manual guidance belongs to the app. Keep it on unchanged reaches, including a rename.
+      checked.data = checked.data.map((river) => {
+        const before = existing?.rivers?.find((r) => r.id === river.id);
+        if (!before) return river;
+        return { ...river, segments: river.segments.map((segment) => {
+          const old = before.segments.find((s) => s.col === segment.col && s.row === segment.row &&
+            s.entryEdge === segment.entryEdge && s.exitEdge === segment.exitEdge);
+          return old?.reach ? { ...segment, reach: old.reach } : segment;
+        }) };
+      });
       warnings.push(...checked.warnings);
       data = { rivers: checked.data };
       break;
@@ -334,15 +355,15 @@ export function decodeLayer(
       const cities: City[] = r.cities.map((c, i) => ({
         // A city regenerated in the same hex keeps the site it was given by hand.
         ...(() => {
-          const before = existing?.cities?.find((e) => e.name === c.name && e.col === c.col && e.row === c.row);
+          const before = existing?.cities?.find((e) => e.name === (c.previousName ?? c.name) && e.col === c.col && e.row === c.row);
           return before?.site ? { site: before.site } : {};
         })(),
-        id: reuseIdByName(existing?.cities, c.name) ?? stableId('city', c.name, i),
+        id: reuseIdByName(existing?.cities, c.previousName ?? c.name) ?? stableId('city', c.name, i),
         col: c.col,
         row: c.row,
         name: c.name,
         population: c.population,
-        ...(c.capital ? { capital: true } : {}),
+        ...((c.capital ?? (ctx.instruction ? existing?.cities?.find((e) => e.name === (c.previousName ?? c.name))?.capital : false)) ? { capital: true } : {}),
         onRiver: false,
         riverId: null,
         coastal: false,
@@ -358,10 +379,16 @@ export function decodeLayer(
       notes = r.notes;
       const byKey = new Map<string, Polity>();
       const polities: Polity[] = r.polities.map((p, i) => {
+        const before = existing?.polities?.find((e) => e.name.trim().toLowerCase() === (p.previousName ?? p.name).trim().toLowerCase()) ??
+          (ctx.instruction ? existing?.polities?.['ABCDEFGHIJKLMNOPQRSTUVWXYZ'.indexOf(p.key)] : undefined);
         const polity: Polity = {
-          id: reuseIdByName(existing?.polities, p.name) ?? stableId('pol', p.name, i),
+          ...(before?.cityState !== undefined ? { cityState: before.cityState } : {}),
+          ...(before?.autoShade !== undefined && before.colour === normaliseColour(p.colour, i) ? { autoShade: before.autoShade } : {}),
+          ...(ctx.instruction && p.parent === undefined && before?.parentId ? { parentId: before.parentId } : {}),
+          id: before?.id ?? stableId('pol', p.name, i),
           name: p.name,
-          ...(p.shortName?.trim() ? { shortName: p.shortName.trim() } : {}),
+          ...(p.shortName?.trim() ? { shortName: p.shortName.trim() } :
+            ctx.instruction && p.shortName === undefined && before?.shortName ? { shortName: before.shortName } : {}),
           colour: normaliseColour(p.colour, i),
         };
         const key = (p.key ?? '').trim().charAt(0);
@@ -405,7 +432,31 @@ export function decodeLayer(
       const checked = validatePolities(polities, owner, ctx.base!, cols, rows, ctx.allowUnderwater);
       warnings.push(...checked.warnings);
       warnings.push(...sizeWarnings(r.polities, polities, checked.data.owner));
-      data = checked.data;
+      const previous = ctx.polities;
+      const shares: Record<string, HexShare> = {};
+      // Omission preserves a manual share only when its primary owner is unchanged.
+      for (const [index, share] of Object.entries(previous?.shares ?? {})) {
+        if (previous?.owner[Number(index)] === checked.data.owner[Number(index)]) shares[index] = share;
+      }
+      const seenShared = new Set<number>();
+      for (const shared of r.sharedHexes ?? []) {
+        if (!Number.isInteger(shared.col) || !Number.isInteger(shared.row) || shared.col < 0 || shared.col >= cols || shared.row < 0 || shared.row >= rows) {
+          warnings.push('Ignored an off-map shared polity hex.');
+          continue;
+        }
+        const index = shared.row * cols + shared.col;
+        const other = shared.with === null ? null : byKey.get(shared.with);
+        if (seenShared.has(index) || shared.share !== 0.5 || !checked.data.owner[index] ||
+          (shared.with !== null && (!other || other.id === checked.data.owner[index]))) {
+          warnings.push(`Ignored invalid shared ownership at ${shared.col},${shared.row}.`);
+          continue;
+        }
+        seenShared.add(index);
+        if (other) shares[String(index)] = { polityId: other.id, share: 0.5 };
+        else delete shares[String(index)];
+      }
+      const shaded = applyAutoShade(checked.data.polities);
+      data = pruneShares({ ...checked.data, polities: shaded, ...(Object.keys(shares).length ? { shares } : {}) });
       break;
     }
     case 'population': {
@@ -445,7 +496,7 @@ function sizeWarnings(
   const out: string[] = [];
   polities.forEach((polity, i) => {
     const target = declared[i]?.hexes;
-    if (!target || target <= 0) return;
+    if (!target || target <= 1 || polities.some((p) => p.parentId === polity.id)) return;
     const actual = owner.filter((id) => id === polity.id).length;
     const tolerance = Math.max(2, Math.round(target * 0.2));
     if (Math.abs(actual - target) > tolerance) {

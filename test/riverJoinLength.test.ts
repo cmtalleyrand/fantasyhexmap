@@ -8,6 +8,7 @@ import {
   pathLength,
   riverLength,
   riverSystemLength,
+  riverLengthCorrectionFactor,
   stepLength,
 } from '../shared/riverLength.ts';
 import { buildRiverFromPath, validateRivers } from '../shared/validate.ts';
@@ -50,7 +51,7 @@ test('a river is measured from its source centre to where it leaves the land', (
   // Five land hexes running east into the sea column: four steps, then half a step to the coast.
   const r = river('r', [[2, 2], [3, 2], [4, 2], [5, 2], [6, 2], [7, 2]]);
   assert.equal(r.terminus, 'Sea');
-  assert.ok(Math.abs(riverLength(r, regular) - 45) < 1e-6);
+  assert.ok(Math.abs(riverLength(r, regular) - 45 * riverLengthCorrectionFactor(regular)) < 1e-6);
   assert.ok(Math.abs(pathLength(r.segments, regular) - 40) < 1e-6);
 });
 

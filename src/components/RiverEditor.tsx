@@ -6,6 +6,7 @@ import {
   branchesOf,
   formatLength,
   pathLength,
+  riverLengthCorrectionFactor,
   riverLength,
   riverSystemLength,
   type RiverMeasurement,
@@ -228,7 +229,7 @@ function DraftCard(
   const parent = props.riverDraftParent ? rivers.find((r) => r.id === props.riverDraftParent) ?? null : null;
   const dims = normaliseHexDimensions(map.hexDimensions);
   const path = draft.map((i) => indexToOffset(map.cols, i));
-  const soFar = pathLength(path, dims);
+  const soFar = pathLength(path, dims) * riverLengthCorrectionFactor(dims);
 
   const finish = () => {
     const base = map.layers.base.data;

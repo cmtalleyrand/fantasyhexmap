@@ -17,7 +17,8 @@ const dims = DEFAULT_HEX_DIMENSIONS;
 test('each shaped type has its default land share', () => {
   const share = (v: BaseGeo, spec?: { large: number; small: number }) => landFraction(v, spec, dims);
   assert.equal(share('Land'), 1);
-  assert.equal(share('Coastal Land'), 0.9);
+  assert.equal(share('Coastal Land'), 0.8);
+  assert.equal(share('Lake'), 0.1);
   // An isthmus or strait is drawn at a width (30% of the hex's by default), not to a share: it counts
   // the share of a straight neck or channel that wide, 2/sqrt(3) of the width.
   assert.ok(Math.abs(share('Isthmus') - 0.3 * 2 / Math.sqrt(3)) < 1e-12);
@@ -25,13 +26,13 @@ test('each shaped type has its default land share', () => {
   assert.equal(share('Glacier'), 1);
   assert.equal(share('Sea Ice'), 0);
   assert.equal(share('Sea'), 0);
-  // Small islands take 5% each, large ones 20% each.
+  // Small islands take 5% each, large ones 15% each.
   assert.equal(share('Islands', { large: 0, small: 1 }), 0.05);
-  assert.equal(share('Islands', { large: 1, small: 0 }), 0.2);
-  assert.equal(Number(share('Islands', { large: 2, small: 6 }).toFixed(10)), 0.7);
-  // Any mainland takes 30% before its islands are added.
-  assert.equal(share('Mainland and islands', { large: 0, small: 2 }), 0.4);
-  assert.equal(share('Mainland and islands', { large: 1, small: 1 }), 0.55);
+  assert.equal(share('Islands', { large: 1, small: 0 }), 0.15);
+  assert.equal(Number(share('Islands', { large: 2, small: 6 }).toFixed(10)), 0.6);
+  // Any mainland takes 40% before its islands are added.
+  assert.equal(share('Mainland and islands', { large: 0, small: 2 }), 0.5);
+  assert.equal(share('Mainland and islands', { large: 1, small: 1 }), 0.6);
 });
 
 test('a hex that sets its own land share takes it, within 0 to 100', () => {
@@ -69,16 +70,16 @@ test('polity areas count each hex by its land share', () => {
     undefined,
     { '2': { type: 'Coastal Land', land: 50 } },
   );
-  // Hex area is 10 * 8 * 0.75 = 60: 0.9 + the strait's banks + 0.5 of it.
-  assert.ok(Math.abs(areas.get('r')! - 60 * (0.9 + landFraction('Strait', undefined, dims) + 0.5)) < 1e-9);
+  // Hex area is 10 * 8 * 0.75 = 60: 0.8 + the strait's banks + 0.5 of it.
+  assert.ok(Math.abs(areas.get('r')! - 60 * (0.8 + landFraction('Strait', undefined, dims) + 0.5)) < 1e-9);
 });
 
 test('dimensions saved with the old defaults take the new ones, and a chosen island share keeps its ratio', () => {
   const old = { width: 10, height: 11.5, unit: 'km', coastalLandPercent: 60, islandLandPercent: 40, areaRounding: 100, lengthRounding: 10 };
   const migrated = normaliseHexDimensions(old);
-  assert.equal(migrated.coastalLandPercent, 90);
+  assert.equal(migrated.coastalLandPercent, 80);
   assert.equal(migrated.smallIslandPercent, 5);
-  assert.equal(migrated.largeIslandPercent, 20);
+  assert.equal(migrated.largeIslandPercent, 15);
   assert.ok(!('islandLandPercent' in migrated));
   const chosen = normaliseHexDimensions({ ...old, coastalLandPercent: 50, islandLandPercent: 60 });
   assert.equal(chosen.coastalLandPercent, 50, 'a share someone chose is kept');
@@ -550,7 +551,7 @@ test('a lake hex with a land share has land drawn in from its edges against land
   assert.equal(reducer(map, { type: 'setHexShape', indices: [12], change: { irregular: 'Fractured' } }).hexShapes?.['12']?.irregular, 'Fractured');
   assert.ok(Math.abs(lakeArea(set) - some) < 1e-6);
   assert.equal(landFraction('Lake', undefined, normaliseHexDimensions(undefined), set.hexShapes!['12']), 0.4);
-  assert.equal(landFraction('Lake', undefined, normaliseHexDimensions(undefined)), 0, 'a lake is all water unless given land');
+  assert.equal(landFraction('Lake', undefined, normaliseHexDimensions(undefined)), 0.1, 'a lake now contains 10% land by default');
 });
 
 /* ------------------------------------------------------------ drawn land share */
@@ -823,6 +824,8 @@ test('a hex on a lake shore shows its land share, the lake border counted as lan
     const base: BaseGeo[] = [];
     for (let r = 0; r < N; r++) for (let c = 0; c < N; c++) base.push(c < MID ? 'Lake' : c === MID ? (r === MID ? type : 'Coastal Land') : 'Land');
     const map = { ...mapWith(base, N, N), hexShapes: { [String(MID * N + MID)]: shape } } as MapState;
+    // Isolate the coastal hex target; do not simultaneously ask the adjacent lake shore for land.
+    map.hexDimensions = { ...map.hexDimensions, lakeLandPercent: 0 };
     const rings: Array<Array<{ x: number; y: number }>> = [];
     const gather = (prims: Prim[]) => {
       for (const p of prims) {

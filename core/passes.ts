@@ -117,6 +117,7 @@ export function rosterFromResponse(layer: LayerId, parsed: unknown): Roster {
       entries: (r.polities ?? []).map((p, i) => ({
         key: (p.key ?? '').trim().charAt(0) || keyAt(i),
         name: p.name,
+        previousName: p.previousName,
         shortName: p.shortName,
         parent: p.parent,
         colour: p.colour,
@@ -126,7 +127,7 @@ export function rosterFromResponse(layer: LayerId, parsed: unknown): Roster {
   }
   if (layer === 'rivers') {
     const r = parsed as z.infer<ReturnType<typeof RiversRosterResponse>>;
-    return { kind: 'rivers', entries: (r.rivers ?? []).map((x) => ({ name: x.name, course: x.course })) };
+    return { kind: 'rivers', entries: (r.rivers ?? []).map((x) => ({ name: x.name, course: x.course, previousName: x.previousName })) };
   }
   throw new Error(`Layer "${layer}" has no roster.`);
 }
@@ -158,19 +159,24 @@ export function combinePasses(
       polities: entries.map((e) => ({
         key: e.key,
         name: e.name,
+        previousName: e.previousName,
         shortName: e.shortName,
         parent: e.parent,
         colour: e.colour,
         hexes: e.hexes,
       })),
       rows: paint.rows ?? [],
+      sharedHexes: paint.sharedHexes,
       notes,
       decisions,
     };
   }
   if (layer === 'rivers') {
     const paint = paintParsed as z.infer<ReturnType<typeof RiversPathsResponse>>;
-    return { rivers: paint.rivers ?? [], notes, decisions };
+    const entries = roster?.kind === 'rivers' ? roster.entries : [];
+    return { rivers: (paint.rivers ?? []).map((r) => ({
+      ...r, previousName: r.previousName ?? entries.find((e) => e.name === r.name)?.previousName,
+    })), notes, decisions };
   }
   throw new Error(`Layer "${layer}" does not run in passes.`);
 }
@@ -207,9 +213,10 @@ export function rosterOnlyResponse(
       rows.push(line);
     }
     return {
-      polities: entries.map((e) => ({
+      polities: entries.map((e, i) => ({
         key: e.key,
         name: e.name,
+        previousName: existing?.polities[i]?.name,
         shortName: e.shortName,
         parent: e.parent,
         colour: e.colour,
@@ -224,6 +231,7 @@ export function rosterOnlyResponse(
     const entries = roster.kind === 'rivers' ? roster.entries : [];
     const existing = ctx.rivers?.rivers ?? [];
     return {
+      rosterOnly: true,
       rivers: existing.map((river, i) => {
         const first = river.segments[0];
         // The lake a river flows out of leads its path, as the model would write it.
@@ -234,6 +242,7 @@ export function rosterOnlyResponse(
         };
         return {
           name: entries[i]?.name ?? river.name,
+          previousName: river.name,
           path: [...(lake ? [{ col: lake.col, row: lake.row }] : []), ...river.segments.map((s) => ({ col: s.col, row: s.row }))],
           navigable: [...(lake ? [false] : []), ...river.segments.map((s) => s.navigable)],
           ...(river.joins ? { joins: nameOf(river.joins) } : {}),

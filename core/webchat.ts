@@ -23,6 +23,7 @@ import * as z from 'zod/v4';
 import type { LayerId } from '../shared/types.js';
 import { generationOrder } from '../shared/generationQueue.js';
 import { LAYER_META } from '../shared/layers.js';
+import { physicalContext } from './physicalContext.js';
 import {
   descriptionBlock,
   existingContext,
@@ -96,13 +97,11 @@ export function buildWebchatPrompt(options: WebchatPromptOptions): string {
     style === 'compact'
       ? [
           'HOW TO REPLY',
-          'Reply in three parts, in this order:',
-          '1. In the chat: the scale you are working to, and each statement in the brief that bears on this layer,',
-          '   turned into a concrete target on this grid.',
-          '2. The layer as ONE JSON object in a ```json code block. It holds only these fields - no notes, no decisions:',
+          'Reply with the layer as ONE JSON object in a ```json code block, with no preamble.',
+          'It holds only these fields - no notes, no decisions:',
           ...fieldLines(jsonSchema).map((line) => `   ${line}`),
           ...sizeRule.map((line) => `   ${line}`),
-          '3. In the chat, after the code block: the decisions that most shaped the layer.',
+          'After the code block, at most two short sentences only for material conflicts or consequential assumptions; otherwise nothing.',
           '',
           returnsRows ? 'SHAPE OF THE JSON (a 4x3 map - not your answer)' : 'SHAPE OF THE JSON (not your answer)',
           '```json',
@@ -213,14 +212,14 @@ export function buildMultiWebchatPrompt(options: MultiWebchatPromptOptions): str
     'Produce them in that order. Each layer must be consistent with every layer before it, including the ones you',
     'write earlier in this same reply: treat those as the context grids you would otherwise be shown.',
     '',
-    gridRules(ctx.cols, ctx.rows),
+    gridRules(ctx.cols, ctx.rows, ctx.hexDimensions),
     '',
     houseStyle(ctx),
   ];
   layers.forEach((id, i) => {
     parts.push('', divider(), `LAYER ${i + 1} OF ${layers.length}: ${LAYER_META[id].label.toUpperCase()} ("${id}")`, '', layerRules(id, ctx));
   });
-  parts.push('', divider(), '', recordDecisions(ctx), '', divider(), '', descriptionBlock(ctx.description));
+  parts.push('', divider(), '', recordDecisions(ctx), '', divider(), '', physicalContext(ctx), '', descriptionBlock(ctx.description));
   if (existing.length > 0) {
     parts.push(
       '',
@@ -235,7 +234,7 @@ export function buildMultiWebchatPrompt(options: MultiWebchatPromptOptions): str
       '',
       divider(),
       '',
-      'EDIT INSTRUCTION',
+      'EDIT INSTRUCTION (overrides conflicting parts of the original brief)',
       `The layers named above already exist and are shown above as they stand. The user asks for this change:`,
       '<instruction>',
       instruction,
@@ -264,10 +263,8 @@ export function buildMultiWebchatPrompt(options: MultiWebchatPromptOptions): str
       divider(),
       '',
       'HOW TO REPLY',
-      'Reply in three parts, in this order:',
-      '1. In the chat: the scale you are working to, and for each layer, each statement in the brief that bears on it',
-      '   turned into a concrete target on this grid.',
-      `2. ONE JSON object in a \`\`\`json code block with one key per layer - ${layers.map((id) => `"${id}"`).join(', ')} - each holding`,
+      'Reply with the JSON code block only, with no planning preamble.',
+      `ONE JSON object in a \`\`\`json code block with one key per layer - ${layers.map((id) => `"${id}"`).join(', ')} - each holding`,
       '   only that layer\'s data, no notes and no decisions:',
     );
     for (const id of layers) {
@@ -275,7 +272,7 @@ export function buildMultiWebchatPrompt(options: MultiWebchatPromptOptions): str
     }
     if (hasRows) parts.push(...rowSizeRule(ctx).map((line) => `   ${line}`));
     parts.push(
-      '3. In the chat, after the code block: for each layer, under its name, the decisions that most shaped it.',
+      'After the JSON, at most two short sentences total only for material conflicts or consequential assumptions; otherwise nothing.',
       '',
       hasRows ? 'SHAPE OF THE JSON (a 4x3 map - not your answer)' : 'SHAPE OF THE JSON (not your answer)',
       '```json',

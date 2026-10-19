@@ -45,7 +45,7 @@ test('parse-friendly export drops all decision records and adds a guide and hex 
   assert.doesNotMatch(text, /secret reasoning|a warning|Because/);
 });
 
-test('generation prompts derive a scale from the brief and never invent one', () => {
+test('generation prompts use the saved map scale rather than inferring one from the brief', () => {
   const map = createMapState('A temperate island realm.', 3, 3);
   map.layers.base.data = Array(9).fill('Land');
   const context = {
@@ -65,7 +65,7 @@ test('generation prompts derive a scale from the brief and never invent one', ()
   for (const layer of ['base', 'population'] as const) {
     const prompt = buildPrompt(layer, context).system;
     assert.doesNotMatch(prompt, /40 km|1,400 km/i);
-    assert.match(prompt, /If the brief gives no size of any kind, do not invent one/);
-    assert.match(prompt, /Convert every stated area into a hex count/);
+    assert.match(prompt, /Do not infer another scale from the brief/);
+    assert.match(prompt, /effective\n  land fractions and measured areas/);
   }
 });

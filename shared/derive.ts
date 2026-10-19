@@ -28,11 +28,11 @@ export function isLandLike(v: BaseGeo | undefined): boolean {
 
 /**
  * Whether a city may stand on, or a polity own, a hex of this type. Land and
- * straits always qualify (a strait city straddles its channel); Sea, Lake and
- * Sea Ice only when the map opts in to underwater settlement.
+ * straits always qualify (a strait city straddles its channel); Sea and Lake
+ * qualify when the map opts in to underwater settlement. Sea Ice never does.
  */
 export function canHoldSettlement(v: BaseGeo | undefined, allowUnderwater: boolean | undefined): boolean {
-  return isLandLike(v) || v === 'Strait' || (allowUnderwater === true && isWater(v));
+  return isLandLike(v) || v === 'Strait' || (allowUnderwater === true && (v === 'Sea' || v === 'Lake'));
 }
 
 /** Edges of (col,row) that border a Sea or Lake hex. Off-map edges do not count. */

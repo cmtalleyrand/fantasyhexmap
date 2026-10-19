@@ -42,7 +42,10 @@ test('incremental rebuilds equal uncached rebuilds after merges, splits, setting
   }
 });
 test('unchanged placement inputs reuse every search, while marker, font and terrain changes invalidate correctly', () => {
-  const map = placementFixture(), options = editOptions(); profiled(map, options);
+  const map = placementFixture(), options = editOptions();
+  // This invalidation case needs a fully water-filled lake, with no remaining land for old symbols.
+  map.hexDimensions.lakeLandPercent = 0;
+  profiled(map, options);
   const changed = { ...options, polityOpacity: .3 };
   const repeat = profiled(structuredClone(map), changed);
   assert.equal(repeat.profile.counters['symbols.searches'] ?? 0, 0);
