@@ -875,6 +875,9 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
   const inkReachOf = knobs.coast === 'none' ? 0 : Math.max(0.8, size * palette.coastWidth * knobs.lineWeight) / 2;
   phase('coast');
   const traced = base ? cachedCoast(base, cols, rows, size, knobs.coast === 'smooth', map.hexShapes, map.defaultIrregularity, normaliseHexDimensions(map.hexDimensions), seed, inkReachOf) : null;
+  // All clips in one build share the same immutable painted coast outline.
+  let coastLandPath: PathCmd[] | undefined;
+  const drawnCoastLand = (): PathCmd[] => coastLandPath ??= traced ? drawnLand(traced.geometry, width, height, size) : [];
   phase('landAndFills');
   // The one answer to "is this point land?" for everything placed on the map (with the islands
   // and lake bodies added once they are laid out: see `landAt`): inside the sea coast as drawn,
@@ -884,7 +887,7 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
   if (renderCachesEnabled() && traced && memo && !symbolFits.has(traced)) symbolFits.set(traced, memo);
   const seaCoastLand: ((p: Point) => boolean) | null = memo?.dry
     ?? (traced && traced.geometry.paths.length > 0
-      ? evenOddTest(pathPolylines(drawnLand(traced.geometry, width, height, size), 6), size / 8)
+      ? evenOddTest(pathPolylines(drawnCoastLand(), 6), size / 8)
       : traced ? (p: Point) => traced.onLand(p) : null);
   if (memo) memo.dry = seaCoastLand;
   /** Where the drawing could not do everything asked of it. */
@@ -1152,7 +1155,7 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
       ground.push({ kind: 'polygon', points, fill: hexFill(edge.land) });
       for (const overlay of overlays(edge.land)) ground.push({ kind: 'polygon', points, fill: overlay });
     }
-    prims.push({ kind: 'group', clip: drawnLand(traced.geometry, width, height, size), clipRule: 'evenodd', prims: ground });
+    prims.push({ kind: 'group', clip: drawnCoastLand(), clipRule: 'evenodd', prims: ground });
   }
   const groundStart = prims.length;
   for (let row = 0; row < rows; row++) {
@@ -1238,7 +1241,7 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
 
   if (traced?.geometry.component) {
     const ground = prims.splice(groundStart);
-    prims.push({ kind: 'group', clip: drawnLand(traced.geometry, width, height, size), clipRule: 'evenodd', prims: ground });
+    prims.push({ kind: 'group', clip: drawnCoastLand(), clipRule: 'evenodd', prims: ground });
   }
 
   // --- glacier ground ----------------------------------------------------------------
@@ -1361,7 +1364,7 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
   const coast = traced && (knobs.coast !== 'none' || knobs.water !== 'flat') ? traced.geometry : null;
   const componentWaterClip: PathCmd[] | null = coast?.component ? [
     ...polygonPath([{ x: -size, y: -size }, { x: width + size, y: -size }, { x: width + size, y: height + size }, { x: -size, y: height + size }]),
-    ...drawnLand(coast, width, height, size),
+    ...drawnCoastLand(),
   ] : null;
   // Sea ice lies on ordinary sea; its pack is drawn over the water below.
   const waterColour = (i: number) => (base?.[i] === 'Lake' ? palette.lake : palette.sea);
@@ -2314,7 +2317,7 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
     gainedLand.push({ kind: 'path', d: s.d, fill, stroke: fill, strokeWidth: seal });
     for (const overlay of overlays(donor)) gainedLand.push({ kind: 'path', d: s.d, fill: overlay });
   }
-  if (coast?.component) prims.push({ kind: 'group', clip: drawnLand(coast, width, height, size), clipRule: 'evenodd', prims: gainedLand });
+  if (coast?.component) prims.push({ kind: 'group', clip: drawnCoastLand(), clipRule: 'evenodd', prims: gainedLand });
   else prims.push(...gainedLand);
 
   for (const [k, lake] of lakeBodies.entries()) {
@@ -2397,7 +2400,7 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
       };
       // The shelf's hex region identifies its glacier, but cannot identify dry
       // ground after coast fitting. Keep its shading inside the painted coast.
-      prims.push(traced ? { kind: 'group', clip: drawnLand(traced.geometry, width, height, size), clipRule: 'evenodd', prims: [glacierSurface] } : glacierSurface);
+      prims.push(traced ? { kind: 'group', clip: drawnCoastLand(), clipRule: 'evenodd', prims: [glacierSurface] } : glacierSurface);
     }
   }
 
@@ -2633,7 +2636,7 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
     const pageRect: PathCmd[] = [['M', -size, -size], ['L', width + size, -size], ['L', width + size, height + size], ['L', -size, height + size], ['Z']];
     const onLand = (inner: Prim[]): Prim[] => {
       const dry: Prim[] = lakeOutlines.length > 0 ? [{ kind: 'group', clip: [...pageRect, ...lakeOutlines], clipRule: 'evenodd', prims: inner }] : inner;
-      return traced ? [{ kind: 'group', clip: drawnLand(traced.geometry, width, height, size), clipRule: 'evenodd', prims: dry }] : dry;
+      return traced ? [{ kind: 'group', clip: drawnCoastLand(), clipRule: 'evenodd', prims: dry }] : dry;
     };
     /** Where a realm's band may be painted: its hexes and the coast land it has gained. */
     const ground = (owner: string, hexes: number[]): PathCmd[] => alike([...realmGround(hexes), ...(extraLand.get(owner) ?? [])]);
