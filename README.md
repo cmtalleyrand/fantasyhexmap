@@ -320,11 +320,14 @@ from a picked hex, and can delete it. **Join rivers…** consolidates sections i
 sections, choose whose name to keep, and they are chained end to source, with any gap closed by a
 straight run of land.
 
-River length is measured along the course on the grid: from the centre of the hex where the river
-rises, through each hex centre, to the edge where it leaves the land. It uses the hex size in
-Settings → Map. It is the length of the course at the map's scale, without meanders inside a hex.
+River length follows the drawn centreline, including its bends and meanders, lake and sea endpoints,
+forks and confluences. Each sampled section is converted using the hex width and height in
+Settings → Map. Sinuosity is the course length divided by the straight source-to-mouth distance;
+the length already includes this winding, so no extra multiplier is applied. Changing river
+irregularity or manually adjusting the course updates the measurement when the map is redrawn.
 It appears in the river list, on the selected river's card, in the hover readout, and optionally in
 the exported legend.
+While drawing a new river, the unfinished draft shows an estimate along the hex centres.
 
 **By instruction.** Type something like *"add a chain of volcanic islands along the eastern sea"* and
 the whole layer, plus the layers it depends on, is sent to Claude, which returns a complete

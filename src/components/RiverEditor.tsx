@@ -8,6 +8,7 @@ import {
   pathLength,
   riverLength,
   riverSystemLength,
+  type RiverMeasurement,
 } from '../../shared/riverLength.js';
 import { normaliseHexDimensions } from '../../shared/surfaceArea.js';
 import type { MapState, River } from '../../shared/types.js';
@@ -17,6 +18,7 @@ import CommitInput from './CommitInput.js';
 
 export interface RiverEditorProps {
   map: MapState;
+  riverMeasurements?: Record<string, RiverMeasurement>;
   dispatch: (action: Action) => void;
   selection: Set<number>;
   setSelection: (next: Set<number>) => void;
@@ -105,7 +107,7 @@ export default function RiverEditor(props: RiverEditorProps) {
   const active: ToolButton = draft !== null ? 'draw' : tool.kind;
   const selected = rivers.find((r) => r.id === tool.selectedId) ?? null;
 
-  const lengths = useMemo(() => new Map(rivers.map((r) => [r.id, riverLength(r, dims)])), [rivers, dims]);
+  const lengths = useMemo(() => new Map(rivers.map((r) => [r.id, props.riverMeasurements?.[r.id]?.length ?? riverLength(r, dims)])), [rivers, dims, props.riverMeasurements]);
   const total = useMemo(() => [...lengths.values()].reduce((a, b) => a + b, 0), [lengths]);
 
   const select = (id: string | null) => setRiverTool({ ...tool, selectedId: id });
@@ -191,7 +193,7 @@ export default function RiverEditor(props: RiverEditorProps) {
           river={selected}
           rivers={rivers}
           length={lengths.get(selected.id) ?? 0}
-          systemLength={riverSystemLength(selected, rivers, dims)}
+          systemLength={riverSystemLength(selected, rivers, dims, props.riverMeasurements)}
           unit={unit}
           rounding={rounding}
           onSelect={select}

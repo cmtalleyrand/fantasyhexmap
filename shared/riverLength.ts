@@ -1,16 +1,36 @@
 /**
- * How long a river is, in the map's own units.
+ * River measurements in the map's own units.
  *
- * The course is measured the way it is drawn: from the centre of the hex where
+ * The grid estimate runs from the centre of the hex where
  * the river rises, through the centre of each hex it passes, to the edge it
  * leaves the land by. That is the length of the course across the grid, not of
- * every meander inside a hex - the map does not record those - so it reads as
- * a river's length on a map of this scale, a little under its length on the
- * ground.
+ * every meander inside a hex. Finished maps instead use measureRiverCourse
+ * with the renderer's centreline so their measurements include those bends.
  */
 
-import { edgeBetween, type Offset } from './hex.js';
+import { edgeBetween, type Offset, type Point } from './hex.js';
 import type { HexDimensions, River } from './types.js';
+
+export interface RiverMeasurement {
+  length: number;
+  /** Drawn course length divided by the straight source-to-mouth distance. */
+  sinuosity: number;
+}
+
+/** Measure the renderer's sampled centreline, scaling each axis to the map's units. */
+export function measureRiverCourse(
+  line: readonly Point[],
+  dims: Pick<HexDimensions, 'width' | 'height'>,
+  size: number,
+): RiverMeasurement {
+  const sx = dims.width / (Math.sqrt(3) * size);
+  const sy = dims.height / (2 * size);
+  const distance = (a: Point, b: Point) => Math.hypot((b.x - a.x) * sx, (b.y - a.y) * sy);
+  let length = 0;
+  for (let i = 1; i < line.length; i++) length += distance(line[i - 1]!, line[i]!);
+  const straight = line.length > 1 ? distance(line[0]!, line.at(-1)!) : 0;
+  return { length, sinuosity: straight > 0 ? Math.max(1, length / straight) : 1 };
+}
 
 /**
  * Centre-to-centre distance to the neighbour across `edge` of a pointy-top hex.
@@ -33,7 +53,7 @@ export function pathLength(path: readonly Offset[], dims: Pick<HexDimensions, 'w
   return total;
 }
 
-/** The river's course from its source (or its fork, for a branch) to where it leaves the land. */
+/** Grid estimate when a drawn course is not available (for example, a hidden layer). */
 export function riverLength(river: River, dims: Pick<HexDimensions, 'width' | 'height'>): number {
   let total = pathLength(river.segments, dims);
   const last = river.segments[river.segments.length - 1];
@@ -65,8 +85,9 @@ export function riverSystemLength(
   river: River,
   rivers: readonly River[],
   dims: Pick<HexDimensions, 'width' | 'height'>,
+  measurements?: Readonly<Record<string, RiverMeasurement>>,
 ): number {
-  return [river, ...branchesOf(river, rivers)].reduce((sum, r) => sum + riverLength(r, dims), 0);
+  return [river, ...branchesOf(river, rivers)].reduce((sum, r) => sum + (measurements?.[r.id]?.length ?? riverLength(r, dims)), 0);
 }
 
 /** Round and format a length for display using a positive increment. */

@@ -60,6 +60,7 @@ export function buildExportScene(map: MapState, visible: VisibleLayers, opts: Ex
       opts.elevationStyle ?? elevationStyleOf(opts.style ?? CLASSIC_STYLE),
       opts.legend,
       opts.style,
+      scene.riverMeasurements,
     );
     // A title set on the map is not repeated at the head of the legend.
     out = appendLegend(scene, sections, opts.legend.title && !furniture?.title ? map.name : null, size);

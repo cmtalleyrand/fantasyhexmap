@@ -27,6 +27,7 @@ import {
 import { decryptKey, encryptKey } from './api/keyvault.js';
 import type { PassSelection, Roster } from '../core/rosters.js';
 import type { DrawingCompromise } from './render/scene.js';
+import type { RiverMeasurement } from '../shared/riverLength.js';
 import type { WebchatApplied } from './components/WebchatDialog.js';
 import type { MultiWebchatImportResult } from '../core/webchat.js';
 
@@ -103,6 +104,7 @@ export default function App() {
   const [selection, setSelection] = useState<Set<number>>(new Set());
   /** Where the map as last drawn could not do everything asked of it. */
   const [compromises, setCompromises] = useState<DrawingCompromise[]>([]);
+  const [riverMeasurements, setRiverMeasurements] = useState<Record<string, RiverMeasurement>>();
   const [panels, setPanels] = useState<PanelVisibility>({ layers: true, inspector: true });
   const panelRestore = useRef<PanelVisibility>({ layers: true, inspector: true });
   const [mobilePane, setMobilePane] = useState<'layers' | 'inspector'>('layers');
@@ -1180,6 +1182,7 @@ export default function App() {
           overlay={emptyMapOverlay}
           banner={banner}
           onCompromises={setCompromises}
+          onRiverMeasurements={setRiverMeasurements}
         />
 
         <div className="mobile-workspace-tabs" role="tablist" aria-label="Map workspace">
@@ -1201,6 +1204,7 @@ export default function App() {
 
         <div className={`inspector-shell ${panels.inspector ? '' : 'panel-closed'} ${mobilePane === 'inspector' ? 'mobile-active' : ''}`}>
           <Inspector
+            riverMeasurements={riverMeasurements}
             mode={mode}
             map={map}
             dispatch={dispatch}
