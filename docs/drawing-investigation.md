@@ -120,25 +120,26 @@ escarpment stroke check; per-build island path reuse and bounds checks offset re
 
 ## Reproduce
 
-Install the repository dependencies and provide a Playwright Core driver if it is not installed locally.
-The managed environment used `/opt/codex/runtimes/cua/lib/node_modules/playwright-core/index.mjs` and
-`/usr/bin/chromium`. Chromium needs the environment's normal browser/socket permissions.
+Install the repository dependencies and the pinned Playwright Chromium browser. On Linux, append
+`-- --with-deps` to the browser installation command if system libraries are missing.
 
 ```sh
+npm ci
+npm run test:browser:install
 node --import tsx --test test/*.test.ts
 npm run typecheck
 npm run build
-npm run test:drawing-pixels -- --driver /path/to/playwright-core/index.mjs
-npm run test:drawing-sweeps -- --driver /path/to/playwright-core/index.mjs
+npm run test:drawing-pixels
+npm run test:drawing-sweeps
 ```
 
 Archive the chosen baseline into a scratch directory and link its `node_modules` to the working checkout's
 installed dependencies, as the repository's comparison scripts do. Then:
 
 ```sh
-node scripts/drawing-investigation.mjs --source work/baseline --output work/before --check --driver /path/to/playwright-core/index.mjs
-node scripts/drawing-investigation-performance.mjs --baseline work/baseline --output work/performance --check --driver /path/to/playwright-core/index.mjs
-node scripts/render-incremental-validation.mjs --output work/incremental --driver /path/to/playwright-core/index.mjs
+node scripts/drawing-investigation.mjs --source work/baseline --output work/before --check
+node scripts/drawing-investigation-performance.mjs --baseline work/baseline --output work/performance --check
+node scripts/render-incremental-validation.mjs --output work/incremental
 ```
 
 The first baseline command is expected to fail on `4ff4aa8`: it reproduces the defects being repaired.

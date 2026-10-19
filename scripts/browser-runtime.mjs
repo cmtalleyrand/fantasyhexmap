@@ -4,11 +4,11 @@ import { readFile } from 'node:fs/promises';
 
 // An explicit driver path supports managed environments without installing scratch dependencies.
 export async function launchBrowser(args = process.argv) {
-  const driver = args.includes('--driver') ? pathToFileURL(resolve(args[args.indexOf('--driver') + 1])).href : 'playwright-core';
+  const driver = args.includes('--driver') ? pathToFileURL(resolve(args[args.indexOf('--driver') + 1])).href : 'playwright';
   const { chromium } = await import(driver).catch(error => {
-    throw new Error('Install playwright-core or pass --driver /path/to/playwright-core/index.mjs', { cause: error });
+    throw new Error('Run npm ci to install the browser test driver, or pass --driver /path/to/playwright-core/index.mjs', { cause: error });
   });
-  return chromium.launch({ executablePath: args.includes('--chromium') ? args[args.indexOf('--chromium') + 1] : '/usr/bin/chromium',
+  return chromium.launch({ ...(args.includes('--chromium') ? { executablePath: args[args.indexOf('--chromium') + 1] } : {}),
     headless: true, args: ['--no-sandbox', '--disable-dev-shm-usage', '--disable-gpu', '--num-raster-threads=1'] });
 }
 
