@@ -8,6 +8,7 @@ import type { RiverNotice, RiverTool } from '../state/riverTools.js';
 import RiverEditor from './RiverEditor.js';
 import type { RiverMeasurement } from '../../shared/riverLength.js';
 import type { DrawingCompromise } from '../render/scene.js';
+import { groupCompromises } from '../render/compromises.js';
 import GeoNamesEditor from './GeoNamesEditor.js';
 import { LAYER_META, missingRequirements, stalenessOf } from '../../shared/layers.js';
 import {
@@ -165,11 +166,14 @@ function CompromiseNotes({ map, compromises, selected, setSelection }: {
 }) {
   if (compromises.length === 0) return null;
   const here = compromises.filter((c) => c.hexes.some((i) => selected.includes(i)));
+  const adaptations = compromises.filter(c => c.severity === 'adaptation').length;
+  const losses = compromises.length - adaptations;
   if (here.length === 0) {
     const hexes = new Set(compromises.flatMap((c) => c.hexes));
     return (
       <div className="notice warn" style={{ marginBottom: 8 }}>
-        {compromises.length === 1 ? 'One thing is' : `${compromises.length} things are`} drawn differently from what was asked, because a drawing rule could not otherwise be kept.{' '}
+        {losses > 0 ? `${losses} drawing ${losses === 1 ? 'loss' : 'losses'}` : 'No drawing losses'}
+        {adaptations > 0 ? `; ${adaptations} size ${adaptations === 1 ? 'adaptation' : 'adaptations'}` : ''}.{' '}
         <button className="tiny" onClick={() => setSelection(hexes)}>Select the hexes</button>
       </div>
     );
@@ -178,8 +182,8 @@ function CompromiseNotes({ map, compromises, selected, setSelection }: {
     <div className="notice warn" style={{ marginBottom: 8 }}>
       <strong>Drawn differently from what was asked</strong>
       <ul style={{ margin: '4px 0 0', paddingLeft: 18 }}>
-        {here.map((c, k) => (
-          <li key={k}>{selected.length > 1 && c.hexes.length === 1 ? `${coordLabel(map, c.hexes[0]!)}: ` : ''}{c.what}, because {c.why}.</li>
+        {groupCompromises(here).map((c, k) => (
+          <li key={k}>{c.severity === 'adaptation' ? 'Size adaptation — ' : ''}{c.hexes.length > 1 ? `${c.hexes.length} hexes: ` : selected.length > 1 ? `${coordLabel(map, c.hexes[0]!)}: ` : ''}{c.what}, because {c.why}.</li>
         ))}
       </ul>
     </div>

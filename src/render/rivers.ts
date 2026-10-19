@@ -681,6 +681,28 @@ export function riverCourse(river: River, size: number, seed: string, ends: Cour
   });
   const line = centreline.map((p, i) => ({ x: p.x + normals[i]!.x * offset[i]! * eased[i]!, y: p.y + normals[i]!.y * offset[i]! * eased[i]! }));
 
+  // Independent per-sample clearance limits can put a kink into otherwise gentle
+  // wander. Retract only a failing neighbourhood, with a smooth shoulder; leave
+  // already valid courses and the deliberately deeper wander levels unchanged.
+  if (ends.wander === 'gentle' || ends.wander === 'verygentle') {
+    const gain = line.map(() => 1);
+    for (let pass = 0; pass < 32; pass++) {
+      let changed = false;
+      for (let i = 1; i < line.length - 1; i++) {
+        const a = line[i - 1]!, b = line[i]!, c = line[i + 1]!;
+        const u = { x: b.x - a.x, y: b.y - a.y }, v = { x: c.x - b.x, y: c.y - b.y };
+        if (u.x * v.x + u.y * v.y > 0.5 * Math.hypot(u.x, u.y) * Math.hypot(v.x, v.y)) continue;
+        changed = true;
+        for (let k = Math.max(0, i - 6); k <= Math.min(line.length - 1, i + 6); k++) {
+          gain[k]! *= 1 - 0.5 * (1 + Math.cos((k - i) * Math.PI / 7)) / 2;
+          const p = centreline[k]!, f = eased[k]! * gain[k]!;
+          line[k] = { x: p.x + normals[k]!.x * offset[k]! * f, y: p.y + normals[k]!.y * offset[k]! * f };
+        }
+      }
+      if (!changed) break;
+    }
+  }
+
   // A river that rises at a city comes out from under its icon at full width.
   const atCity = sites.some(({ p, radius }) => Math.hypot(centreline[0]!.x - p.x, centreline[0]!.y - p.y) < radius * 1.2);
   const widths = base.map((w0, i) => {

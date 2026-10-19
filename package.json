@@ -10,6 +10,8 @@
     "dev:web": "vite",
     "build": "tsc -b tsconfig.json && vite build",
     "test": "tsx --test test/*.test.ts",
+    "test:drawing-pixels": "node scripts/drawing-investigation.mjs --check",
+    "test:drawing-sweeps": "node scripts/drawing-investigation-extended.mjs --check",
     "typecheck": "tsc -b tsconfig.json tsconfig.server.json",
     "typecheck:render-fixtures": "tsc --noEmit --target ES2022 --module ESNext --moduleResolution Bundler --allowImportingTsExtensions --resolveJsonModule --skipLibCheck --types vite/client --strict scripts/render-edit-fixtures.ts",
     "preview": "vite preview",

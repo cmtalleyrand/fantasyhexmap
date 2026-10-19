@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { beginRenderProfile, endRenderProfile, profileCount, profileTime, profilePhases } from '../src/render/profile.ts';
 import { buildStaticScene, defaultVisibility } from '../src/render/scene.ts';
-import { createMapState } from '../shared/layers.ts';
+import { createMapState } from './seededMap.ts';
 
 test('profiling is opt-in, resets between jobs, and does not alter the scene', () => {
   profileCount('disabled');

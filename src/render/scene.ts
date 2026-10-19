@@ -105,10 +105,10 @@ import {
 import { polygonPath, type CitySymbol, type PathCmd, type Prim } from './prims.js';
 import { capitalCrown, cityMarker, iconClearance, iconDrop, markerExtent, symbolMarker } from './cityMarkers.js';
 import { riverStance, riverThroughIcon, showsRiver } from './riverCity.js';
-import { landBySide, riverCourses, type RiverCourse } from './rivers.js';
+import { riverCourses, type RiverCourse } from './rivers.js';
 import { measureRiverCourse, type RiverMeasurement } from '../../shared/riverLength.js';
 import { citySite, lakeEdgesOf, resolvedSite } from './sites.js';
-import { FIT_SCALES, escarpment, hillshade, keepToLand, refit, samplePoints, type Fitted, reliefSymbols, standsOnLand, symbolAnchor, vegetationSymbols, type Placed } from './symbols.js';
+import { FIT_SCALES, escarpment, escarpmentWithinLand, hillshade, keepToLand, refit, samplePoints, type Fitted, reliefSymbols, symbolAnchor, vegetationSymbols, type Placed } from './symbols.js';
 import { ownersAtDepth, polityDepths, polityDisplayColours, toned } from './hierarchy.js';
 import { topLevelOf } from '../../shared/polityTree.js';
 import { cityStateSeats } from '../../shared/cityState.js';
@@ -194,6 +194,8 @@ export interface DrawingCompromise {
   hexes: number[];
   what: string;
   why: string;
+  /** Distinguishes expected fitting adjustments from actual losses in reports. */
+  severity?: 'adaptation' | 'loss';
 }
 
 /** One piece of map furniture as placed: what it is, where it sits, and what surface it sits on. */
@@ -873,6 +875,9 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
   const inkReachOf = knobs.coast === 'none' ? 0 : Math.max(0.8, size * palette.coastWidth * knobs.lineWeight) / 2;
   phase('coast');
   const traced = base ? cachedCoast(base, cols, rows, size, knobs.coast === 'smooth', map.hexShapes, map.defaultIrregularity, normaliseHexDimensions(map.hexDimensions), seed, inkReachOf) : null;
+  // All clips in one build share the same immutable painted coast outline.
+  let coastLandPath: PathCmd[] | undefined;
+  const drawnCoastLand = (): PathCmd[] => coastLandPath ??= traced ? drawnLand(traced.geometry, width, height, size) : [];
   phase('landAndFills');
   // The one answer to "is this point land?" for everything placed on the map (with the islands
   // and lake bodies added once they are laid out: see `landAt`): inside the sea coast as drawn,
@@ -882,7 +887,7 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
   if (renderCachesEnabled() && traced && memo && !symbolFits.has(traced)) symbolFits.set(traced, memo);
   const seaCoastLand: ((p: Point) => boolean) | null = memo?.dry
     ?? (traced && traced.geometry.paths.length > 0
-      ? evenOddTest(pathPolylines(drawnLand(traced.geometry, width, height, size), 6), size / 8)
+      ? evenOddTest(pathPolylines(drawnCoastLand(), 6), size / 8)
       : traced ? (p: Point) => traced.onLand(p) : null);
   if (memo) memo.dry = seaCoastLand;
   /** Where the drawing could not do everything asked of it. */
@@ -950,6 +955,7 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
     } else if (fitted.scale < 1) {
       compromises.push({
         hexes: [i],
+        severity: 'adaptation',
         what: `${what[0]!.toUpperCase()}${what.slice(1)} drawn at ${scale}% size`,
         why: 'the land drawn in this hex is too small or narrow for them at full size, and symbols are never drawn over water',
       });
@@ -1149,7 +1155,7 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
       ground.push({ kind: 'polygon', points, fill: hexFill(edge.land) });
       for (const overlay of overlays(edge.land)) ground.push({ kind: 'polygon', points, fill: overlay });
     }
-    prims.push({ kind: 'group', clip: drawnLand(traced.geometry, width, height, size), clipRule: 'evenodd', prims: ground });
+    prims.push({ kind: 'group', clip: drawnCoastLand(), clipRule: 'evenodd', prims: ground });
   }
   const groundStart = prims.length;
   for (let row = 0; row < rows; row++) {
@@ -1235,7 +1241,7 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
 
   if (traced?.geometry.component) {
     const ground = prims.splice(groundStart);
-    prims.push({ kind: 'group', clip: drawnLand(traced.geometry, width, height, size), clipRule: 'evenodd', prims: ground });
+    prims.push({ kind: 'group', clip: drawnCoastLand(), clipRule: 'evenodd', prims: ground });
   }
 
   // --- glacier ground ----------------------------------------------------------------
@@ -1358,7 +1364,7 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
   const coast = traced && (knobs.coast !== 'none' || knobs.water !== 'flat') ? traced.geometry : null;
   const componentWaterClip: PathCmd[] | null = coast?.component ? [
     ...polygonPath([{ x: -size, y: -size }, { x: width + size, y: -size }, { x: width + size, y: height + size }, { x: -size, y: height + size }]),
-    ...drawnLand(coast, width, height, size),
+    ...drawnCoastLand(),
   ] : null;
   // Sea ice lies on ordinary sea; its pack is drawn over the water below.
   const waterColour = (i: number) => (base?.[i] === 'Lake' ? palette.lake : palette.sea);
@@ -2003,10 +2009,15 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
     return times;
   };
   const sizedIsles = (i: number): Isle[] => sizedIslesAt(i, islandScale(i));
-  const islandPath = (i: number): PathCmd[] => islandPathAt(i, islandScale(i));
+  const islandPaths = new Map<number, PathCmd[]>();
+  const islandPath = (i: number): PathCmd[] => {
+    let path = islandPaths.get(i);
+    if (!path) islandPaths.set(i, path = islandPathAt(i, islandScale(i)));
+    return path;
+  };
 
   /** Whether a point is land as drawn: the coast's land, or one of the islands of an island hex. */
-  const isleMemo = new Map<number, Isle[]>();
+  const isleMemo = new Map<number, (p: Point) => boolean>();
   const isleAt = (p: Point): boolean => {
     if (!base) return false;
     const at = pixelToOffset(p.x, p.y, size);
@@ -2016,15 +2027,20 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
       if (!inBounds(cols, rows, col, row)) continue;
       const j = row * cols + col;
       if (!isIslandType(base[j]) || terrain?.split.has(j)) continue;
-      let isles = isleMemo.get(j);
-      if (!isles) isleMemo.set(j, (isles = sizedIsles(j)));
-      for (const isle of isles) {
-        const dx = p.x - isle.c.x;
-        const dy = p.y - isle.c.y;
-        const u = dx * Math.cos(isle.axis) + dy * Math.sin(isle.axis);
-        const v = -dx * Math.sin(isle.axis) + dy * Math.cos(isle.axis);
-        if ((u / isle.rx) ** 2 + (v / isle.ry) ** 2 <= 1) return true;
+      let contains = isleMemo.get(j);
+      if (!contains) {
+        // Test the irregular outline actually painted, including skerries, rather than
+        // the layout ellipses from which it was made. Rings are independent islands.
+        const bodies = pathPolylines(islandPath(j), 12).map(ring => {
+          const xs = ring.map(p => p.x), ys = ring.map(p => p.y);
+          const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
+          const inside = evenOddTest([ring], size / 8);
+          return (q: Point) => q.x >= x0 && q.x <= x1 && q.y >= y0 && q.y <= y1 && inside(q);
+        });
+        contains = q => bodies.some(body => body(q));
+        isleMemo.set(j, contains);
       }
+      if (contains(p)) return true;
     }
     return false;
   };
@@ -2292,6 +2308,18 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
       lakeDraws = lakeBodies.map(lakeBodyOf);
     }
   }
+  // Notches of water that the smoothed coast fills in become land, painted with
+  // everything the neighbouring land hex is painted with.
+  const gainedLand: Prim[] = [];
+  for (const s of coast?.toLand ?? []) {
+    const donor = inLakeBody.has(s.donor) ? lakeShoreDonor(s.donor) : s.donor;
+    const fill = hexFill(donor);
+    gainedLand.push({ kind: 'path', d: s.d, fill, stroke: fill, strokeWidth: seal });
+    for (const overlay of overlays(donor)) gainedLand.push({ kind: 'path', d: s.d, fill: overlay });
+  }
+  if (coast?.component) prims.push({ kind: 'group', clip: drawnCoastLand(), clipRule: 'evenodd', prims: gainedLand });
+  else prims.push(...gainedLand);
+
   for (const [k, lake] of lakeBodies.entries()) {
     const d = lakeDraws[k]!;
     const isles = lake.filter((i) => lakeIslands.has(i)).flatMap(islandPath);
@@ -2308,12 +2336,8 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
   }
 
   /** Whether a point lies in a lake's water as drawn (islands in it are land). */
-  const lakeRings = lakeShores.map((d) => {
-    const rings: Point[][] = [];
-    for (const c of d) {
-      if (c[0] === 'M') rings.push([{ x: c[1], y: c[2] }]);
-      else if (c[0] === 'L') rings[rings.length - 1]?.push({ x: c[1], y: c[2] });
-    }
+  const lakeRings = lakeDraws.map((d) => {
+    const rings = pathPolylines(d, 12);
     const xs = rings.flat().map((p) => p.x);
     const ys = rings.flat().map((p) => p.y);
     return { rings, box: { x0: Math.min(...xs), x1: Math.max(...xs), y0: Math.min(...ys), y1: Math.max(...ys) } };
@@ -2321,16 +2345,20 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
   const inLakeWater = (p: Point): boolean =>
     lakeRings.some(({ rings, box }) => {
       if (p.x < box.x0 || p.x > box.x1 || p.y < box.y0 || p.y > box.y1) return false;
-      let inside = false;
+      // Lake bodies are painted with the nonzero fill rule. Even-odd parity
+      // would invent dry pockets where a cut-back shore overlaps itself.
+      let winding = 0;
       for (const ring of rings) {
         for (let a = 0, b = ring.length - 1; a < ring.length; b = a++) {
           const pa = ring[a]!;
           const pb = ring[b]!;
-          if ((pa.y > p.y) !== (pb.y > p.y) && p.x < ((pb.x - pa.x) * (p.y - pa.y)) / (pb.y - pa.y) + pa.x) inside = !inside;
+          const cross = (pb.x - pa.x) * (p.y - pa.y) - (p.x - pa.x) * (pb.y - pa.y);
+          if (pa.y <= p.y && pb.y > p.y && cross > 0) winding++;
+          else if (pa.y > p.y && pb.y <= p.y && cross < 0) winding--;
         }
       }
-      return inside;
-    });
+      return winding !== 0;
+    }) && !isleAt(p);
 
   phase('islands');
   // --- islands ------------------------------------------------------------------
@@ -2354,17 +2382,6 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
     }
   }
 
-  // Notches of water that the smoothed coast fills in become land, painted with
-  // everything the neighbouring land hex is painted with.
-  const gainedLand: Prim[] = [];
-  for (const s of coast?.toLand ?? []) {
-    const fill = hexFill(s.donor);
-    gainedLand.push({ kind: 'path', d: s.d, fill, stroke: fill, strokeWidth: seal });
-    for (const overlay of overlays(s.donor)) gainedLand.push({ kind: 'path', d: s.d, fill: overlay });
-  }
-  if (coast?.component) prims.push({ kind: 'group', clip: drawnLand(coast, width, height, size), clipRule: 'evenodd', prims: gainedLand });
-  else prims.push(...gainedLand);
-
   // The slope of a glacier down to the sea, over its own land and the coast
   // notches filled in for it, and under the grid and the coastline.
   if (texturedIce && !thematic && glacierHexes.length > 0 && coastLines.length > 0) {
@@ -2373,14 +2390,17 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
       edge: mix(palette.ice, '#ffffff', 0.8),
     });
     if (shelf.length > 0) {
-      prims.push({
+      const glacierSurface: Prim = {
         kind: 'group',
         clip: [
           ...hexesPath(glacierHexes, cols, size),
           ...[...(coast?.toLand ?? []), ...(coast?.grown ?? [])].filter((s) => base?.[s.donor] === 'Glacier').flatMap((s) => s.d),
         ],
         prims: shelf,
-      });
+      };
+      // The shelf's hex region identifies its glacier, but cannot identify dry
+      // ground after coast fitting. Keep its shading inside the painted coast.
+      prims.push(traced ? { kind: 'group', clip: drawnCoastLand(), clipRule: 'evenodd', prims: [glacierSurface] } : glacierSurface);
     }
   }
 
@@ -2616,7 +2636,7 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
     const pageRect: PathCmd[] = [['M', -size, -size], ['L', width + size, -size], ['L', width + size, height + size], ['L', -size, height + size], ['Z']];
     const onLand = (inner: Prim[]): Prim[] => {
       const dry: Prim[] = lakeOutlines.length > 0 ? [{ kind: 'group', clip: [...pageRect, ...lakeOutlines], clipRule: 'evenodd', prims: inner }] : inner;
-      return traced ? [{ kind: 'group', clip: drawnLand(traced.geometry, width, height, size), clipRule: 'evenodd', prims: dry }] : dry;
+      return traced ? [{ kind: 'group', clip: drawnCoastLand(), clipRule: 'evenodd', prims: dry }] : dry;
     };
     /** Where a realm's band may be painted: its hexes and the coast land it has gained. */
     const ground = (owner: string, hexes: number[]): PathCmd[] => alike([...realmGround(hexes), ...(extraLand.get(owner) ?? [])]);
@@ -2732,7 +2752,7 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
           const [a, b] = hexEdgePoints(col, row, e, size);
           const scarp = escarpment(a, b, centre, size, colours, (k) => rand(600 + e * 20 + k));
           // An escarpment runs along a border with land; where reshaping has put water there, it is left out.
-          if (standsOnLand(scarp, dry)) {
+          if (settled[i] === 1 || escarpmentWithinLand(scarp, dry, inkReachOf + size * 0.015)) {
             placed.push(scarp);
             trace(i, [scarp]);
           }
@@ -2760,12 +2780,7 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
   const meanWidths = new Map<string, number>();
   const widthProfiles = new Map<string, number[]>();
   // The land as drawn, coast and all, which a river keeps to and which a river into the sea ends at.
-  const shoreLand = traced && rivers && tapered
-    ? (() => {
-        const side = landBySide(traced.geometry.paths.flatMap((d) => pathPolylines(d, 6)), size * 0.9, (p) => traced.onLand(p));
-        return (p: Point): boolean => side(p) || isleAt(p);
-      })()
-    : null;
+  const shoreLand = traced && rivers && tapered ? landAt : null;
   // A river emptying into a small lake runs on into the lake's body.
   const tapering: Map<string, RiverCourse> = rivers && tapered
     ? riverCourses(rivers.rivers, size, seed, (river) => {
@@ -3165,9 +3180,17 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
     const pathFor = tapered ? (id: string) => courses.get(id) ?? null : undefined;
     const riverObstacles = [...taken, ...cityBoxes];
     const riverNames = cachedPlacement('riverLabels', [rivers.rivers, size, lettering.river, measureEpoch,
-      riverObstacles, tapered ? [...courses] : null, [...meanWidths], [...widthProfiles], lakeShores],
+      riverObstacles, tapered ? [...courses] : null, [...meanWidths], [...widthProfiles], lakeShores, symbolLandRevision.id],
     () => placeRiverLabels(rivers.rivers, size, pathFor, lettering.river, riverObstacles,
-      (id) => meanWidths.get(id), inLakeWater, (id) => widthProfiles.get(id)));
+      (id) => meanWidths.get(id), inLakeWater, (id) => widthProfiles.get(id), quickLandAt));
+    const namedRivers = new Set(riverNames.map(n => n.text));
+    for (const river of rivers.rivers) {
+      if (!river.name.trim() || namedRivers.has(river.name.trim())) continue;
+      compromises.push({
+        hexes: river.segments.map(s => s.row * cols + s.col), what: `River name “${river.name}” left out`,
+        why: 'the name cannot fit readably along its river while staying on land and clear of other names',
+      });
+    }
     for (const l of riverNames) {
       prims.push({
         kind: 'text',
@@ -3224,8 +3247,16 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
       .filter((n) => n.hexes.length > 0);
   if (opts.seaNames && base) {
     const waterAreas = liveNames(['sea', 'lake']);
-    const waterNames = cachedPlacement('waterLabels', [waterAreas, cols, rows, size, lettering.water, base, measureEpoch],
-      () => placeWaterLabels(waterAreas, cols, size, lettering.water, base, rows));
+    const waterNames = cachedPlacement('waterLabels', [waterAreas, cols, rows, size, lettering.water, base, measureEpoch, symbolLandRevision.id],
+      () => placeWaterLabels(waterAreas, cols, size, lettering.water, base, rows, p => !quickLandAt(p)));
+    const namedWater = new Set(waterNames.map(n => n.text));
+    for (const area of waterAreas) {
+      if (!area.name.trim() || namedWater.has(area.name.trim().toUpperCase())) continue;
+      compromises.push({
+        hexes: area.hexes, what: `Water name “${area.name}” left out`,
+        why: 'the name cannot fit at a readable size within its water as drawn',
+      });
+    }
     for (const l of waterNames) {
       prims.push({
         kind: 'text',

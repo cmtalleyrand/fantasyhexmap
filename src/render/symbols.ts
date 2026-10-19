@@ -379,8 +379,33 @@ export function standsOnLand(placed: Placed, onLand: (p: Point) => boolean): boo
   return samplePoints(placed).every(onLand);
 }
 
+/** Escarpments have long straight strokes: test their ink and shore clearance,
+ * not just endpoints that can straddle a small bay. */
+export function escarpmentWithinLand(placed: Placed, onLand: (p: Point) => boolean, gap: number): boolean {
+  for (const prim of placed.prims) {
+    if (prim.kind !== 'path') continue;
+    const reach = gap + (prim.strokeWidth ?? 0) / 2;
+    let previous: Point | undefined;
+    for (const cmd of prim.d) {
+      if (cmd[0] !== 'M' && cmd[0] !== 'L') continue;
+      const at = { x: cmd[1], y: cmd[2] };
+      const from = cmd[0] === 'L' && previous ? previous : at;
+      const steps = Math.max(1, Math.ceil(Math.hypot(at.x - from.x, at.y - from.y) / Math.max(0.5, reach)));
+      for (let k = 0; k <= steps; k++) {
+        const p = { x: from.x + (at.x - from.x) * k / steps, y: from.y + (at.y - from.y) * k / steps };
+        if (!onLand(p)) return false;
+        for (let d = 0; d < 8; d++) {
+          if (!onLand({ x: p.x + Math.cos(d * Math.PI / 4) * reach, y: p.y + Math.sin(d * Math.PI / 4) * reach })) return false;
+        }
+      }
+      previous = at;
+    }
+  }
+  return true;
+}
+
 /** The sizes a hex's symbols are tried at, before any are left out. */
-export const FIT_SCALES = [1, 0.85, 0.72, 0.6, 0.5, 0.42, 0.35, 0.3];
+export const FIT_SCALES = [1, 0.85, 0.72, 0.6, 0.5];
 /**
  * What drawing a set smaller costs against moving it, in hex sizes moved per unit of
  * scale lost: low, so a set is shrunk where it stands before it is moved far.

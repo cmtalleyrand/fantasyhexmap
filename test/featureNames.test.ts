@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { createMapState } from '../shared/layers.ts';
+import { createMapState } from './seededMap.ts';
 import { buildScene, defaultVisibility } from '../src/render/scene.ts';
 import { reducer } from '../src/state/store.ts';
 import { buildRiverFromPath } from '../shared/validate.ts';

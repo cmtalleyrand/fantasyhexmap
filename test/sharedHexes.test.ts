@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { createMapState } from '../shared/layers.ts';
+import { createMapState } from './seededMap.ts';
 import { holdersOf } from '../shared/polityShares.ts';
 import { politySurfaceAreas, normaliseHexDimensions } from '../shared/surfaceArea.ts';
 import type { LayerDataMap, LayerId, MapState } from '../shared/types.ts';
