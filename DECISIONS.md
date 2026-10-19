@@ -1132,3 +1132,111 @@ styles.
 **What it costs.** Re-placing realm names (after a change to who owns what) on a 50 x 50 map that is almost
 all low-share coast took 0.44 s against 0.24 s; maps with more inland or open sea cost less. Other redraws
 are unchanged.
+
+## 52. Painted island outlines, lake bodies and river mouths agree on dry ground
+
+**Problem.** The common land predicate still approximated islands by their layout ellipses. Four recorded
+symbol points in a pinned fractured-island example were on painted sea while the old audit passed them.
+Inside a lake, the predicate ignored curved island path commands entirely. Rivers retained a separate
+nearest-segment side test, which gives the wrong answer just beyond a sharp spit tip.
+
+**Chosen.** Island queries use their actual painted paths, including skerries; lake queries flatten curved
+paths and follow the nonzero rule used to paint their bodies, then exclude the painted islands. Rivers
+use `landAt`. Island paths are reused within a build, and each island predicate rejects queries outside
+its bounds before testing its rings. No land geometry or saved setting is changed for decoration.
+
+**Also fixed.** Glacier shelf shading had a glacier-hex clip but lacked the coastline clip: 2,283 opaque
+pixels in the pinned example extended into water. It now has both. Coast patches donated by a lake hex
+were painted in lake colour after the lake body, producing water where the shared outline said land.
+They now take shore ground and are painted before lakes and islands. The corresponding image check had
+13 disagreeing probes before the fix. Escarpments test their stroke width and a clearance from coast ink,
+including intermediate points along long strokes; wholly inland hexes retain the existing fast answer.
+
+**Cost.** Outline queries have more work than ellipse queries; path reuse and bounds rejection avoid
+repeating island construction. Measurement and remaining scope are in
+[`docs/drawing-investigation.md`](docs/drawing-investigation.md). The test-only pixel masks add no app work.
+
+## 53. Gentle rivers retract only wander that introduces a sharp kink
+
+**Problem.** On the pinned winding route, 80 of 400 seeds turn at least 60 degrees between samples after
+meander. None leave the route's hexes. Disabling meander in a diagnostic version eliminates every failure:
+the individual clearance limits introduce the kinks, not the underlying curve.
+
+**Chosen.** At Gentle and Very gentle, retract wander in the neighbourhood of a failing bend, using a
+smooth shoulder. Already valid courses remain byte-for-byte unchanged (320 of the original 400).
+The other wander levels retain their deliberately deeper bends. The regression keeps the original
+60-degree threshold and checks all 400 seeds; a further 4,000 runs across both gentle levels passed.
+
+**Cost.** A linear scan of gentle courses, with local retries only for failing bends. This is a correction
+to meander, not a change to the owner's route or reach settings. The finite sweep does not prove every
+possible route and seed safe.
+
+## 54. River and water names cannot escape their feature onto the wrong surface
+
+**Problem.** A long name for a one-hex sea fell back to extending its text spine across surrounding land.
+Water-name searches knew hex types but not the fitted coastline; river names avoided lakes but not open
+sea. Both could silently lose a requested name.
+
+**Chosen.** Preserve existing placements whose complete lettering boxes fit the correct drawn surface.
+Otherwise search with the shared land predicate and reject unsafe final glyph boxes, including their
+rotated corners. Reuse cached results while their land dependencies are unchanged. An unplaceable requested
+river or water name is left out and reported against its feature's hexes. The audit also checks river names
+over water and city marker centres over water. City names may legitimately sit over sea and get no blanket
+land-only rule.
+
+**Cost.** Additional land probes when names must be placed; warm placement results remain cached. Omission
+reports currently associate results by name text, so features with duplicate names need identity-based
+reporting in a follow-up. The image audit remains separate from these placement predicates.
+
+## 55. Readable fitting and useful reports, with the owner's clarification
+
+**Chosen by the owner after viewing before/after images.** Raise the relief fitting floor from 30% to 50%.
+Keep fewer readable symbols when the complete set cannot fit. This changes correctly drawn tiny symbols
+only with the owner's express approval; it does not enlarge or move the land. Existing shrinking, own-hex
+movement and omission behaviour remains, with the higher floor.
+
+**Reporting.** A complete set drawn smaller is an `adaptation`; omitted content and existing unspecified
+notices are `loss` by default. The Inspector counts them separately, groups equal selected notices while
+retaining all hexes, and puts losses first. It suppresses no losses with a frequency threshold.
+
+**Owner clarification.** Moving cities onto dry ground is routine placement, not a correction or compromise
+worth reporting. Escarpments should clearly lie within land; stopping them at water is likewise not a
+routine warning. No city-movement or escarpment-omission notices are added. Tests preserve this distinction.
+
+**Cost.** Some tiny relief is omitted sooner; this is the chosen readability trade-off. Grouping is in the
+Inspector and leaves every affected location available in scene metadata. On 200 seeded isolated fractured
+island examples with 10% land, the old floor retains 187 mountain symbols in total and the new floor 10;
+the owner was told of this substantial omission cost. The floor is shared by relief/vegetation fitting
+and elevation marks.
+
+## 56. Seeded render fixtures and an independent painted-water check
+
+**Chosen.** Render tests that previously inherited `createMapState`'s random/time-derived ID use a test-only
+deterministic factory; explicit per-test seeds still override it. The gentle-river regression sweeps seeds
+instead of hiding the failure behind a single passing one. No production seed generation changes.
+
+`test:drawing-pixels` renders small pinned scenes in Chromium and separately renders their geography with
+white land and black water. It checks symbol probes and name boxes against these painted pixels, the
+glacier shelf's actual painted coverage, and predicate/paint agreement. Its `--source` option demonstrates
+that the check fails on the archived baseline. The mask follows the actual painter, without calling the
+placement predicate to determine pixel colours.
+
+**Limit.** These checks cover the repaired cases; they are not yet an independent raster check for every
+one of the seven drawing principles. Borders, ripples, sea ice, complete city-marker footprints, ownership
+proportions and edit-locality still need dedicated finished-picture checks. This work does not claim those
+requirements complete. Commands, evidence, performance and one status per hypothesis are recorded in the
+investigation report.
+
+## 57. Reuse the immutable coast outline within each redraw
+
+**Problem.** The first longer comparison had improved warm medians but a warm p95 about 8% above main.
+Several groups independently rebuilt the same `drawnLand` path within one scene, including the new glacier
+clip. That duplicated arrays and defeated the painter's compiled-path sharing.
+
+**Chosen.** Construct the painted sea-coast outline at most once per scene build and share the immutable
+path between all its clips. It is the same geometry, not a lower-resolution or approximate substitute.
+Three populated all-layer scene comparisons against the pre-reuse change are byte-identical.
+
+**Cost.** One build-local accessor and one retained path reference; no new long-lived cache or invalidation
+policy. Final timings, including p95, are in the investigation report. The benchmark now rejects steady-state
+median or p95 regressions and cold costs over 10% on either measure.
