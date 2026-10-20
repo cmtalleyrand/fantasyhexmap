@@ -59,9 +59,18 @@ export function lakeShoreFields(original: PathCmd[], passages: LakeShorePassage[
       c2 *= .3 / steep;
       c3 *= .3 / steep;
     }
-    const noise = (u: number, side: number) => {
-      const off = side > 0 ? 0 : 3, x = u / size;
-      return .72 * Math.sin(x * 4.1 + spec.phase[off]!) + .28 * Math.sin(x * 8.3 + spec.phase[off + 1]!);
+    // Shore detail is a distance displacement, independent of headland depth.
+    // Multiplying the headland profile made detail either disappear at the
+    // tips or grow into large spikes on the outer flanks.
+    const shoreDetail = (u: number, v: number) => {
+      const off = v > 0 ? 0 : 3, x = (u + v * .35) / size;
+      const phase = spec.phase;
+      if (spec.rough <= .04) return Math.sin(x * 7 + phase[off]!);
+      const wave = (f: number, k: number) => {
+        const value = Math.sin(x * f + phase[off + k]!);
+        return spec.rough >= .12 ? Math.asin(value) * 2 / Math.PI : value;
+      };
+      return .6 * wave(11, 0) + .3 * wave(23, 1) + .1 * wave(41, 2);
     };
     // Sample only the local edit. The old signed distance field keeps existing
     // coves and headlands as influence fades towards the surrounding lake.
@@ -86,9 +95,11 @@ export function lakeShoreFields(original: PathCmd[], passages: LakeShorePassage[
         // flanks. Noise varies each flank without serrating the tip itself.
         const radius = size * (.48 + .045 * Math.sin(spec.phase[node.v > node.centre ? 0 : 3]!));
         const growth = depth * (Math.sqrt(1 + (node.u / radius) ** 2) - 1);
-        const bank = growth * Math.exp(noise(node.u, node.v - node.centre) * spec.rough * 2);
-        const half = spec.width / 2 * Math.sqrt(1 + node.prime * node.prime) + bank;
-        const channel = (half - Math.abs(node.v - node.centre)) / Math.sqrt(1 + node.prime * node.prime);
+        const tipFade = Math.max(0, Math.min(1, (Math.abs(node.u) / size - .12) / .28));
+        const detail = shoreDetail(node.u, node.v - node.centre) * spec.rough * size * 1.7
+          * tipFade * tipFade * (3 - 2 * tipFade);
+        const half = spec.width / 2 * Math.sqrt(1 + node.prime * node.prime) + growth;
+        const channel = (half - Math.abs(node.v - node.centre)) / Math.sqrt(1 + node.prime * node.prime) + detail;
         const f = node.old + (channel - node.old) * node.blend;
         const floor = (spec.width / 2 * Math.sqrt(1 + node.prime * node.prime) + size * .05 * (node.u / size) ** 2 - Math.abs(node.v - node.centre)) / Math.sqrt(1 + node.prime * node.prime);
         const safe = Math.min(floor, size * 1.45 - distance(node.p, spec.centre));

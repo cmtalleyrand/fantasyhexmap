@@ -22,6 +22,14 @@ Two-bank lake straits now use a local signed distance field: a gently curving wa
 
 The gallery uses the normal parchment rendering, including texture, at a fixed wider view for both versions.
 
-The 26 lake rendering checks measure the final outline and coastline ink: water continuity, short throats that open into wider water on both sides, opposing-bank separation, requested width in all sixteen cases, west/east throat positions, whole-outline crossings, land coverage, adjoining lake controls, map-edge closure, undo/cache stability, and preservation of distant shores. Two additional tests exercise the local shore join with one edit and overlapping edits. These are numerical regressions, not an automated judgement of natural appearance.
+[Four irregularity settings on the same strait](lake-straits-irregularity.png) holds the surrounding lake Smooth while changing only the selected strait. Wavy adds broad undulations, Ragged combines several scales of coves and projections, and Fractured uses angular variations. Shore detail is a bounded distance displacement along the flanks, fading out around the rounded noses. Its amplitude is independent of headland depth so it neither disappears nor grows into exaggerated spurs as the landforms change.
+
+Regenerate that comparison with:
+
+```sh
+node --import tsx scripts/render-lake-strait-review.ts work/lake-irregularity 'Four settings' --irregularity
+```
+
+The 27 lake rendering checks measure the final outline and coastline ink: water continuity, short throats that open into wider water on both sides, opposing-bank separation, requested width in all sixteen cases, west/east throat positions, whole-outline crossings, visible irregularity with the surrounding lake held Smooth, land coverage, adjoining lake controls, map-edge closure, undo/cache stability, and preservation of distant shores. Two additional tests exercise the local shore join with one edit and overlapping edits. These are numerical regressions, not an automated judgement of natural appearance.
 
 Explicit land shares the renderer does not reach are annotated with the percentage actually painted. Such annotations describe a renderer limit, not proof that the requested geometry is impossible.

@@ -176,6 +176,36 @@ test('natural lake straits are short gaps between tips, opening rapidly on both 
       `${irregular}: banks must recede within 0.4 radii of the tips, not form a long canal`);
   }
 });
+test('strait irregularity adds visible flank detail with the surrounding lake held smooth', () => {
+  const draw = (irregular: Irregularity) => {
+    const map = fixture('Narrow', undefined, undefined, irregular);
+    map.defaultLakeIrregularity = 'Smooth';
+    return render(map);
+  };
+  const smooth = draw('Smooth'), corners = hexCorners(3, 3, size);
+  const inHex = evenOddTest([corners], size / 8);
+  const smoothSegments = smooth.rings.flatMap(r => r.slice(1).map((b, k) => [r[k]!, b] as const));
+  for (const [irregular, minimum] of [['Wavy', .008], ['Ragged', .018], ['Fractured', .025]] as const) {
+    const rough = draw(irregular);
+    const points = rough.rings.flat().filter(inHex);
+    let total = 0;
+    for (const p of points) {
+      let nearest = Infinity;
+      for (const [a, b] of smoothSegments) {
+        const dx = b.x-a.x, dy = b.y-a.y;
+        const t = Math.max(0, Math.min(1, ((p.x-a.x)*dx+(p.y-a.y)*dy)/(dx*dx+dy*dy || 1)));
+        nearest = Math.min(nearest, Math.hypot(p.x-a.x-dx*t, p.y-a.y-dy*t));
+      }
+      total += nearest;
+    }
+    const displacement = total / points.length;
+    assert.ok(displacement > size * minimum,
+      `${irregular} flank detail was smoothed away: mean displacement ${displacement}`);
+    assert.ok(connected(rough), 'shore detail must leave the short water passage open');
+    assert.ok(Math.abs(throat(rough).distance - .15 * Math.sqrt(3) * size) < size * .04);
+  }
+});
+
 test('lake shores adjoining a strait retain their own land-share controls', () => {
   const map = fixture();
   map.hexShapes!['25'] = { type: 'Lake', land: 30 };

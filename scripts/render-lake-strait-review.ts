@@ -18,8 +18,18 @@ let html = `<!doctype html><meta charset="utf-8"><title>Lake straits: 16 represe
 <h1>Lake straits: 16 representative cases — ${version}</h1><p>Widths: Very narrow 5%, Narrow 15%, Normal 30%, Wide 50%. Junction: Middle, E, SE, SW, W, NW, NE.</p>
 <p>Irregularity: Smooth, Wavy, Ragged, Fractured. Land share: Natural, or 0–100% in steps of 5%.</p>
 <p class="note">One fixed diagnostic layout and seed, not your original saved map. Same inputs in both versions. Yellow: selected hex.</p><div class="grid">`;
-for (const [index, example] of LAKE_STRAIT_CASES.entries()) {
+const examples = process.argv.includes('--irregularity')
+  ? (['Smooth', 'Wavy', 'Ragged', 'Fractured'] as const).map(irregular => ({ width: 'Narrow' as const, irregular, side: undefined, land: undefined }))
+  : LAKE_STRAIT_CASES;
+if (process.argv.includes('--irregularity')) html = html
+  .replace('Lake straits: 16 representative cases —', 'Lake straits: irregularity comparison —')
+  .replace('One fixed diagnostic layout and seed, not your original saved map. Same inputs in both versions. Yellow: selected hex.',
+    'Same diagnostic map, seed, width and junction. Surrounding lake held Smooth; only the selected strait changes. Yellow: selected hex.');
+for (const [index, example] of examples.entries()) {
   const map = lakeStraitFixture(example), size = 30;
+  // Hold the surrounding lake fixed: only the selected strait's irregularity
+  // changes in this comparison, so its own detail must carry the difference.
+  if (process.argv.includes('--irregularity')) map.defaultLakeIrregularity = 'Smooth';
   const scene = buildScene(map, { size, visible: defaultVisibility(), labels: false, style, selection: [24] });
   const label = `${index + 1}. ${example.width} ${CHANNEL_WIDTH_PERCENT[example.width]}% · ${example.side === undefined ? 'Middle' : sides[example.side]}`;
   const detail = `${example.land === undefined ? 'Natural land' : `${example.land}% land`} · ${example.irregular}`;
