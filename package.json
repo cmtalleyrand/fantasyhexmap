@@ -10,6 +10,7 @@
     "dev:web": "vite",
     "build": "tsc -b tsconfig.json && vite build",
     "test": "tsx --test test/*.test.ts",
+    "test:browser:install": "playwright install chromium",
     "test:drawing-pixels": "node scripts/drawing-investigation.mjs --check",
     "test:drawing-sweeps": "node scripts/drawing-investigation-extended.mjs --check",
     "typecheck": "tsc -b tsconfig.json tsconfig.server.json",
@@ -44,6 +45,7 @@
     "@types/react-dom": "^19.2.0",
     "@vitejs/plugin-react": "^5.0.4",
     "concurrently": "^9.2.1",
+    "playwright": "1.64.1",
     "tsx": "^4.20.6",
     "typescript": "^5.9.3",
     "vite": "^7.1.7"

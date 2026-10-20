@@ -60,6 +60,24 @@ request is retried once without it.
 Other scripts: `npm run typecheck` (client and server), `npm run build` (production client bundle),
 `npm run dev:server` / `npm run dev:web` to run one half on its own.
 
+### Drawing tests
+
+The drawing checks use the pinned Playwright development dependency and its matching Chromium.
+After installing dependencies, install that browser once (and again when Playwright is updated):
+
+```bash
+npm ci
+npm run test:browser:install
+npm run test:drawing-pixels
+npm run test:drawing-sweeps
+```
+
+On Linux machines missing browser system libraries, use `npm run test:browser:install -- --with-deps`.
+These tests need neither an API key nor a running app server. They write evidence under `work/`.
+For managed environments with an existing browser, both commands also accept
+`-- --chromium /path/to/chromium` and an optional `--driver /path/to/playwright-core/index.mjs`.
+Normal checkouts do not need either override. CI installs Chromium and runs both commands.
+
 ## Deployment
 
 A GitHub Actions workflow (`.github/workflows/deploy.yml`) typechecks, builds and publishes to

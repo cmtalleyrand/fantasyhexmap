@@ -1240,3 +1240,20 @@ Three populated all-layer scene comparisons against the pre-reuse change are byt
 **Cost.** One build-local accessor and one retained path reference; no new long-lived cache or invalidation
 policy. Final timings, including p95, are in the investigation report. The benchmark now rejects steady-state
 median or p95 regressions and cold costs over 10% on either measure.
+
+## 58. Install the drawing checks' browser dependencies in the checkout
+
+**Problem.** The package-level drawing checks imported an undeclared `playwright-core` and assumed
+`/usr/bin/chromium`. They only ran in the investigation's managed environment, not a normal checkout.
+
+**Chosen.** Pin Playwright as a development dependency, including its lockfile entries. The shared
+browser launcher uses Playwright's matching Chromium by default. `npm run test:browser:install`
+installs it; Linux users can append `-- --with-deps` for system libraries. Keep explicit driver/browser
+overrides for managed environments. Document setup in the README and run both drawing commands in CI
+after installing Chromium, retaining their evidence even on failure.
+
+**Cost and validation.** Development-only package and browser downloads; no app bundle or redraw cost.
+Both drawing commands pass with the installed checkout driver and an explicit system-Chromium override.
+The managed environment blocks `cdn.playwright.dev` with HTTP 403, so the standard browser download
+could not be verified here. PR #146's Drawing tests CI run (39327929544) passed the documented
+default setup and both package commands without either override.

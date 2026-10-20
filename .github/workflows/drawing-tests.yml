@@ -1,0 +1,32 @@
+name: Drawing tests
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  drawing:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run test:browser:install -- --with-deps
+      - run: npm run test:drawing-pixels
+      - run: npm run test:drawing-sweeps
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: drawing-evidence
+          path: |
+            work/drawing-investigation/
+            work/hypotheses/extended/
