@@ -8,15 +8,16 @@ import { pathPolylines } from './ice.js';
 import type { PathCmd } from './prims.js';
 
 /** Remove small fold-back loops already introduced by roughening tight caps. */
-function untangle(ring: Point[]): Point[] {
+function untangle(ring: Point[], closed: boolean): Point[] {
   const area = (points: Point[]) => Math.abs(points.reduce((sum, p, i) => {
     const q = points[(i + 1) % points.length]!;
     return sum + p.x * q.y - q.x * p.y;
   }, 0));
   const cross = (a: Point, b: Point, c: Point) => (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
-  let points = ring.slice(0, -1);
+  let points = closed ? ring.slice(0, -1) : ring.slice();
   for (let pass = 0; pass < 32; pass++) {
     const n = points.length;
+    const segments = closed ? n : n - 1;
     // The first crossing in (i, j) order, as an all-pairs search would find it, from a grid
     // of the segments' boxes: only segments whose boxes meet can cross.
     let xs = Infinity, ys = Infinity, xe = -Infinity, ye = -Infinity;
@@ -30,14 +31,14 @@ function untangle(ring: Point[]): Point[] {
       const y0 = Math.floor((Math.min(a.y, b.y) - ys) / cell), y1 = Math.floor((Math.max(a.y, b.y) - ys) / cell);
       for (let x = x0; x <= x1; x++) for (let y = y0; y <= y1; y++) visit(key(x, y));
     };
-    for (let k = 0; k < n; k++) cellsOf(k, c => { const list = grid.get(c); if (list) list.push(k); else grid.set(c, [k]); });
+    for (let k = 0; k < segments; k++) cellsOf(k, c => { const list = grid.get(c); if (list) list.push(k); else grid.set(c, [k]); });
     let hit: { i: number; j: number } | null = null;
-    for (let i = 0; i < n && !hit; i++) {
+    for (let i = 0; i < segments && !hit; i++) {
       const a = points[i]!, b = points[(i + 1) % n]!;
       let best = Infinity;
       cellsOf(i, c => {
         for (const j of grid.get(c)!) {
-          if (j < i + 2 || j >= best || (i === 0 && j === n - 1)) continue;
+          if (j < i + 2 || j >= best || (closed && i === 0 && j === n - 1)) continue;
           const c0 = points[j]!, d = points[(j + 1) % n]!;
           if (Math.max(a.x, b.x) < Math.min(c0.x, d.x) || Math.min(a.x, b.x) > Math.max(c0.x, d.x) ||
             Math.max(a.y, b.y) < Math.min(c0.y, d.y) || Math.min(a.y, b.y) > Math.max(c0.y, d.y)) continue;
@@ -55,9 +56,10 @@ function untangle(ring: Point[]): Point[] {
     const intersection = { x: a.x + t * dx, y: a.y + t * dy };
     const outer = [...points.slice(0, i + 1), intersection, ...points.slice(j + 1)];
     const loop = [intersection, ...points.slice(i + 1, j + 1)];
-    points = area(outer) >= area(loop) ? outer : loop;
+    // An open coast must keep both endpoints: its little loop cannot become a new island.
+    points = !closed || area(outer) >= area(loop) ? outer : loop;
   }
-  return [...points, points[0]!];
+  return closed ? [...points, points[0]!] : points;
 }
 
 /**
@@ -90,8 +92,8 @@ export function fitCoastAreas(geometry: CoastGeometry, targets: ReadonlyMap<numb
   const closed = geometry.chains.map(c => c.closed);
   let rings = geometry.paths.map((d, k) => {
     const ring = pathPolylines(d, 8)[0] ?? [];
-    if (!closed[k] || ring.length < 4) return ring;
-    return untangle(ring);
+    if (ring.length < 4) return ring;
+    return untangle(ring, closed[k]!);
   });
   const pathsOf = (rs: Point[][]): PathCmd[][] => rs.map((ring, k) => {
     if (!ring.length) return geometry.paths[k]!;

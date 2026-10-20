@@ -88,7 +88,7 @@ try {
   writeFileSync(resolve(output,`${result.name}.svg`),result.svg);
   writeFileSync(resolve(output,`${result.name}-mask.png`),Buffer.from(result.mask,'base64')); delete result.mask;
   await page.setContent(result.svg);await page.locator('svg').screenshot({path:resolve(output,`${result.name}.png`)});
-  if(['coast-20','glacier','strait-very-narrow'].includes(result.name)){
+  if(['coast-20','glacier','strait-very-narrow'].includes(result.name)||result.name.startsWith('coast-fit-')){
    await page.locator('svg').evaluate(el=>{el.style.width=`${el.viewBox.baseVal.width*4}px`;el.style.height=`${el.viewBox.baseVal.height*4}px`;});
    await page.locator('svg').screenshot({path:resolve(output,`${result.name}-4x.png`)});
   }

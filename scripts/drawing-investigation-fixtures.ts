@@ -49,6 +49,10 @@ export function options(preset: 'parchment' | 'atlas' | 'classic' = 'parchment',
 }
 export function cases() {
   const out: { name: string; map: MapState; opts: ReturnType<typeof options> }[] = [];
+  for (const [preset, share, seed] of [['classic', 20, 'coverage-1'], ['parchment', 5, 'coverage-2']] as const) {
+    const map = coastMap(share, seed); map.hexDimensions.coastalLandPercent = 80;
+    out.push({ name: `coast-fit-${preset}`, map, opts: options(preset, 'none') });
+  }
   for (const share of [5,10,20,50,90]) out.push({ name: `coast-${share}`, map: coastMap(share), opts: options() });
   for (const kind of ['Islands','Strait','Isthmus','Glacier','Lake'] as BaseGeo[]) {
     const map = coastMap(20, `investigation-${kind}`);

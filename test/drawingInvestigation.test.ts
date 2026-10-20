@@ -65,6 +65,24 @@ test('a coast patch beside a lake belongs to dry ground outside the lake body', 
   assert.equal(landTestOf(buildScene(map,opts))!({x:136,y:140}),true);
 });
 
+test('a low-share open coast has no fold-back loops after roughening', () => {
+  const { map, opts } = cases().find(c => c.name === 'coast-fit-parchment')!;
+  const rings: { x: number; y: number }[][] = [];
+  const collect = (ps: Prim[]) => { for (const p of ps) {
+    if (p.kind === 'group') collect(p.prims);
+    else if (p.kind === 'path' && p.stroke === opts.style.palette.coast) rings.push(...pathPolylines(p.d, 12));
+  } };
+  collect(buildScene(map, opts).prims);
+  const cross = (a: {x:number;y:number}, b: {x:number;y:number}, c: {x:number;y:number}) =>
+    (b.x-a.x)*(c.y-a.y)-(b.y-a.y)*(c.x-a.x);
+  let crossings = 0;
+  for (const ring of rings) for (let i=0;i+1<ring.length;i++) for (let j=i+2;j+1<ring.length;j++) {
+    const a=ring[i]!,b=ring[i+1]!,c=ring[j]!,d=ring[j+1]!;
+    if(cross(a,b,c)*cross(a,b,d)<-1e-8&&cross(c,d,a)*cross(c,d,b)<-1e-8)crossings++;
+  }
+  assert.equal(crossings, 0, 'coast ink must not cross itself into a knot');
+});
+
 test('stopping plateau escarpments at water does not produce a compromise notice', () => {
   const map = coastMap(5);
   map.layers.elevation.data![12] = 'Plateau';
