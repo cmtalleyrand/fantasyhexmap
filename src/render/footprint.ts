@@ -213,19 +213,19 @@ function triangles(poly: Poly): Poly[] {
   return pieces;
 }
 
-/** The strip of half-width `r` along the line from `from` to `to`, carried `r` past both ends. */
-function arm(from: Point, to: Point, r: number): Poly {
+/** A strip of half-width `r`, optionally flaring to `endRadius`, carried past both ends. */
+function arm(from: Point, to: Point, r: number, endRadius = r): Poly {
   const dx = to.x - from.x;
   const dy = to.y - from.y;
   const len = Math.hypot(dx, dy) || 1;
   const ux = dx / len;
   const uy = dy / len;
   const tail = { x: from.x - ux * r, y: from.y - uy * r };
-  const tip = { x: to.x + ux * r, y: to.y + uy * r };
+  const tip = { x: to.x + ux * endRadius, y: to.y + uy * endRadius };
   return wound([
     { x: tail.x - uy * r, y: tail.y + ux * r },
-    { x: tip.x - uy * r, y: tip.y + ux * r },
-    { x: tip.x + uy * r, y: tip.y - ux * r },
+    { x: tip.x - uy * endRadius, y: tip.y + ux * endRadius },
+    { x: tip.x + uy * endRadius, y: tip.y - ux * endRadius },
     { x: tail.x + uy * r, y: tail.y - ux * r },
   ]);
 }
@@ -383,7 +383,11 @@ function fixedLandOf(hex: FixedHex, width: number, kind: 'strait' | 'isthmus'): 
       // Averaging edge midpoints lies inside the hex and can leave a water hole.
       mouths.push(Number.isInteger(middle) ? mid(run[middle]!) : outline[run[Math.ceil(middle)]!]!);
     }
-    const channels = mouths.map(p => within(arm(centre, p, width / 2), outline));
+    // A side-selected junction is the throat. Flare towards each mouth rather
+    // than cutting uniform-width arms, which could leave the apparent
+    // constriction at the far end even when the junction moved to a side.
+    const mouthRadius = width * (hex.junctionSide === undefined ? 0.5 : 0.75);
+    const channels = mouths.map(p => within(arm(centre, p, width / 2, mouthRadius), outline));
     const territory = without(outline, channels);
     // A shallow slab kept its full tangential breadth as its inland depth
     // shrank, producing the rejected edge-parallel bars. These convex caps
@@ -844,13 +848,14 @@ export interface ShapedCoast {
  * - `neck`: land of uniform width from the middle to each land neighbour (an isthmus).
  * - `channel`: water of uniform width from the middle to each sea neighbour, the
  *   land being what it leaves (a strait).
+ * - `shore`: land drawn into a water hex from its existing land-facing edges.
  *
  * A split hex of kind `inset` (a mainland) is land laid along the edges it shares
  * with land, as deep as its share needs, so that it stays joined to them.
  */
 export interface ShapeTarget {
   share: number;
-  kind: 'inset' | 'neck' | 'channel';
+  kind: 'inset' | 'neck' | 'channel' | 'shore';
   concentrationSide?: number;
   concentration?: number;
   /**
@@ -888,6 +893,10 @@ export function shapeCoast(
 ): ShapedCoast | null {
   const { cols, rows } = surface;
   const hexArea = 1.5 * Math.sqrt(3) * size * size;
+  const shoreEdges = new Map<number, CoastEdge[]>();
+  for (const edge of seaEdges) {
+    if (targets.get(edge.water)?.kind === 'shore') shoreEdges.set(edge.water, [...(shoreEdges.get(edge.water) ?? []), edge]);
+  }
   const lakeWet = new Map<number, CoastEdge[]>();
   for (const edge of lakeEdges) {
     if (edge.hex !== undefined && targets.has(edge.hex) && !surface.split.has(edge.hex)) lakeWet.set(edge.hex, [...(lakeWet.get(edge.hex) ?? []), edge]);
@@ -905,6 +914,31 @@ export function shapeCoast(
     const row = Math.floor(i / cols);
     const split = surface.split.get(i);
     const corners = hexCorners(col, row, size);
+    if (kind === 'shore') {
+      const against = shoreEdges.get(i) ?? [];
+      if (!against.length) return null;
+      // Land grows into a lake only from its existing land-facing edges.
+      const c = hexCenter(col, row, size), chosen = concentrationSide === undefined ? null : {
+        x: (corners[concentrationSide]!.x + corners[(concentrationSide + 1) % 6]!.x) / 2 - c.x,
+        y: (corners[concentrationSide]!.y + corners[(concentrationSide + 1) % 6]!.y) / 2 - c.y,
+      };
+      const factors = against.map(e => {
+        const x = (e.from.x + e.to.x) / 2 - c.x, y = (e.from.y + e.to.y) / 2 - c.y;
+        return chosen ? 1 + 0.9 * (concentration ?? 0) / 100 * (x * chosen.x + y * chosen.y) / (Math.hypot(x, y) * Math.hypot(chosen.x, chosen.y)) : 1;
+      });
+      const waterAt = (depth: number) => against.reduce((p, e, k) => cut(p, e.to, e.from, depth * factors[k]!, 'right'), corners);
+      let low = 0, high = size * 2;
+      for (let k = 0; k < 28; k++) {
+        const mid = (low + high) / 2;
+        if (1 - polyArea(waterAt(mid)) / hexArea < share) low = mid; else high = mid;
+      }
+      const water = waterAt((low + high) / 2), land = without(corners, water.length ? [water] : []);
+      const donor = (p: Point) => [...against].sort((a, b) =>
+        Math.hypot(p.x - (a.from.x + a.to.x) / 2, p.y - (a.from.y + a.to.y) / 2) -
+        Math.hypot(p.x - (b.from.x + b.to.x) / 2, p.y - (b.from.y + b.to.y) / 2))[0]!.land;
+      return { strips: [], grown: land.map(poly => ({ poly, donor: donor(centroid(poly)) })),
+        land: land.map(poly => ({ poly, hex: i, donor })) };
+    }
     if (!split) {
       const joins = keepJoins ? [0, 1, 2, 3, 4, 5].filter(e => {
         const n = neighbourOf(col, row, e);

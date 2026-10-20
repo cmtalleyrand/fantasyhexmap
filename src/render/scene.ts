@@ -102,6 +102,7 @@ import {
   type CoastGeometry,
   type CoastComponentRecord,
   type CoastEdge,
+  type Surface,
   type Roughness,
   raggedEdge,
 } from './coast.js';
@@ -374,6 +375,8 @@ interface TracedCoast {
   lakeAim: Map<number, { land: number; lake: boolean }>;
   /** Whether a point is land as drawn, for placing things that must stand on it. */
   onLand: (p: Point) => boolean;
+  /** Width-constrained lake shores use the same bank construction and clearance as sea shores. */
+  lakeCoast?: TracedCoast;
 }
 
 const coastCache = new BoundedMemo<TracedCoast>(4, 20_000_000);
@@ -449,16 +452,29 @@ function cachedCoast(
   seed: string,
   /** Half the coastline's stroke width: what its ink adds outside the land, which counts as land (0 with no coastline). */
   inkReach: number,
+  body: 'sea' | 'lake' = 'sea',
+  defaultLakeIrregularity?: Irregularity,
 ): TracedCoast {
-  const key = JSON.stringify([base, cols, rows, size, smooth, inkReach, seed, defaultIrregularity, shapesSignature(shapes), dimensions]);
+  const key = JSON.stringify([base, cols, rows, size, smooth, inkReach, seed, defaultIrregularity, shapesSignature(shapes), dimensions, body, defaultLakeIrregularity]);
   const hit = coastCache.get(key);
   if (hit) { profileCount('coast.cacheHit'); return hit; }
   profileCount('coast.cacheMiss');
   const coastPhase = profilePhases('coast');
   coastPhase('topology');
   const lakeIslands = lakeIslandsOf(base, cols, rows);
-  const surface = surfaceMap(base, cols, rows, lakeIslands);
-  const { lakes } = lakeComponents(base, cols, rows, surface);
+  const originalSurface = surfaceMap(base, cols, rows, lakeIslands);
+  const { lakes } = lakeComponents(base, cols, rows, originalSurface);
+  // The coastline solver works with sea as its active water. Relabel surfaces,
+  // preserving pieces and donors, so lake passages take that very same path.
+  const swap = (s: Surface | null) => s === 'lake' ? 'sea' : s === 'sea' ? 'lake' : s;
+  const surface: SurfaceMap = body === 'sea' ? originalSurface : {
+    ...originalSurface,
+    whole: originalSurface.whole.map(swap),
+    split: new Map([...originalSurface.split].map(([i, split]) => [i, { ...split, sides: split.sides.map(s => swap(s)!) }])),
+  };
+  const passageLakes = lakes.filter(lake => lake.some(i =>
+    (base[i] === 'Strait' || base[i] === 'Isthmus') && originalSurface.split.has(i)));
+  const lakePassageHexes = new Set(passageLakes.flat());
   // How ragged each coast edge is drawn: the larger of the two hexes it divides
   // (island hexes shape their own islands, not the coast beside them), halved
   // in a hex split into land and water, where a neck must not be pinched shut.
@@ -482,6 +498,7 @@ function cachedCoast(
   const targets = new Map<number, ShapeTarget>();
   // Length of sea edge each hex has: a first estimate of the coastline whose ink counts as the hex's land.
   const seaLength = new Map<number, number>();
+  const waterShoreHexes = new Set(seaEdges.map(e => e.water));
   for (const edge of seaEdges) {
     if (edge.hex !== undefined) seaLength.set(edge.hex, (seaLength.get(edge.hex) ?? 0) + Math.hypot(edge.to.x - edge.from.x, edge.to.y - edge.from.y));
   }
@@ -492,15 +509,25 @@ function cachedCoast(
   }
   const hexAreaOf = 1.5 * Math.sqrt(3) * size * size;
   for (let i = 0; i < base.length; i++) {
+    // Lake passages are fitted in the lake solve, never as a shore offset in
+    // the sea solve (which cannot enforce either width or junction position).
+    if (body === 'sea' && lakePassageHexes.has(i) && surface.split.has(i)) continue;
+    if (body === 'lake' && !lakePassageHexes.has(i) && ![0, 1, 2, 3, 4, 5].some(e => {
+      const n = neighbourOf(i % cols, Math.floor(i / cols), e);
+      return inBounds(cols, rows, n.col, n.row) && lakePassageHexes.has(hexIndex(cols, n.col, n.row));
+    })) continue;
     const shape = hexShapeFor(base[i], shapes?.[String(i)], defaultIrregularity);
-    const own = drawnLandFraction(base[i], dimensions, shapes?.[String(i)]);
+    const own = body === 'lake' && base[i] === 'Lake' ? landFraction('Lake', undefined, dimensions, shapes?.[String(i)])
+      : drawnLandFraction(base[i], dimensions, shapes?.[String(i)]);
     // Plain land with a sea edge is a whole hex of land like any other: its ink counts too.
     const share = own ?? (base[i] === 'Land' && inkReach > 0 && seaLength.has(i) ? 1 : null);
     if (share === null) continue;
     // The land inside the line is the share less the outer half of the ink along it.
     const aimed = inkReach > 0 ? Math.max(0, share - (((seaLength.get(i) ?? 0) + (lakeLength.get(i) ?? 0)) * inkReach) / hexAreaOf) : share;
     const channel = channelWidthFraction(base[i], dimensions, shapes?.[String(i)]);
-    if (surface.split.has(i)) {
+    if (body === 'lake' && base[i] === 'Lake') {
+      if (share > 0 && waterShoreHexes.has(i)) targets.set(i, { share: aimed, kind: 'shore', concentrationSide: shape.concentrationSide, concentration: shape.concentration });
+    } else if (surface.split.has(i)) {
       // A neck or a channel is drawn at its width, which is across the hex: its flat-to-flat span.
       targets.set(i, channel !== null
         ? { share: aimed, kind: base[i] === 'Strait' ? 'channel' : 'neck', width: channel * Math.sqrt(3) * size, fit: channelShareSet(base[i], dimensions, shapes?.[String(i)]) !== null, junctionSide: base[i] === 'Strait' ? shape.straitJunctionSide : undefined,
@@ -520,7 +547,8 @@ function cachedCoast(
   /** What each hex is to show, before its ink: the share the loop below aims at once the ink is measured. */
   const wanted = new Map<number, number>();
   for (const i of targets.keys()) {
-    const own = drawnLandFraction(base[i], dimensions, shapes?.[String(i)]);
+    const own = body === 'lake' && base[i] === 'Lake' ? landFraction('Lake', undefined, dimensions, shapes?.[String(i)])
+      : drawnLandFraction(base[i], dimensions, shapes?.[String(i)]);
     wanted.set(i, own ?? 1);
   }
   // Redistribute a coastal component's land share instead of cutting each hex
@@ -571,7 +599,9 @@ function cachedCoast(
         featureSeed: chain => aggregateArea.has(chain.edges[0]?.hex ?? -1) ? undefined
           : Math.min(...chain.edges.map(edge => featureSeeds.get(edge.land) ?? edge.land)),
         componentInk: inkReach,
-        amplitude: (edge: CoastEdge) => Math.min(Math.max(amplitudeOf(edge.hex), amplitudeOf(edge.across)), narrowest(edge.hex), narrowest(edge.across)),
+        amplitude: (edge: CoastEdge) => Math.min(body === 'lake'
+          ? COAST_AMPLITUDE[lakeShoreIrregularity(base[edge.land], shapes?.[String(edge.land)], defaultLakeIrregularity, shapes?.[String(edge.water)])]
+          : Math.max(amplitudeOf(edge.hex), amplitudeOf(edge.across)), narrowest(edge.hex), narrowest(edge.across)),
         displacementLimit: (edge: CoastEdge) => Math.min(narrowest(edge.hex), narrowest(edge.across)) * size,
         narrowSide: (edge: CoastEdge) => [edge.hex, edge.across].some(i => i !== undefined && base[i] === 'Strait') ? 'water'
           : [edge.hex, edge.across].some(i => i !== undefined && base[i] === 'Isthmus') ? 'land' : undefined,
@@ -740,8 +770,15 @@ function cachedCoast(
     if (lakeLength.has(i) && !seaLength.has(i) && !surface.split.has(i)) lakeAim.set(i, { land: wanted.get(i)!, lake: false });
   }
   for (const i of lakeInsets.keys()) lakeAim.set(i, { land: landFraction('Lake', undefined, dimensions, shapes?.[String(i)]), lake: true });
+  const lakeCoast = body === 'sea' && passageLakes.length ? cachedCoast(base, cols, rows, size, smooth, shapes, defaultIrregularity, dimensions, seed, inkReach, 'lake', defaultLakeIrregularity) : undefined;
+  // The active coast sees the other water body as ground. Its actual water is
+  // subtracted later by landAt; this matters when there is no sea outline at all.
+  const groundSurface: SurfaceMap = { ...surface,
+    whole: surface.whole.map(s => s === 'lake' ? 'land' : s),
+    split: new Map([...surface.split].map(([i, split]) => [i, { ...split, sides: split.sides.map(s => s === 'lake' ? 'land' : s) }])),
+  };
   const paint = coastPaintGeometry(geometry, page.width, page.height, size);
-  const entry = { key, paint, geometry, coverage, lakes, lakeIslands, surface, insets: shaped?.insets ?? new Map<number, number>(), lakeInsets, lakeAim, onLand: landTest(surface, shaped?.land ?? new Map(), size) };
+  const entry = { key, paint, geometry, coverage, lakes, lakeIslands, surface: originalSurface, insets: shaped?.insets ?? new Map<number, number>(), lakeInsets, lakeAim, onLand: landTest(groundSurface, shaped?.land ?? new Map(), size), lakeCoast };
   coastCache.set(key, entry, geometry.paths.reduce((n, path) => n + path.length * 192, 0)
     + (geometry.toLand.length + geometry.toWater.length) * 256 + base.length * 128 + paint.estimatedBytes);
   coastPhase();
@@ -916,7 +953,7 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
   // Half the coastline's stroke width: what its ink adds outside the land, which counts as land (0 with no coastline).
   const inkReachOf = knobs.coast === 'none' ? 0 : Math.max(0.8, size * palette.coastWidth * knobs.lineWeight) / 2;
   phase('coast');
-  const traced = base ? cachedCoast(base, cols, rows, size, knobs.coast === 'smooth', map.hexShapes, map.defaultIrregularity, normaliseHexDimensions(map.hexDimensions), seed, inkReachOf) : null;
+  const traced = base ? cachedCoast(base, cols, rows, size, knobs.coast === 'smooth', map.hexShapes, map.defaultIrregularity, normaliseHexDimensions(map.hexDimensions), seed, inkReachOf, 'sea', map.defaultLakeIrregularity) : null;
   // Exact clips and donor geometry survive redraws with their traced coast.
   const drawnCoastLand = (): PathCmd[] => traced?.paint.land ?? [];
   phase('landAndFills');
@@ -933,7 +970,7 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
   if (memo) memo.dry = seaCoastLand;
   /** Where the drawing could not do everything asked of it. */
   const compromises: DrawingCompromise[] = [];
-  for (const [i, { wanted, shown }] of traced?.coverage ?? []) {
+  for (const [i, { wanted, shown }] of [...(traced?.coverage ?? []), ...(traced?.lakeCoast?.coverage ?? [])]) {
     if (Math.abs(wanted - shown) <= 0.01) continue;
     compromises.push({
       hexes: [i],
@@ -1449,7 +1486,8 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
           fillSea({ kind: 'polygon', points, fill, stroke: fill, strokeWidth: seal });
           return;
         }
-        const donor = side === 'land' ? split.donors[p]! : isWater(i) ? lakeShoreDonor(i) : i;
+        const donor = side === 'land' ? split.donors[p]! : side === 'lake' && traced?.lakeCoast
+          ? lakeSectorDonors(i)[p % 6]! : isWater(i) ? lakeShoreDonor(i) : i;
         const fill = groundColour(donor);
         prims.push({ kind: 'polygon', points, fill, stroke: fill, strokeWidth: seal });
       });
@@ -2330,7 +2368,27 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
   const lakeShores: PathCmd[][] = [];
   const lakeOf = new Map<number, number>();
   lakeBodies.forEach((lake, k) => lake.forEach((i) => lakeOf.set(i, k)));
+  const passageLake = (lake: number[]) => lake.some(i =>
+    (base?.[i] === 'Strait' || base?.[i] === 'Isthmus') && terrain?.split.has(i));
   const lakeBodyOf = (lake: number[]): PathCmd[] => {
+    const solved = traced?.lakeCoast?.geometry;
+    if (solved && passageLake(lake)) {
+      const cells = new Set(lake);
+      const selected = solved.chains.flatMap((chain, i) => chain.edges.some(e => cells.has(e.water)) ? [i] : []);
+      // Reverse land-facing shores into water-facing shores before closing
+      // open chains along the page. This also retains holes around islands.
+      const geometry = { ...solved,
+        chains: selected.map(i => { const chain = solved.chains[i]!; return { ...chain,
+          points: [...chain.points].reverse(), edges: [...chain.edges].reverse().map(e => ({ ...e, from: e.to, to: e.from })) }; }),
+        paths: selected.map(i => {
+          const points = (pathPolylines(solved.paths[i]!, 12)[0] ?? []).reverse();
+          const path: PathCmd[] = points.map((p, j) => [j === 0 ? 'M' : 'L', p.x, p.y]);
+          if (solved.chains[i]!.closed) path.push(['Z']);
+          return path;
+        }),
+      };
+      return drawnLand(geometry, width, height, size);
+    }
     const rand = (k: number) => unit(seed, 'lake', lake[0]!, k);
     return lakeBodyPath(
       surfaceEdges(terrain!, size, (side) => side === 'lake', new Set(lake)),
@@ -2360,6 +2418,7 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
       }
       let miss = 0;
       for (const [h, aim] of aims) {
+        if (traced?.lakeCoast?.coverage.has(h) || (traced?.lakeCoast && passageLake(lakeBodies[lakeOf.get(h) ?? -1] ?? []))) continue;
         const corners = hexCorners(h % cols, Math.floor(h / cols), size);
         const length = lengths.get(h) ?? 0;
         if (length < 1e-6) continue;
