@@ -267,6 +267,9 @@ export interface SceneOptions {
   style?: MapStyle;
   /** Screen-only decoration; omitted from exports. */
   selection?: Set<number> | null;
+  featureArea?: number[] | null;
+  areaStroke?: Set<number>;
+  areaStrokeMode?: 'add' | 'remove';
   hover?: number | null;
   /** Screen-only: the river being edited, drawn with a halo and a handle on each hex. */
   highlightRiver?: string | null;
@@ -815,16 +818,34 @@ export function decorationPrims(map: MapState, opts: SceneOptions): Prim[] {
   const { cols, rows } = map;
   const { size } = opts;
   const prims: Prim[] = [];
+  // The feature's saved area is separate from the user's pending selection.
+  for (const i of opts.featureArea ?? []) {
+    if (i < 0 || i >= cols * rows) continue;
+    prims.push({ kind: 'polygon', points: hexCorners(i % cols, Math.floor(i / cols), size),
+      fill: 'rgba(64,210,225,0.18)', stroke: '#40d2e1', strokeWidth: Math.max(2, size * 0.09) });
+  }
   if (opts.selection) {
     for (const i of opts.selection) {
       if (i < 0 || i >= cols * rows) continue;
       prims.push({
         kind: 'polygon',
-        points: hexCorners(i % cols, Math.floor(i / cols), size),
+        points: hexCorners(i % cols, Math.floor(i / cols), size * 0.80).map((p) => {
+          const outer = hexCenter(i % cols, Math.floor(i / cols), size);
+          const inner = hexCenter(i % cols, Math.floor(i / cols), size * 0.80);
+          return { x: p.x + outer.x - inner.x, y: p.y + outer.y - inner.y };
+        }),
+        fill: 'rgba(255,204,85,0.16)',
         stroke: MAP_COLOURS.selection,
         strokeWidth: Math.max(2, size * 0.12),
       });
     }
+  }
+  for (const i of opts.areaStroke ?? []) {
+    if (i < 0 || i >= cols * rows) continue;
+    const remove = opts.areaStrokeMode === 'remove';
+    prims.push({ kind: 'polygon', points: hexCorners(i % cols, Math.floor(i / cols), size),
+      fill: remove ? 'rgba(255,125,105,0.45)' : 'rgba(110,230,145,0.4)',
+      stroke: remove ? '#ff7d69' : '#6ee691', strokeWidth: Math.max(3, size * 0.15) });
   }
   if (opts.hover !== null && opts.hover !== undefined && opts.hover >= 0) {
     prims.push({
@@ -2831,7 +2852,7 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
       prims.push({
         kind: 'polyline',
         points: halo,
-        stroke: withAlpha(MAP_COLOURS.selection, 0.55),
+        stroke: withAlpha('#40d2e1', 0.55),
         strokeWidth: Math.max(5, size * 0.42),
         round: true,
         smooth: true,
@@ -2951,7 +2972,7 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
         c: hexCenter(seg.col, seg.row, size),
         r: Math.max(2.5, size * 0.13),
         fill: '#ffffff',
-        stroke: MAP_COLOURS.selection,
+        stroke: '#40d2e1',
         strokeWidth: Math.max(1.5, size * 0.07),
       });
     }

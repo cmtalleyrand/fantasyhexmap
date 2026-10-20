@@ -1,3 +1,4 @@
+import { hexCount } from './selectionText.js';
 import { useMemo, useState } from 'react';
 import { hexIndex, indexToOffset, neighbourOf } from '../../shared/hex.js';
 import { canHoldSettlement } from '../../shared/derive.js';
@@ -9,6 +10,7 @@ import RiverEditor from './RiverEditor.js';
 import type { RiverMeasurement } from '../../shared/riverLength.js';
 import type { DrawingCompromise } from '../render/scene.js';
 import { groupCompromises } from '../render/compromises.js';
+import AreaEditControls from './AreaEditControls.js';
 import GeoNamesEditor from './GeoNamesEditor.js';
 import { LAYER_META, missingRequirements, stalenessOf } from '../../shared/layers.js';
 import {
@@ -83,6 +85,10 @@ export interface InspectorProps {
   setBrushMode: (on: boolean) => void;
   /** The geographical name being painted into on the map, if any. */
   geoPaintId: string | null;
+  focusedFeatureId: string | null;
+  focusFeature: (id: string | null) => void;
+  areaEditMode: 'select' | 'add' | 'remove';
+  setAreaEditMode: (mode: 'select' | 'add' | 'remove') => void;
   setGeoPaintId: (id: string | null) => void;
   instruction: string;
   setInstruction: (value: string) => void;
@@ -177,7 +183,7 @@ export default function Inspector(props: InspectorProps) {
     <div className="inspector">
       <div className="section">
         <h2>{meta.label}</h2>
-        <p className="hint" style={{ marginTop: 0 }}>{meta.blurb}</p>
+        <details className="geo-help"><summary>About {meta.label}</summary><p>{meta.blurb}</p></details>
         <CompromiseNotes map={map} compromises={props.compromises ?? []} selected={selected} setSelection={props.setSelection} />
 
         <div className="row" style={{ marginBottom: 8 }}>
@@ -313,6 +319,8 @@ export default function Inspector(props: InspectorProps) {
               selected={selected}
               setSelection={props.setSelection}
               paintId={props.geoPaintId}
+              editMode={props.areaEditMode}
+              setEditMode={props.setAreaEditMode}
               setPaintId={(id) => {
                 if (id) props.setBrushMode(false);
                 props.setGeoPaintId(id);
@@ -600,9 +608,9 @@ function PerHexEditor(props: SubProps) {
           type="checkbox"
           style={{ width: 'auto' }}
           checked={props.brushMode}
-          onChange={(e) => props.setBrushMode(e.target.checked)}
+          onChange={(e) => { props.setBrush(activeLayer, current); props.setBrushMode(e.target.checked); }}
         />
-        Brush mode - apply the value as you drag across the map
+        {current === '' ? 'Clear this layer on the map · apply on release' : `Paint ${valueLabel(current)} on the map · apply on release`}
       </label>
       {!isPopulation && (
         <button
@@ -619,7 +627,7 @@ function PerHexEditor(props: SubProps) {
         </button>
       )}
       <p className="hint" style={{ margin: 0 }}>
-        Click a hex to select it; shift-click or shift-drag adds to the selection. Ctrl+A (⌘A) selects every hex, Esc clears.
+        Use Replace, Add or Remove in the map toolbar to select hexes. Ctrl+A (⌘A) selects all; Esc clears.
       </p>
       {activeLayer === 'elevation' && <MountainRangePanel {...props} />}
     </div>
@@ -635,8 +643,8 @@ function SelectionCard(props: SubProps & { readOnly?: boolean }) {
   const { map, activeLayer, selected, readOnly } = props;
   if (selected.length === 0) {
     return (
-      <div className="card" style={{ padding: 10 }}>
-        <div className="hint" style={{ margin: 0 }}>{readOnly ? 'Nothing selected. Click a hex on the map to see what it is.' : 'Nothing selected. Click a hex on the map to see what it is and change it.'}</div>
+      <div className="card selection-card" style={{ padding: 10 }}>
+        <div className="hint" style={{ margin: 0 }}>{readOnly ? 'No hexes selected. Click the map to inspect a hex.' : 'No hexes selected. Use the map selection tools to choose hexes.'}</div>
       </div>
     );
   }
@@ -651,7 +659,7 @@ function SelectionCard(props: SubProps & { readOnly?: boolean }) {
   const single = selected.length === 1;
   const only = values.length === 1 ? values[0]![0] : null;
   return (
-    <div className="card stack" style={{ padding: 10, gap: 6 }}>
+    <div className="card stack selection-card" style={{ padding: 10, gap: 6 }}>
       <div className="hint" style={{ margin: 0 }}>
         Selected: {single ? `hex ${coordLabel(map, selected[0]!)}` : `${selected.length} hexes`}
         {!single && selected.length <= 8 ? ` (${selected.map((i) => coordLabel(map, i)).join(' ')})` : ''}
@@ -667,7 +675,7 @@ function SelectionCard(props: SubProps & { readOnly?: boolean }) {
         </div>
       )}
       {activeLayer === 'base' && only !== null && only in BASE_DESCRIPTIONS && (
-        <div className="hint" style={{ margin: 0 }}>{BASE_DESCRIPTIONS[only as BaseGeo]}</div>
+        <details className="geo-help"><summary>About this terrain</summary><p>{BASE_DESCRIPTIONS[only as BaseGeo]}</p></details>
       )}
       {activeLayer === 'base' && !readOnly && <HexShapePanel {...props} />}
       {activeLayer === 'base' && !readOnly && <IslandSidePanel {...props} />}
@@ -991,89 +999,48 @@ function IslandSidePanel(props: SubProps) {
 function MountainRangePanel(props: SubProps) {
   const { map, dispatch, selected } = props;
   const [name, setName] = useState('');
-  const [target, setTarget] = useState('');
   const ranges = map.mountainRanges ?? [];
-  const elevation = map.layers.elevation.data;
-  const mountains = selected.filter((i) => isRangeElevation(elevation?.[i]));
-  const liveCount = (hexes: number[]) => hexes.filter((i) => isRangeElevation(elevation?.[i])).length;
-  const existing = ranges.find((r) => r.id === target) ?? null;
-
-  const assign = () => {
-    const trimmed = (existing ? existing.name : name).trim();
-    if (!trimmed || mountains.length === 0) return;
-    dispatch({
-      type: 'nameMountainRange',
-      id: existing?.id ?? `range_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`,
-      name: trimmed,
-      indices: mountains,
-    });
+  const eligible = (i: number) => isRangeElevation(map.layers.elevation.data?.[i]);
+  const mountains = selected.filter(eligible);
+  const create = () => {
+    if (!name.trim() || !mountains.length) return;
+    const id = `range_${Date.now().toString(36)}`;
+    dispatch({ type: 'nameMountainRange', id, name: name.trim(), indices: mountains });
+    props.focusFeature(id);
+    props.setSelection(new Set());
     setName('');
-    setTarget('');
   };
-
-  return (
-    <div className="stack" style={{ marginTop: 8 }}>
-      <h2>Mountain ranges</h2>
-      <p className="hint" style={{ marginTop: 0 }}>
-        Select Mountains or Highland hexes on the map, then name them as a range. Turn on{' '}
-        <b>Show mountain range names</b> in Settings → Display to see the names.
-      </p>
-      <div className="row">
-        <select value={target} onChange={(e) => setTarget(e.target.value)} style={{ flex: 1 }}>
-          <option value="">New range…</option>
-          {ranges.map((r) => (
-            <option key={r.id} value={r.id}>
-              Add to {r.name}
-            </option>
-          ))}
-        </select>
-      </div>
-      {!existing && (
-        <input
-          placeholder="Range name, e.g. The Kelder Spine"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && assign()}
-        />
-      )}
-      <button
-        className="primary"
-        disabled={mountains.length === 0 || (!existing && name.trim().length === 0)}
-        onClick={assign}
-      >
-        {existing ? `Add ${mountains.length} hexes to ${existing.name}` : `Name ${mountains.length} selected hexes`}
-      </button>
-      {selected.length > 0 && mountains.length < selected.length && (
-        <p className="hint" style={{ margin: 0 }}>
-          {selected.length - mountains.length} selected hex(es) are not Mountains or Highland and are ignored.
-        </p>
-      )}
-      <div className="list">
-        {ranges.map((r) => (
-          <div key={r.id} className="entry" style={{ flexWrap: 'wrap' }}>
-            <CommitInput
-              className="grow"
-              aria-label="Range name"
-              value={r.name}
-              onCommit={(name) => dispatch({ type: 'renameMountainRange', id: r.id, name })}
-            />
-            <span className="hint">{liveCount(r.hexes)} hexes</span>
-            <button
-              className="tiny"
-              title="Select this range's hexes"
-              onClick={() => props.setSelection(new Set(r.hexes.filter((i) => isRangeElevation(elevation?.[i]))))}
-            >
-              select
-            </button>
-            <button className="tiny danger" onClick={() => dispatch({ type: 'removeMountainRange', id: r.id })}>
-              ×
-            </button>
-          </div>
-        ))}
-      </div>
-      {ranges.length === 0 && <p className="hint">No named ranges yet.</p>}
-    </div>
-  );
+  return <div className="stack entity-editor">
+    <h2>Mountain ranges</h2>
+    <details className="geo-help"><summary>Which hexes can belong to a range?</summary><p>Mountains and Highland hexes. Turn range names on in Settings → Display.</p></details>
+    <label htmlFor="new-range-name">New range</label>
+    <input id="new-range-name" placeholder="Range name" value={name} onChange={e => setName(e.target.value)} onKeyDown={e => e.key === 'Enter' && create()} />
+    <div className="geo-selection-summary"><b>{hexCount(selected.length)} selected</b><span>{mountains.length} eligible · {selected.length - mountains.length} excluded</span></div>
+    <button className="primary" disabled={!mountains.length || !name.trim()} onClick={create}>Create range with {mountains.length} hexes</button>
+    {ranges.map(r => {
+      const active = props.focusedFeatureId === r.id;
+      const live = r.hexes.filter(eligible);
+      return <article className={`geo-card ${active ? 'active' : ''}`} key={r.id} aria-label={r.name}>
+        <button className="geo-title" aria-pressed={active} onClick={() => props.focusFeature(r.id)}>{r.name}</button>
+        <div className="geo-area">{active && <i className="area-key" />}Current area: <b>{hexCount(live.length)}</b>{active && <span className="geo-badge">Active</span>}</div>
+        {live.length < r.hexes.length && <details className="geo-help geo-excluded"><summary>{r.hexes.length - live.length} assigned hex{r.hexes.length - live.length === 1 ? '' : 'es'} excluded</summary><p>These hexes are no longer Mountains or Highland and are not part of the displayed range.</p></details>}
+        {active && <div className="stack">
+          <AreaEditControls label="range" selected={selected} hexes={r.hexes} eligible={eligible} mode={props.areaEditMode}
+            setMode={mode => { props.setBrushMode(false); props.setAreaEditMode(mode); }}
+            onAdd={indices => dispatch({ type: 'nameMountainRange', id: r.id, name: r.name, indices })}
+            onRemove={indices => dispatch({ type: 'unnameMountainRangeHexes', id: r.id, indices })} />
+          <label htmlFor={`range-name-${r.id}`}>Name</label>
+          <CommitInput id={`range-name-${r.id}`} aria-label="Range name" value={r.name} onCommit={name => dispatch({ type: 'renameMountainRange', id: r.id, name })} />
+        </div>}
+        <div className="geo-actions">
+          <button onClick={() => { props.focusFeature(r.id); props.setSelection(new Set(live)); }}>Select area</button>
+          {active ? <><button onClick={() => props.focusFeature(null)}>Done editing</button><button className="danger" onClick={() => dispatch({ type: 'removeMountainRange', id: r.id })}>Delete range</button></>
+            : <button onClick={() => props.focusFeature(r.id)}>Edit area</button>}
+        </div>
+      </article>;
+    })}
+    {!ranges.length && <p className="hint">No named ranges yet.</p>}
+  </div>;
 }
 
 /* ------------------------------------------------------------ polity editor */
@@ -1091,7 +1058,7 @@ function PolityEditor(props: SubProps) {
   const [sharePercent, setSharePercent] = useState(50);
   // Kept with the other brush values in App, so a brush stroke on the map assigns to it.
   const target = props.brush.polities ?? '';
-  const setTarget = (id: string) => props.setBrush('polities', id);
+  const setTarget = (id: string) => { props.setBrush('polities', id); props.focusFeature(id || null); };
 
   // Realms followed by their parts, so a realm and its provinces sit together.
   const outline = useMemo(() => polityOutline(data.polities), [data.polities]);
@@ -1171,24 +1138,15 @@ function PolityEditor(props: SubProps) {
           ))}
         </select>
       </div>
-      <div className="row">
-        <button
-          className="primary grow"
-          disabled={selected.length === 0}
-          onClick={() => dispatch({ type: 'setPolityOwner', indices: selected, polityId: target || null })}
-        >
-          Assign {selected.length} hexes
-        </button>
-        <label style={{ display: 'flex', alignItems: 'center', gap: 4, textTransform: 'none', fontSize: 11, marginBottom: 0 }}>
-          <input
-            type="checkbox"
-            style={{ width: 'auto' }}
-            checked={props.brushMode}
-            onChange={(e) => props.setBrushMode(e.target.checked)}
-          />
-          brush
-        </label>
-      </div>
+      {target && byId.has(target) ? <AreaEditControls label="polity" selected={selected}
+        hexes={hexesOf(new Set([target]))} eligible={i => canHoldSettlement(map.layers.base.data?.[i], map.allowUnderwater)}
+        mode={props.areaEditMode} setMode={mode => { props.setBrushMode(false); props.setAreaEditMode(mode); }}
+        onAdd={indices => dispatch({ type: 'setPolityOwner', indices, polityId: target })}
+        onRemove={indices => dispatch({ type: 'removePolityClaims', id: target, indices })} />
+        : <div className="stack"><b>Target: unclaimed wilderness</b>
+          <button disabled={!selected.length} onClick={() => dispatch({ type: 'setPolityOwner', indices: selected, polityId: null })}>Clear all claims from {selected.length} selected hexes</button>
+          <label className="check"><input type="checkbox" checked={props.brushMode} onChange={e => props.setBrushMode(e.target.checked)} />Paint unclaimed wilderness on the map</label>
+        </div>}
       <div>
         <label>Or share selected hexes between that polity and</label>
         <div className="row">
@@ -1216,6 +1174,7 @@ function PolityEditor(props: SubProps) {
           />
           <span style={{ alignSelf: 'center' }}>%</span>
         </div>
+        {target && validShareWith && <p className="sharing-summary">{byId.get(target)?.name}: {100 - sharePercent}%<br />{byId.get(validShareWith)?.name}: {sharePercent}%</p>}
         <button
           style={{ marginTop: 4 }}
           disabled={selected.length === 0 || !target || !validShareWith}
@@ -1224,16 +1183,16 @@ function PolityEditor(props: SubProps) {
             dispatch({ type: 'shareHexes', indices: selected, first: target, second: validShareWith, share: sharePercent / 100 })
           }
         >
-          Share {selected.length} hexes ({100 - sharePercent}% / {sharePercent}%)
+          Share {hexCount(selected.length)}
         </button>
       </div>
-      <p className="hint" style={{ margin: 0 }}>
+      <details className="geo-help"><summary>How claims and sharing work</summary><p>
         A hex has one owner, none, or is shared between two polities in the proportion you choose; a strait left unclaimed is shared by the realms on its banks.{' '}
         {map.allowUnderwater
           ? 'Underwater claims are allowed on this map.'
           : 'Claims on water are ignored.'}{' '}
-        Brush mode assigns as you drag.
-      </p>
+        Removing a claim preserves the other holder of a shared hex.
+      </p></details>
 
       <div className="polity-list">
         {outline
@@ -1249,10 +1208,15 @@ function PolityEditor(props: SubProps) {
             return (
               <div
                 key={p.id}
-                className={`polity-entry${depth > 0 ? ' child' : ' realm'}`}
+                role="article" aria-label={p.name}
+                className={`polity-entry${depth > 0 ? ' child' : ' realm'}${p.id === target ? ' active' : ''}`}
                 style={{ marginLeft: Math.min(depth, 4) * 14, borderLeftColor: bar }}
               >
-                <div className="row">
+                <button className="geo-title" aria-pressed={p.id === target} onClick={() => setTarget(p.id)}>{p.name}</button>
+                <div className="geo-area">Direct territory: <b>{hexCount(hexesOf(new Set([p.id])).length)}</b>{p.id === target && <span className="geo-badge">Active</span>}</div>
+                <span className="hint">Ownership equivalent: {count(own)} whole hexes{parts > 0 ? ` · including parts: ${count(total)}` : ''}</span>
+                <details className="entity-details"><summary onClick={() => setTarget(p.id)}>Names, colour and hierarchy</summary>
+                <div className="row entity-fields">
                   {parts > 0 ? (
                     <button
                       className="tiny fold"
@@ -1289,7 +1253,7 @@ function PolityEditor(props: SubProps) {
                     title={`Remove ${p.name}`}
                     onClick={() => dispatch({ type: 'removePolity', id: p.id })}
                   >
-                    ×
+                    Delete polity
                   </button>
                 </div>
 
@@ -1339,29 +1303,7 @@ function PolityEditor(props: SubProps) {
                       ◐ parts
                     </button>
                   )}
-                  <span className="grow" />
-                  <button
-                    className="tiny"
-                    title={`Select the ${count(own)} hexes ${p.name} holds directly`}
-                    onClick={() => {
-                      props.setSelection(new Set(hexesOf(new Set([p.id]))));
-                      setTarget(p.id);
-                    }}
-                  >
-                    {count(own)}
-                  </button>
-                  {parts > 0 && (
-                    <button
-                      className="tiny"
-                      title={`Select all ${count(total)} hexes of ${p.name} and its parts`}
-                      onClick={() => {
-                        props.setSelection(new Set(hexesOf(new Set([p.id, ...partIds]))));
-                        setTarget(p.id);
-                      }}
-                    >
-                      Σ {count(total)}
-                    </button>
-                  )}
+
                 </div>
 
                 <div className="row">
@@ -1412,6 +1354,31 @@ function PolityEditor(props: SubProps) {
                     />{' '}
                     City-state
                   </label>
+                </div>
+                </details>
+                <div className="geo-actions">
+                  <button
+                    className="tiny"
+                    title={`Select the ${count(own)} hexes ${p.name} holds directly`}
+                    onClick={() => {
+                      props.setSelection(new Set(hexesOf(new Set([p.id]))));
+                      setTarget(p.id);
+                    }}
+                  >
+                    Select direct territory ({hexCount(hexesOf(new Set([p.id])).length)})
+                  </button>
+                  {parts > 0 && (
+                    <button
+                      className="tiny"
+                      title={`Select all ${count(total)} hexes of ${p.name} and its parts`}
+                      onClick={() => {
+                        props.setSelection(new Set(hexesOf(new Set([p.id, ...partIds]))));
+                        setTarget(p.id);
+                      }}
+                    >
+                      Select realm and parts ({hexesOf(new Set([p.id, ...partIds])).length} hexes)
+                    </button>
+                  )}
                 </div>
               </div>
             );
@@ -1494,7 +1461,7 @@ function CityEditor(props: SubProps) {
   const target = selected.length === 1 ? selected[0]! : null;
   const targetBase = target === null ? undefined : map.layers.base.data?.[target];
   const blockedByWater = target !== null && !canHoldSettlement(targetBase, map.allowUnderwater);
-  const here = data.cities.filter((c) => selected.includes(hexIndex(map.cols, c.col, c.row)));
+  const here = data.cities;
 
   const add = () => {
     if (target === null || !name.trim()) return;
@@ -1511,6 +1478,7 @@ function CityEditor(props: SubProps) {
       coastalEdges: [],
     };
     dispatch({ type: 'upsertCity', city });
+    props.focusFeature(city.id);
     setName('');
   };
 
@@ -1519,7 +1487,8 @@ function CityEditor(props: SubProps) {
       {target === null ? (
         <p className="hint">Select exactly one hex to add a city there.</p>
       ) : (
-        <div className="row">
+        <div className="stack">
+          <label>New city at selected hex</label>
           <input placeholder="City name" value={name} onChange={(e) => setName(e.target.value)} />
           <input
             type="number"
@@ -1528,7 +1497,7 @@ function CityEditor(props: SubProps) {
             onChange={(e) => setPopulation(e.target.value)}
           />
           <button className="primary" onClick={add} disabled={!name.trim() || blockedByWater}>
-            add
+            Create city
           </button>
         </div>
       )}
@@ -1542,13 +1511,19 @@ function CityEditor(props: SubProps) {
       {here.length > 0 && (
         <div className="list">
           {here.map((c) => (
-            <div key={c.id} className="entry" style={{ flexWrap: 'wrap' }}>
+            <article key={c.id} aria-label={c.name} className={`geo-card ${props.focusedFeatureId === c.id ? 'active' : ''}`}>
+              <button className="geo-title" aria-pressed={props.focusedFeatureId === c.id} onClick={() => { props.focusFeature(c.id); props.setSelection(new Set([hexIndex(map.cols, c.col, c.row)])); }}>{c.name}</button>
+              <div className="geo-area">Location: <b>hex {c.col},{c.row}</b>{props.focusedFeatureId === c.id && <span className="geo-badge">Active</span>}</div>
+              <span className="hint">Population: {c.population.toLocaleString()}</span>
+              <details className="entity-details"><summary onClick={() => { props.focusFeature(c.id); props.setSelection(new Set([hexIndex(map.cols, c.col, c.row)])); }}>Edit city</summary>
+              <label>City name</label>
               <CommitInput
                 className="grow"
                 aria-label="City name"
                 value={c.name}
                 onCommit={(name) => dispatch({ type: 'upsertCity', city: { ...c, name } })}
               />
+              <label>Population</label>
               <CommitInput
                 type="number"
                 min={0}
@@ -1563,7 +1538,7 @@ function CityEditor(props: SubProps) {
                 }
               />
               <button className="tiny danger" onClick={() => dispatch({ type: 'removeCity', id: c.id })}>
-                ×
+                Delete city
               </button>
               <div className="row" style={{ flexBasis: '100%', alignItems: 'center' }}>
                 <label htmlFor={`capital-${c.id}`} style={{ margin: 0 }}>
@@ -1646,14 +1621,14 @@ function CityEditor(props: SubProps) {
                   ? ` · on ${map.layers.rivers.data?.rivers.find((r) => r.id === c.riverId)?.name || 'a river'}`
                   : ''}
               </div>
-            </div>
+              </details>
+            </article>
           ))}
         </div>
       )}
 
       <div className="hint">
-        {data.cities.length} cities on the map. Coastal edges and river membership are derived from
-        the map, not typed in, so they stay true when the geography changes.
+        {data.cities.length} cities on the map. Click a city name or map marker to choose it; drag its map marker to move it.
       </div>
     </div>
   );

@@ -60,3 +60,15 @@ export function modeFeatures(mode: EditorMode) {
     manual: !ai,
   };
 }
+
+/** Each selection stroke has one operation, including when it crosses selected hexes. */
+export type SelectionMode = 'replace' | 'add' | 'remove';
+export function applySelectionStroke(initial: ReadonlySet<number>, touched: ReadonlySet<number>, mode: SelectionMode): Set<number> {
+  if (mode === 'replace') return new Set(touched);
+  const next = new Set(initial);
+  for (const i of touched) {
+    if (mode === 'remove') next.delete(i);
+    else next.add(i);
+  }
+  return next;
+}

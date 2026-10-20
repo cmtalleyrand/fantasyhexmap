@@ -19,7 +19,7 @@ import { migrateLegacyIslands } from '../../shared/islandMigration.js';
 import { GEO_KIND_LABEL, geoEligibility, geoNamesOf, mergeGeneratedNames, withMigratedGeoNames } from '../../shared/geoNames.js';
 import { withValidParents } from '../../shared/polityTree.js';
 import { applyAutoShade } from '../../shared/polityShade.js';
-import { clampShare, pruneShares, withoutShares } from '../../shared/polityShares.js';
+import { holdersOf, clampShare, pruneShares, withoutShares } from '../../shared/polityShares.js';
 import {
   baseTransitions,
   clearedAt,
@@ -106,6 +106,7 @@ export type Action =
       elapsedMs?: number;
     }
   | { type: 'setHexValues'; layer: 'base' | 'elevation' | 'climate' | 'vegetation' | 'population'; indices: number[]; value: unknown }
+  | { type: 'removePolityClaims'; id: string; indices: number[] }
   | { type: 'setPolityOwner'; indices: number[]; polityId: string | null }
   /** Split hexes between two polities: `second` holds the fraction `share` of each, `first` the rest. */
   | { type: 'shareHexes'; indices: number[]; first: string; second: string; share: number }
@@ -123,6 +124,7 @@ export type Action =
   /** Replace several rivers by one built from them (see `mergeRivers`): one undo entry. */
   | { type: 'mergeRivers'; river: River; absorbed: string[] }
   | { type: 'setRiverNavigability'; indices: number[]; navigable: boolean; downstream: boolean }
+  | { type: 'unnameMountainRangeHexes'; id: string; indices: number[] }
   /** Put Mountains and Highland hexes in the range `id`, creating it if it does not exist. */
   | { type: 'nameMountainRange'; id: string; name: string; indices: number[] }
   | { type: 'renameMountainRange'; id: string; name: string }
@@ -863,6 +865,25 @@ function reduceMap(map: MapState, action: Action): MapState {
       );
     }
 
+    case 'removePolityClaims': {
+      const layer = map.layers.polities;
+      if (!layer.data) return map;
+      const owner = layer.data.owner.slice();
+      const shares = { ...layer.data.shares };
+      let changed = 0;
+      for (const i of new Set(action.indices)) {
+        if (i < 0 || i >= owner.length) continue;
+        const holders = holdersOf(layer.data, i);
+        if (!holders.some(([id]) => id === action.id)) continue;
+        owner[i] = holders.find(([id]) => id !== action.id)?.[0] ?? null;
+        delete shares[String(i)];
+        changed++;
+      }
+      if (!changed) return map;
+      return journal(withLayer(map, 'polities', commit(layer, { data: withShares({ ...layer.data, owner }, Object.keys(shares).length ? shares : undefined) })),
+        manualEntry('polities', `Removed ${changed} claims from "${layer.data.polities.find(p => p.id === action.id)?.name}".`));
+    }
+
     case 'setPolityOwner': {
       const layer = map.layers.polities;
       if (!layer.data) return map;
@@ -1177,6 +1198,17 @@ function reduceMap(map: MapState, action: Action): MapState {
           `${existing ? 'Extended' : 'Named'} the mountain range "${name}" (${range.hexes.length} hexes) by hand.`,
         ),
       );
+    }
+
+    case 'unnameMountainRangeHexes': {
+      const ranges = map.mountainRanges ?? [];
+      const old = ranges.find(r => r.id === action.id);
+      if (!old) return map;
+      const drop = new Set(action.indices);
+      const hexes = old.hexes.filter(i => !drop.has(i));
+      if (hexes.length === old.hexes.length) return map;
+      return journal({ ...map, mountainRanges: ranges.map(r => r.id === old.id ? { ...r, hexes } : r).filter(r => r.hexes.length), updatedAt: Date.now() },
+        manualEntry('elevation', `Removed ${old.hexes.length - hexes.length} hexes from the range "${old.name}".`));
     }
 
     case 'renameMountainRange': {
