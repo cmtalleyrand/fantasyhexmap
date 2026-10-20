@@ -133,6 +133,14 @@ test('dense clipped groups reuse one surface and apply inherited opacity once', 
     assert.deepEqual(copies, [1, 1]);
     assert.equal(ctx.globalAlpha, 0.5);
     assert.ok(transforms.some(values => Array.isArray(values) && typeof values[0] === 'object' && values[0].e === 10));
+    // Combining hundreds of patches into one compound child must retain the
+    // same one-clip compositor, opacity, transform and reusable surface.
+    drawPrims(ctx as unknown as CanvasRenderingContext2D, [{ ...prim, composite: true,
+      prims: [{ kind: 'path', d: [['M', 0, 0], ['L', 10, 0], ['L', 10, 10], ['Z']], fill: '#fff' }] }], undefined, true);
+    assert.equal(surfaces.length, 1);
+    assert.equal(alphas.length, 401);
+    assert.equal(alphas.at(-1), 0.25);
+    assert.deepEqual(copies, [1, 1, 1]);
   } finally {
     if (original === undefined) Reflect.deleteProperty(globalThis, 'OffscreenCanvas');
     else Object.defineProperty(globalThis, 'OffscreenCanvas', { value: original, configurable: true });

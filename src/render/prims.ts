@@ -102,6 +102,8 @@ export type Prim =
       clip?: PathCmd[];
       /** How the clip path is filled: nonzero (the default) or evenodd, which cuts overlapping subpaths out. */
       clipRule?: 'nonzero' | 'evenodd';
+      /** Dense compound children benefit from one clip evaluation in the raster compositor. */
+      composite?: boolean;
       /** The group drawn at this opacity, 0 to 1, as one unit. */
       opacity?: number;
       /** The group shifted by this much; its clip and children are in its own, unshifted coordinates. */

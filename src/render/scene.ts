@@ -121,6 +121,7 @@ import { ELEVATION_RANK, floeFringe, glacierEdges, glacierFlow, glacierMarginPri
 import { areaCoverage, coastLengthIn, coveredArea, driftOf, nearestHex, nearestOn, shapeCoast, type ShapeMemo, type ShapeTarget } from './footprint.js';
 import { channelShareSet, channelWidthFraction, drawnLandFraction, landFraction, normaliseHexDimensions } from '../../shared/surfaceArea.js';
 import { fitCoastAreas } from './coastArea.js';
+import { coastPaintPatches, coastPaintPaths } from './coastPaint.js';
 import { CLASSIC_STYLE, type ElevationStyle, type MapStyle } from './styles.js';
 import { extendToRim, rimPieces } from './rim.js';
 import { grainTile } from './texture.js';
@@ -1087,7 +1088,10 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
   const inLakeBody = new Set(lakeBodies.flat());
   // A small lake's hexes are drawn as land, then the lake body over them.
   /** The colour a hex finally shows: its fill with every overlay laid over it. */
+  const groundColours = new Map<number, string>();
   const groundColour = (i: number): string => {
+    const cached = groundColours.get(i);
+    if (cached !== undefined) return cached;
     let colour = hexFill(i);
     for (const overlay of overlays(i)) {
       const m = /^rgba\((\d+),\s*(\d+),\s*(\d+),\s*([\d.]+)\)$/.exec(overlay);
@@ -1098,6 +1102,7 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
         colour = overlay;
       }
     }
+    groundColours.set(i, colour);
     return colour;
   };
 
@@ -1173,8 +1178,7 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
         { x: edge.to.x + tx + ty, y: edge.to.y + ty - tx },
         { x: edge.from.x - tx + ty, y: edge.from.y - ty - tx },
       ];
-      ground.push({ kind: 'polygon', points, fill: hexFill(edge.land) });
-      for (const overlay of overlays(edge.land)) ground.push({ kind: 'polygon', points, fill: overlay });
+      ground.push({ kind: 'polygon', points, fill: groundColour(edge.land) });
     }
     prims.push({ kind: 'group', clip: drawnCoastLand(), clipRule: 'evenodd', prims: ground });
   }
@@ -1422,9 +1426,8 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
           return;
         }
         const donor = side === 'land' ? split.donors[p]! : isWater(i) ? lakeShoreDonor(i) : i;
-        const fill = hexFill(donor);
+        const fill = groundColour(donor);
         prims.push({ kind: 'polygon', points, fill, stroke: fill, strokeWidth: seal });
-        for (const overlay of overlays(donor)) prims.push({ kind: 'polygon', points, fill: overlay });
       });
     }
     // The notches the hex grid leaves at the page's edge belong to the border
@@ -1445,9 +1448,8 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
           continue;
         }
         const donor = split ? split.donors[6 + piece.edge]! : i;
-        const fill = hexFill(donor);
+        const fill = groundColour(donor);
         prims.push({ kind: 'path', d: polygonPath(piece.points), fill, stroke: fill, strokeWidth: seal });
-        for (const overlay of overlays(donor)) prims.push({ kind: 'path', d: polygonPath(piece.points), fill: overlay });
       }
     }
     // Clip the original sea fills too: their sealing strokes can otherwise leave tiny
@@ -1455,9 +1457,8 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
     if (componentWaterClip && seaFills.length > 0) prims.push({ kind: 'group', clip: componentWaterClip, clipRule: 'evenodd', prims: seaFills });
     // Water that a reshaped hex takes as land, in the colours of the land it grows from.
     for (const s of coast?.grown ?? []) {
-      const fill = hexFill(s.donor);
+      const fill = groundColour(s.donor);
       prims.push({ kind: 'path', d: s.d, fill, stroke: fill, strokeWidth: seal });
-      for (const overlay of overlays(s.donor)) prims.push({ kind: 'path', d: s.d, fill: overlay });
     }
     // Whole-component movement can fold the swept donor ribbon at tight turns. Clip its
     // water corrections to the final silhouette, so overlapping patches cannot scar the land.
@@ -2331,14 +2332,17 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
   }
   // Notches of water that the smoothed coast fills in become land, painted with
   // everything the neighbouring land hex is painted with.
+  const coastPaint = coast ? profileTime('coast.paintGeometry', () => coastPaintPatches(coast, size)) : [];
   const gainedLand: Prim[] = [];
-  for (const s of coast?.toLand ?? []) {
-    const donor = inLakeBody.has(s.donor) ? lakeShoreDonor(s.donor) : s.donor;
-    const fill = hexFill(donor);
-    gainedLand.push({ kind: 'path', d: s.d, fill, stroke: fill, strokeWidth: seal });
-    for (const overlay of overlays(donor)) gainedLand.push({ kind: 'path', d: s.d, fill: overlay });
+  for (const [source, d] of profileTime('coast.paintPaths', () => coastPaintPaths(coastPaint))) {
+    const donor = inLakeBody.has(source) ? lakeShoreDonor(source) : source;
+    // Composite translucent colours once, then paint the union. Painting each
+    // small patch and its overlay separately leaves a fan of anti-aliased seams.
+    const fill = groundColour(donor);
+    gainedLand.push({ kind: 'path', d, fill, stroke: fill, strokeWidth: seal });
   }
-  if (coast?.component) prims.push({ kind: 'group', clip: drawnCoastLand(), clipRule: 'evenodd', prims: gainedLand });
+  if (coast?.component) prims.push({ kind: 'group', clip: drawnCoastLand(), clipRule: 'evenodd',
+    composite: gainedLand.reduce((sum, p) => sum + (p.kind === 'path' ? p.d.length : 0), 0) >= 1000, prims: gainedLand });
   else prims.push(...gainedLand);
 
   for (const [k, lake] of lakeBodies.entries()) {
@@ -2517,7 +2521,7 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
         touchLake(owner, i);
       });
     }
-    for (const sliver of [...(traced?.geometry.toLand ?? []), ...(traced?.geometry.grown ?? [])]) {
+    for (const sliver of [...coastPaint, ...(traced?.geometry.grown ?? [])]) {
       const owner = polities.owner[sliver.donor];
       if (owner) addLand(owner, sliver.d);
     }
