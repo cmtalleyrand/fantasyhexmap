@@ -122,6 +122,8 @@ import { areaCoverage, coastLengthIn, coveredArea, driftOf, nearestHex, nearestO
 import { channelShareSet, channelWidthFraction, drawnLandFraction, landFraction, normaliseHexDimensions } from '../../shared/surfaceArea.js';
 import { fitCoastAreas } from './coastArea.js';
 import { coastPaintPatches, coastPaintPaths } from './coastPaint.js';
+import { realmBoundary } from './realmBoundary.js';
+import { boundsOf, intersects, type Bounds } from './bounds.js';
 import { CLASSIC_STYLE, type ElevationStyle, type MapStyle } from './styles.js';
 import { extendToRim, rimPieces } from './rim.js';
 import { grainTile } from './texture.js';
@@ -2510,7 +2512,12 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
     };
     /** Land a realm colours outside its own hexes: lake-hex sectors facing it and coast notches filled in. */
     const extraLand = new Map<string, PathCmd[]>();
-    const addLand = (owner: string, d: PathCmd[]) => append(extraLand, owner, d);
+    const extraLandBoxes = new Map<string, Bounds[]>();
+    const addLand = (owner: string, d: PathCmd[]) => {
+      append(extraLand, owner, d);
+      const box = boundsOf({ kind: 'path', d });
+      if (box) append(extraLandBoxes, owner, [box]);
+    };
     for (let i = 0; i < cols * rows; i++) {
       if (!isLakeHex(i)) continue;
       lakeSectorDonors(i).forEach((donor, e) => {
@@ -2620,30 +2627,18 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
         }
       }
     }
-    /** A realm's hexes with the edges it shares with another realm following the wandering border, so its band stops at the line drawn. */
-    const realmGround = (hexes: number[]): PathCmd[] =>
-      hexes.flatMap((i) => {
-        const col = i % cols;
-        const row = Math.floor(i / cols);
-        const corners = hexCorners(col, row, size);
-        const d: PathCmd[] = [['M', corners[0]!.x, corners[0]!.y]];
-        for (let e = 0; e < 6; e++) {
-          const [a, b] = hexEdgePoints(col, row, e, size);
-          if (wanders.has(i * 6 + e)) {
-            const line = wander(a, b);
-            d.push(['L', line[0]!.from.x, line[0]!.from.y]);
-            for (const { to } of line) d.push(['L', to.x, to.y]);
-          }
-          // On to the corner itself: where the border ends on the coast, its end is off the corner.
-          d.push(['L', b.x, b.y]);
-        }
-        d.push(['Z']);
-        // Grown a little, so that where this ground meets the coast patches
-        // beside it (or a neighbour's) no hairline of land is left unclaimed.
-        // What spills over lies under the border's line or past the coast.
-        const c = hexCenter(col, row, size);
-        return d.map((cmd) => (cmd[0] === 'Z' ? cmd : [cmd[0], c.x + (cmd[1] - c.x) * 1.03, c.y + (cmd[2] - c.y) * 1.03] as PathCmd));
-      });
+    // Adjacent regions must use exactly the same frontier as the ink. Do not
+    // enlarge these polygons or return from an anchored endpoint to an old corner.
+    const realmGround = (hexes: number[]): PathCmd[] => realmBoundary(hexes, cols, size, (i, e, a, b) => {
+      const n = neighbourOf(i % cols, Math.floor(i / cols), e);
+      const j = n.row * cols + n.col;
+      const shared = wanders.has(i * 6 + e) || (inBounds(cols, rows, n.col, n.row) && wanders.has(j * 6 + (e + 3) % 6));
+      if (shared) {
+        const line = wander(a, b);
+        return [line[0]!.from, ...line.map(p => p.to)];
+      }
+      return [traced?.geometry.anchors.get(coastKey(a)) ?? a, traced?.geometry.anchors.get(coastKey(b)) ?? b];
+    });
     const band =
       knobs.polityStyle === 'wash'
         ? { width: size * 0.6, alpha: 0.55 }
@@ -2664,7 +2659,28 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
       return traced ? [{ kind: 'group', clip: drawnCoastLand(), clipRule: 'evenodd', prims: dry }] : dry;
     };
     /** Where a realm's band may be painted: its hexes and the coast land it has gained. */
-    const ground = (owner: string, hexes: number[]): PathCmd[] => alike([...realmGround(hexes), ...(extraLand.get(owner) ?? [])]);
+    const rawRegions = new Map([...regions].map(([owner, hexes]) => [owner, realmGround(hexes)]));
+    const unclaimed = base ? base.flatMap((value, i) => !polities.owner[i] && sideOf(value) === 'land' && !isLakeHex(i) && !isSplit(i) && !isIsland(i) ? [i] : []) : [];
+    const blockerPaths = [...rawRegions];
+    if (unclaimed.length) blockerPaths.push(['', realmGround(unclaimed)]);
+    const blockers = blockerPaths.map(([owner, d]) => ({ owner, d,
+      bounds: boundsOf({ kind: 'path', d }), inverse: [...pageRect, ...d] }));
+    const supplements = new Map([...extraLand].map(([owner, d]) => [owner, alike(d)]));
+    const fullGround = new Map([...rawRegions].map(([owner, d]) => [owner, [...d, ...supplements.get(owner) ?? []]]));
+    const ground = (owner: string, hexes: number[]): PathCmd[] => hexes === regions.get(owner)
+      ? fullGround.get(owner) ?? [] : [...realmGround(hexes), ...supplements.get(owner) ?? []];
+    const keepInRealm = (owner: string, inner: Prim[]): Prim[] => {
+      // Coastal envelopes seal donor fills, but are not ownership polygons.
+      // Never let them override an existing neighbour's exact region.
+      if (!extraLand.has(owner)) return inner;
+      const extras = extraLandBoxes.get(owner) ?? [];
+      for (const { owner: other, d, bounds, inverse } of blockers) {
+        if (other !== owner && d.length && extras.some(box => intersects(bounds, box))) {
+          inner = [{ kind: 'group', clip: inverse, clipRule: 'evenodd', prims: inner }];
+        }
+      }
+      return inner;
+    };
     for (const owner of new Set([...bands.keys(), ...coastBands.keys(), ...shoreLakes.keys()])) {
       const loops = [
         ...coastBands.get(owner) ?? [],
@@ -2677,14 +2693,15 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
       prims.push({
         kind: 'group',
         clip: ground(owner, regions.get(owner) ?? []),
-        prims: onLand([
+        prims: keepInRealm(owner, onLand([
             // A see-through band shows the ground, which differs from hex to hex
             // (coastal land is darker), so it would change shade at every hex
             // edge it crosses: it lies on one even ground instead. Ice keeps its own.
             ...(band.alpha < 1
               ? [{
                   kind: 'group' as const,
-                  clip: ground(owner, (regions.get(owner) ?? []).filter((i) => base?.[i] !== 'Glacier')),
+                  clip: ground(owner, (regions.get(owner) ?? []).some(i => base?.[i] === 'Glacier')
+                    ? (regions.get(owner) ?? []).filter(i => base?.[i] !== 'Glacier') : regions.get(owner) ?? []),
                   prims: [{ kind: 'path' as const, d: [...loops, ...shores], stroke: baseColour('Land'), strokeWidth: band.width * 2, round: true }],
                 }]
               : []),
@@ -2695,7 +2712,7 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
               strokeWidth: band.width * 2,
               round: true,
             },
-        ]),
+        ])),
       });
     }
     // A fine ink line where one realm ends and the next begins.

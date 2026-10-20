@@ -1,0 +1,1318 @@
+{
+  "raw": {
+    "baseline": "a42b1a67d46c225e882d464ef088b2d339c914a3",
+    "browser": "151.0.7922.173",
+    "records": [
+      {
+        "kind": "populated",
+        "samples": [
+          {
+            "run": 0,
+            "version": "before",
+            "phase": "cold",
+            "ms": 3314.699999999255
+          },
+          {
+            "run": 0,
+            "version": "after",
+            "phase": "cold",
+            "ms": 3086.699999999255
+          },
+          {
+            "run": 1,
+            "version": "after",
+            "phase": "cold",
+            "ms": 2812.300000000745
+          },
+          {
+            "run": 1,
+            "version": "before",
+            "phase": "cold",
+            "ms": 2766.599999997765
+          },
+          {
+            "run": 2,
+            "version": "before",
+            "phase": "cold",
+            "ms": 2846.5
+          },
+          {
+            "run": 2,
+            "version": "after",
+            "phase": "cold",
+            "ms": 2713.10000000149
+          },
+          {
+            "run": 0,
+            "version": "before",
+            "phase": "warm",
+            "ms": 127.70000000298023
+          },
+          {
+            "run": 0,
+            "version": "after",
+            "phase": "warm",
+            "ms": 101.29999999701977
+          },
+          {
+            "run": 1,
+            "version": "after",
+            "phase": "warm",
+            "ms": 91.5
+          },
+          {
+            "run": 1,
+            "version": "before",
+            "phase": "warm",
+            "ms": 110
+          },
+          {
+            "run": 2,
+            "version": "before",
+            "phase": "warm",
+            "ms": 273.80000000074506
+          },
+          {
+            "run": 2,
+            "version": "after",
+            "phase": "warm",
+            "ms": 159.09999999776483
+          },
+          {
+            "run": 3,
+            "version": "after",
+            "phase": "warm",
+            "ms": 102.10000000149012
+          },
+          {
+            "run": 3,
+            "version": "before",
+            "phase": "warm",
+            "ms": 123.69999999925494
+          },
+          {
+            "run": 4,
+            "version": "before",
+            "phase": "warm",
+            "ms": 93
+          },
+          {
+            "run": 4,
+            "version": "after",
+            "phase": "warm",
+            "ms": 84.5
+          },
+          {
+            "run": 5,
+            "version": "after",
+            "phase": "warm",
+            "ms": 89.09999999776483
+          },
+          {
+            "run": 5,
+            "version": "before",
+            "phase": "warm",
+            "ms": 88.5
+          },
+          {
+            "run": 6,
+            "version": "before",
+            "phase": "warm",
+            "ms": 82.80000000074506
+          },
+          {
+            "run": 6,
+            "version": "after",
+            "phase": "warm",
+            "ms": 84.30000000074506
+          },
+          {
+            "run": 7,
+            "version": "after",
+            "phase": "warm",
+            "ms": 77.29999999701977
+          },
+          {
+            "run": 7,
+            "version": "before",
+            "phase": "warm",
+            "ms": 86.70000000298023
+          },
+          {
+            "run": 8,
+            "version": "before",
+            "phase": "warm",
+            "ms": 89.29999999701977
+          },
+          {
+            "run": 8,
+            "version": "after",
+            "phase": "warm",
+            "ms": 94.60000000149012
+          },
+          {
+            "run": 0,
+            "version": "before",
+            "phase": "paint-1x",
+            "ms": 74.5
+          },
+          {
+            "run": 0,
+            "version": "after",
+            "phase": "paint-1x",
+            "ms": 73.39999999850988
+          },
+          {
+            "run": 1,
+            "version": "after",
+            "phase": "paint-1x",
+            "ms": 81
+          },
+          {
+            "run": 1,
+            "version": "before",
+            "phase": "paint-1x",
+            "ms": 97.19999999925494
+          },
+          {
+            "run": 2,
+            "version": "before",
+            "phase": "paint-1x",
+            "ms": 78.59999999776483
+          },
+          {
+            "run": 2,
+            "version": "after",
+            "phase": "paint-1x",
+            "ms": 79.60000000149012
+          },
+          {
+            "run": 3,
+            "version": "after",
+            "phase": "paint-1x",
+            "ms": 81.30000000074506
+          },
+          {
+            "run": 3,
+            "version": "before",
+            "phase": "paint-1x",
+            "ms": 84.30000000074506
+          },
+          {
+            "run": 4,
+            "version": "before",
+            "phase": "paint-1x",
+            "ms": 78.69999999925494
+          },
+          {
+            "run": 4,
+            "version": "after",
+            "phase": "paint-1x",
+            "ms": 87
+          },
+          {
+            "run": 5,
+            "version": "after",
+            "phase": "paint-1x",
+            "ms": 78.80000000074506
+          },
+          {
+            "run": 5,
+            "version": "before",
+            "phase": "paint-1x",
+            "ms": 80
+          },
+          {
+            "run": 6,
+            "version": "before",
+            "phase": "paint-1x",
+            "ms": 79
+          },
+          {
+            "run": 6,
+            "version": "after",
+            "phase": "paint-1x",
+            "ms": 76.80000000074506
+          },
+          {
+            "run": 7,
+            "version": "after",
+            "phase": "paint-1x",
+            "ms": 76.5
+          },
+          {
+            "run": 7,
+            "version": "before",
+            "phase": "paint-1x",
+            "ms": 80.5
+          },
+          {
+            "run": 8,
+            "version": "before",
+            "phase": "paint-1x",
+            "ms": 82
+          },
+          {
+            "run": 8,
+            "version": "after",
+            "phase": "paint-1x",
+            "ms": 75.89999999850988
+          },
+          {
+            "run": 0,
+            "version": "before",
+            "phase": "paint-4x-dpr2",
+            "ms": 24.5
+          },
+          {
+            "run": 0,
+            "version": "after",
+            "phase": "paint-4x-dpr2",
+            "ms": 23.699999999254942
+          },
+          {
+            "run": 1,
+            "version": "after",
+            "phase": "paint-4x-dpr2",
+            "ms": 23.5
+          },
+          {
+            "run": 1,
+            "version": "before",
+            "phase": "paint-4x-dpr2",
+            "ms": 25.199999999254942
+          },
+          {
+            "run": 2,
+            "version": "before",
+            "phase": "paint-4x-dpr2",
+            "ms": 28.5
+          },
+          {
+            "run": 2,
+            "version": "after",
+            "phase": "paint-4x-dpr2",
+            "ms": 28.699999999254942
+          },
+          {
+            "run": 3,
+            "version": "after",
+            "phase": "paint-4x-dpr2",
+            "ms": 24.600000001490116
+          },
+          {
+            "run": 3,
+            "version": "before",
+            "phase": "paint-4x-dpr2",
+            "ms": 26.699999999254942
+          },
+          {
+            "run": 4,
+            "version": "before",
+            "phase": "paint-4x-dpr2",
+            "ms": 26.699999999254942
+          },
+          {
+            "run": 4,
+            "version": "after",
+            "phase": "paint-4x-dpr2",
+            "ms": 26.100000001490116
+          },
+          {
+            "run": 5,
+            "version": "after",
+            "phase": "paint-4x-dpr2",
+            "ms": 23.899999998509884
+          },
+          {
+            "run": 5,
+            "version": "before",
+            "phase": "paint-4x-dpr2",
+            "ms": 31.800000000745058
+          },
+          {
+            "run": 6,
+            "version": "before",
+            "phase": "paint-4x-dpr2",
+            "ms": 28.600000001490116
+          },
+          {
+            "run": 6,
+            "version": "after",
+            "phase": "paint-4x-dpr2",
+            "ms": 26
+          },
+          {
+            "run": 7,
+            "version": "after",
+            "phase": "paint-4x-dpr2",
+            "ms": 23.5
+          },
+          {
+            "run": 7,
+            "version": "before",
+            "phase": "paint-4x-dpr2",
+            "ms": 30.300000000745058
+          },
+          {
+            "run": 8,
+            "version": "before",
+            "phase": "paint-4x-dpr2",
+            "ms": 28.199999999254942
+          },
+          {
+            "run": 8,
+            "version": "after",
+            "phase": "paint-4x-dpr2",
+            "ms": 25.199999999254942
+          },
+          {
+            "run": 0,
+            "version": "before",
+            "phase": "edit",
+            "ms": 92.10000000149012
+          },
+          {
+            "run": 0,
+            "version": "after",
+            "phase": "edit",
+            "ms": 87.90000000223517
+          },
+          {
+            "run": 1,
+            "version": "after",
+            "phase": "edit",
+            "ms": 75.39999999850988
+          },
+          {
+            "run": 1,
+            "version": "before",
+            "phase": "edit",
+            "ms": 80
+          },
+          {
+            "run": 2,
+            "version": "before",
+            "phase": "edit",
+            "ms": 86.69999999925494
+          },
+          {
+            "run": 2,
+            "version": "after",
+            "phase": "edit",
+            "ms": 89.80000000074506
+          }
+        ]
+      },
+      {
+        "kind": "feature",
+        "samples": [
+          {
+            "run": 0,
+            "version": "before",
+            "phase": "cold",
+            "ms": 2657.699999999255
+          },
+          {
+            "run": 0,
+            "version": "after",
+            "phase": "cold",
+            "ms": 2608
+          },
+          {
+            "run": 1,
+            "version": "after",
+            "phase": "cold",
+            "ms": 2162.2000000029802
+          },
+          {
+            "run": 1,
+            "version": "before",
+            "phase": "cold",
+            "ms": 2475.60000000149
+          },
+          {
+            "run": 2,
+            "version": "before",
+            "phase": "cold",
+            "ms": 2589.900000002235
+          },
+          {
+            "run": 2,
+            "version": "after",
+            "phase": "cold",
+            "ms": 2552
+          },
+          {
+            "run": 0,
+            "version": "before",
+            "phase": "warm",
+            "ms": 26.099999997764826
+          },
+          {
+            "run": 0,
+            "version": "after",
+            "phase": "warm",
+            "ms": 13.699999999254942
+          },
+          {
+            "run": 1,
+            "version": "after",
+            "phase": "warm",
+            "ms": 9.200000002980232
+          },
+          {
+            "run": 1,
+            "version": "before",
+            "phase": "warm",
+            "ms": 17.599999997764826
+          },
+          {
+            "run": 2,
+            "version": "before",
+            "phase": "warm",
+            "ms": 12.800000000745058
+          },
+          {
+            "run": 2,
+            "version": "after",
+            "phase": "warm",
+            "ms": 13.399999998509884
+          },
+          {
+            "run": 3,
+            "version": "after",
+            "phase": "warm",
+            "ms": 8.5
+          },
+          {
+            "run": 3,
+            "version": "before",
+            "phase": "warm",
+            "ms": 10.300000000745058
+          },
+          {
+            "run": 4,
+            "version": "before",
+            "phase": "warm",
+            "ms": 13.900000002235174
+          },
+          {
+            "run": 4,
+            "version": "after",
+            "phase": "warm",
+            "ms": 10.899999998509884
+          },
+          {
+            "run": 5,
+            "version": "after",
+            "phase": "warm",
+            "ms": 8.800000000745058
+          },
+          {
+            "run": 5,
+            "version": "before",
+            "phase": "warm",
+            "ms": 13.599999997764826
+          },
+          {
+            "run": 6,
+            "version": "before",
+            "phase": "warm",
+            "ms": 9.600000001490116
+          },
+          {
+            "run": 6,
+            "version": "after",
+            "phase": "warm",
+            "ms": 12.100000001490116
+          },
+          {
+            "run": 7,
+            "version": "after",
+            "phase": "warm",
+            "ms": 7.899999998509884
+          },
+          {
+            "run": 7,
+            "version": "before",
+            "phase": "warm",
+            "ms": 10.399999998509884
+          },
+          {
+            "run": 8,
+            "version": "before",
+            "phase": "warm",
+            "ms": 15.200000002980232
+          },
+          {
+            "run": 8,
+            "version": "after",
+            "phase": "warm",
+            "ms": 8.899999998509884
+          },
+          {
+            "run": 0,
+            "version": "before",
+            "phase": "paint-1x",
+            "ms": 48
+          },
+          {
+            "run": 0,
+            "version": "after",
+            "phase": "paint-1x",
+            "ms": 52.400000002235174
+          },
+          {
+            "run": 1,
+            "version": "after",
+            "phase": "paint-1x",
+            "ms": 54.19999999925494
+          },
+          {
+            "run": 1,
+            "version": "before",
+            "phase": "paint-1x",
+            "ms": 56.80000000074506
+          },
+          {
+            "run": 2,
+            "version": "before",
+            "phase": "paint-1x",
+            "ms": 52.5
+          },
+          {
+            "run": 2,
+            "version": "after",
+            "phase": "paint-1x",
+            "ms": 45.5
+          },
+          {
+            "run": 3,
+            "version": "after",
+            "phase": "paint-1x",
+            "ms": 45.599999997764826
+          },
+          {
+            "run": 3,
+            "version": "before",
+            "phase": "paint-1x",
+            "ms": 47.5
+          },
+          {
+            "run": 4,
+            "version": "before",
+            "phase": "paint-1x",
+            "ms": 44.80000000074506
+          },
+          {
+            "run": 4,
+            "version": "after",
+            "phase": "paint-1x",
+            "ms": 44.899999998509884
+          },
+          {
+            "run": 5,
+            "version": "after",
+            "phase": "paint-1x",
+            "ms": 46
+          },
+          {
+            "run": 5,
+            "version": "before",
+            "phase": "paint-1x",
+            "ms": 47.80000000074506
+          },
+          {
+            "run": 6,
+            "version": "before",
+            "phase": "paint-1x",
+            "ms": 51.79999999701977
+          },
+          {
+            "run": 6,
+            "version": "after",
+            "phase": "paint-1x",
+            "ms": 43.80000000074506
+          },
+          {
+            "run": 7,
+            "version": "after",
+            "phase": "paint-1x",
+            "ms": 48.400000002235174
+          },
+          {
+            "run": 7,
+            "version": "before",
+            "phase": "paint-1x",
+            "ms": 45.69999999925494
+          },
+          {
+            "run": 8,
+            "version": "before",
+            "phase": "paint-1x",
+            "ms": 49.30000000074506
+          },
+          {
+            "run": 8,
+            "version": "after",
+            "phase": "paint-1x",
+            "ms": 50.69999999925494
+          },
+          {
+            "run": 0,
+            "version": "before",
+            "phase": "paint-4x-dpr2",
+            "ms": 19.300000000745058
+          },
+          {
+            "run": 0,
+            "version": "after",
+            "phase": "paint-4x-dpr2",
+            "ms": 17.599999997764826
+          },
+          {
+            "run": 1,
+            "version": "after",
+            "phase": "paint-4x-dpr2",
+            "ms": 18.300000000745058
+          },
+          {
+            "run": 1,
+            "version": "before",
+            "phase": "paint-4x-dpr2",
+            "ms": 18.600000001490116
+          },
+          {
+            "run": 2,
+            "version": "before",
+            "phase": "paint-4x-dpr2",
+            "ms": 17.300000000745058
+          },
+          {
+            "run": 2,
+            "version": "after",
+            "phase": "paint-4x-dpr2",
+            "ms": 16.199999999254942
+          },
+          {
+            "run": 3,
+            "version": "after",
+            "phase": "paint-4x-dpr2",
+            "ms": 15.699999999254942
+          },
+          {
+            "run": 3,
+            "version": "before",
+            "phase": "paint-4x-dpr2",
+            "ms": 15.5
+          },
+          {
+            "run": 4,
+            "version": "before",
+            "phase": "paint-4x-dpr2",
+            "ms": 15.399999998509884
+          },
+          {
+            "run": 4,
+            "version": "after",
+            "phase": "paint-4x-dpr2",
+            "ms": 15.5
+          },
+          {
+            "run": 5,
+            "version": "after",
+            "phase": "paint-4x-dpr2",
+            "ms": 15.899999998509884
+          },
+          {
+            "run": 5,
+            "version": "before",
+            "phase": "paint-4x-dpr2",
+            "ms": 15.199999999254942
+          },
+          {
+            "run": 6,
+            "version": "before",
+            "phase": "paint-4x-dpr2",
+            "ms": 14.899999998509884
+          },
+          {
+            "run": 6,
+            "version": "after",
+            "phase": "paint-4x-dpr2",
+            "ms": 16.399999998509884
+          },
+          {
+            "run": 7,
+            "version": "after",
+            "phase": "paint-4x-dpr2",
+            "ms": 15.400000002235174
+          },
+          {
+            "run": 7,
+            "version": "before",
+            "phase": "paint-4x-dpr2",
+            "ms": 15.699999999254942
+          },
+          {
+            "run": 8,
+            "version": "before",
+            "phase": "paint-4x-dpr2",
+            "ms": 16.100000001490116
+          },
+          {
+            "run": 8,
+            "version": "after",
+            "phase": "paint-4x-dpr2",
+            "ms": 16.300000000745058
+          },
+          {
+            "run": 0,
+            "version": "before",
+            "phase": "edit",
+            "ms": 1910.4000000022352
+          },
+          {
+            "run": 0,
+            "version": "after",
+            "phase": "edit",
+            "ms": 2031.6000000014901
+          },
+          {
+            "run": 1,
+            "version": "after",
+            "phase": "edit",
+            "ms": 1868.1000000014901
+          },
+          {
+            "run": 1,
+            "version": "before",
+            "phase": "edit",
+            "ms": 2229.5
+          },
+          {
+            "run": 2,
+            "version": "before",
+            "phase": "edit",
+            "ms": 2014
+          },
+          {
+            "run": 2,
+            "version": "after",
+            "phase": "edit",
+            "ms": 2029.8999999985099
+          }
+        ]
+      }
+    ]
+  },
+  "summary": [
+    {
+      "kind": "populated",
+      "phase": "cold",
+      "before": 2846.5,
+      "after": 2812.300000000745,
+      "ratio": 0.9879852450380274,
+      "pairedMedianRatio": 0.953135429475317,
+      "pairedMedianDelta": -133.39999999850988,
+      "pairs": [
+        {
+          "before": 3314.699999999255,
+          "after": 3086.699999999255,
+          "ratio": 0.9312154946148818,
+          "delta": -228
+        },
+        {
+          "before": 2766.599999997765,
+          "after": 2812.300000000745,
+          "ratio": 1.0165184703256767,
+          "delta": 45.70000000298023
+        },
+        {
+          "before": 2846.5,
+          "after": 2713.10000000149,
+          "ratio": 0.953135429475317,
+          "delta": -133.39999999850988
+        }
+      ]
+    },
+    {
+      "kind": "populated",
+      "phase": "warm",
+      "before": 93,
+      "after": 91.5,
+      "ratio": 0.9838709677419355,
+      "pairedMedianRatio": 0.8915801614113339,
+      "pairedMedianDelta": -9.400000005960464,
+      "pairs": [
+        {
+          "before": 127.70000000298023,
+          "after": 101.29999999701977,
+          "ratio": 0.7932654658939362,
+          "delta": -26.400000005960464
+        },
+        {
+          "before": 110,
+          "after": 91.5,
+          "ratio": 0.8318181818181818,
+          "delta": -18.5
+        },
+        {
+          "before": 273.80000000074506,
+          "after": 159.09999999776483,
+          "ratio": 0.5810810810713364,
+          "delta": -114.70000000298023
+        },
+        {
+          "before": 123.69999999925494,
+          "after": 102.10000000149012,
+          "ratio": 0.8253839935497581,
+          "delta": -21.599999997764826
+        },
+        {
+          "before": 93,
+          "after": 84.5,
+          "ratio": 0.9086021505376344,
+          "delta": -8.5
+        },
+        {
+          "before": 88.5,
+          "after": 89.09999999776483,
+          "ratio": 1.006779660991693,
+          "delta": 0.5999999977648258
+        },
+        {
+          "before": 82.80000000074506,
+          "after": 84.30000000074506,
+          "ratio": 1.0181159420288224,
+          "delta": 1.5
+        },
+        {
+          "before": 86.70000000298023,
+          "after": 77.29999999701977,
+          "ratio": 0.8915801614113339,
+          "delta": -9.400000005960464
+        },
+        {
+          "before": 89.29999999701977,
+          "after": 94.60000000149012,
+          "ratio": 1.0593505039714135,
+          "delta": 5.300000004470348
+        }
+      ]
+    },
+    {
+      "kind": "populated",
+      "phase": "paint-1x",
+      "before": 80,
+      "after": 78.80000000074506,
+      "ratio": 0.9850000000093132,
+      "pairedMedianRatio": 0.9721518987436083,
+      "pairedMedianDelta": -2.199999999254942,
+      "pairs": [
+        {
+          "before": 74.5,
+          "after": 73.39999999850988,
+          "ratio": 0.9852348993088575,
+          "delta": -1.1000000014901161
+        },
+        {
+          "before": 97.19999999925494,
+          "after": 81,
+          "ratio": 0.833333333339721,
+          "delta": -16.199999999254942
+        },
+        {
+          "before": 78.59999999776483,
+          "after": 79.60000000149012,
+          "ratio": 1.01272264635819,
+          "delta": 1.0000000037252903
+        },
+        {
+          "before": 84.30000000074506,
+          "after": 81.30000000074506,
+          "ratio": 0.9644128113882149,
+          "delta": -3
+        },
+        {
+          "before": 78.69999999925494,
+          "after": 87,
+          "ratio": 1.1054637865415964,
+          "delta": 8.300000000745058
+        },
+        {
+          "before": 80,
+          "after": 78.80000000074506,
+          "ratio": 0.9850000000093132,
+          "delta": -1.199999999254942
+        },
+        {
+          "before": 79,
+          "after": 76.80000000074506,
+          "ratio": 0.9721518987436083,
+          "delta": -2.199999999254942
+        },
+        {
+          "before": 80.5,
+          "after": 76.5,
+          "ratio": 0.9503105590062112,
+          "delta": -4
+        },
+        {
+          "before": 82,
+          "after": 75.89999999850988,
+          "ratio": 0.9256097560793888,
+          "delta": -6.100000001490116
+        }
+      ]
+    },
+    {
+      "kind": "populated",
+      "phase": "paint-4x-dpr2",
+      "before": 28.199999999254942,
+      "after": 24.600000001490116,
+      "ratio": 0.8723404256078036,
+      "pairedMedianRatio": 0.9213483146882612,
+      "pairedMedianDelta": -2.099999997764826,
+      "pairs": [
+        {
+          "before": 24.5,
+          "after": 23.699999999254942,
+          "ratio": 0.9673469387450997,
+          "delta": -0.8000000007450581
+        },
+        {
+          "before": 25.199999999254942,
+          "after": 23.5,
+          "ratio": 0.9325396825672538,
+          "delta": -1.699999999254942
+        },
+        {
+          "before": 28.5,
+          "after": 28.699999999254942,
+          "ratio": 1.0070175438335067,
+          "delta": 0.19999999925494194
+        },
+        {
+          "before": 26.699999999254942,
+          "after": 24.600000001490116,
+          "ratio": 0.9213483146882612,
+          "delta": -2.099999997764826
+        },
+        {
+          "before": 26.699999999254942,
+          "after": 26.100000001490116,
+          "ratio": 0.9775280899707277,
+          "delta": -0.5999999977648258
+        },
+        {
+          "before": 31.800000000745058,
+          "after": 23.899999998509884,
+          "ratio": 0.7515723269795572,
+          "delta": -7.900000002235174
+        },
+        {
+          "before": 28.600000001490116,
+          "after": 26,
+          "ratio": 0.9090909090435436,
+          "delta": -2.600000001490116
+        },
+        {
+          "before": 30.300000000745058,
+          "after": 23.5,
+          "ratio": 0.7755775577367046,
+          "delta": -6.800000000745058
+        },
+        {
+          "before": 28.199999999254942,
+          "after": 25.199999999254942,
+          "ratio": 0.8936170212737851,
+          "delta": -3
+        }
+      ]
+    },
+    {
+      "kind": "populated",
+      "phase": "edit",
+      "before": 86.69999999925494,
+      "after": 87.90000000223517,
+      "ratio": 1.01384083048432,
+      "pairedMedianRatio": 0.9543973941456353,
+      "pairedMedianDelta": -4.199999999254942,
+      "pairs": [
+        {
+          "before": 92.10000000149012,
+          "after": 87.90000000223517,
+          "ratio": 0.9543973941456353,
+          "delta": -4.199999999254942
+        },
+        {
+          "before": 80,
+          "after": 75.39999999850988,
+          "ratio": 0.9424999999813736,
+          "delta": -4.600000001490116
+        },
+        {
+          "before": 86.69999999925494,
+          "after": 89.80000000074506,
+          "ratio": 1.0357554786795473,
+          "delta": 3.100000001490116
+        }
+      ]
+    },
+    {
+      "kind": "feature",
+      "phase": "cold",
+      "before": 2589.900000002235,
+      "after": 2552,
+      "ratio": 0.9853662303555341,
+      "pairedMedianRatio": 0.9812996199724314,
+      "pairedMedianDelta": -49.69999999925494,
+      "pairs": [
+        {
+          "before": 2657.699999999255,
+          "after": 2608,
+          "ratio": 0.9812996199724314,
+          "delta": -49.69999999925494
+        },
+        {
+          "before": 2475.60000000149,
+          "after": 2162.2000000029802,
+          "ratio": 0.8734044272102435,
+          "delta": -313.3999999985099
+        },
+        {
+          "before": 2589.900000002235,
+          "after": 2552,
+          "ratio": 0.9853662303555341,
+          "delta": -37.900000002235174
+        }
+      ]
+    },
+    {
+      "kind": "feature",
+      "phase": "warm",
+      "before": 13.599999997764826,
+      "after": 9.200000002980232,
+      "ratio": 0.6764705885656075,
+      "pairedMedianRatio": 0.7596153845809422,
+      "pairedMedianDelta": -3.0000000037252903,
+      "pairs": [
+        {
+          "before": 26.099999997764826,
+          "after": 13.699999999254942,
+          "ratio": 0.5249042145757928,
+          "delta": -12.399999998509884
+        },
+        {
+          "before": 17.599999997764826,
+          "after": 9.200000002980232,
+          "ratio": 0.5227272729629897,
+          "delta": -8.399999994784594
+        },
+        {
+          "before": 12.800000000745058,
+          "after": 13.399999998509884,
+          "ratio": 1.0468749998226485,
+          "delta": 0.5999999977648258
+        },
+        {
+          "before": 10.300000000745058,
+          "after": 8.5,
+          "ratio": 0.8252427183869074,
+          "delta": -1.800000000745058
+        },
+        {
+          "before": 13.900000002235174,
+          "after": 10.899999998509884,
+          "ratio": 0.784172661637203,
+          "delta": -3.0000000037252903
+        },
+        {
+          "before": 13.599999997764826,
+          "after": 8.800000000745058,
+          "ratio": 0.6470588236905402,
+          "delta": -4.799999997019768
+        },
+        {
+          "before": 9.600000001490116,
+          "after": 12.100000001490116,
+          "ratio": 1.2604166666262446,
+          "delta": 2.5
+        },
+        {
+          "before": 10.399999998509884,
+          "after": 7.899999998509884,
+          "ratio": 0.7596153845809422,
+          "delta": -2.5
+        },
+        {
+          "before": 15.200000002980232,
+          "after": 8.899999998509884,
+          "ratio": 0.5855263155766368,
+          "delta": -6.300000004470348
+        }
+      ]
+    },
+    {
+      "kind": "feature",
+      "phase": "paint-1x",
+      "before": 48,
+      "after": 46,
+      "ratio": 0.9583333333333334,
+      "pairedMedianRatio": 0.9623430962193096,
+      "pairedMedianDelta": -1.800000000745058,
+      "pairs": [
+        {
+          "before": 48,
+          "after": 52.400000002235174,
+          "ratio": 1.0916666667132329,
+          "delta": 4.400000002235174
+        },
+        {
+          "before": 56.80000000074506,
+          "after": 54.19999999925494,
+          "ratio": 0.9542253520870421,
+          "delta": -2.600000001490116
+        },
+        {
+          "before": 52.5,
+          "after": 45.5,
+          "ratio": 0.8666666666666667,
+          "delta": -7
+        },
+        {
+          "before": 47.5,
+          "after": 45.599999997764826,
+          "ratio": 0.9599999999529437,
+          "delta": -1.9000000022351742
+        },
+        {
+          "before": 44.80000000074506,
+          "after": 44.899999998509884,
+          "ratio": 1.0022321428072134,
+          "delta": 0.09999999776482582
+        },
+        {
+          "before": 47.80000000074506,
+          "after": 46,
+          "ratio": 0.9623430962193096,
+          "delta": -1.800000000745058
+        },
+        {
+          "before": 51.79999999701977,
+          "after": 43.80000000074506,
+          "ratio": 0.8455598456228769,
+          "delta": -7.99999999627471
+        },
+        {
+          "before": 45.69999999925494,
+          "after": 48.400000002235174,
+          "ratio": 1.0590809628670514,
+          "delta": 2.7000000029802322
+        },
+        {
+          "before": 49.30000000074506,
+          "after": 50.69999999925494,
+          "ratio": 1.0283975658922662,
+          "delta": 1.3999999985098839
+        }
+      ]
+    },
+    {
+      "kind": "feature",
+      "phase": "paint-4x-dpr2",
+      "before": 15.699999999254942,
+      "after": 16.199999999254942,
+      "ratio": 1.031847133759473,
+      "pairedMedianRatio": 1.0064935065908955,
+      "pairedMedianDelta": 0.10000000149011612,
+      "pairs": [
+        {
+          "before": 19.300000000745058,
+          "after": 17.599999997764826,
+          "ratio": 0.91191709829458,
+          "delta": -1.7000000029802322
+        },
+        {
+          "before": 18.600000001490116,
+          "after": 18.300000000745058,
+          "ratio": 0.9838709677031707,
+          "delta": -0.30000000074505806
+        },
+        {
+          "before": 17.300000000745058,
+          "after": 16.199999999254942,
+          "ratio": 0.9364161848877027,
+          "delta": -1.1000000014901161
+        },
+        {
+          "before": 15.5,
+          "after": 15.699999999254942,
+          "ratio": 1.0129032257583834,
+          "delta": 0.19999999925494194
+        },
+        {
+          "before": 15.399999998509884,
+          "after": 15.5,
+          "ratio": 1.0064935065908955,
+          "delta": 0.10000000149011612
+        },
+        {
+          "before": 15.199999999254942,
+          "after": 15.899999998509884,
+          "ratio": 1.0460526315321879,
+          "delta": 0.6999999992549419
+        },
+        {
+          "before": 14.899999998509884,
+          "after": 16.399999998509884,
+          "ratio": 1.1006711409496652,
+          "delta": 1.5
+        },
+        {
+          "before": 15.699999999254942,
+          "after": 15.400000002235174,
+          "ratio": 0.9808917199341398,
+          "delta": -0.29999999701976776
+        },
+        {
+          "before": 16.100000001490116,
+          "after": 16.300000000745058,
+          "ratio": 1.0124223602010205,
+          "delta": 0.19999999925494194
+        }
+      ]
+    },
+    {
+      "kind": "feature",
+      "phase": "edit",
+      "before": 2014,
+      "after": 2029.8999999985099,
+      "ratio": 1.0078947368413653,
+      "pairedMedianRatio": 1.0078947368413653,
+      "pairedMedianDelta": 15.899999998509884,
+      "pairs": [
+        {
+          "before": 1910.4000000022352,
+          "after": 2031.6000000014901,
+          "ratio": 1.063442211054812,
+          "delta": 121.19999999925494
+        },
+        {
+          "before": 2229.5,
+          "after": 1868.1000000014901,
+          "ratio": 0.8379008746362369,
+          "delta": -361.3999999985099
+        },
+        {
+          "before": 2014,
+          "after": 2029.8999999985099,
+          "ratio": 1.0078947368413653,
+          "delta": 15.899999998509884
+        }
+      ]
+    }
+  ]
+}
