@@ -454,3 +454,59 @@ button.eye:hover:not(:disabled) { border-color: var(--line); }
 .mode-switch button + button { border-left: 1px solid var(--accent-2); }
 .mode-switch button[aria-pressed='true'] { background: var(--accent-2); color: #061018; font-weight: 600; }
 .layer-head.no-batch > span:nth-child(2) { display: none; }
+
+/* Feature names occupy their own line; controls never squeeze their titles. */
+.geo-kinds, .geo-modes, .geo-actions { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.geo-kinds button { flex: 1 1 42%; font-size: 12px; }
+.geo-editor button { min-height: 32px; }
+.geo-editor button[aria-pressed='true'], .map-active-feature button[aria-pressed='true'] {
+  border-color: #40d2e1; background: #16383e; color: #bdf6fb;
+}
+.geo-help { font-size: 12px; color: var(--ink-dim); margin: 10px 0; }
+.geo-help summary { cursor: pointer; }
+.geo-help p { margin: 6px 0; }
+.geo-create { padding: 12px; border: 1px solid var(--line); border-radius: 8px; margin: 12px 0; }
+.geo-create label { margin: 0; }
+.geo-selection-summary { display: flex; flex-direction: column; font-size: 12px; color: var(--ink-dim); }
+.geo-selection-summary b { color: #ffcc55; }
+.geo-modes button { flex: 1 1 auto; font-size: 12px; }
+.geo-list { display: flex; flex-direction: column; gap: 10px; }
+.geo-card { padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: #10171e; }
+.geo-card.active { border-color: #40d2e1; box-shadow: inset 3px 0 #40d2e1; }
+.geo-title { display: block; width: 100%; text-align: left; font-weight: 600; font-size: 16px; overflow-wrap: anywhere; white-space: normal; margin-bottom: 8px; }
+.geo-area { display: flex; gap: 5px; align-items: center; flex-wrap: wrap; font-size: 12px; color: var(--ink-dim); margin-bottom: 10px; }
+.geo-area b { color: var(--ink); }
+.area-key, .selection-key { display: inline-block; vertical-align: middle; width: 12px; height: 12px; flex: 0 0 12px; margin-right: 4px; border: 2px solid #40d2e1; background: rgba(64,210,225,.18); }
+.selection-key { border-color: #ffcc55; background: rgba(255,204,85,.16); }
+.geo-badge { color: #8be5ee; margin-left: auto; font-size: 11px; }
+.geo-excluded { color: #eebd86; }
+.geo-card input { margin-bottom: 8px; }
+.geo-actions button { font-size: 12px; }
+.geo-actions .check { display: flex; gap: 5px; align-items: center; margin: 0; text-transform: none; letter-spacing: normal; font-size: 12px; color: var(--ink-dim); }
+.geo-actions .check input { width: auto; margin: 0; }
+.geo-batch { padding: 10px 0; margin-bottom: 8px; border-bottom: 1px solid var(--line); font-size: 12px; color: #ffcc55; }
+.geo-batch .geo-actions { margin-top: 6px; }
+.map-selection-status { max-width: min(440px, 100%); border: 1px solid var(--line); background: rgba(13,17,22,.95); border-radius: 8px; box-shadow: var(--shadow); font-size: 12px; }
+.map-active-feature { padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; border-bottom: 1px solid var(--line); }
+.map-active-feature strong { font-size: 17px; color: #bdf6fb; overflow-wrap: anywhere; }
+.map-active-feature > span { color: var(--ink-dim); }
+.map-selection-count { padding: 6px 12px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; color: #ffcc55; }
+.map-selection-count button { font-size: 12px; min-height: 30px; }
+.mapzoom { max-width: calc(100% - 20px); flex-wrap: wrap; }
+.maphud { max-width: calc(100% - 20px); bottom: 62px; }
+@media (max-width: 700px) {
+  .map-status-stack { top: 8px; left: 8px; right: 8px; }
+  .map-active-feature { padding: 6px 8px; gap: 4px; }
+  .map-active-feature strong { font-size: 15px; }
+  .mapzoom { gap: 3px; }
+  .mapzoom button { min-height: 30px; }
+  .maphud { display: none; }
+}
+.map-active-feature > .stroke-add { color: #6ee691; }
+.map-active-feature > .stroke-remove { color: #ff7d69; }
+.geo-edit-tools p { font-size: 12px; color: var(--ink-dim); margin: 8px 0; }
+
+.map-status-stack { position: absolute; top: 12px; left: 12px; right: 12px; display: flex; flex-direction: column; align-items: flex-start; gap: 8px; pointer-events: none; }
+.map-status-stack > * { pointer-events: auto; }
+.map-status-stack .map-messages { position: static; transform: none; width: min(640px, 100%); }
+.map-status-stack .map-render-status { position: static; color: var(--ink-dim); }

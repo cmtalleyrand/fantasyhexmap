@@ -112,8 +112,13 @@ export default function App() {
   const { ai: aiMode, manual: manualMode } = modeFeatures(mode);
   const [brush, setBrushState] = useState<Record<string, string>>({});
   const [brushMode, setBrushMode] = useState(false);
-  /** The geographical name whose hexes the map is currently painting into; null when no name is armed. */
+  /** The active geographical feature, independent of the selected hexes and editing tool. */
   const [geoPaintId, setGeoPaintId] = useState<string | null>(null);
+  const [geoEditMode, setGeoEditMode] = useState<'select' | 'add' | 'remove'>('select');
+  useEffect(() => {
+    setGeoPaintId(null);
+    setGeoEditMode('select');
+  }, [map?.id, activeLayer]);
   const [instruction, setInstruction] = useState('');
   const [busyLayers, setBusyLayers] = useState<Set<LayerId>>(new Set());
   const [selectedLayers, setSelectedLayers] = useState<Set<LayerId>>(new Set());
@@ -221,6 +226,7 @@ export default function App() {
       } else if (e.key === 'Escape' && riverDraft === null) {
         // A river being drawn handles its own Escape.
         setSelection(new Set());
+        setGeoEditMode('select');
       }
     };
     window.addEventListener('keydown', onKey);
@@ -418,17 +424,19 @@ export default function App() {
     [runGeneration, selectedLayers, undoLayers],
   );
 
-  // The armed name's hexes, outlined on the map while painting so its current extent is visible.
+  const activeGeoName = useMemo(() => map && manualMode && activeLayer === 'base'
+    ? geoNamesOf(map).find((n) => n.id === geoPaintId) : undefined, [map, manualMode, activeLayer, geoPaintId]);
+  const geoEligible = useMemo(() => map?.layers.base.data && activeGeoName
+    ? geoEligibility(activeGeoName.kind, map.layers.base.data, map.cols, map.rows) : undefined, [map, activeGeoName]);
   const paintHexes = useMemo(() => {
-    if (!map || !geoPaintId || activeLayer !== 'base') return null;
-    return geoNamesOf(map).find((n) => n.id === geoPaintId)?.hexes ?? null;
-  }, [map, geoPaintId, activeLayer]);
+    return activeGeoName && geoEligible ? activeGeoName.hexes.filter(geoEligible) : null;
+  }, [activeGeoName, geoEligible]);
 
   const onStrokeEnd = useCallback(
     (indices: number[]) => {
       if (!map || indices.length === 0) return;
-      if (geoPaintId && activeLayer === 'base') {
-        // One stroke adds its eligible hexes to the armed name: one undo entry.
+      if (geoPaintId && activeLayer === 'base' && geoEditMode !== 'select') {
+        // One stroke edits the active feature as one undo entry.
         const name = geoNamesOf(map).find((n) => n.id === geoPaintId);
         const base = map.layers.base.data;
         if (!name || !base) {
@@ -436,9 +444,14 @@ export default function App() {
           setError('The name being painted no longer exists.');
           return;
         }
+        if (geoEditMode === 'remove') {
+          dispatch({ type: 'unnameGeoHexes', id: name.id, indices });
+          setError(null);
+          return;
+        }
         const eligible = geoEligibility(name.kind, base, map.cols, map.rows);
         if (!indices.some((i) => eligible(i) && !name.hexes.includes(i))) {
-          setError(`Nothing added to "${name.name}": ${GEO_KIND_LABEL[name.kind].singular}s take ${GEO_KIND_LABEL[name.kind].accepts}`);
+          setError(indices.some(eligible) ? null : `No eligible ${GEO_KIND_LABEL[name.kind].singular.toLowerCase()} hexes in this stroke.`);
           return;
         }
         setError(null);
@@ -476,7 +489,7 @@ export default function App() {
         });
       }
     },
-    [map, brushMode, activeLayer, brush, geoPaintId],
+    [map, brushMode, activeLayer, brush, geoPaintId, geoEditMode],
   );
 
   const onRiverDraftClick = useCallback(
@@ -1167,7 +1180,7 @@ export default function App() {
           mapStyle={mapStyle}
           selection={selection}
           onSelectionChange={setSelection}
-          onStrokeEnd={manualMode && canEdit && (brushMode || (geoPaintId !== null && activeLayer === 'base')) ? onStrokeEnd : null}
+          onStrokeEnd={manualMode && canEdit && (brushMode || (!!activeGeoName && geoEditMode !== 'select')) ? onStrokeEnd : null}
           activeLayer={activeLayer}
           riverDraft={manualMode ? riverDraft : null}
           onRiverDraftClick={manualMode && riverDraft !== null ? onRiverDraftClick : null}
@@ -1178,6 +1191,10 @@ export default function App() {
           onRiverExtend={onRiverExtend}
           onRiverPaint={onRiverPaint}
           paintHexes={paintHexes}
+          geoEligible={geoEligible}
+          geoEditMode={geoEditMode}
+          activeGeoName={activeGeoName?.name}
+          onGeoEditModeChange={setGeoEditMode}
           overlay={emptyMapOverlay}
           banner={banner}
           onCompromises={setCompromises}
@@ -1218,8 +1235,10 @@ export default function App() {
               setBrushMode(on);
               if (on) setGeoPaintId(null);
             }}
+            geoEditMode={geoEditMode}
+            setGeoEditMode={setGeoEditMode}
             geoPaintId={geoPaintId}
-            setGeoPaintId={setGeoPaintId}
+            setGeoPaintId={(id) => { setGeoPaintId(id); setGeoEditMode('select'); }}
             instruction={instruction}
             setInstruction={setInstruction}
             onAiEdit={() => void runGeneration(activeLayer, instruction.trim())}

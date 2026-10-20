@@ -83,6 +83,8 @@ export interface InspectorProps {
   setBrushMode: (on: boolean) => void;
   /** The geographical name being painted into on the map, if any. */
   geoPaintId: string | null;
+  geoEditMode: 'select' | 'add' | 'remove';
+  setGeoEditMode: (mode: 'select' | 'add' | 'remove') => void;
   setGeoPaintId: (id: string | null) => void;
   instruction: string;
   setInstruction: (value: string) => void;
@@ -313,6 +315,8 @@ export default function Inspector(props: InspectorProps) {
               selected={selected}
               setSelection={props.setSelection}
               paintId={props.geoPaintId}
+              editMode={props.geoEditMode}
+              setEditMode={props.setGeoEditMode}
               setPaintId={(id) => {
                 if (id) props.setBrushMode(false);
                 props.setGeoPaintId(id);
@@ -619,7 +623,7 @@ function PerHexEditor(props: SubProps) {
         </button>
       )}
       <p className="hint" style={{ margin: 0 }}>
-        Click a hex to select it; shift-click or shift-drag adds to the selection. Ctrl+A (⌘A) selects every hex, Esc clears.
+        Use Replace, Add or Remove in the map toolbar to select hexes. Ctrl+A (⌘A) selects all; Esc clears.
       </p>
       {activeLayer === 'elevation' && <MountainRangePanel {...props} />}
     </div>
