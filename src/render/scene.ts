@@ -597,7 +597,9 @@ function cachedCoast(
   // through the smoothing, so this loop cannot converge hex by hex; two passes bring the
   // shapes near enough for the coupled fit on the final outline below to finish.
   coastPhase('globalPasses');
-  const passes = 3;
+  // Unsmooth styles have no coupled fit to finish a residual left by the cuts.
+  // Permit one more measured candidate only when the existing area gate is missed.
+  const passes = smooth ? 3 : 4;
   for (let pass = 0; pass < passes && shaped && (smooth || inkReach > 0); pass++) {
     profileCount('coast.globalPasses');
     const outlines = pathPolylines(drawnLand(geometry, page.width, page.height, size), 8);
@@ -608,6 +610,7 @@ function cachedCoast(
     const drift = lakeLength.size ? driftOf(geometry, geometry.strips.length, new Set(targets.keys()), cols, rows, size, d => pathPolylines(d, 6)) : new Map<number, number>();
     const ink = lakeLength.size ? coastLengthIn(strokes, new Set(targets.keys()), cols, rows, size) : new Map<number, number>();
     let miss = 0;
+    let maxError = 0;
     let movement = 0;
     const next = new Map<number, ShapeTarget>();
     for (const [i, target] of targets) {
@@ -622,6 +625,7 @@ function cachedCoast(
         : measure(hexCorners(i % cols, Math.floor(i / cols), size)) / hexArea;
       const short = wanted.get(i)! - shows;
       miss += short * short;
+      maxError = Math.max(maxError, Math.abs(short));
       const bracket = brackets.get(i)!;
       if (short > 0) bracket.low = was;
       else bracket.high = was;
@@ -643,7 +647,7 @@ function cachedCoast(
     }
     if (!best || miss < best.miss) best = { shaped, geometry, miss, shares: new Map(aimed) };
     // The final candidate has already been measured; avoid an unused trace.
-    if (movement < 0.0005 || pass === passes - 1) break;
+    if (movement < 0.0005 || pass === passes - 1 || (pass === 2 && maxError <= 0.01)) break;
     aimed = next;
     ({ shaped, geometry } = trace(aimed));
   }

@@ -38,8 +38,10 @@ try {
  const page = await context.newPage(); await page.goto('http://render.test/blank'); await page.addScriptTag({url:'http://render.test/api.js'});
  await page.evaluate(async()=>{ await api.loadLettering(api.options().style.knobs.lettering); await document.fonts.ready; });
  const results=[];
- const count=await page.evaluate(()=>api.cases().length);
- for(let index=0;index<count;index++) {
+ const selected=await page.evaluate(only=>api.cases().flatMap((c,index)=>!only||c.name.startsWith(only)?[index]:[]),arg('--only',''));
+ if(!selected.length)throw Error('No drawing fixtures selected');
+ console.log('Fixture scope:',arg('--only','all'),selected.length);
+ for(const index of selected) {
   const result=await page.evaluate(index=>{
    const {name,map,opts}=api.cases()[index];
    const scene=api.buildScene(map,opts), land=api.landTestOf(scene);
@@ -94,19 +96,19 @@ try {
   }
   delete result.svg;results.push(result);console.log(JSON.stringify({name:result.name,seaDisagreements:result.seaDisagreements,symbolWet:result.symbolWet,areas:result.areas}));
  }
- const sweep=await page.evaluate(()=>{
+ const sweep=arg('--only','')?{runs:0,failures:[],skipped:true}:await page.evaluate(()=>{
   const river=api.windingRiver(),failures=[];
   for(let n=0;n<400;n++){const seed=`s${n}`,course=api.riverCourse(river,20,seed,{wander:'gentle'}),m=api.riverMetrics(course.centreline);if(m.outside||m.maxTurn>=60)failures.push({seed,...m});}
   return{runs:400,failures};
  });
- const performance=await page.evaluate(()=>{
+ const performance=arg('--only','')?[]:await page.evaluate(()=>{
   const map=api.performanceFixture(),opts=api.performanceOptions(),timings=[];
   for(let run=0;run<8;run++){
    const o={...opts,polityOpacity:run%2?.55:.35};
    api.beginRenderProfile();const start=globalThis.performance.now();api.buildScene(map,o);const ms=globalThis.performance.now()-start;timings.push({run,ms,profile:api.endRenderProfile()});
   }return timings;
  });
- writeFileSync(resolve(output,'results.json'),JSON.stringify({browser:browser.version(),results,sweep,performance},null,2));
+ writeFileSync(resolve(output,'results.json'),JSON.stringify({browser:browser.version(),selection:arg('--only',''),results,sweep,performance},null,2));
  console.log(JSON.stringify({riverSweep:sweep,performance:performance.map(r=>({run:r.run,ms:r.ms,counters:r.profile.counters}))}));
  if(process.argv.includes('--check') && (sweep.failures.length || results.some(r=>r.symbolWet||r.shelfWet||r.seaDisagreements||r.riverNameWet||r.waterNameDry))) throw Error('Finished-picture land check or 400-seed river rule failed');
  await context.close();

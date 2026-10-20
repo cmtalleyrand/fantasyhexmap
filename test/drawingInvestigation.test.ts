@@ -1,5 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { nearestOn } from '../src/render/footprint.ts';
+import { hexCenter, pixelToOffset } from '../shared/hex.ts';
+import { beginRenderProfile, endRenderProfile } from '../src/render/profile.ts';
 import { windingRiver, riverMetrics, cases, buildScene, landTestOf } from '../scripts/drawing-investigation-fixtures.ts';
 import { riverCourse, landBySide } from '../src/render/rivers.ts';
 import { evenOddTest } from '../src/render/coast.ts';
@@ -121,4 +124,23 @@ test('river names cannot use an open-sea fallback and an omitted name is reporte
   const {map,opts}=cases().find(c=>c.name==='river-mouth')!;
   const scene=buildScene(map,opts);
   assert.deepEqual(auditScene(map,scene,opts.size).filter(i=>i.kind==='river-name-over-water'),[]);
+});
+
+for (const name of ['coast-fit-classic', 'coast-fit-parchment']) test(`${name} reaches its land share on the finished outline`, () => {
+  const {map,opts}=cases().find(c=>c.name===name)!;
+  beginRenderProfile();
+  const scene=buildScene(map,{...opts,cache:'off'}),profile=endRenderProfile()!;
+  const land=landTestOf(scene)!,c=hexCenter(2,2,opts.size);
+  const ink: {rings: {x:number;y:number}[][];reach:number}[]=[];
+  const collect=(ps:Prim[])=>{for(const p of ps){if(p.kind==='group')collect(p.prims);else if(p.kind==='path'&&p.stroke===opts.style.palette.coast)ink.push({rings:pathPolylines(p.d,12),reach:(p.strokeWidth??1)/2});}};
+  collect(scene.prims);
+  let total=0,dry=0;
+  for(let y=c.y-opts.size;y<c.y+opts.size;y+=.25)for(let x=c.x-opts.size;x<c.x+opts.size;x+=.25){
+    const h=pixelToOffset(x,y,opts.size);if(h.col!==2||h.row!==2)continue;
+    total++;if(land({x,y})||ink.some(s=>nearestOn({x,y},s.rings).dist<=s.reach))dry++;
+  }
+  const wanted=map.hexShapes!['12']!.land!;
+  assert.ok(Math.abs(100*dry/total-wanted)<1, `${100*dry/total}% versus ${wanted}%`);
+  assert.ok(!scene.compromises?.some(c=>c.hexes.includes(12)&&/land share/i.test(c.what)));
+  if(name==='coast-fit-classic')assert.equal(profile.counters['coast.globalPasses'],4);
 });
