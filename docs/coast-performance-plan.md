@@ -467,3 +467,37 @@ rounds, change tolerances, or reapply broad smoothing to the whole coast. Its gr
 [drawing-followup/parchment-after-skew-proposal.png](drawing-followup/parchment-after-skew-proposal.png).
 The independent 4× painted mask shows 4.6726% land for the requested 5%, with no compromise notice.
 This is one fixture's visual/area evidence, not final validation of a production implementation.
+
+### Connected implementation and allocation diagnosis
+
+`coastCorners.ts` now applies that repair only to surviving loop-removal joins after tangential
+skew. Protected passages and intersections with retained coastline reject a proposed fillet.
+`rim.ts` continues open component coasts with a bounded quadratic tangent into the same fixed page
+endpoint; a crossing proposal falls back to the old straight projection. Both changes enter the
+shared coastline before the existing area solver. They do not alter the requested land, solver
+round count, symbol floor or one-percentage-point gate. The guarded renderer's gridded PNG is
+byte-identical to the proposal linked above. The complete 150-case coast sweep passes (maximum
+errors Classic 0.789, Parchment 0.470, Atlas 0.440 percentage points), as do 200 island and 600
+enclosed-sea cases.
+
+A separate 48-pair CPU/allocation/GC diagnostic of the published implementation against current
+main recorded 246 minor collections (1,378 ms total) and four major collections (175 ms total),
+with 55–63 ms major pauses inside slow follow-up redraws. CPU samples identify repeated `layoutAt`,
+`mainlandNear` and `islandScale` work: caching the scalar scale still rebuilt final island positions
+and paths on every redraw. The diagnostic has profiler overhead and both versions share the V8
+heap; it establishes avoidable repeated work and GC pauses, not exclusive causality for the earlier
+benchmark's p95 difference.
+
+`islandDrawingCache.ts` now retains exact final layouts and paths by the existing complete land-input
+revision and hex. Scale searches and final drawings share one LRU budget (10,000 entries / 4 MB
+estimated payload and keys), replacing the previous scalar-only map. Within a build, mainland distance
+functions are shared across layout attempts. Geometry-changing inputs invalidate final drawings;
+ownership and colour edits can reuse them. No approximate predicate or reduced fitting accuracy is
+introduced. An isolated connected benchmark and a separate production-worker study establish the
+final cost; the earlier failed benchmark remains in `drawing-followup.md`.
+
+The newer-main shore check subsequently exposed another shared-heap tail failure. The final
+continuation retains coast paint geometry within the existing coast-cache budget and separates
+benchmark JavaScript heaps; it preserves all failed and successful intermediate records. Read
+[the connected report](drawing-followup-connected.md) for final main `6f3d5c7` / runtime `be084b1`
+measurements, exact validation scope, the 50×50 unique-edit worker study and retained-heap limits.

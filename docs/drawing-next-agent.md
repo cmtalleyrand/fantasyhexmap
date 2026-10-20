@@ -27,9 +27,9 @@ for a new change, failure or unresolved concern. Never overlap performance measu
 renders or sweeps. Report the scope and limits of every measurement. Do not claim an earlier green run
 validates a later head. The owner explicitly asked to stop rerunning and publish the current PR.
 
-## Current continuation status
+## Earlier continuation milestone
 
-The connected failures from the previous handoff were repaired in `f67ca94`, after merging current main
+The original connected failures from the previous handoff were repaired in `f67ca94`, after merging current main
 `1179712` and preserving #146/#147. Read the current section of `drawing-followup.md` and
 `drawing-followup-current-results.json`, not only the historical pre-rebase results.
 
@@ -65,10 +65,10 @@ visible full grid for geography review; a grid-free beauty view is optional, not
 The [current gridded Canvas view](drawing-followup/parchment-grid-review.png) leaves geometry unchanged.
 Its left horizontal coast is the straight page-rim extension ending at a border junction, rather than
 a regular hex edge. The diagonal towards the central tip crosses the target hex rather than following
-its edge exactly. Both the boundary transition and the pinched low-share cape still require naturalness
-work; passing area/topology checks does not establish a satisfactory shape. Keep requested area and
-crossing/passage guards while investigating a less pointy result. Show the proposal with the same grid
-before accepting a shape change.
+its edge exactly. The [rounded proposal](drawing-followup/parchment-after-skew-proposal.png) now repairs the pinched
+join after seeded skew and curves the rim continuation before shared area fitting. The guarded
+production render is byte-identical to that proposal. Requested area and crossing/passage guards
+remain; new geography review must still show the same full grid.
 
 **Continue retiring Classic.** Its unsmoothed hex-based coast exposes abrupt joins at low land shares;
 it is a legacy compatibility style, not the natural-geography target. New users already start in
@@ -79,13 +79,23 @@ over further Classic-specific styling. The owner does not use Classic.
 
 ## Next priorities
 
-**Merge blocker first:** the current strict performance run fails warm p95 (+24.1%, 169.1→209.8 ms)
-and ownership p95 (+1.2%, 185.0→187.2 ms), despite improved medians and +2.6% cold median. Inspect the
-retained profiles and allocation/worker evidence before proposing changes. The separate tiny Classic
-fixture also adds 0.9 ms (+29.0%) in uncached construction, above the owner's 10% limit; optimization or
-owner agreement is needed. Parchment cold median improves 27.0→24.1 ms. The owner asked to stop
-repeated full runs and publish; do not silently substitute historical green timings or loosen gates.
+**Latest connected evidence:** read [the continuation report](drawing-followup-connected.md).
+The rounded, fully gridded cape/rim proposal is now in the shared production coastline; all 150
+coast-area, 200 island and 600 enclosed-sea cases pass. The isolated current-main performance gate
+now passes: warm p95 199.3→80.1 ms, ownership 205.9→77.1 ms, shore 269.2→157.7 ms; cold median
+adds 0.8%, cold p95 improves 2.4%. The final runner verifies independent JavaScript heaps, so one
+version cannot be charged for collecting the other version's temporary objects. The prior failed benchmark remains retained, not overwritten.
+Do not rerun it without a change, failure or unresolved measurement concern.
 
+The final 50×50 production-worker study covers 32 unique cumulative ownership edits. Retained V8
+heap after edit 32 is 88.73 MiB on main versus 86.74 MiB on the final runtime; native/Canvas memory
+is outside that measurement. Displayed-frame
+median/p95 improves 1086.4/1614.4→937.7/1341.7 ms, but about 404 ms average still goes to feature-name
+placement and roughly 440 ms to viewport painting. Realm-name placement averages 11.6 ms. Those
+costs warrant investigation; this is not a claim that interaction is fast. Consult existing
+placement-cache history before another cache proposal, and preserve exact geometry/obstacle checks.
+Classic's previous tiny-fixture +0.9 ms / +29% cost remains disclosed; the owner does not use it and
+asked to continue retiring it rather than prioritising further Classic styling.
 
 1. Develop land-derived realm-name anchors and reliable small-realm association. Start with the pinned
    low-share realm fixture and present before/after images for owner approval before changing correctly
@@ -95,9 +105,11 @@ repeated full runs and publish; do not silently substitute historical green timi
 3. Broaden island/lake/channel/concentration share measurements and actual painted realm/legend area
    agreement. Keep the one-percentage-point ordinary-coast gate intact. Other knots/spurs and lake ink
    outside mainland remain separate defects.
-4. Study 50×50 ownership edits/name placement, unique edits, worker transfer/painting latency and
-   worker heap/GC. The new ice caches' 16 MB combined limit is estimated accounting, not measured heap.
-   Do not introduce approximate land queries without evidence and exact correctness guards.
+4. Extend the 50×50 study beyond the synthetic map and 32 unique edits. The production-worker
+   protocol and retained-heap study now exist in `render-worker-study.mjs`; React Inspector/input
+   scheduling, longer lifetimes and native/Canvas memory remain outside it. The ice caches' 16 MB
+   and island cache's 4 MB budgets are estimated accounting, not measured allocations attributable
+   to those caches. Do not introduce approximate land queries without exact correctness guards.
 
 ## Already implemented; preserve and review
 

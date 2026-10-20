@@ -1382,3 +1382,58 @@ finished-coast clip used by ordinary land. Group those fills under the same even
 component coasts. This removes painted spill without moving the coast or changing owner data.
 The updated uniform-land Canvas preview shows the correction; the earlier passing suite is not
 claimed as validation of this later visual fix.
+
+## 67. Repair loop joins after tangential skew and continue coasts smoothly to the page
+
+**Evidence.** The gridded review exposed a pinched 5%-land cape and an abrupt straight page-rim
+projection. History review ruled out repeating broad curvature limits, extra solve rounds and
+previously failed smoothing variants. Stage tracing located the cape's sharp join after loop
+removal; seeded skew sharpened it further, explaining the failed pre-skew fillet.
+
+**Chosen.** Round only surviving loop-removal joins after skew and before the existing area fit.
+Reject fillets crossing retained coast or entering protected passages. Continue open component
+coasts tangentially into their existing page endpoint, falling back to the previous projection
+when a crossing is detected. Install that extension before fitting so every layer uses it.
+No owner data, solve rounds, crossing guards, area threshold or 50% symbol floor changes.
+
+**Evidence/cost.** The guarded gridded render matches the reviewed proposal and paints 4.6726%
+for 5% requested. All 150 coast-area, 200 island and 600 enclosed-sea cases pass. The connected
+100-run current-main benchmark passes the existing performance gate; see the continuation report.
+
+## 68. Reuse completed island drawings within a shared bounded budget
+
+Scalar scale reuse still repeated final island layout and path construction on warm redraws.
+Retain those exact results by the existing complete land-input revision and hex. Scale searches
+and drawings share one LRU limit: 10,000 entries / 4 MB estimated accounting. Within-build mainland
+distance functions are also shared across layout attempts. Cache-off reconstruction remains exact;
+city placement sorts a copy rather than mutating retained island order.
+
+The isolated comparison against main `1179712` improves warm p95 205.9→81.2 ms, ownership
+190.1→88.0 ms and shore 249.7→159.8 ms. Cold median improves 2.5%; cold p95 adds 3.5%, below 10%.
+The earlier failed run remains published. CPU/GC diagnostics establish repeated work and long
+collections, but not exclusive causality for that earlier p95 result. Accounting estimates are
+not measured retained heap, and the populated-map result does not erase Classic's disclosed
+tiny-fixture cold cost. See `docs/drawing-followup-connected.md` for scope and worker evidence.
+
+## 69. Retain exact coast paint geometry and compare performance in independent heaps
+
+**Follow-up evidence.** After newer main `6f3d5c7` merged, the shared-page comparison failed shore
+p95 (249.6→278.2 ms), despite improved warm/ownership and shore medians. Keep that result. Marked
+GC traces show both versions' builds collecting a heap shared by both renderer bundles, so the
+tail cannot be attributed exclusively to the version whose timer was running.
+
+**Geometry reuse.** `426e903` already shared an outline within each redraw; it did not retain that
+outline, water clip or donor-ground points for the next redraw. Retain those exact derivatives
+with the traced coast and charge them to its existing 20 MB estimated budget. Colours and ownership
+remain fresh. The targeted shared-heap shore run passes (p95 260.7→206.5 ms), all 497 Node tests,
+typecheck and build pass, and all 59 replay scenes equal the already pixel-validated implementation.
+
+**Measurement control.** Separate the comparison's browser contexts and assert distinct JavaScript
+isolate IDs; retain accumulated profiles in Node. Keep the timed construction boundary, alternating
+order, scenarios, warm-up exclusions and every threshold. This removes cross-version GC attribution,
+not production GC cost. Retain all intermediate measurements and their method/version metadata.
+
+Final runtime `be084b1` against main `6f3d5c7`, 100 warm/edit samples and five cold builds: warm p95
+199.3→80.1 ms, ownership 205.9→77.1, shore 269.2→157.7; cold median +0.8%, p95 −2.4%. The gate
+passes. Separate 50×50 production-worker and retained-heap evidence, including remaining costs,
+is recorded in the connected report. Do not claim all investigation items or all latency are solved.

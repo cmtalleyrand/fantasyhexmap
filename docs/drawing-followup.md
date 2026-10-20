@@ -1,6 +1,10 @@
 # Drawing follow-up: enclosed seas and repeated redraw work
 
-**Current continuation (20 October 2026).** Merged current main `1179712`, including #146 and
+**Latest connected continuation:** [rounded coast, final redraw measurements and worker study](drawing-followup-connected.md).
+That implementation passes the unchanged current-main performance gate. The `f67ca94` measurements
+below remain as the earlier failed run, including its scope and limitations.
+
+**Earlier continuation milestone (20 October 2026, runtime `f67ca94`).** Merged current main `1179712`, including #146 and
 #147's geographic-name/prompt changes, into this branch. The two pinned area failures are repaired;
 the unchanged 150-case raster gate passes (maximum error 0.789 percentage points). The 200 island and
 600 enclosed-sea painted checks pass. All 489 Node tests, typecheck, build, 21 finished-picture fixtures
@@ -247,7 +251,8 @@ regression and cold costs above 10%. No test, threshold or assertion was disable
 
 ## Work not done
 
-Other coast knots/spurs and lake ink in open sea; realm-name anchors; finished-picture rules for all seven
-principles; broader island/lake/channel shares and actual realm/legend area agreement; omitted-name
-reports keyed by feature IDs; unique-edit/end-to-end worker painting latency; and the 50×50 placement/heap
-study remain. No existing complaint list is treated as exhaustive.
+Other coast defects outside the repaired loop joins and lake ink in open sea; realm-name anchors;
+finished-picture rules for all seven principles; broader island/lake/channel shares and actual
+realm/legend area agreement; and omitted-name reports keyed by feature IDs remain. The connected
+continuation adds the 50×50 unique-edit worker/heap study; React input scheduling, longer worker
+lifetimes and native/Canvas allocations remain outside it. No complaint list is treated as exhaustive.
