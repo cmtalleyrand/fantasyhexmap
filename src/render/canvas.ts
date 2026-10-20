@@ -116,7 +116,7 @@ function drawPrim(ctx: Ctx, prim: Prim, viewport?: Bounds, compositeClips = fals
         if (path) ctx.clip(path, prim.clipRule ?? 'nonzero');
         else ctx.clip(prim.clipRule ?? 'nonzero');
       }
-      if (compositeClips && prim.clip && prim.prims.length >= 200 && typeof OffscreenCanvas !== 'undefined') {
+      if (compositeClips && prim.clip && (prim.composite || prim.prims.length >= 200) && typeof OffscreenCanvas !== 'undefined') {
         // Rasterize the children once, then evaluate the dense silhouette once
         // for the composite rather than once for every overlapping donor patch.
         let layer = compositeSurfaces[compositeDepth];
