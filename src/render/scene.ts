@@ -108,6 +108,7 @@ import {
 } from './coast.js';
 import { polygonPath, type CitySymbol, type PathCmd, type Prim } from './prims.js';
 import { localLakeShore } from './lakePassage.js';
+import { lakeShoreFields } from './lakeShoreField.js';
 import { capitalCrown, cityMarker, iconClearance, iconDrop, markerExtent, symbolMarker } from './cityMarkers.js';
 import { riverStance, riverThroughIcon, showsRiver } from './riverCity.js';
 import { riverCourses, type RiverCourse } from './rivers.js';
@@ -2418,8 +2419,45 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
           return path;
         }),
       };
-      const passages = lake.filter(i => base?.[i] === 'Strait' || base?.[i] === 'Isthmus').map(i => hexCenter(i % cols, Math.floor(i / cols), size));
-      return localLakeShore(original(), drawnLand(geometry, width, height, size), passages, size);
+      const edgeRuns = (edges: number[]) => edges.filter(e => !edges.includes((e + 5) % 6)).map(e => {
+        const run = [e];
+        while (edges.includes((run.at(-1)! + 1) % 6)) run.push((run.at(-1)! + 1) % 6);
+        return run;
+      });
+      const specs = lake.flatMap(i => {
+        if (base?.[i] !== 'Strait') return [];
+        const split = terrain!.split.get(i);
+        const dry = [0, 1, 2, 3, 4, 5].filter(e => split?.sides[6 + e] === 'land');
+        if (edgeRuns(dry).length !== 2) return [];
+        const corners = hexCorners(i % cols, Math.floor(i / cols), size);
+        const centre = hexCenter(i % cols, Math.floor(i / cols), size);
+        const shape = hexShapeFor(base[i], map.hexShapes?.[String(i)]);
+        const width = (channelWidthFraction(base[i], dimensions, map.hexShapes?.[String(i)]) ?? .3) * Math.sqrt(3) * size;
+        const frame = lakeStraitFrame(corners, centre, dry, width, shape.straitJunctionSide);
+        if (!frame) return [];
+        const wet = [0, 1, 2, 3, 4, 5].filter(e => split?.sides[6 + e] === 'lake');
+        const mouths = edgeRuns(wet).map(run => {
+          const mid = (run.length - 1) / 2;
+          if (!Number.isInteger(mid)) return corners[run[Math.ceil(mid)]!]!;
+          const e = run[mid]!;
+          return { x: (corners[e]!.x + corners[(e + 1) % 6]!.x) / 2,
+            y: (corners[e]!.y + corners[(e + 1) % 6]!.y) / 2 };
+        });
+        if (mouths.length !== 2) return [];
+        return [{ centre, mouths, junction: frame.centre, normal: frame.normal,
+          rough: { Smooth: 0, Wavy: .04, Ragged: .07, Fractured: .12 }[shape.irregular],
+          phase: Array.from({ length: 6 }, (_, k) => unit(seed, 'lake-strait-shore', i, k) * Math.PI * 2),
+          rootEdges: dry.map(e => [corners[e]!, corners[(e + 1) % 6]!] as [Point, Point]),
+          width, outline: corners, land: channelShareSet(base[i], dimensions, map.hexShapes?.[String(i)]), ink: inkReachOf }];
+      });
+      // Keep the established coastal solver for isthmuses and junctions with
+      // more than two banks; apply the local shore field to two-bank straits.
+      const supported = new Set(specs.map(spec => `${spec.centre.x},${spec.centre.y}`));
+      const fallback = lake.filter(i => base?.[i] === 'Strait' || base?.[i] === 'Isthmus')
+        .map(i => hexCenter(i % cols, Math.floor(i / cols), size))
+        .filter(c => !supported.has(`${c.x},${c.y}`));
+      const shore = fallback.length ? localLakeShore(original(), drawnLand(geometry, width, height, size), fallback, size) : original();
+      return lakeShoreFields(shore, specs, size);
     }
     return original();
   };
@@ -2442,7 +2480,13 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
       }
       let miss = 0;
       for (const [h, aim] of aims) {
-        if (traced?.lakeCoast?.coverage.has(h) || (traced?.lakeCoast && passageLake(lakeBodies[lakeOf.get(h) ?? -1] ?? []))) continue;
+        if (traced?.lakeCoast) {
+          if (base?.[h] === 'Strait' || base?.[h] === 'Isthmus') continue;
+          // Retain the surrounding lake unless its own explicit control needs
+          // fitting; implicit targets must not reshape the entire lake body.
+          if (passageLake(lakeBodies[lakeOf.get(h) ?? -1] ?? []) &&
+            !(base?.[h] === 'Lake' && map.hexShapes?.[String(h)]?.land !== undefined)) continue;
+        }
         const corners = hexCorners(h % cols, Math.floor(h / cols), size);
         const length = lengths.get(h) ?? 0;
         if (length < 1e-6) continue;

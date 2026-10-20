@@ -16,6 +16,12 @@ node --import tsx scripts/render-lake-strait-review.ts
 
 The HTML is written to `work/lake-strait-review/gallery.html`. The cases and map layout are shared with the tests in `test/fixtures/lakeStrait.ts`.
 
+The previous attempts corrected topology but constructed each bank separately, then joined those shapes back to the lake. That produced conspicuous shoulders, hooks and matching curves. The numerical checks did not judge those visual defects, and the earlier four-case comparison was inadequate.
+
+Two-bank lake straits now use a local signed distance field: a gently curving water corridor widens away from the chosen throat, each bank has independent seeded variation, and the field blends into the existing shore. Dry roots retain mainland connections. Explicit land shares adjust the flare while retaining the throat width. The edit is joined locally so distant shores keep their original shapes. Isthmuses and more complex junctions retain the coastal solver.
+
+The gallery uses the normal parchment rendering, including texture, at a fixed wider view for both versions.
+
 The 25 lake rendering checks measure the final outline and coastline ink: water continuity, opposing-bank separation, requested width in all sixteen cases, west/east throat positions, whole-outline crossings, land coverage, adjoining lake controls, map-edge closure, undo/cache stability, and preservation of distant shores. Two additional tests exercise the local shore join with one edit and overlapping edits. These are numerical regressions, not an automated judgement of natural appearance.
 
 Explicit land shares the renderer does not reach are annotated with the percentage actually painted. Such annotations describe a renderer limit, not proof that the requested geometry is impossible.

@@ -4,12 +4,14 @@ import { lakeStraitFixture, LAKE_STRAIT_CASES } from '../test/fixtures/lakeStrai
 import { buildScene, defaultVisibility } from '../src/render/scene.ts';
 import { sceneToSvg } from '../src/render/svg.ts';
 import { resolveStyle } from '../src/render/styles.ts';
-import { hexCenter } from '../shared/hex.ts';
+import { areaCoverage } from '../src/render/footprint.ts';
+import { pathPolylines } from '../src/render/ice.ts';
+import { hexCorners, hexCenter } from '../shared/hex.ts';
 import { CHANNEL_WIDTH_PERCENT } from '../shared/types.ts';
 const out = process.argv[2] ?? 'work/lake-strait-review';
 const version = process.argv[3] ?? 'Revised renderer';
 mkdirSync(out, { recursive: true });
-const style = resolveStyle({ preset: 'parchment', overrides: { water: 'flat', grain: false, grid: 'none', land: 'uniform' } });
+const style = resolveStyle({ preset: 'parchment', overrides: { grid: 'none' } });
 const sides = ['E', 'SE', 'SW', 'W', 'NW', 'NE'];
 let html = `<!doctype html><meta charset="utf-8"><title>Lake straits: 16 representative cases</title>
 <style>body{margin:20px;font:14px Arial;background:#172027;color:#eee}h1{font-size:24px;margin:0 0 10px}.grid{display:grid;grid-template-columns:repeat(4,248px);gap:16px}section{width:248px}h2{font-size:14px;min-height:32px;font-weight:500;margin:0 0 6px}svg{width:248px;height:242px;display:block}section p{font-size:12px;min-height:28px;margin:6px 0;color:#c5cdd1}.note{color:#f3c773;font-size:14px;margin-bottom:20px}</style>
@@ -26,7 +28,14 @@ for (const [index, example] of LAKE_STRAIT_CASES.entries()) {
     .replace(/viewBox="[^"]*"/, `viewBox="${c.x - 90} ${c.y - 90} 180 180"`)
     .replace(/width="[^"]*" height="[^"]*"/, 'width="248" height="242"')
     .replace(/id="([^"]*)"/g, `id="case${index}-$1"`).replace(/url\(#([^)]*)\)/g, `url(#case${index}-$1)`);
-  const note = scene.compromises?.filter(n => n.hexes.includes(24)).map(n => n.what).join('; ');
+  // Measure both versions independently: the original renderer's own
+  // compromise reports are part of the bug and cannot be used as evidence.
+  const rings = scene.prims.flatMap(p => p.kind === 'path' && p.fill === style.palette.lake ? pathPolylines(p.d, 12) : []);
+  const page = [{ x: -size, y: -size }, { x: 500, y: -size }, { x: 500, y: 500 }, { x: -size, y: 500 }];
+  const ink = Math.max(.8, size * style.palette.coastWidth * style.knobs.lineWeight) / 2;
+  const share = areaCoverage([page, ...rings], { evenOdd: true, stroke: { rings, reach: ink } })(hexCorners(3, 3, size), 192) / (1.5 * Math.sqrt(3) * size * size);
+  const note = example.land !== undefined && Math.abs(share - example.land / 100) > .01
+    ? `${Math.round(share * 100)}% land drawn instead of ${example.land}%` : '';
   html += `<section><h2>${label}<br>${detail}</h2>${svg}<p>${note ?? ''}</p></section>`;
 }
 writeFileSync(`${out}/gallery.html`, html + '</div>');

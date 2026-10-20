@@ -26,15 +26,6 @@ function render(map: MapState) {
   const measure = areaCoverage(landClip, { evenOdd: true, stroke: { rings, reach: ink } });
   return { scene, rings, water, ink, share: (i = centre) => measure(hexCorners(i % cols, Math.floor(i / cols), size), 192) / hexArea };
 }
-function gapAt(draw: ReturnType<typeof render>, x: number) {
-  const c = hexCenter(3, 3, size);
-  let count = 0, ySum = 0;
-  const inHex = evenOddTest([hexCorners(3, 3, size)], size / 8);
-  for (let y = c.y - size; y <= c.y + size; y += 0.1) {
-    if (inHex({ x, y }) && draw.water({ x, y })) { count++; ySum += y; }
-  }
-  return { width: count * 0.1, y: ySum / count };
-}
 /** Measure opposing banks in the final water outline, rather than filtering pairs by arc length. */
 function throat(draw: ReturnType<typeof render>, extent = 1) {
   const c = hexCenter(3, 3, size), step = size / 70;
@@ -127,9 +118,8 @@ test('narrow lake straits retain a continuous water route after roughening and c
   }
 });
 test('lake strait widths alter the rendered constriction', () => {
-  const c = hexCenter(3, 3, size);
   const narrow = render(fixture('Narrow')), normal = render(fixture('Normal'));
-  assert.ok(gapAt(normal, c.x).width > gapAt(narrow, c.x).width + size * 0.1);
+  assert.ok(throat(normal).distance > throat(narrow).distance + size * 0.1);
   for (const [draw, fraction] of [[narrow, 0.15], [normal, 0.3]] as const) {
     const actual = throat(draw).distance, expected = fraction * Math.sqrt(3) * size;
     assert.ok(Math.abs(actual - expected) < size * 0.04, `painted shore width ${actual} must match requested ${expected}`);
@@ -154,10 +144,10 @@ test('west and east lake junction selections move the rendered passage', () => {
 test('lake strait land shares are measured on the drawn bank and unattainable shares are reported', () => {
   const low = render(fixture('Narrow', undefined, 30));
   const middle = render(fixture('Narrow', undefined, 50));
-  assert.ok(Math.abs(low.share() - 0.3) < 0.01);
-  assert.ok(Math.abs(middle.share() - 0.5) < 0.01);
+  assert.ok(Math.abs(low.share() - 0.3) < 0.01, `30% request rendered ${low.share()}`);
+  assert.ok(Math.abs(middle.share() - 0.5) < 0.01, `50% request rendered ${middle.share()}`);
   const eighty = render(fixture('Narrow', undefined, 80));
-  assert.ok(Math.abs(eighty.share() - 0.8) < 0.01, '80% must be reached at Narrow width, rather than merely getting a compromise note');
+  assert.ok(Math.abs(eighty.share() - 0.8) < 0.01, `80% request rendered ${eighty.share()}`);
   const high = render(fixture('Normal', undefined, 80));
   assert.ok(high.share() > render(fixture('Normal', undefined, 30)).share());
   const note = high.scene.compromises?.find(c => c.hexes.includes(centre));
