@@ -1273,7 +1273,7 @@ New revisions still replay every probe, including failed placement candidates. N
 limit, accounting for the extra references. Pack weights use four times serialized length on misses;
 glacier weights count path commands, slivers and chain edges. These are estimates, not measured heap
 bounds. Failing-before tests check repeated work and compare edited scenes with uncached reconstruction.
-Final 100-run comparison against merged main passes every unchanged performance gate: warm/ownership/shore
+The historical pre-rebase 100-run comparison against `6786d4a` passed every unchanged performance gate: warm/ownership/shore
 medians improve about 32/31/26%, and cold median costs 0.7%. See `docs/drawing-followup.md` for raw evidence,
 earlier failed configurations, output comparisons and measurement limits.
 
@@ -1295,20 +1295,69 @@ checks mainland, enclosed water and nested land-island hex centres across 200 se
 area checks remain unchanged. Added work is a source-chain signed-area sum. Images and timings are in
 the follow-up report. This removes a misrendering; it is not an unapproved style change.
 
-## 61. Remove fold-back loops in open coasts as well as closed ones (draft)
+## 61. Remove fold-back loops in open coasts as well as closed ones
 
 **Problem.** Main's revised default coastal share exposes a 5%-land Parchment fixture whose open coast
 has five self-crossings. The existing loop cleanup only handles closed coasts; fitting then cannot
 reach the requested share without making those crossings worse.
 
-**Proposed in the follow-up PR.** Extend the same crossing detection to open chains. Remove their
+**Chosen in the follow-up PR.** Extend the same crossing detection to open chains. Remove their
 fold-back detour while retaining both endpoints; never turn that detour into a separate island. Keep
 closed-chain behavior and every crossing/distortion guard unchanged. The targeted failing-before test
 now passes with zero crossings, and its share-loss notice disappears. No additional fitting rounds or
 relaxed movement guards were retained.
 
-**Unfinished validation/cost.** Open chains now incur the crossing-index scan, so cold cost must be
-measured before merge. The final pixel-area sweep, performance comparison and full suite after this
-last change were not rerun: the owner requested PR publication at this point. The Classic share failure
-and a two-pixel Canvas replay difference reproduced on unchanged main remain open. Earlier passing
-measurements in the report describe the pre-rebase configuration, not this unverified head.
+**Continuation validation/cost.** The single pinned Parchment fixture paints 4.635% versus 5% requested.
+The full unchanged 150-case raster area gate passes after the connected repair in §62; 600 enclosed-sea
+and 200 island checks also pass. Open chains incur a bounded crossing-index scan, measured with the
+current implementation against current main as recorded in `docs/drawing-followup.md`. The earlier
+publication deliberately left this cost unverified; its old results are retained as historical evidence.
+
+## 62. Finish an unsmoothed coast only when it misses the share gate
+
+**Problem.** Classic `coverage-1` at 20% paints 21.275% with the new surrounding coastal default of 80%.
+Its initial three cut-fitting candidates stop without a coupled smooth solver to finish the residual.
+
+**Chosen.** Permit one fourth measured candidate only for unsmoothed coasts whose largest measured
+share error still exceeds one percentage point after candidate three. Keep the lowest aggregate squared
+error, existing movement brackets, all guards and the original three-candidate path for already faithful
+coasts. The pinned fixture paints 19.211% and no longer reports a share loss. This changes a misrendering,
+not an approved coastline style; no owner data or tolerances change.
+
+**Cost.** At most one additional whole-coast trace/measurement on an affected cold coast. Warm builds
+reuse exact coast geometry. Two numerical regressions independently sample final land plus ink; the
+full 150-case raster sweep reaches a maximum error of 0.789 percentage points. Roughness, narrow tips,
+ink and accurate area can compete; no crossing/passage guard is loosened to force exact convergence.
+Current matched construction costs and their limits are recorded in the follow-up report.
+
+## 63. Control Canvas path history in exact geometry replay
+
+**Problem.** Scene JSON matches, but two export pixels differ by one channel level. The two-case
+`canvas-replay-history.mjs` control also produces three changed pixels when the identical scene object
+is drawn with two independent painters whose Path2D WeakMaps have different histories. Fresh scene
+clones on both sides give zero differences. The underlying Chromium detail is not established.
+
+**Chosen.** Give export inputs the same fresh-clone treatment already used by worker replay. Clone
+both once before the matrix, retaining values and aliases but preventing cross-case compiled-path
+identity from differing between the cached and uncached constructions. Keep scene JSON and RGBA
+assertions exact. This corrects a test-control defect; production painting is unchanged.
+
+**Limits/cost.** Test-only cloning and a two-fixture diagnostic; no app-time overhead. This checks
+cached geometry with controlled painter histories, not arbitrary browser Path2D lifetime determinism.
+
+## 64. Retain the current failed performance gate rather than replace it with historical timings
+
+**Evidence.** The isolated 100-run comparison of runtime `f67ca94` against current main `1179712`
+passes correctness, cold-cost and median checks, but warm p95 rises 169.1→209.8 ms (+24.1%) and
+ownership p95 185.0→187.2 ms (+1.2%). Cold median adds 2.6%; shore p95 improves 22.0%.
+
+**Disposition.** Publish the repaired correctness work and exact evidence on the existing draft PR;
+keep tail latency as a merge blocker. Do not loosen thresholds or repeat full benchmarks to select a
+favourable sample. Profiles locate spikes, but no GC/scheduling/cache cause is proved. The run measures
+scene construction on the populated 40×40 fixture, not end-to-end latency, unique edits or worker heap.
+
+**Small-fixture cost.** Separately measured 50-run uncached geography-only constructions (48 retained)
+show Parchment median 27.0→24.1 ms, Classic 3.1→4.0 ms. The Classic extra candidate adds 0.9 ms but
+29.0% relative cold cost; p95 adds 1.2 ms (+27.9%). This exceeds 10% on that small fixture and remains
+unapproved. The populated-map cold result cannot be used to hide it. The diagnostic asserts that base
+geography is visible and a coastline was actually built; an initial empty-base setup was discarded.
