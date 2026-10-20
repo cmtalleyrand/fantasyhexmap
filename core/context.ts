@@ -15,6 +15,7 @@ import type { MapState } from '../shared/types.js';
 import { excludedLayers } from '../shared/layers.js';
 import type { PromptContext } from './prompts.js';
 import type { ExistingFeatures } from './decode.js';
+import { geoNamesOf } from '../shared/geoNames.js';
 
 /**
  * Build a prompt context straight from a map. The browser path uses this; the
@@ -26,6 +27,10 @@ export function contextFromMap(map: MapState, instruction: string | null): Promp
     description: map.description,
     cols: map.cols,
     rows: map.rows,
+    hexDimensions: map.hexDimensions,
+    islandSpecs: map.islandSpecs,
+    hexShapes: map.hexShapes,
+    geoNames: geoNamesOf(map),
     base: map.layers.base.data,
     elevation: map.layers.elevation.data,
     climate: map.layers.climate.data,

@@ -39,24 +39,15 @@ const keyed = (opts: SchemaOptions) => opts.grid === 'keyed';
 
 const notes = z
   .string()
-  .describe('One or two sentences summarising this layer as a whole. Shown to the user.');
+  .describe('Normally empty. At most two short sentences total across notes and decisions, only for a material conflict or consequential assumption.');
 
-/**
- * The model's reading of the brief, written before anything else.
- *
- * Its position is the point. Constrained decoding writes properties in schema
- * order, so putting this first makes the model state the scale and turn every
- * relevant demand of the brief into a concrete target - "about 48 hexes",
- * "the whole south-east quarter" - before it draws, rather than drawing first
- * and rationalising afterwards. It is also shown to the user, so a requirement
- * the model misread is visible instead of silently missing from the map.
- */
+/** Saved scale plus exceptional conflicts only; the historical field remains import-compatible. */
 const briefCheck = z
   .object({
     scale: z
       .string()
       .describe(
-        'The physical scale you are working to and how you got it, e.g. "~60 km across a hex (area ~3,100 km2), from the 2,000 km width of the continent". "No scale given" if the brief states no size, distance or area at all.',
+        'Only the saved physical scale supplied by the app; do not infer a different scale from the brief.',
       ),
     requirements: z
       .array(
@@ -72,28 +63,17 @@ const briefCheck = z
         }),
       )
       .describe(
-        'Every statement in the brief that constrains this layer - sizes, areas, distances, positions, counts, named features, explicit exclusions. Omit only what has nothing to do with this layer.',
+        'Normally empty. Include only an unavoidable material conflict; do not restate the brief or write a checklist.',
       ),
   })
-  .describe('Fill this in first, before any of the layer itself. It is your plan and the user sees it.');
+  .describe('Keep this minimal: saved scale and normally an empty requirements list.');
 
 const briefField = (opts: SchemaOptions) => (keyed(opts) ? briefCheck : briefCheck.optional());
 
 /** A decision about more hexes than this is really a decision about the map. */
 const MAX_DECISION_HEXES = 40;
 
-/**
- * The model's own account of the choices it made. This is not decoration: it is
- * the record of why the map looks the way it does, which nothing else captures,
- * and it is shown to the user and exported alongside the map.
- *
- * Capped, but not floored. The ceiling is what protects the token budget: it
- * stops an uncertain model padding the tail of a response it is already
- * struggling to finish. A floor would buy nothing and cost robustness - it would
- * reject an otherwise good layer that simply had less to say, which matters most
- * on the import path, where the reply is not being regenerated on demand. The
- * prompt still asks for three to eight.
- */
+/** Keep older records importable; new prompts normally request an empty list. */
 const decisions = z
   .array(
     z.object({
@@ -103,7 +83,7 @@ const decisions = z
       detail: z
         .string()
         .describe(
-          'One to three sentences: what you decided, and why - the reasoning, the cue in the brief you followed, or the trade-off you made. Not a restatement of the data.',
+          'One short sentence only for an unavoidable conflict or consequential assumption.',
         ),
       hexes: z
         .array(z.string())
@@ -113,7 +93,7 @@ const decisions = z
   )
   .max(8)
   .describe(
-    'The 3 to 8 decisions that most shaped this layer. Include any place you departed from the obvious answer, resolved a conflict in the brief, or made something up because the brief was silent.',
+    'Normally empty. At most two short sentences total across decisions and notes; no routine explanations.',
   );
 
 /**
@@ -239,7 +219,7 @@ const riverNavigable = z
 export const RiversResponse = (_cols: number, _rows: number, opts: SchemaOptions = {}) =>
   z.object({
     brief: briefField(opts),
-    rivers: z.array(z.object({ name: z.string(), path: riverPath, navigable: riverNavigable, ...riverLinks })),
+    rivers: z.array(z.object({ name: z.string(), previousName: z.string().optional().describe('For a rename only, the exact existing river name.'), path: riverPath, navigable: riverNavigable, ...riverLinks })),
     notes,
     decisions,
   });
@@ -257,6 +237,7 @@ export const RiversRosterResponse = (_cols: number, _rows: number, opts: SchemaO
     rivers: z.array(
       z.object({
         name: z.string(),
+        previousName: z.string().optional().describe('For a rename only, the exact existing river name.'),
         course: z
           .string()
           .describe(
@@ -273,7 +254,7 @@ export type RiversRosterResponse = z.infer<ReturnType<typeof RiversRosterRespons
 export const RiversPathsResponse = (_cols: number, _rows: number, opts: SchemaOptions = {}) =>
   z.object({
     brief: briefField(opts),
-    rivers: z.array(z.object({ name: z.string(), path: riverPath, navigable: riverNavigable, ...riverLinks })),
+    rivers: z.array(z.object({ name: z.string(), previousName: z.string().optional().describe('For a rename only, the exact existing river name.'), path: riverPath, navigable: riverNavigable, ...riverLinks })),
     notes,
     decisions,
   });
@@ -287,10 +268,11 @@ export const CitiesResponse = (_cols: number, _rows: number, opts: SchemaOptions
     cities: z.array(
       z.object({
         name: z.string(),
+        previousName: z.string().optional().describe('For a rename only, the exact existing city name.'),
         col: z.number().int(),
         row: z.number().int(),
         population: z.number().int().min(0),
-        reason: z.string().describe('Why the settlement is here - one short clause.'),
+        reason: z.string().describe('Normally empty; at most a few words for an exceptional placement.'),
         capital: z
           .boolean()
           .optional()
@@ -313,19 +295,28 @@ const polityEntry = (opts: SchemaOptions) =>
   z.object({
     key: z.string().length(1).describe('The single character used for this polity in the grid.'),
     name: z.string(),
+    previousName: z.string().optional().describe('For a rename only, the exact existing polity name; preserve existing keys on edits.'),
     shortName: z.string().optional().describe('A short map label without generic polity-type wording.'),
     parent: z.string().optional().describe('Name of the larger polity this one is part of, if any.'),
     colour: z.string().describe('Hex colour such as #a33b2e.'),
     hexes: (keyed(opts) ? z.number().int() : z.number().int().optional()).describe(
-      'How many land hexes this polity should hold. Convert any area the brief gives using the scale; otherwise your judgement of its size.',
+      'Approximate count of directly held hexes, accounting for effective land fractions. Zero for a pure umbrella parent. Small polities may exceed stated area at whole-hex resolution.',
     ),
   });
+
+/** Additional ownership only where exclusive allocation causes a material contradiction. */
+const sharedHexes = z.array(z.object({
+  col: z.number().int(), row: z.number().int(),
+  with: z.string().length(1).nullable().describe('Second polity key, or null to clear existing sharing.'),
+  share: z.literal(0.5),
+})).optional().describe('Normally empty. Exceptional 50/50 allocations, not area-only adjustments. Existing manual shares are retained unless explicitly changed or their primary owner changes.');
 
 export const PolitiesResponse = (cols: number, rows: number, opts: SchemaOptions = {}) =>
   z.object({
     brief: briefField(opts),
     polities: z.array(polityEntry(opts)),
     rows: gridField(cols, rows, opts, 'char', polityCell(opts), 'polity key'),
+    sharedHexes,
     notes,
     decisions,
   });
@@ -352,6 +343,7 @@ export const PolitiesPaintResponse = (cols: number, rows: number, opts: SchemaOp
   z.object({
     brief: briefField(opts),
     rows: gridField(cols, rows, opts, 'char', polityCell(opts), 'polity key'),
+    sharedHexes,
     notes,
     decisions,
   });

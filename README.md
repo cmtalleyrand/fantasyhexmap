@@ -191,8 +191,8 @@ distinct from ordinary inland `Land` in the base grid.
 
 **Hexes with a shoreline or an ice edge carry a land share and an irregularity.** Select Coastal Land,
 Islands, Mainland and islands, Isthmus, Strait, Glacier or Sea Ice hexes on the Base layer and the
-sidebar offers both. The land share (defaults: Coastal Land 90%, each small
-island 10%, each large island 20%, any mainland 30%) is the share of the hex drawn as land (a coastal
+sidebar offers both. The land share (defaults: Coastal Land 80%, Lake 10%, each small
+island 5%, each large island 15%, any mainland 40%, Glacier 100%) is the share of the hex drawn as land (a coastal
 hex's shore is set in from its edge, an island is drawn at its share) and counts towards polity surface
 areas; the map-wide defaults are in Settings. An Isthmus and a Strait are drawn at
 a width (Very narrow 5%, Narrow 15%, Normal 30% or Wide 50% of the hex's width), the neck of land
@@ -226,11 +226,21 @@ coastal edges and river membership are recomputed and polity claims on hexes tha
 are dropped. That is bookkeeping to keep the data internally truthful, not a regeneration: it
 creates no undo entry and bumps no version, and the affected layer is already flagged stale.
 
+AI polity output normally gives a hex one owner. A small polity may exceed its described area at
+whole-hex resolution. Only material problems beyond area excess justify exceptional 50/50 allocation,
+returned in `sharedHexes` alongside the primary owner grid. Existing manual shares survive an AI
+update when the primary owner is unchanged; an explicit null secondary owner clears a share.
+Parent polity areas include their descendants. A pure umbrella parent has zero direct hexes.
+City sites, city-state flags, automatic polity shading and unchanged river reach guidance are retained
+by the app rather than reconstructed by the model. Renamed features can supply `previousName` to retain identity.
+
 ## The decision record
 
-Every generation asks the model for the three to eight choices that most shaped the layer — where a
-range runs and why, which cue in the brief a desert answers, why a capital sits at that river mouth,
-what it invented because the brief was silent. Those choices are kept, not just the resulting hexes.
+Generation normally returns data with no explanation. Only unavoidable conflicts, unmet requirements
+or consequential assumptions warrant a note, limited to two short sentences total. Older decision
+records remain readable and exportable. The saved hex scale, land percentages, island counts and
+per-hex overrides are supplied to the AI together with effective land fractions and measured areas.
+The latest explicit edit takes precedence over conflicting parts of the original description.
 
 - The inspector shows **why the layer being edited looks like this**, inline.
 - **decisions** in the top bar opens the whole record: every generation and instruction with the
@@ -288,9 +298,8 @@ Two choices in the dialog:
 
 - **Reply style.** *Everything in the JSON* asks for one object that carries notes and decisions too,
   and includes the full JSON Schema. *JSON for the data, decisions in the chat* is the stripped-down
-  form: the prompt lists the data fields instead of a schema, and the model writes its plan (scale,
-  each requirement of the brief as a concrete target) before a fenced JSON block and explains its
-  decisions after it. Paste the whole reply: the prose around the JSON is kept as the layer's notes.
+  form: the prompt lists data fields instead of a schema and asks for a fenced JSON block with no
+  planning preamble. Only material conflicts or consequential assumptions receive a short explanation afterwards. Paste the whole reply: the prose around the JSON is kept as the layer's notes.
 - **Several layers in one reply.** Tick any layers the map has in its plan. The shared rules and the
   brief are stated once, each layer's own rules follow in pipeline order, and the reply is one JSON
   object with a key per layer (`"base"`, `"elevation"`, …). Each layer is built on the ones written
@@ -322,12 +331,19 @@ straight run of land.
 
 River length follows the drawn centreline, including its bends and meanders, lake and sea endpoints,
 forks and confluences. Each sampled section is converted using the hex width and height in
-Settings → Map. Sinuosity is the course length divided by the straight source-to-mouth distance;
-the length already includes this winding, so no extra multiplier is applied. Changing river
+Settings → Map. Drawn sinuosity is the curve length divided by the straight source-to-mouth distance.
+Reported length then multiplies the drawn length by **1.05 × A^0.02**, where **A is the whole-hex
+area in km²**, to allow for additional bends too small to display. This is applied once, beyond
+the visible meanders, and does not change the drawing. Known physical units are converted to km²;
+leagues mean international land leagues (three miles). Custom units with no known conversion
+retain the uncorrected length. Changing river
 irregularity or manually adjusting the course updates the measurement when the map is redrawn.
 It appears in the river list, on the selected river's card, in the hover readout, and optionally in
 the exported legend.
-While drawing a new river, the unfinished draft shows an estimate along the hex centres.
+When no drawn course is available, the hex-route estimate receives the same correction.
+AI prompts assume the default tapered renderer, describe its edge crossings, smoothing and
+seeded meanders, and give the configured hex area and extra multiplier. A stated river length
+targets the corrected reported length; the intended drawn length is that target divided by the multiplier.
 
 **By instruction.** Type something like *"add a chain of volcanic islands along the eastern sea"* and
 the whole layer, plus the layers it depends on, is sent to Claude, which returns a complete

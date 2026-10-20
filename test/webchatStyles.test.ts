@@ -47,8 +47,8 @@ test('the compact prompt asks for data-only JSON and puts the decisions in the c
   const full = buildWebchatPrompt({ layer: 'elevation', pass: 'full', ctx });
 
   assert.match(compact, /no notes, no decisions/);
-  assert.match(compact, /EXPLAIN YOUR DECISIONS IN THE CHAT/);
-  assert.match(compact, /write in the chat, before the JSON,/);
+  assert.match(compact, /EXPLANATIONS: Normally none/);
+  assert.match(compact, /do not write a checklist or preamble/);
   assert.match(compact, /- "rows": Exactly 8 strings/);
   assert.doesNotMatch(compact, /JSON SCHEMA/);
   assert.doesNotMatch(compact, /RECORD YOUR DECISIONS/);
@@ -92,7 +92,7 @@ test('a multi-layer prompt states the shared rules once and every layer in pipel
   const count = (re: RegExp) => (prompt.match(re) ?? []).length;
   assert.equal(count(/^THE GRID$/gm), 1);
   assert.equal(count(/^THE BRIEF COMES FIRST$/gm), 1);
-  assert.equal(count(/^RECORD YOUR DECISIONS$/gm), 1);
+  assert.equal(count(/^EXPLANATIONS: Normally return/gm), 1);
   const order = ['LAYER 1 OF 3: BASE GEOGRAPHY', 'LAYER 2 OF 3: ELEVATION', 'LAYER 3 OF 3: POLITIES'].map((h) =>
     prompt.indexOf(h),
   );

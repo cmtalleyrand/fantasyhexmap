@@ -24,6 +24,7 @@ export const ROSTER_KEYS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
 export interface PolityRosterEntry {
   key: string;
   name: string;
+  previousName?: string;
   shortName?: string;
   /** Name of the larger polity this one is part of. */
   parent?: string;
@@ -40,6 +41,7 @@ export interface RiverRosterEntry {
   name: string;
   /** One clause on where it rises, runs and ends. No hex coordinates. */
   course: string;
+  previousName?: string;
 }
 
 export type Roster =
@@ -168,10 +170,11 @@ export function parseRoster(kind: RosterKind, input: string): Roster {
   };
 }
 
-/** A usable target size, or nothing: zero, negative and non-numeric all mean "unspecified". */
+/** A usable target size, or nothing: negative and non-numeric mean "unspecified"; zero is an umbrella target. */
 export function targetHexes(raw: unknown): { hexes?: number } {
+  if (raw == null || (typeof raw !== 'number' && (typeof raw !== 'string' || !raw.trim()))) return {};
   const n = typeof raw === 'number' ? raw : Number(raw);
-  return Number.isFinite(n) && n > 0 ? { hexes: Math.round(n) } : {};
+  return Number.isFinite(n) && n >= 0 ? { hexes: Math.round(n) } : {};
 }
 
 function splitOnce(line: string): [string, string] {
@@ -210,6 +213,7 @@ function tryParseJson(kind: RosterKind, text: string): Roster | null {
         return {
           key,
           name,
+          ...(typeof item.previousName === 'string' ? { previousName: item.previousName } : {}),
           ...(shortName ? { shortName } : {}),
           ...(parent ? { parent } : {}),
           colour: String(item.colour ?? '').trim(),
@@ -224,7 +228,8 @@ function tryParseJson(kind: RosterKind, text: string): Roster | null {
       const item = (raw ?? {}) as Record<string, unknown>;
       const name = String(item.name ?? '').trim();
       if (!name) throw new RosterParseError(`Entry ${i + 1} has no name.`);
-      return { name, course: String(item.course ?? '').trim() };
+      return { name, course: String(item.course ?? '').trim(),
+        ...(typeof item.previousName === 'string' ? { previousName: item.previousName } : {}) };
     }),
   };
 }
