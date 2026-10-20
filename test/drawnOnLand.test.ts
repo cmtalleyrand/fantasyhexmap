@@ -35,11 +35,11 @@ test('an enclosed Sea hex does not resize the surrounding mainland into a giant 
   const map = createMapState('Enclosed sea', 5, 5);
   map.id = 'named-sea';
   map.layers.base.data = Array(25).fill('Land'); map.layers.base.data![12] = 'Sea';
-  const scene = buildScene(map, { size: 40, visible: defaultVisibility(), labels: false, style: resolveStyle({ preset: 'parchment' }) });
+  const scene = buildScene(map, { size: 40, visible: defaultVisibility(), labels: false, style: resolveStyle({ preset: 'parchment', overrides: {} }) });
   const paths: PathCmd[][] = [];
   const collect = (prims: import('../src/render/prims.ts').Prim[]) => { for (const p of prims) {
     if (p.kind === 'group') collect(p.prims);
-    else if (p.kind === 'path' && p.stroke === resolveStyle({ preset: 'parchment' }).palette.coast) paths.push(p.d);
+    else if (p.kind === 'path' && p.stroke === resolveStyle({ preset: 'parchment', overrides: {} }).palette.coast) paths.push(p.d);
   } };
   collect(scene.prims);
   const centre = hexCenter(2, 2, 40);
@@ -108,7 +108,7 @@ function coastWithMountains(share: number): MapState {
 test('a coast hex with a small land share draws its peaks smaller and says so', () => {
   const visible = defaultVisibility();
   visible.elevation = true;
-  const style = resolveStyle({ preset: 'parchment' });
+  const style = resolveStyle({ preset: 'parchment', overrides: {} });
   const small = buildScene(coastWithMountains(20), { size: 40, visible, labels: false, style });
   const here = (small.compromises ?? []).filter((c) => c.hexes.includes(12));
   assert.equal(here.length, 1, 'the hex is reported');
@@ -164,7 +164,7 @@ test('the audit reports a symbol drawn over water', async () => {
   const visible = defaultVisibility();
   visible.elevation = true;
   const map = coastWithMountains(60);
-  const scene = buildScene(map, { size: 40, visible, labels: false, style: resolveStyle({ preset: 'parchment' }) });
+  const scene = buildScene(map, { size: 40, visible, labels: false, style: resolveStyle({ preset: 'parchment', overrides: {} }) });
   // A symbol in the open sea at the bottom of the map, as a regression would draw it.
   symbolsOf(scene)!.push({ hex: 17, points: [hexCenter(5, 3, 40)] });
   assert.ok(auditScene(map, scene, 40).some((i) => i.kind === 'symbol-over-water'));
@@ -179,7 +179,7 @@ test('an island hex with mountains draws them on the island', async () => {
   map.layers.elevation.data = [null, null, null, null, 'Mountains', null, null, null, null];
   const visible = defaultVisibility();
   visible.elevation = true;
-  const scene = buildScene(map, { size: 40, visible, labels: false, style: resolveStyle({ preset: 'parchment' }) });
+  const scene = buildScene(map, { size: 40, visible, labels: false, style: resolveStyle({ preset: 'parchment', overrides: {} }) });
   assert.ok((symbolsOf(scene) ?? []).some((s) => s.hex === 4), 'the island has relief');
 });
 
@@ -194,7 +194,7 @@ test('a small realm whose name will not fit on its land is named on open water b
   const visible = defaultVisibility();
   visible.elevation = true;
   visible.polities = true;
-  const scene = buildScene(map, { size: 40, visible, labels: true, polityNames: 1, style: resolveStyle({ preset: 'parchment' }) });
+  const scene = buildScene(map, { size: 40, visible, labels: true, polityNames: 1, style: resolveStyle({ preset: 'parchment', overrides: {} }) });
   const name = textPrims(scene.prims).find((t) => t.tag?.kind === 'polity' && t.tag.owner === 'a');
   assert.ok(name, 'the realm is named');
   const land = landTestOf(scene)!;

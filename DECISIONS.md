@@ -1257,3 +1257,40 @@ Both drawing commands pass with the installed checkout driver and an explicit sy
 The managed environment blocks `cdn.playwright.dev` with HTTP 403, so the standard browser download
 could not be verified here. PR #146's Drawing tests CI run (39327929544) passed the documented
 default setup and both package commands without either override.
+
+## 59. Reuse exact ice drawings and validated symbol fits
+
+**Problem.** Warm populated redraws rebuilt nine glacier-margin and sixteen pack-ice components.
+Returning to an already checked terrain revision also replayed every land probe for unchanged fits.
+
+**Chosen.** Keep glacier-margin geometry and pack-ice primitives in separate content-keyed caches,
+each limited to four entries and an estimated 8 MB including keys. Clear both when the map/size scope
+changes; `cache: 'off'` bypasses them. Keys include geometry inputs and, for pack ice, colours and drawing
+policy. Symbol fits remember at most four exact terrain revisions on which all probes were validated.
+New revisions still replay every probe, including failed placement candidates. No approximate land grid.
+
+**Cost.** Up to 16 MB additional estimated cache capacity; the symbol cache retains its existing 16 MB
+limit, accounting for the extra references. Pack weights use four times serialized length on misses;
+glacier weights count path commands, slivers and chain edges. These are estimates, not measured heap
+bounds. Failing-before tests check repeated work and compare edited scenes with uncached reconstruction.
+Final 100-run comparison against merged main passes every unchanged performance gate: warm/ownership/shore
+medians improve about 32/31/26%, and cold median costs 0.7%. See `docs/drawing-followup.md` for raw evidence,
+earlier failed configurations, output comparisons and measurement limits.
+
+## 60. Treat enclosed seas as holes in the mainland
+
+**Problem.** With only closed coasts, the even-odd land outline omitted the surrounding page when land
+lay outside the outermost shore. Separately, aggregate fitting assigned the surrounding mainland's area
+to an enclosed water boundary, inflating a one-hex sea into a map-sized circular coast. Predicate/paint
+agreement alone could not catch this shared error.
+
+**Chosen.** Use source-chain signed area (land lies on its right) to distinguish water and land enclosures.
+When only closed shores exist and the outermost encloses water, include the page in the even-odd mask.
+Only positive land enclosures qualify for island total-area fitting. Coupled fitting uses the same page
+outline. No owner's data, intended dimensions or correctly drawn island styling changes.
+
+**Validation and cost.** Two failing-before topology/extent tests pass. An independent painted-pixel sweep
+checks mainland, enclosed water and nested land-island hex centres across 200 seeds and three styles:
+400/600 baseline cases fail and none fail after correction. Existing 200 island-seed and 150 ordinary-coast
+area checks remain unchanged. Added work is a source-chain signed-area sum. Images and timings are in
+the follow-up report. This removes a misrendering; it is not an unapproved style change.

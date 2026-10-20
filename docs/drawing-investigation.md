@@ -1,5 +1,8 @@
 # Drawing investigation: first connected fixes
 
+Subsequent work: [enclosed-sea correction and exact redraw reuse](drawing-followup.md). This report
+retains the first PR's measurements and unresolved work as they stood at that boundary.
+
 Investigated initially on `18e4b3a` (#142), then rebased onto `4ff4aa8` (#143). The only rebase conflict was
 an import in `scene.ts`; #143's river length/sinuosity measurements remain intact. The owner requested a PR
 after a connected set of issues was resolved, with unfinished work explicitly recorded.
