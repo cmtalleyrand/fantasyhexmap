@@ -5,7 +5,8 @@ import { resolve } from 'node:path';
 import { launchBrowser, serveBuild } from './browser-runtime.mjs';
 const arg=(k,d)=>process.argv.includes(k)?process.argv[process.argv.indexOf(k)+1]:d;
 const output=resolve(arg('--output','work/hypotheses/extended'));mkdirSync(output,{recursive:true});
-const bundle=buildSync({stdin:{contents:`export * from './scripts/drawing-investigation-fixtures.ts'; export { createMapState } from './shared/layers.ts'; export { loadLettering } from './src/render/fontFiles.ts';`,resolveDir:resolve('.'),loader:'ts'},bundle:true,write:false,format:'iife',globalName:'api',loader:{'.woff2':'dataurl'}}).outputFiles[0].text;
+const source=resolve(arg('--source','.'));
+const bundle=buildSync({stdin:{contents:`export * from ${JSON.stringify(resolve(source,'scripts/drawing-investigation-fixtures.ts'))}; export { createMapState } from ${JSON.stringify(resolve(source,'shared/layers.ts'))}; export { loadLettering } from ${JSON.stringify(resolve(source,'src/render/fontFiles.ts'))};`,resolveDir:resolve('.'),loader:'ts'},bundle:true,write:false,format:'iife',globalName:'api',loader:{'.woff2':'dataurl'}}).outputFiles[0].text;
 const browser=await launchBrowser();
 try{
  const context=await browser.newContext();await serveBuild(context,'.',{'/api.js':bundle});const page=await context.newPage();await page.goto('http://render.test/blank');await page.addScriptTag({url:'http://render.test/api.js'});
@@ -35,8 +36,28 @@ try{
    for(const s of api.symbolsOf(scene)??[])for(const p of s.points){const k=(Math.floor(p.y*4)*c.width+Math.floor(p.x*4))*4;if(data[k]===0){failures.push({seed:map.id,point:p});break;}}
   }return{runs:200,failures,notices,drawn};
  });
+ const enclosedSeas=await page.evaluate(()=>{
+  const failures=[];let runs=0;
+  for(const preset of ['classic','parchment','atlas'])for(let n=0;n<200;n++){
+   const nested=n%2===1,span=nested?7:5,map=api.createMapState('Enclosed sea sweep',span,span);map.id=`enclosed-sea-${n}`;
+   map.layers.base.data=Array(span*span).fill('Land');
+   if(nested){for(let r=1;r<6;r++)for(let c=1;c<6;c++)map.layers.base.data[r*span+c]='Sea';map.layers.base.data[24]='Land';}
+   else map.layers.base.data[12]='Sea';
+   const o=api.options(preset,'none');o.visible={...o.visible,elevation:false,vegetation:false,polities:false,cities:false,rivers:false};o.labels=false;o.seaNames=false;
+   o.style={...o.style,knobs:{...o.style.knobs,water:'flat',grain:false,grid:'none'},palette:{...o.style.palette,sea:'#000000',land:'#ffffff',coastalLand:'#ffffff',coast:'#ffffff'}};
+   const scene=api.buildScene(map,o),canvas=document.createElement('canvas');canvas.width=Math.ceil(scene.width);canvas.height=Math.ceil(scene.height);
+   const ctx=canvas.getContext('2d');ctx.fillStyle=scene.background;ctx.fillRect(0,0,canvas.width,canvas.height);api.drawScene(ctx,scene);
+   const pixels=ctx.getImageData(0,0,canvas.width,canvas.height).data;
+   for(let i=0;i<span*span;i++){
+    const p=api.hexCenter(i%span,Math.floor(i/span),o.size),value=pixels[(Math.floor(p.y)*canvas.width+Math.floor(p.x))*4],wanted=map.layers.base.data[i]==='Land'?255:0;
+    if(value!==wanted){failures.push({preset,seed:map.id,nested,hex:i,wanted,painted:value});break;}
+   }
+   runs++;
+  }
+  return{runs,failures};
+ });
  const summary=Array.from(new Set(coverage.map(r=>r.preset))).map(preset=>{const rows=coverage.filter(r=>r.preset===preset),errors=rows.map(r=>Math.abs(r.shown-r.share)).sort((a,b)=>a-b);return{preset,cases:rows.length,medianErrorPP:errors[Math.floor(errors.length/2)],maxErrorPP:errors.at(-1),worst:rows.reduce((a,b)=>Math.abs(a.shown-a.share)>Math.abs(b.shown-b.share)?a:b)}});
- writeFileSync(resolve(output,'results.json'),JSON.stringify({coverage,summary,seedIslands},null,2));console.log(JSON.stringify({summary,seedIslands},null,2));
- if(process.argv.includes('--check')&&(seedIslands.failures.length||summary.some(r=>r.maxErrorPP>1)))throw Error('Island pixels or ordinary-coast area tolerance failed');
+ writeFileSync(resolve(output,'results.json'),JSON.stringify({coverage,summary,seedIslands,enclosedSeas},null,2));console.log(JSON.stringify({summary,seedIslands,enclosedSeas},null,2));
+ if(process.argv.includes('--check')&&(seedIslands.failures.length||enclosedSeas.failures.length||summary.some(r=>r.maxErrorPP>1)))throw Error('Island pixels, enclosed-sea topology or ordinary-coast area tolerance failed');
  await context.close();
 }finally{await browser.close();}

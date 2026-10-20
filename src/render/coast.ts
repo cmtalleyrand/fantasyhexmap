@@ -239,6 +239,14 @@ export interface CoastChain {
   closed: boolean;
 }
 
+/** Signed enclosed area: coasts run with land on the right, so negative rings enclose water. */
+export function coastChainArea(chain: CoastChain): number {
+  return chain.points.reduce((sum, a, i) => {
+    const b = chain.points[(i + 1) % chain.points.length]!;
+    return sum + a.x * b.y - b.x * a.y;
+  }, 0) / 2;
+}
+
 export interface Sliver {
   d: PathCmd[];
   /** The hex whose fill the sliver takes. */
@@ -833,8 +841,8 @@ export function drawnLand(geometry: CoastGeometry, width: number, height: number
   const out: PathCmd[] = [];
   for (const ring of drawnLandLayout(geometry, width, height, margin)) {
     if ('closed' in ring) { out.push(...geometry.paths[ring.closed]!); continue; }
-    for (const item of ring.open) {
-      if ('point' in item) out.push(['L', item.point.x, item.point.y]);
+    for (const [index, item] of ring.open.entries()) {
+      if ('point' in item) out.push([index === 0 ? 'M' : 'L', item.point.x, item.point.y]);
       else out.push(...(item.first ? geometry.paths[item.chain]! : geometry.paths[item.chain]!.slice(1)));
     }
     out.push(['Z']);
@@ -845,7 +853,7 @@ export function drawnLand(geometry: CoastGeometry, width: number, height: number
 /**
  * How `drawnLand` assembles its outlines: each closed chain is one; open chains are joined
  * end to start, and round the page's edge where the coast leaves the map. It depends on the
- * chains' ends alone, so it holds for any geometry whose chains end where these do.
+ * open chains' ends and the closed chains' orientation, so fitted paths retain the same layout.
  */
 export type DrawnLandRing = { closed: number } | { open: Array<{ chain: number; first: boolean } | { point: Point }> };
 export function drawnLandLayout(geometry: CoastGeometry, width: number, height: number, margin: number): DrawnLandRing[] {
@@ -886,6 +894,21 @@ export function drawnLandLayout(geometry: CoastGeometry, width: number, height: 
     const tail = { x: last.at(-2) as number, y: last.at(-1) as number };
     open.push({ chain: c, path, head, tail, exit: nearest(tail), entry: nearest(head) });
   });
+  // With only closed shores, the outermost ring's direction tells us what fills the
+  // page outside them. An inland sea is a hole in mainland that reaches every rim.
+  // Its negative ring needs the page as the other half of the even-odd land mask.
+  if (open.length === 0) {
+    let outerArea = 0;
+    for (const chain of geometry.chains) {
+      if (!chain.closed) continue;
+      const area = coastChainArea(chain);
+      if (Math.abs(area) > Math.abs(outerArea)) outerArea = area;
+    }
+    if (outerArea < 0) out.unshift({ open: [
+      { point: { x: x0, y: y0 } }, { point: { x: x1, y: y0 } },
+      { point: { x: x1, y: y1 } }, { point: { x: x0, y: y1 } },
+    ] });
+  }
   const ahead = (from: number, to: number) => (to - from + perimeter) % perimeter;
   /** The chains that begin where another ends: they are reached by that one, never from the page's edge. */
   const continued = new Set(

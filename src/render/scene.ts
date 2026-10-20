@@ -76,6 +76,7 @@ import {
 import {
   blobPath,
   chainEdges,
+  coastChainArea,
   alike,
   coastKey,
   drawnLand,
@@ -551,7 +552,7 @@ function cachedCoast(
       }
     }
     const boundaries = [...new Set(cells.flatMap(i => [...(boundariesByHex.get(i) ?? [])]))];
-    if (boundaries.length !== 1 || !boundaries[0]!.closed || cells.length < 2 || boundaries[0]!.edges.some(edge =>
+    if (boundaries.length !== 1 || !boundaries[0]!.closed || coastChainArea(boundaries[0]!) <= 0 || cells.length < 2 || boundaries[0]!.edges.some(edge =>
       (edge.hex !== undefined && surface.split.has(edge.hex)) || (edge.across !== undefined && surface.split.has(edge.across))) || cells.some(i => {
       const shape = shapes?.[String(i)];
       return !['Land', 'Coastal Land'].includes(base[i] ?? '') || shape?.land !== undefined || (shape?.concentration ?? 0) > 0;
