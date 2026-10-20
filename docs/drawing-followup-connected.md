@@ -1,5 +1,14 @@
 # Rounded coast and redraw continuation
 
+**Rebase update (20 October 2026).** Rebased onto main `fd8d2f6`, preserving #152's coastal seam
+fixes and #153's exact realm-boundary painting. The independent cached-geometry helper is now
+`src/render/coastPaintGeometry.ts`; main's `src/render/coastPaint.ts` remains intact. Rim clipping
+and retained donor geometry use main's `groundColour` without reintroducing translucent overlays.
+All 502 Node tests, typecheck and build pass. Focused peninsula/Wavy wash+tint checks and all 18
+realm-boundary Canvas/SVG cases pass with zero seam, band-gap or boundary errors. Performance and
+worker figures below are the retained **pre-rebase** measurements; they were not rerun or claimed
+as measurements of this rebased head.
+
 This continues the owner's gridded review on `codex/coast-redraw-followup`. The earlier
 [failed performance run](drawing-followup.md#current-validation-and-performance) remains retained;
 it does not validate the implementation described here.
