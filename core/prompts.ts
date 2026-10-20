@@ -369,7 +369,7 @@ function basePrompt(ctx: PromptContext): BuiltPrompt {
       BASE_LEGEND,
       '',
       'Land   - ordinary dry land.',
-      'Coastal Land - predominantly dry land containing a shoreline; use where the coast crosses a hex rather than following its edge.',
+      'Coastal Land - predominantly dry land on the coast; use for every mainland or large-island coastal land hex, including where the shoreline follows a hex edge.',
       'Sea    - open salt water, connected (directly or through other Sea hexes) to the edge of the map.',
       'Lake   - fresh water fully enclosed by land; a lake never touches a Sea hex.',
       'Glacier - land buried under permanent ice: an ice sheet, ice cap or mountain glacier. It is land, so it gets',
@@ -378,7 +378,7 @@ function basePrompt(ctx: PromptContext): BuiltPrompt {
       'Sea Ice - sea frozen over: pack ice or an ice shelf on salt water. It is water, so it gets no land values.',
       'Islands - a sea hex holding islands too small to need their own Land hexes: one or two large islands, or a',
       '         scatter of islets (an archipelago, skerries). A large island spanning several hexes is Land hexes',
-      '         surrounded by Sea, not this.',
+      '         in the interior, with Coastal Land around the shore, not this.',
       'Mainland and islands - a hex that is part mainland coast and part sea, with islands just off the shore.',
       'Isthmus - a narrow neck of land joining two land masses, with water on both sides (sea or lake).',
       'Strait - a narrow channel of water joining two seas or lakes, with land on both sides.',
@@ -388,6 +388,10 @@ function basePrompt(ctx: PromptContext): BuiltPrompt {
     '',
     section('GEOGRAPHIC SENSE', [
       '- Coastlines are continuous and irregular: bays, peninsulas, headlands. Not a rectangle of land in a rectangle of sea.',
+      '- Assign every coastal land hex a coastal base geography: Coastal Land for mainland and large-island shores,',
+      '  Mainland and islands for a mainland shore with offshore islands, or Islands for small islands and archipelagos.',
+      '  This includes land hexes bordering Sea or Sea Ice and shores at the map edge where the surrounding ring is water.',
+      '  Never leave a coastal land hex as ordinary Land, even when its shoreline follows a hex edge. Keep inland hexes as Land.',
       '- Seas connect to the map edge. An enclosed body of water surrounded by land is a Lake, however large.',
       '- Lakes sit inland, usually in lowlands or between highlands, and are small - one to a few hexes - unless the brief makes one larger.',
       '- Ice belongs at the northern or southern edge of the map, or on high ground if the brief says so: Glacier on land, Sea Ice on the water beside it.',
@@ -674,10 +678,6 @@ function riverSummary(rivers: RiversData): string[] {
   );
 }
 
-function suggestedRiverCount(ctx: PromptContext): number {
-  return Math.max(2, Math.round((ctx.cols * ctx.rows) / 110));
-}
-
 function riverDrawingRules(ctx: PromptContext): string {
   const dims = ctx.hexDimensions ?? DEFAULT_HEX_DIMENSIONS;
   const area = riverHexAreaKm2(dims);
@@ -712,7 +712,6 @@ function riverDrawingRules(ctx: PromptContext): string {
 }
 
 function riversPrompt(ctx: PromptContext): BuiltPrompt {
-  const suggested = suggestedRiverCount(ctx);
   const system = [
     'You are a hydrologist laying out the river systems of a fantasy hex map.',
     '',
@@ -746,8 +745,8 @@ function riversPrompt(ctx: PromptContext): BuiltPrompt {
       '- Do not run two rivers along the same hexes. A tributary is its own river whose path stops on the first hex',
       '  of the trunk river it reaches; set "joins" to the trunk\'s name. A large river may split into a delta near the',
       '  sea: each extra arm is its own river starting on a hex of the main river, with "branchOf" set to its name.',
-      `- Unless the brief says how many rivers there are, aim for about ${suggested} named rivers on a map this size, of varied`,
-      '  length. Every river the brief names must appear, running where the brief says and at the length it gives.',
+      '- Unless the brief specifies a river count, choose the number of rivers from the terrain, climate and drainage basins; there is no fixed count or quota.',
+      '  Use varied lengths. Every river the brief names must appear, running where the brief says and at the length it gives.',
     ]),
     '',
     section('NAVIGABILITY', [
@@ -1171,15 +1170,14 @@ function politiesPaintPrompt(ctx: PromptContext, roster: Roster | null): BuiltPr
 }
 
 function riversRosterPrompt(ctx: PromptContext): BuiltPrompt {
-  const suggested = suggestedRiverCount(ctx);
   const system = [
     'You are a hydrologist planning the river systems of a fantasy hex map.',
     '',
     section('WHAT YOU ARE DOING', [
       'This is the first of two passes. Decide WHAT rivers this map has - their names and roughly where each one',
       'runs - and nothing else. Do not return any hex coordinates; a later pass traces the actual paths.',
-      `Unless the brief says how many rivers there are, aim for about ${suggested} named rivers on a map this size, of varied`,
-      'length. Every river the brief names must appear, running where the brief says and at the length it gives.',
+      'Unless the brief specifies a river count, choose the number of rivers from the terrain, climate and drainage basins; there is no fixed count or quota.',
+      'Use varied lengths. Every river the brief names must appear, running where the brief says and at the length it gives.',
       'Every river must rise in high ground or flow out of a Lake, and end at a Sea, a Lake, another river (a tributary) or the edge of the map. Say which, for each. A delta arm splits from a named river.',
       'Longer rivers gather in valleys and lowlands; short torrents run straight off coastal ranges.',
       'Name rivers in a style consistent with the brief.',
