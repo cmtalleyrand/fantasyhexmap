@@ -26,6 +26,7 @@ export function coastPaintPaths(patches: Sliver[]): Map<number, PathCmd[]> {
  * Extend donor ground to the FINAL shore, including movement during area fitting.
  * A union of convex patches cannot cancel itself when the swept
  * ribbon folds at a cape. Consumers must clip it to the final land silhouette.
+ * These are donor fill envelopes, not exclusive political ownership regions.
  */
 export function coastPaintPatches(geometry: CoastGeometry, size: number): Sliver[] {
   if (!geometry.component) return geometry.toLand;
