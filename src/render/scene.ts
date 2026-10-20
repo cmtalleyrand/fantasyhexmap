@@ -1458,6 +1458,7 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
     }
     // The notches the hex grid leaves at the page's edge belong to the border
     // hex beside them: what it is, they are, so nothing stops short of the rim.
+    const rimLand: Prim[] = [];
     for (let i = 0; i < base.length; i++) {
       const col = i % cols;
       const row = Math.floor(i / cols);
@@ -1475,8 +1476,14 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
         }
         const donor = split ? split.donors[6 + piece.edge]! : i;
         const fill = groundColour(donor);
-        prims.push({ kind: 'path', d: polygonPath(piece.points), fill, stroke: fill, strokeWidth: seal });
+        rimLand.push({ kind: 'path', d: polygonPath(piece.points), fill, stroke: fill, strokeWidth: seal });
       }
+    }
+    // Border-hex ownership does not make its whole rim notch dry. The final
+    // coast may cut through it just as it cuts through the original hex fill.
+    if (rimLand.length) {
+      if (coast?.component) prims.push({ kind: 'group', clip: drawnCoastLand(), clipRule: 'evenodd', prims: rimLand });
+      else prims.push(...rimLand);
     }
     // Clip the original sea fills too: their sealing strokes can otherwise leave tiny
     // traces of old hex edges inside the new coastline, even when later patches are clipped.

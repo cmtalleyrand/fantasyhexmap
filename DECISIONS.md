@@ -1373,3 +1373,12 @@ compatibility path; new users already start in Parchment. Continue retiring its 
 legacy preference paths with a deliberate migration, rather than further Classic-specific styling.
 Do not silently restyle saved choices or disable its correctness checks. See the owner-review note
 in `docs/drawing-next-agent.md`.
+
+## 66. Clip border-notch land to the finished coast
+
+The owner's visual review rejected detached land fragments at the synthetic fixture's page edge.
+A Canvas render confirms the same defect as the SVG image: land fills for rim notches bypass the
+finished-coast clip used by ordinary land. Group those fills under the same even-odd land clip for
+component coasts. This removes painted spill without moving the coast or changing owner data.
+The updated uniform-land Canvas preview shows the correction; the earlier passing suite is not
+claimed as validation of this later visual fix.

@@ -49,8 +49,11 @@ The connected failures from the previous handoff were repaired in `f67ca94`, aft
 
 The owner confirmed that the small Parchment coastline difference is relevant, but the synthetic
 before image's stray land at the map boundary is not representative of their map. Do not describe
-those synthetic/SVG screenshots as captures of the owner's before view. Diagnose boundary fragments
-through the actual Canvas/export path before attributing them to owner data or approving their shape.
+those synthetic/SVG screenshots as captures of the owner's before view. A direct Canvas render confirmed
+the rim-fill defect: un-clipped land assigned to border notches could cross the final coast. Rim land
+fills are now clipped to that coast, removing the detached edge fragments without changing land geometry.
+The uniform-default Canvas preview records this visual correction; prior suite results do not validate
+this later change. Do not attribute diagnostic artifacts to owner data.
 
 All preset defaults now use `land: 'uniform'`: coastal land has the same colour as inland land.
 Explicit `land: 'band'` overrides remain available. This is the owner's requested display default,
