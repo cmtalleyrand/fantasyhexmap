@@ -36,7 +36,7 @@ test('island land queries agree with the finished irregular island paths', () =>
   const paths: Extract<Prim, { kind: 'path' }>[] = [];
   const visit = (prims: Prim[]) => { for (const p of prims) {
     if (p.kind === 'group') visit(p.prims);
-    if (p.kind === 'path' && p.fill === opts.style.palette.island) paths.push(p);
+    if (p.kind === 'path' && p.fill === ((opts.uniformLand ?? opts.style.knobs.land === 'uniform') ? opts.style.palette.land : opts.style.palette.island) && p.stroke === undefined) paths.push(p);
   } };
   visit(scene.prims);
   assert.ok(paths.length > 0, 'painted island paths found');
@@ -84,6 +84,24 @@ test('a low-share open coast has no fold-back loops after roughening', () => {
     if(cross(a,b,c)*cross(a,b,d)<-1e-8&&cross(c,d,a)*cross(c,d,b)<-1e-8)crossings++;
   }
   assert.equal(crossings, 0, 'coast ink must not cross itself into a knot');
+  // Read the finished contour over a four-unit arc on each side, independently
+  // of the loop cleanup and fitter. The rejected cape turned about 143 degrees.
+  let worstTurn=0;
+  for(const ring of rings)for(let i=1;i+1<ring.length;i++) {
+    const p=ring[i]!;
+    if(p.x<155||p.x>195||p.y<120)continue;
+    const along=(direction:number)=>{
+      let j=i,length=0;
+      while(j+direction>=0&&j+direction<ring.length&&length<opts.size*.1){
+        const a=ring[j]!,b=ring[j+direction]!;length+=Math.hypot(b.x-a.x,b.y-a.y);j+=direction;
+      }
+      return ring[j]!;
+    };
+    const a=along(-1),b=along(1),ux=p.x-a.x,uy=p.y-a.y,vx=b.x-p.x,vy=b.y-p.y;
+    worstTurn=Math.max(worstTurn,Math.abs(Math.atan2(ux*vy-uy*vx,ux*vx+uy*vy))*180/Math.PI);
+  }
+  assert.ok(worstTurn<110,`low-share cape is pinched into a ${worstTurn.toFixed(1)} degree turn`);
+
 });
 
 test('stopping plateau escarpments at water does not produce a compromise notice', () => {

@@ -118,3 +118,19 @@ test('unchanged placement inputs reuse every search, while marker, font and terr
   assert.ok(landResult.profile.counters['symbols.searches']! > 0);
   assert.deepEqual(landResult.scene, buildStaticScene(lake, { ...marker, cache: 'off' }));
 });
+
+
+test('unchanged island drawings reuse layouts and outlines while shape edits invalidate them', () => {
+  const map=createMapState('Island drawing reuse',5,4), options=editOptions();
+  map.layers.base.data=Array(20).fill('Sea');map.layers.base.data![6]='Islands';
+  map.islandSpecs={'6':{large:1,small:2}};
+  profiled(map,options);
+  const warm=profiled(structuredClone(map),{...options,polityOpacity:.3});
+  assert.equal(warm.profile.counters['islands.drawingBuilds']??0,0);
+  assert.ok(warm.profile.counters['islands.drawingHits']!>0);
+  assert.deepEqual(warm.scene,buildStaticScene(map,{...options,polityOpacity:.3,cache:'off'}));
+  const edited=structuredClone(map);edited.islandSpecs!['6']={large:2,small:1};
+  const changed=profiled(edited,options);
+  assert.ok(changed.profile.counters['islands.drawingBuilds']!>0);
+  assert.deepEqual(changed.scene,buildStaticScene(edited,{...options,cache:'off'}));
+});

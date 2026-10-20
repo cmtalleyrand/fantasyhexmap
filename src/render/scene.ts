@@ -1,3 +1,4 @@
+import { IslandDrawingCache, type DrawnIsle as Isle } from './islandDrawingCache.js';
 import { BoundedMemo, renderCachesEnabled, withRenderCaches } from './cache.js';
 import { cachedPlacement, clearPlacementCache } from './placementCache.js';
 import { profileCount, profileTime, profilePhases } from './profile.js';
@@ -126,7 +127,7 @@ import { coastPaintPatches, coastPaintPaths } from './coastPaint.js';
 import { realmBoundary } from './realmBoundary.js';
 import { boundsOf, intersects, type Bounds } from './bounds.js';
 import { CLASSIC_STYLE, type ElevationStyle, type MapStyle } from './styles.js';
-import { extendToRim, rimPieces } from './rim.js';
+import { extendCoastToRim, extendToRim, rimPieces } from './rim.js';
 import { grainTile } from './texture.js';
 
 export type { CitySymbol, PathCmd, Prim } from './prims.js';
@@ -390,7 +391,7 @@ let terrainRevisionNumber = 0;
 const shapeMemo: ShapeMemo = new Map();
 
 /** The size islands are drawn at to cover their share, by everything that fixes their shape (see `islandScale`). */
-const islandScaleMemo = new Map<string, number>();
+const islandDrawings = new IslandDrawingCache();
 
 let sceneCacheScope = '';
 function prepareSceneCacheScope(map: MapState, size: number): void {
@@ -399,7 +400,7 @@ function prepareSceneCacheScope(map: MapState, size: number): void {
   if (scope === sceneCacheScope) return;
   sceneCacheScope = scope;
   coastCache.clear(); coastComponents.clear(); coastFits.clear(); glacierMargins.clear(); packIceDrawings.clear(); symbolPlacements.clear(); terrainRevisions.clear();
-  symbolFits = new WeakMap(); clearPlacementCache(); shapeMemo.clear(); islandScaleMemo.clear();
+  symbolFits = new WeakMap(); clearPlacementCache(); shapeMemo.clear(); islandDrawings.clear();
 }
 
 /** The numerical solve and its stopping tests couple all fitting rings. Its exact
@@ -581,7 +582,14 @@ function cachedCoast(
   const trace = (shares: ReadonlyMap<number, ShapeTarget>) => {
     profileCount('coast.traces');
     const shaped = shares.size > 0 ? profileTime('coast.shape', () => shapeCoast(seaEdges, surface, size, shares, lakeEdges, memo)) : null;
-    return { shaped, geometry: profileTime('coast.silhouette', () => coastGeometryOf(shaped?.edges ?? seaEdges, smooth, rough, shaped ?? undefined, { cache: coastComponents, policyKey: JSON.stringify([seed, cols, rows, size]) })) };
+    let geometry = profileTime('coast.silhouette', () => coastGeometryOf(shaped?.edges ?? seaEdges, smooth, rough, shaped ?? undefined, { cache: coastComponents, policyKey: JSON.stringify([seed, cols, rows, size]) }));
+    if (geometry.component) {
+      const bounds = gridPixelSize(cols, rows, size);
+      const paths=[...geometry.paths];
+      for(let k=0;k<paths.length;k++)paths[k]=extendCoastToRim(paths[k]!,geometry.chains[k]!.closed,bounds,size,paths.filter((_,j)=>j!==k));
+      geometry = { ...geometry, paths };
+    }
+    return { shaped, geometry };
   };
   let { shaped, geometry } = trace(targets);
   // Fit the final outline and stroke, not requested area plus signed correction
@@ -1526,16 +1534,6 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
     const side = spec.side ?? coastalIslandSide(base!, cols, rows, i);
     return (side * Math.PI) / 3;
   };
-  interface Isle {
-    c: Point;
-    rx: number;
-    ry: number;
-    axis: number;
-    /** A large island (it takes the large-island share) rather than a small one. */
-    large: boolean;
-    /** How much of the usual share of its kind this island takes (islands of a kind average 1), so that islands differ in size. */
-    weight?: number;
-  }
   /**
    * Islands laid in one of nature's patterns (see `IslandArrangement`), about `centre`, running along
    * `grain`. Only the places, shapes and turn of each island are set here; its size comes from its share.
@@ -1721,7 +1719,7 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
       const toward = coastward(i, islandSpecFor(base![i], map.islandSpecs?.[String(i)]));
       return { x: c.x + Math.cos(toward) * size * 0.5, y: c.y + Math.sin(toward) * size * 0.5 };
     }
-    const biggest = sizedIsles(i).sort((a, b) => b.rx * b.ry - a.rx * a.ry)[0];
+    const biggest = sizedIsles(i).slice().sort((a, b) => b.rx * b.ry - a.rx * a.ry)[0];
     return biggest?.c ?? c;
   };
   const dimensions = normaliseHexDimensions(map.hexDimensions);
@@ -1752,7 +1750,15 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
    * keeps the hex's share); islands kept clear of the polygon were crowded off land that is
    * water as drawn, and drawn far smaller than their share.
    */
-  const mainlandNear = (i: number): ((p: Point) => { dist: number; at: Point }) | null => {
+  type MainlandDistance = (p: Point) => { dist: number; at: Point };
+  const mainlandDistances = new Map<number, MainlandDistance | null>();
+  const mainlandNear = (i: number): MainlandDistance | null => {
+    if (mainlandDistances.has(i)) return mainlandDistances.get(i)!;
+    const near = buildMainlandDistance(i);
+    mainlandDistances.set(i, near);
+    return near;
+  };
+  const buildMainlandDistance = (i: number): MainlandDistance | null => {
     const polys = mainlandOf(i);
     if (polys.length === 0) return null;
     if (!coast?.component || !seaCoastLand) return (p) => nearestOn(p, polys);
@@ -1949,8 +1955,6 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
     return { isles: isles.map((s, k) => ({ ...s, c: { x: centre.x + at[k]!.x, y: centre.y + at[k]!.y } })), crowd };
   };
   const sizedIslesAt = (i: number, times: number): Isle[] => layoutAt(i, times, islandFloor(i)).isles;
-  /** The islands of an island hex, as closed paths, for islands drawn `times` their share. */
-  const islandPathAt = (i: number, times: number): PathCmd[] => islandPathFrom(i, sizedIslesAt(i, times));
   const islandPathFrom = (i: number, isles: Isle[]): PathCmd[] => {
     const rand = islandRand(i);
     const blob = knobs.islands === 'blob';
@@ -2011,7 +2015,7 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
     if (base![i] === 'Mainland and islands') mainlandNear(i);
     const mainland = base![i] === 'Mainland and islands' ? [...mainlandOf(i).map((ring) => ring.map(q => [q.x, q.y])), mainlandKeys.get(i) ?? ''] : [];
     const memoKey = JSON.stringify([size, seed, inkReach, i, cols, levelOf(i), knobs.islands, spec, coastward(i, spec), want, dimensions.largeIslandPercent, dimensions.smallIslandPercent, mainland]);
-    let times = renderCachesEnabled() ? islandScaleMemo.get(memoKey) : undefined;
+    let times = islandDrawings.scale(memoKey);
     if (times === undefined) {
       times = 1;
       const floor = islandFloor(i);
@@ -2057,19 +2061,28 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
         // Islands that cannot all fit at their share are drawn smaller, not run together.
         times = fits > 0 && over < Infinity ? Math.min(best.t, fits) : best.t;
       }
-      if (renderCachesEnabled() && islandScaleMemo.size > 20000) islandScaleMemo.clear();
-      if (renderCachesEnabled()) islandScaleMemo.set(memoKey, times);
+      islandDrawings.setScale(memoKey, times);
     }
     islandScales.set(i, times);
     return times;
   };
-  const sizedIsles = (i: number): Isle[] => sizedIslesAt(i, islandScale(i));
-  const islandPaths = new Map<number, PathCmd[]>();
-  const islandPath = (i: number): PathCmd[] => {
-    let path = islandPaths.get(i);
-    if (!path) islandPaths.set(i, path = islandPathAt(i, islandScale(i)));
-    return path;
+  const drawings = new Map<number, { isles: Isle[]; path: PathCmd[] }>();
+  const islandDrawing = (i: number) => {
+    let drawing = drawings.get(i);
+    if (drawing) return drawing;
+    drawing = islandDrawings.drawing(symbolLandRevision.id, i);
+    if (drawing) profileCount('islands.drawingHits');
+    else {
+      profileCount('islands.drawingBuilds');
+      const isles = sizedIslesAt(i, islandScale(i));
+      drawing = { isles, path: islandPathFrom(i, isles) };
+      islandDrawings.setDrawing(symbolLandRevision.id, i, drawing);
+    }
+    drawings.set(i, drawing);
+    return drawing;
   };
+  const sizedIsles = (i: number): Isle[] => islandDrawing(i).isles;
+  const islandPath = (i: number): PathCmd[] => islandDrawing(i).path;
 
   /** Whether a point is land as drawn: the coast's land, or one of the islands of an island hex. */
   const isleMemo = new Map<number, (p: Point) => boolean>();

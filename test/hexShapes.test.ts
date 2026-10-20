@@ -291,7 +291,7 @@ test('irregularity changes how islands are drawn and a land share changes how bi
     const walk = (list: Prim[]) => {
       for (const p of list) {
         if (p.kind === 'group') walk(p.prims);
-        else if (p.kind === 'path' && p.fill === smooth.palette.island) for (const c of p.d) if (c[0] !== 'Z') xs.push(c[c.length - 2] as number);
+        else if (p.kind === 'path' && p.fill === (smooth.knobs.land === 'uniform' ? smooth.palette.land : smooth.palette.island) && p.stroke === undefined) for (const c of p.d) if (c[0] !== 'Z') xs.push(c[c.length - 2] as number);
       }
     };
     walk(prims);
@@ -315,7 +315,7 @@ function visibleIslandPercent(map: MapState, size: number, style: ReturnType<typ
   const collect = (prims: Prim[]) => {
     for (const prim of prims) {
       if (prim.kind === 'group') collect(prim.prims);
-      else if (prim.kind === 'path' && prim.fill === style.palette.island) paths.push(...prim.d);
+      else if (prim.kind === 'path' && prim.fill === (style.knobs.land === 'uniform' ? style.palette.land : style.palette.island) && prim.stroke === undefined) paths.push(...prim.d);
     }
   };
   collect(buildScene(map, { size, visible: defaultVisibility(), labels: false, style }).prims);
@@ -379,7 +379,7 @@ test('islands are drawn smaller when the coastline has ink, so the outline is in
   const bare = resolveStyle({ preset: 'parchment', overrides: { coast: 'none' } });
   const fillOf = (style: typeof inked) => {
     const paths: PathCmd[] = [];
-    const collect = (prims: Prim[]) => prims.forEach((p) => (p.kind === 'group' ? collect(p.prims) : p.kind === 'path' && p.fill === style.palette.island ? paths.push(...p.d) : undefined));
+    const collect = (prims: Prim[]) => prims.forEach((p) => (p.kind === 'group' ? collect(p.prims) : p.kind === 'path' && p.fill === (style.knobs.land === 'uniform' ? style.palette.land : style.palette.island) && p.stroke === undefined ? paths.push(...p.d) : undefined));
     collect(buildScene(map, { size: 30, visible: defaultVisibility(), labels: false, style }).prims);
     return coveredArea(pathPolylines(paths, 12), hexCorners(0, 0, 30), 300);
   };
@@ -409,7 +409,7 @@ test('islands in a scattered group share one grain, and a chain runs with the co
     const collect = (prims: Prim[]) => {
       for (const p of prims) {
         if (p.kind === 'group') collect(p.prims);
-        else if (p.kind === 'path' && p.fill === smooth.palette.island) {
+        else if (p.kind === 'path' && p.fill === (smooth.knobs.land === 'uniform' ? smooth.palette.land : smooth.palette.island) && p.stroke === undefined) {
           for (const ring of pathPolylines(p.d, 6)) {
             found.push({ x: ring.reduce((a, q) => a + q.x, 0) / ring.length, y: ring.reduce((a, q) => a + q.y, 0) / ring.length });
           }
@@ -706,7 +706,7 @@ test('coast ink counts as land: a full coastal hex has its coastline inside it, 
   const gather = (prims: Prim[]) => {
     for (const p of prims) {
       if (p.kind === 'group') gather(p.prims);
-      else if (p.kind === 'path' && p.fill === smooth.palette.island) rings.push(...pathPolylines(p.d, 8));
+      else if (p.kind === 'path' && p.fill === (smooth.knobs.land === 'uniform' ? smooth.palette.land : smooth.palette.island) && p.stroke === undefined) rings.push(...pathPolylines(p.d, 8));
     }
   };
   gather(buildScene(isles, { size, visible: defaultVisibility(), labels: false, style: smooth }).prims);
@@ -730,7 +730,7 @@ test('a new random layout moves and reshapes the islands, not just turns the sam
     const gather = (prims: Prim[]) => {
       for (const p of prims) {
         if (p.kind === 'group') gather(p.prims);
-        else if (p.kind === 'path' && p.fill === smooth.palette.island) rings.push(...pathPolylines(p.d, 8));
+        else if (p.kind === 'path' && p.fill === (smooth.knobs.land === 'uniform' ? smooth.palette.land : smooth.palette.island) && p.stroke === undefined) rings.push(...pathPolylines(p.d, 8));
       }
     };
     gather(scene(map).prims);

@@ -219,7 +219,7 @@ test('editing one hex leaves the decoration of distant hexes unchanged', () => {
   edited.layers.base.data![hexIndex(map.cols, 0, 0)] = 'Islands';
   const after = buildScene(edited, { size: 20, visible: defaultVisibility(), labels: false, style });
   const islet = (scene: typeof before, c: { x: number; y: number }) =>
-    scene.prims.filter((p) => p.kind === 'path' && p.fill === style.palette.island)
+    scene.prims.filter((p) => p.kind === 'path' && p.fill === (style.knobs.land === 'uniform' ? style.palette.land : style.palette.island) && p.stroke === undefined)
       .map((p) => JSON.stringify((p as { d: PathCmd[] }).d))
       .filter((d) => {
         const first = JSON.parse(d)[0] as [string, number, number];
@@ -622,7 +622,7 @@ test('an Islands hex draws the islands its spec asks for, inside its hex, coasta
     for (const preset of PRESET_ORDER) {
       const style = resolveStyle({ preset, overrides: {} });
       const prims = buildScene(map, { size, visible: defaultVisibility(), labels: false, style }).prims;
-      const land = prims.filter((p): p is Extract<Prim, { kind: 'path' }> => p.kind === 'path' && p.fill === style.palette.island);
+      const land = prims.filter((p): p is Extract<Prim, { kind: 'path' }> => p.kind === 'path' && p.fill === (style.knobs.land === 'uniform' ? style.palette.land : style.palette.island) && p.stroke === undefined);
       assert.equal(land.length, 1, `${JSON.stringify(spec)} (${preset}) draws its islands as one shape`);
       const subpaths = land[0]!.d.filter((c) => c[0] === 'M').length;
       assert.equal(subpaths, spec.large + spec.small, `${JSON.stringify(spec)} (${preset}) island count`);
@@ -692,7 +692,7 @@ test('an isthmus is a neck of land, a strait a channel of water, and a mainland 
   const style = resolveStyle({ preset: 'parchment', overrides: {} });
   const prims = buildScene(map, { size, visible: defaultVisibility(), labels: false, style }).prims;
   // The islands are one unstroked shape; land a hex has grown over the water is stroked, in the same colour.
-  const isles = prims.filter((p): p is Extract<Prim, { kind: 'path' }> => p.kind === 'path' && p.fill === style.palette.island && p.stroke === undefined);
+  const isles = prims.filter((p): p is Extract<Prim, { kind: 'path' }> => p.kind === 'path' && p.fill === (style.knobs.land === 'uniform' ? style.palette.land : style.palette.island) && p.stroke === undefined);
   const pts = isles[0]!.d.filter((q) => q[0] === 'M').map((q) => ({ x: q[1] as number, y: q[2] as number }));
   assert.equal(pts.length, 3);
   for (const q of pts) assert.ok(q.x > c.x - size * 0.2, 'the islands lie off the mainland, in the water');
