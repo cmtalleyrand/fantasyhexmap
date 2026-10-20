@@ -51,6 +51,37 @@ test('unchanged glacier margins reuse their exact geometry and invalidate on ter
   const sea = structuredClone(map); sea.layers.base.data![7] = 'Sea'; check(sea);
   const resized = structuredClone(map); check(resized, { ...options, size: options.size + 1 });
 });
+test('returning to an already validated land revision does not replay unchanged symbol probes', () => {
+  const map = createMapState('Symbol revision reuse', 5, 4), options = editOptions();
+  map.layers.base.data = Array(20).fill('Land'); map.layers.base.data![19] = 'Sea';
+  map.layers.elevation.data = Array(20).fill(null); map.layers.elevation.data![6] = 'Hills';
+  profiled(map, options);
+  const changed = structuredClone(map); changed.layers.base.data![19] = 'Sea Ice';
+  const validated = profiled(changed, options);
+  assert.ok(validated.profile.counters['symbols.revalidatedFits']! > 0);
+  const again = profiled(structuredClone(map), options);
+  assert.equal(again.profile.counters['symbols.revalidatedFits'] ?? 0, 0);
+  assert.deepEqual(again.scene, buildStaticScene(map, { ...options, cache: 'off' }));
+});
+test('pack ice reuses its exact drawing and invalidates on shore, roughness and appearance edits', () => {
+  const map = createMapState('Pack ice cache', 5, 4), options = editOptions();
+  map.layers.base.data = Array(20).fill('Sea');
+  map.layers.base.data![6] = 'Sea Ice'; map.layers.base.data![7] = 'Sea Ice';
+  profiled(map, options);
+  const warm = profiled(structuredClone(map), { ...options, polityOpacity: .3 });
+  assert.equal(warm.profile.counters['coast.componentBuilds'] ?? 0, 0);
+  assert.equal(warm.profile.counters['ice.packHits'], 1);
+  assert.deepEqual(warm.scene, buildStaticScene(map, { ...options, polityOpacity: .3, cache: 'off' }));
+  const check = (changed: typeof map, opts = options) => {
+    const result = profiled(changed, opts);
+    assert.equal(result.profile.counters['ice.packBuilds'], 1);
+    assert.deepEqual(result.scene, buildStaticScene(structuredClone(changed), { ...opts, cache: 'off' }));
+  };
+  const shore = structuredClone(map); shore.layers.base.data![1] = 'Land'; check(shore);
+  const rough = structuredClone(map); rough.defaultIrregularity = 'Fractured'; check(rough);
+  check(map, { ...options, style: { ...options.style!, palette: { ...options.style!.palette, seaIce: '#c0c0ee' } } });
+  check(map, { ...options, style: { ...options.style!, knobs: { ...options.style!.knobs, ice: 'flat' } } });
+});
 test('incremental rebuilds equal uncached rebuilds after merges, splits, settings, islands, hierarchy and obstacle edits', () => {
   const cases = editCases();
   const island = cases.find(c => c.name === 'placement/islands')!.map;

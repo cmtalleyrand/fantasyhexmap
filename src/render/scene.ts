@@ -377,10 +377,11 @@ const coastCache = new BoundedMemo<TracedCoast>(4, 20_000_000);
 const coastComponents = new BoundedMemo<CoastComponentRecord>(192, 16_000_000);
 const coastFits = new BoundedMemo<Pick<CoastGeometry, 'paths' | 'anchors'>>(8, 12_000_000);
 const glacierMargins = new BoundedMemo<CoastGeometry>(4, 8_000_000);
+const packIceDrawings = new BoundedMemo<Prim[]>(4, 8_000_000);
 
 /** The sea predicate can be reused with a traced coast; symbol fitting has a separate land dependency below. */
 let symbolFits = new WeakMap<object, { dry: ((p: Point) => boolean) | null }>();
-interface SymbolFitRecord { revision: { id: number }; fit: Fitted; probes: Array<{ at: Point; land: boolean }> }
+interface SymbolFitRecord { revisions: Array<{ id: number }>; fit: Fitted; probes: Array<{ at: Point; land: boolean }> }
 const symbolPlacements = new BoundedMemo<SymbolFitRecord>(10000, 16_000_000);
 const terrainRevisions = new BoundedMemo<{ id: number }>(4, 1_000_000);
 let terrainRevisionNumber = 0;
@@ -397,7 +398,7 @@ function prepareSceneCacheScope(map: MapState, size: number): void {
   const scope = JSON.stringify([map.id, map.cols, map.rows, size]);
   if (scope === sceneCacheScope) return;
   sceneCacheScope = scope;
-  coastCache.clear(); coastComponents.clear(); coastFits.clear(); glacierMargins.clear(); symbolPlacements.clear(); terrainRevisions.clear();
+  coastCache.clear(); coastComponents.clear(); coastFits.clear(); glacierMargins.clear(); packIceDrawings.clear(); symbolPlacements.clear(); terrainRevisions.clear();
   symbolFits = new WeakMap(); clearPlacementCache(); shapeMemo.clear(); islandScaleMemo.clear();
 }
 
@@ -948,9 +949,14 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
   ): Fitted => {
     const cacheKey = `${seed}/${cols}/${rows}/${size}/${key}`;
     const known = symbolPlacements.get(cacheKey);
-    if (known && (known.revision === symbolLandRevision || known.probes.every(p => onLand(p.at) === p.land))) {
-      if (known.revision !== symbolLandRevision) profileCount('symbols.revalidatedFits');
-      known.revision = symbolLandRevision;
+    if (known && (known.revisions.includes(symbolLandRevision) || known.probes.every(p => onLand(p.at) === p.land))) {
+      if (!known.revisions.includes(symbolLandRevision)) {
+        profileCount('symbols.revalidatedFits');
+        // Retain exact validation for the same four content revisions as terrainRevisions.
+        // Undo/redo need not replay every failed candidate in an unchanged fit again.
+        known.revisions.push(symbolLandRevision);
+        if (known.revisions.length > 4) known.revisions.shift();
+      }
       profileCount('symbols.cacheHits');
       return { ...known.fit, placed: refit(draw, known.fit, size) };
     }
@@ -963,7 +969,7 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
       return land;
     }, inHex);
     const fit = { ...fitted, placed: [] };
-    symbolPlacements.set(cacheKey, { revision: symbolLandRevision, fit, probes }, probes.length * 48 + 128);
+    symbolPlacements.set(cacheKey, { revisions: [symbolLandRevision], fit, probes }, probes.length * 48 + 192);
     return fitted;
   };
   /** Records a hex whose symbols (`what`, such as "hills symbols") were drawn smaller than asked, or left out. */
@@ -2185,8 +2191,13 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
     const drawn: Prim[] = [];
     if (iceHexes.length > 0) {
       const margin = size * 2;
-      drawn.push(
-        ...seaIcePrims({
+      const packKey = JSON.stringify([seed, cols, rows, size, base, sides, map.hexShapes, map.defaultIrregularity,
+        iceColours, texturedIce, knobs.coast]);
+      let pack = packIceDrawings.get(packKey);
+      if (pack) profileCount('ice.packHits');
+      else {
+        profileCount('ice.packBuilds');
+        pack = seaIcePrims({
           cols,
           rows,
           size,
@@ -2199,8 +2210,11 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
           textured: texturedIce,
           organic: knobs.coast === 'smooth',
           noise: iceNoise,
-        }),
-      );
+        });
+        // Conservative payload estimate, paid only on a cold pack build; keys count separately.
+        packIceDrawings.set(packKey, pack, JSON.stringify(pack).length * 4);
+      }
+      drawn.push(...pack);
     }
     // Bergs break off the glacier's coast, more of them the more irregular it is.
     if (texturedIce && knobs.coast === 'smooth' && glacierHexes.length > 0 && !thematic) drawn.push(...floeFringe(coastLines, size, seed, nearGlacier, iceColours));
