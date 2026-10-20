@@ -6,7 +6,7 @@ import * as z from 'zod/v4';
 
 import { decodeLayer } from '../core/decode.js';
 import { colKey, keyedToRows, rowKey } from '../core/grid.js';
-import { flattenGrid, generateLayer, parseResponse, withBriefRecorded } from '../core/pipeline.js';
+import { flattenGrid, generateLayer, parseResponse } from '../core/pipeline.js';
 import { buildPrompt, type PromptContext } from '../core/prompts.js';
 import { ElevationResponse, PolitiesPaintResponse } from '../core/schemas.js';
 
@@ -54,12 +54,10 @@ function keyed(rows: string[], split: (row: string) => string[] = (r) => Array.f
 
 const ROW_STRINGS = ['wwwww', 'wrrhw', 'whHMw', 'wwwww'];
 
-const brief = {
-  scale: '~50 km per hex, from the 250 km width of the island',
-  requirements: [{ requirement: 'a single central peak', target: 'Mountains at c3 of r2' }],
+const goodElevation = {
+  rows: keyed(ROW_STRINGS),
+  ranges: [{ name: 'The Central Peak', spans: [{ row: 2, from: 2, to: 3 }] }],
 };
-
-const goodElevation = { brief, rows: keyed(ROW_STRINGS), notes: 'A low island with a central peak.', decisions: [] };
 
 interface FakeMessage {
   stop_reason: string;
@@ -120,12 +118,12 @@ test('the API is given a grid whose every row and cell is required, so its size 
   assert.equal(new Set(Object.values(rowsSchema.properties).map((p: any) => p.$ref)).size, 1);
 });
 
-test('the brief checklist comes before the grid, so the plan is written before the map', async () => {
+test('the response carries the grid and the range names, and no explanation fields', async () => {
   const { client, calls } = fakeClient([message([JSON.stringify(goodElevation)])]);
   await run(client);
   const schema = (calls[0]!.output_config as { format: { schema: any } }).format.schema;
-  assert.deepEqual(Object.keys(schema.properties).slice(0, 2), ['brief', 'rows']);
-  assert.ok(schema.required.includes('brief'));
+  assert.deepEqual(Object.keys(schema.properties), ['rows', 'ranges']);
+  assert.ok(schema.required.includes('ranges'));
 });
 
 test('a keyed grid is decoded exactly, with no size warnings', async () => {
@@ -136,12 +134,13 @@ test('a keyed grid is decoded exactly, with no size warnings', async () => {
   assert.equal((result.data as unknown[])[2 * COLS + 3], 'Mountains');
 });
 
-test('the brief checklist is recorded in the decisions the user sees', async () => {
+test('named mountain ranges are decoded onto the Mountains and Highland hexes they cover', async () => {
   const { client } = fakeClient([message([JSON.stringify(goodElevation)])]);
   const result = await run(client);
-  assert.equal(result.decisions[0]?.title, 'Scale');
-  assert.match(result.decisions[0]!.detail, /50 km/);
-  assert.equal(result.decisions[1]?.title, 'Brief: a single central peak');
+  assert.deepEqual(result.mountainRanges, [
+    { id: result.mountainRanges![0]!.id, name: 'The Central Peak', hexes: [2 * COLS + 2, 2 * COLS + 3] },
+  ]);
+  assert.equal('decisions' in result || 'notes' in result, false);
 });
 
 test('the prompt asks for keyed output and shows context grids with column anchors', async () => {
@@ -214,24 +213,14 @@ test('a response that is not JSON at all is still treated as malformed', () => {
 /* ---------------------------------------------------- the row-string form */
 
 test('in row-string form a short row is accepted and left to the decoder to repair', () => {
-  const reply = { rows: ['lllll', 'lrrh', 'lhHMl', 'lllll'], notes: 'n', decisions: [] };
+  const reply = { rows: ['lllll', 'lrrh', 'lhHMl', 'lllll'] };
   const result = parseResponse(ElevationResponse(COLS, ROWS), JSON.stringify(reply));
   assert.deepEqual(result.parsed.rows, reply.rows);
 });
 
-test('in row-string form the brief checklist is optional, so a pasted reply without it imports', () => {
-  const reply = { rows: ROW_STRINGS, notes: 'n', decisions: [] };
+test('in row-string form the name list is optional, so a pasted reply without it imports', () => {
+  const reply = { rows: ROW_STRINGS };
   assert.doesNotThrow(() => parseResponse(ElevationResponse(COLS, ROWS), JSON.stringify(reply)));
-});
-
-test('too many decisions is a warning, not a failure', () => {
-  const decisions = Array.from({ length: 10 }, (_, i) => ({ title: `D${i}`, detail: 'x', hexes: [] }));
-  const result = parseResponse(
-    ElevationResponse(COLS, ROWS),
-    JSON.stringify({ rows: ROW_STRINGS, notes: 'n', decisions }),
-  );
-  assert.equal(result.parsed.decisions.length, 10);
-  assert.ok(result.warnings.some((w) => /decisions/.test(w)));
 });
 
 /* ---------------------------------------------------------------- helpers */
@@ -253,11 +242,6 @@ test('flattenGrid leaves row-string responses and grid-less layers alone', () =>
   assert.equal(flattenGrid('rivers', rivers, 2, 1), rivers);
 });
 
-test('withBriefRecorded is a no-op without a brief', () => {
-  const r = { decisions: [{ title: 't', detail: 'd' }] };
-  assert.equal(withBriefRecorded(r), r);
-});
-
 test('a polity paint pass restricts cells to the roster keys', () => {
   const schema = PolitiesPaintResponse(2, 1, { grid: 'keyed', polityKeys: ['A', 'B'] });
   const json = z.toJSONSchema(schema) as any;
@@ -277,8 +261,6 @@ test('a polity drawn well off its planned size is reported', () => {
         { key: 'B', name: 'Small March', colour: '#3333aa', hexes: 2 },
       ],
       rows: ['AABB', '....'],
-      notes: '',
-      decisions: [],
     },
     ctx,
   );

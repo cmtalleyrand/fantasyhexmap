@@ -125,18 +125,14 @@ export function exportLegendText(
   );
 }
 
-/**
- * The decision record as a document. A generated world is only defensible if the
- * reasoning behind it survives outside the app, so this is a first-class export
- * rather than a debug dump.
- */
+/** The change history as a document: every generation and hand edit, oldest first. */
 export function exportDecisions(map: MapState, opts: { aiOnly: boolean }): void {
   const entries = (map.journal ?? []).filter(
     (e) => !opts.aiOnly || e.kind === 'generate' || e.kind === 'instruct',
   );
 
   const lines: string[] = [
-    `# ${map.name} - how the map was decided`,
+    `# ${map.name} - change history`,
     '',
     `${map.cols} x ${map.rows} hexes. Record covers ${entries.length} change${entries.length === 1 ? '' : 's'}, oldest first.`,
     '',
@@ -166,12 +162,6 @@ export function exportDecisions(map: MapState, opts: { aiOnly: boolean }): void 
       lines.push(`### ${stamp} - ${entry.kind} (${who})`, '');
       if (entry.instruction) lines.push(`> ${entry.instruction}`, '');
       if (entry.summary) lines.push(entry.summary, '');
-      for (const d of entry.decisions) {
-        const where = d.hexes && d.hexes.length > 0 ? ` _(${d.hexes.join('; ')})_` : '';
-        lines.push(`- **${d.title}**${where}`);
-        if (d.detail) lines.push(`  ${d.detail}`);
-      }
-      if (entry.decisions.length > 0) lines.push('');
       if (entry.warnings > 0) {
         lines.push(`_${entry.warnings} validation note${entry.warnings === 1 ? '' : 's'} raised on this pass._`, '');
       }
@@ -182,7 +172,7 @@ export function exportDecisions(map: MapState, opts: { aiOnly: boolean }): void 
     lines.push('_Nothing has been generated yet._', '');
   }
 
-  download(new Blob([lines.join('\n')], { type: 'text/markdown;charset=utf-8' }), `${slug(map.name)}-decisions.md`);
+  download(new Blob([lines.join('\n')], { type: 'text/markdown;charset=utf-8' }), `${slug(map.name)}-history.md`);
 }
 
 export function serializeMapExport(map: MapState, includeHistory: boolean): string {
@@ -202,8 +192,7 @@ const EDGE_NAMES = ['E', 'SE', 'SW', 'W', 'NW', 'NE'];
 
 /**
  * A JSON export for programs to read. It carries the map's current state only:
- * no journal, no decisions, no undo/redo history, no model notes or validation
- * warnings. In their place it adds a `guide` describing how to read the data
+ * no journal, no undo/redo history and no validation warnings. In their place it adds a `guide` describing how to read the data
  * and, for the enabled layers, a flat `hexes` list so a consumer does not have
  * to work out the `row * cols + col` indexing itself. The `map` block keeps the
  * normal export shape, so the file still imports back into the app.

@@ -48,6 +48,9 @@ const contextSchema = z.object({
     id: z.string(), name: z.string(), kind: z.enum(['sea', 'lake', 'land', 'island']),
     hidden: z.boolean().optional(), hexes: z.array(z.number().int().nonnegative()),
   })).optional(),
+  mountainRanges: z.array(z.object({
+    id: z.string(), name: z.string(), hexes: z.array(z.number().int().nonnegative()),
+  })).optional(),
 });
 
 const SELECTIONS: PassSelection[] = ['both', 'roster', 'paint'];
@@ -61,6 +64,7 @@ export interface GenerateBody {
   islandSpecs?: unknown;
   hexShapes?: unknown;
   geoNames?: unknown;
+  mountainRanges?: unknown;
   instruction?: string | null;
   layers?: Partial<Record<LayerId, unknown>>;
   /** Layers this map has chosen not to have; changes how absent context is described. */
@@ -157,7 +161,7 @@ export function validateGenerateBody(body: GenerateBody): { error: string } | { 
     cols,
     rows,
     hexDimensions,
-    ...extra.data as Pick<PromptContext, 'islandSpecs' | 'hexShapes' | 'geoNames'>,
+    ...extra.data as Pick<PromptContext, 'islandSpecs' | 'hexShapes' | 'geoNames' | 'mountainRanges'>,
     base: (supplied.base as PromptContext['base']) ?? null,
     elevation: (supplied.elevation as PromptContext['elevation']) ?? null,
     climate: (supplied.climate as PromptContext['climate']) ?? null,

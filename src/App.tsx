@@ -295,8 +295,8 @@ export default function App() {
           layer,
           data: result.data,
           warnings: result.warnings,
-          notes: result.notes,
-          decisions: result.decisions,
+          geoNames: result.geoNames,
+          mountainRanges: result.mountainRanges,
           model: result.model,
           instruction: instructionText,
           usage: result.usage,
@@ -616,8 +616,8 @@ export default function App() {
       layer,
       data: result.data,
       warnings: result.warnings,
-      notes: result.notes,
-      decisions: result.decisions,
+      geoNames: result.geoNames,
+      mountainRanges: result.mountainRanges,
       model: result.source || null,
       imported: true,
       instruction: null,
@@ -638,8 +638,8 @@ export default function App() {
         layer,
         data: result.data,
         warnings: result.warnings,
-        notes: result.notes,
-        decisions: result.decisions,
+        geoNames: result.geoNames,
+        mountainRanges: result.mountainRanges,
         model: source || null,
         imported: true,
         instruction: instructionText,
@@ -778,7 +778,6 @@ export default function App() {
       <DecisionLog
         map={map}
         onClose={() => setShowDecisions(false)}
-        onSelectHexes={(indices) => setSelection(new Set(indices))}
       />
     ) : null;
 
@@ -1022,9 +1021,9 @@ export default function App() {
           <button
             className="tiny"
             onClick={() => setShowDecisions(true)}
-            title="What the AI decided while generating this map, and why"
+            title="Every generation and hand edit made to this map"
           >
-            decisions ({(map.journal ?? []).reduce((n, e) => n + e.decisions.length, 0)})
+            history ({(map.journal ?? []).length})
           </button>
         )}
         {manualMode && (
@@ -1246,7 +1245,6 @@ export default function App() {
             setRiverTool={setRiverTool}
             riverNotice={riverNotice}
             setRiverNotice={setRiverNotice}
-            onOpenDecisionLog={() => setShowDecisions(true)}
           />
         </div>
       </div>

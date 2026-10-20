@@ -41,41 +41,40 @@ const fence = (obj: unknown) => ['```json', JSON.stringify(obj), '```'].join('\n
 
 /* ------------------------------------------------------------ compact style */
 
-test('the compact prompt asks for data-only JSON and puts the decisions in the chat', () => {
+test('the compact prompt lists the fields instead of spelling out the schema', () => {
   const ctx = withBase(10, 8);
   const compact = buildWebchatPrompt({ layer: 'elevation', pass: 'full', ctx, style: 'compact' });
   const full = buildWebchatPrompt({ layer: 'elevation', pass: 'full', ctx });
 
-  assert.match(compact, /no notes, no decisions/);
-  assert.match(compact, /EXPLANATIONS: Normally none/);
-  assert.match(compact, /do not write a checklist or preamble/);
+  assert.match(compact, /nothing after it/);
   assert.match(compact, /- "rows": Exactly 8 strings/);
+  assert.match(compact, /- "ranges": /);
   assert.doesNotMatch(compact, /JSON SCHEMA/);
-  assert.doesNotMatch(compact, /RECORD YOUR DECISIONS/);
-  assert.doesNotMatch(compact, /"decisions"/);
-  assert.ok(compact.length < full.length * 0.8, `compact ${compact.length} vs full ${full.length}`);
+  assert.ok(compact.length < full.length, `compact ${compact.length} vs full ${full.length}`);
 });
 
-test('a compact reply imports, and its chat prose becomes the layer notes', () => {
+test('no prompt asks for notes, decisions, a brief checklist or any other explanation', () => {
+  const ctx = withBase(10, 8);
+  for (const style of ['full', 'compact'] as const) {
+    for (const layer of ['base', 'elevation', 'climate', 'cities'] as const) {
+      const prompt = buildWebchatPrompt({ layer, pass: 'full', ctx, style });
+      assert.doesNotMatch(prompt, /"notes"|"decisions"|"brief"|latitudeBand|EXPLANATIONS|"reason"/, `${layer} ${style}`);
+    }
+  }
+  const multi = buildMultiWebchatPrompt({ layers: ['base', 'elevation'], ctx: emptyContext(10, 8) });
+  assert.doesNotMatch(multi, /"notes"|"decisions"|"brief"|EXPLANATIONS/);
+});
+
+test('a reply is read from its JSON whatever prose surrounds it', () => {
   const ctx = withBase(4, 3);
   const rows = ctx.base!.reduce<string[]>((acc, v, i) => {
     const r = Math.floor(i / 4);
     acc[r] = (acc[r] ?? '') + (v === 'Sea' || v === 'Lake' || v === 'Sea Ice' ? '.' : 'l');
     return acc;
   }, []);
-  const reply = [
-    'Scale: ~50 km per hex, from the 600 km width. Target: lowland coast all round.',
-    '',
-    fence({ rows }),
-    '',
-    'Decisions: I kept the whole island low {it is small} because the brief names no ranges.',
-  ].join('\n');
-
+  const reply = ['Here is the layer {as asked}.', '', fence({ rows })].join('\n');
   const result = importWebchatResponse({ layer: 'elevation', pass: 'full', ctx, text: reply });
-  assert.match(result.notes ?? '', /Scale: ~50 km per hex/);
-  assert.match(result.notes ?? '', /I kept the whole island low/);
-  assert.doesNotMatch(result.notes ?? '', /"rows"/);
-  assert.deepEqual(result.decisions, []);
+  assert.equal('notes' in result || 'decisions' in result, false);
 });
 
 test('a fenced JSON block wins over braces in the prose before it', () => {
@@ -92,7 +91,6 @@ test('a multi-layer prompt states the shared rules once and every layer in pipel
   const count = (re: RegExp) => (prompt.match(re) ?? []).length;
   assert.equal(count(/^THE GRID$/gm), 1);
   assert.equal(count(/^THE BRIEF COMES FIRST$/gm), 1);
-  assert.equal(count(/^EXPLANATIONS: Normally return/gm), 1);
   const order = ['LAYER 1 OF 3: BASE GEOGRAPHY', 'LAYER 2 OF 3: ELEVATION', 'LAYER 3 OF 3: POLITIES'].map((h) =>
     prompt.indexOf(h),
   );
@@ -111,9 +109,9 @@ test('a layer needs its dependency on the map or in the selection', () => {
 test('a multi-layer reply is decoded in order, each layer against the ones before it', () => {
   const ctx = emptyContext(4, 2);
   const reply = fence({
-    base: { rows: ['tttm', 'mmmm'], notes: 'n', decisions: [] },
+    base: { rows: ['tttm', 'mmmm'] },
     // Elevation on a sea hex (c3 of r0) must be cleared against the NEW base.
-    elevation: { rows: ['lhMl', '....'], notes: 'n', decisions: [] },
+    elevation: { rows: ['lhMl', '....'] },
   });
 
   const results = importMultiWebchatResponse({ layers: ['elevation', 'base'], ctx, text: reply });
@@ -124,18 +122,11 @@ test('a multi-layer reply is decoded in order, each layer against the ones befor
 
 test('a multi-layer reply missing a layer imports nothing and says which', () => {
   const ctx = emptyContext(4, 2);
-  const reply = fence({ base: { rows: ['tttm', 'mmmm'], notes: 'n', decisions: [] } });
+  const reply = fence({ base: { rows: ['tttm', 'mmmm'] } });
   assert.throws(
     () => importMultiWebchatResponse({ layers: ['base', 'elevation'], ctx, text: reply }),
     (e: unknown) => e instanceof WebchatImportError && /no "elevation" layer/.test(e.message),
   );
-});
-
-test('a compact multi-layer reply shares its chat prose as notes', () => {
-  const ctx = emptyContext(4, 2);
-  const reply = `Base: one island.\n\n${fence({ base: { rows: ['tttm', 'mmmm'] }, elevation: { rows: ['llll', '....'] } })}\n\nElevation: all low.`;
-  const results = importMultiWebchatResponse({ layers: ['base', 'elevation'], ctx, text: reply });
-  for (const { result } of results) assert.match(result.notes ?? '', /Base: one island[\s\S]*Elevation: all low/);
 });
 
 /* ------------------------------------------------- several layers: editing */

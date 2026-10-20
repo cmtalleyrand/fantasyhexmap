@@ -110,48 +110,6 @@ export interface InspectorProps {
   /** The outcome of the last river edit, shown beside the river controls. */
   riverNotice: RiverNotice | null;
   setRiverNotice: (next: RiverNotice | null) => void;
-  onOpenDecisionLog: () => void;
-}
-
-/** The decisions recorded by the latest generation or rewrite of a layer. */
-function latestDecisions(map: MapState, layer: LayerId) {
-  const latest = [...(map.journal ?? [])]
-    .reverse()
-    .find((e) => e.layer === layer && (e.kind === 'generate' || e.kind === 'instruct' || e.kind === 'import'));
-  return latest?.decisions ?? [];
-}
-
-/** The reasoning behind the layer being edited, as the model reported it. */
-function LayerDecisions({
-  map,
-  layer,
-  onOpenLog,
-}: {
-  map: MapState;
-  layer: LayerId;
-  onOpenLog: () => void;
-}) {
-  const latest = [...(map.journal ?? [])]
-    .reverse()
-    .find((e) => e.layer === layer && (e.kind === 'generate' || e.kind === 'instruct' || e.kind === 'import'));
-  if (!latest || latest.decisions.length === 0) return null;
-  return (
-    <div className="notice info" style={{ marginTop: 8 }}>
-      <b>Why it looks like this</b>
-      <ul className="warnlist">
-        {latest.decisions.slice(0, 4).map((d, i) => (
-          <li key={i}>
-            <b>{d.title}.</b> {d.detail}
-          </li>
-        ))}
-      </ul>
-      <button className="tiny" style={{ marginTop: 6 }} onClick={onOpenLog}>
-        {latest.decisions.length > 4
-          ? `+${latest.decisions.length - 4} more · full record`
-          : 'full record'}
-      </button>
-    </div>
-  );
 }
 
 /**
@@ -208,12 +166,11 @@ export default function Inspector(props: InspectorProps) {
   const hasData = layer.data !== null;
   const generating = props.busyLayers.has(activeLayer);
   const missing = missingRequirements(map, activeLayer);
-  // Notes closed by the user stay closed until the layer's notes change.
+  // Validation notes closed by the user stay closed until they change.
   const [dismissed, setDismissed] = useState<string | null>(null);
   const warningsKey = `${activeLayer}\n${layer.warnings.join('\n')}`;
   const shownWarnings = dismissed === warningsKey ? [] : layer.warnings;
-  const aboutCount =
-    (layer.notes ? 1 : 0) + (latestDecisions(map, activeLayer).length > 0 ? 1 : 0) + shownWarnings.length;
+  const aboutCount = shownWarnings.length;
 
   const ai = props.mode === 'ai';
   return (
@@ -385,8 +342,6 @@ export default function Inspector(props: InspectorProps) {
       {ai && aboutCount > 0 && (
         <div className="section">
           <h2>About this layer</h2>
-          {layer.notes && <div className="notice info">{layer.notes}</div>}
-          <LayerDecisions map={map} layer={activeLayer} onOpenLog={props.onOpenDecisionLog} />
           <Warnings
             warnings={shownWarnings}
             onDismiss={() => setDismissed(warningsKey)}

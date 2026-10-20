@@ -258,9 +258,6 @@ button.tiny.on { border-color: var(--accent); color: var(--accent); }
   margin-top: 6px; padding: 5px 8px; border-radius: 5px;
   background: #0e141a; color: var(--accent); font-style: italic;
 }
-.journal-entry .decisions { margin: 8px 0 0; padding-left: 18px; }
-.journal-entry .decisions li { margin-bottom: 8px; }
-.journal-entry .decisions li > div { color: var(--ink-dim); margin-top: 2px; }
 
 .list .entry.picker { align-items: flex-start; padding: 8px; }
 .list .entry.picker.off { opacity: 0.55; }

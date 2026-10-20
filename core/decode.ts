@@ -37,17 +37,23 @@ import {
   validateRivers,
   validateVegetation,
 } from '../shared/validate.js';
+import { isRangeElevation } from '../shared/types.js';
 import type {
   City,
-  Decision,
+  BaseData,
+  ElevationData,
+  GeoName,
+  GeoNameKind,
   LayerDataMap,
   LayerId,
+  MountainRange,
   Polity,
   River,
   HexShare,
 } from '../shared/types.js';
 import type { PromptContext } from './prompts.js';
 import { keyedToRows, type CellKind } from './grid.js';
+import { GEO_NAME_KINDS, geoEligibility } from '../shared/geoNames.js';
 import type {
   BaseResponse,
   CitiesResponse,
@@ -69,8 +75,10 @@ export interface ExistingFeatures {
 export interface DecodedLayer<K extends LayerId = LayerId> {
   data: LayerDataMap[K];
   warnings: string[];
-  notes: string | null;
-  decisions: Decision[];
+  /** Names the response gave to seas, lakes, islands and land regions (base layer). */
+  geoNames?: GeoName[];
+  /** Names the response gave to mountain ranges (elevation layer). */
+  mountainRanges?: MountainRange[];
 }
 
 /* ----------------------------------------------------------- loose JSON in */
@@ -90,24 +98,13 @@ export interface DecodedLayer<K extends LayerId = LayerId> {
  */
 export function extractJsonObject(text: string): string | null {
   // A fenced block is the clearest signal of where the answer is, and reading
-  // it first keeps a brace in the prose around it - which the compact webchat
-  // style asks for - from being mistaken for the start of the object.
+  // it first keeps a brace in the prose around it from being mistaken for the
+  // start of the object.
   for (const fence of text.matchAll(/```[a-zA-Z]*[ \t]*\r?\n([\s\S]*?)```/g)) {
     const inside = scanForObject(fence[1] ?? '');
     if (inside) return inside;
   }
   return scanForObject(text);
-}
-
-/**
- * The prose of a reply with the JSON taken out - the fenced block that held it,
- * or the object itself. In the compact webchat style this is where the plan and
- * the decisions are, so it is kept rather than discarded.
- */
-export function proseAround(text: string, json: string): string {
-  const fenced = [...text.matchAll(/```[a-zA-Z]*[ \t]*\r?\n[\s\S]*?```/g)].find((m) => m[0].includes(json));
-  const without = fenced ? text.replace(fenced[0], '') : text.replace(json, '');
-  return without.replace(/\n{3,}/g, '\n\n').trim();
 }
 
 function scanForObject(text: string): string | null {
@@ -153,31 +150,6 @@ export function flattenGrid(layer: LayerId, parsed: unknown, cols: number, rows:
   const response = parsed as { rows?: unknown } | null;
   if (!kind || !response || response.rows == null || Array.isArray(response.rows)) return parsed;
   return { ...response, rows: keyedToRows(response.rows, cols, rows, kind) };
-}
-
-/**
- * Carry the model's reading of the brief into the decision record, where the
- * user sees it and it is exported with the map. A requirement the model got
- * wrong is then visible as a stated target the map can be checked against,
- * rather than something that silently did not happen.
- */
-export function withBriefRecorded(parsed: unknown): unknown {
-  const response = parsed as { brief?: unknown; decisions?: unknown } | null;
-  const brief = response?.brief as
-    | { scale?: unknown; requirements?: { requirement?: unknown; target?: unknown }[] }
-    | undefined;
-  if (!response || !brief) return parsed;
-
-  const fromBrief: Decision[] = [];
-  const scale = typeof brief.scale === 'string' ? brief.scale.trim() : '';
-  if (scale) fromBrief.push({ title: 'Scale', detail: scale });
-  for (const item of Array.isArray(brief.requirements) ? brief.requirements : []) {
-    const requirement = typeof item?.requirement === 'string' ? item.requirement.trim() : '';
-    const target = typeof item?.target === 'string' ? item.target.trim() : '';
-    if (requirement) fromBrief.push({ title: `Brief: ${requirement}`, detail: target });
-  }
-  const existing = Array.isArray(response.decisions) ? response.decisions : [];
-  return { ...response, decisions: [...fromBrief, ...existing] };
 }
 
 /* --------------------------------------------------------- id reuse helpers */
@@ -234,31 +206,29 @@ export function decodeLayer(
   existing ??= { rivers: ctx.rivers?.rivers, cities: ctx.cities?.cities, polities: ctx.polities?.polities };
   const warnings: string[] = [];
   let data: LayerDataMap[LayerId];
-  let notes: string | null = null;
+  let geoNames: GeoName[] | undefined;
+  let mountainRanges: MountainRange[] | undefined;
 
   switch (layer) {
     case 'base': {
       const r = parsed as BaseResponse;
-      notes = r.notes;
       const decoded = decodeBase(r.rows, cols, rows);
       warnings.push(...decoded.warnings);
       data = decoded.data;
+      geoNames = decodeGeoNames(r.names, decoded.data, ctx.geoNames ?? [], cols, rows, warnings);
       break;
     }
     case 'elevation': {
       const r = parsed as ElevationResponse;
-      notes = r.notes;
       const decoded = decodeElevation(r.rows, cols, rows);
       const checked = validateElevation(decoded.data, ctx.base!, cols, rows);
       warnings.push(...decoded.warnings, ...checked.warnings);
       data = checked.data;
+      mountainRanges = decodeRanges(r.ranges, checked.data, ctx.mountainRanges ?? [], cols, rows, warnings);
       break;
     }
     case 'climate': {
       const r = parsed as ClimateResponse;
-      notes = [r.latitudeBand ? `Latitude band: ${r.latitudeBand}.` : '', r.notes]
-        .filter(Boolean)
-        .join(' ');
       const decoded = decodeClimate(r.rows, cols, rows);
       const checked = validateClimate(decoded.data, ctx.base!, ctx.elevation, cols, rows);
       warnings.push(...decoded.warnings, ...checked.warnings);
@@ -267,7 +237,6 @@ export function decodeLayer(
     }
     case 'vegetation': {
       const r = parsed as VegetationResponse;
-      notes = r.notes;
       const decoded = decodeVegetation(r.rows, cols, rows);
       const checked = validateVegetation(
         decoded.data,
@@ -284,7 +253,6 @@ export function decodeLayer(
     }
     case 'rivers': {
       const r = parsed as RiversResponse;
-      notes = r.notes;
       // Roster-only is an internal operation, not model-supplied geometry.
       // Keep exact entry/exit edges, mouths, links and manual reach guidance.
       if ((parsed as { rosterOnly?: boolean }).rosterOnly && ctx.rivers) {
@@ -351,7 +319,6 @@ export function decodeLayer(
     }
     case 'cities': {
       const r = parsed as CitiesResponse;
-      notes = r.notes;
       const cities: City[] = r.cities.map((c, i) => ({
         // A city regenerated in the same hex keeps the site it was given by hand.
         ...(() => {
@@ -376,7 +343,6 @@ export function decodeLayer(
     }
     case 'polities': {
       const r = parsed as PolitiesResponse;
-      notes = r.notes;
       const byKey = new Map<string, Polity>();
       const polities: Polity[] = r.polities.map((p, i) => {
         const before = existing?.polities?.find((e) => e.name.trim().toLowerCase() === (p.previousName ?? p.name).trim().toLowerCase()) ??
@@ -461,7 +427,6 @@ export function decodeLayer(
     }
     case 'population': {
       const r = parsed as PopulationResponse;
-      notes = r.notes;
       const decoded = decodePopulation(r.rows, cols, rows);
       const checked = validatePopulation(decoded.data, ctx.base!, cols, rows);
       warnings.push(...decoded.warnings, ...checked.warnings);
@@ -474,11 +439,12 @@ export function decodeLayer(
     }
   }
 
-  // Every response schema carries `decisions`, so it is lifted once here rather
-  // than repeated in all eight branches above.
-  const decisions = normaliseDecisions((parsed as { decisions?: unknown }).decisions);
-
-  return { data, warnings, notes: notes || null, decisions };
+  return {
+    data,
+    warnings,
+    ...(geoNames?.length ? { geoNames } : {}),
+    ...(mountainRanges?.length ? { mountainRanges } : {}),
+  };
 }
 
 /**
@@ -508,24 +474,56 @@ function sizeWarnings(
   return out;
 }
 
-/** Trust the schema for shape, but not for emptiness or stray whitespace. */
-export function normaliseDecisions(raw: unknown): Decision[] {
-  if (!Array.isArray(raw)) return [];
-  const out: Decision[] = [];
-  for (const item of raw) {
-    if (!item || typeof item !== 'object') continue;
-    const { title, detail, hexes } = item as Partial<Decision>;
-    const cleanTitle = typeof title === 'string' ? title.trim() : '';
-    const cleanDetail = typeof detail === 'string' ? detail.trim() : '';
-    if (!cleanTitle && !cleanDetail) continue;
-    const cleanHexes = Array.isArray(hexes)
-      ? hexes.filter((h): h is string => typeof h === 'string' && /^\d+,\d+$/.test(h.trim())).map((h) => h.trim())
-      : [];
-    out.push({
-      title: cleanTitle || 'Untitled decision',
-      detail: cleanDetail,
-      ...(cleanHexes.length > 0 ? { hexes: cleanHexes } : {}),
-    });
+/* ------------------------------------------------------------------- names */
+
+type NameSpan = { row?: unknown; from?: unknown; to?: unknown };
+
+/** The flat hex indices of runs along rows; runs off the map are clipped. */
+function spanHexes(spans: unknown, cols: number, rows: number): number[] {
+  const out = new Set<number>();
+  for (const span of Array.isArray(spans) ? (spans as NameSpan[]) : []) {
+    const { row, from, to } = span ?? {};
+    if (!Number.isInteger(row) || !Number.isInteger(from) || !Number.isInteger(to)) continue;
+    const r = row as number;
+    if (r < 0 || r >= rows) continue;
+    const lo = Math.max(0, Math.min(from as number, to as number));
+    const hi = Math.min(cols - 1, Math.max(from as number, to as number));
+    for (let c = lo; c <= hi; c++) out.add(r * cols + c);
   }
+  return [...out].sort((a, b) => a - b);
+}
+
+/** Names of seas, lakes, islands and land regions, kept to the hexes each kind may hold on the new base. */
+function decodeGeoNames(raw: BaseResponse['names'], base: BaseData, existing: GeoName[], cols: number, rows: number, warnings: string[]): GeoName[] {
+  const eligible = new Map<GeoNameKind, (index: number) => boolean>();
+  const out: GeoName[] = [];
+  (raw ?? []).forEach((entry, i) => {
+    const name = typeof entry?.name === 'string' ? entry.name.trim() : '';
+    if (!name || !GEO_NAME_KINDS.includes(entry.kind)) return;
+    if (!eligible.has(entry.kind)) eligible.set(entry.kind, geoEligibility(entry.kind, base, cols, rows));
+    const hexes = spanHexes(entry.spans, cols, rows).filter(eligible.get(entry.kind)!);
+    if (hexes.length === 0) {
+      warnings.push(`The ${entry.kind} name "${name}" covers no hex that can hold it and was dropped.`);
+      return;
+    }
+    const before = existing.filter((n) => n.kind === entry.kind);
+    out.push({ id: reuseIdByName(before, entry.previousName ?? name) ?? stableId('geo', name, i), name, kind: entry.kind, hexes });
+  });
+  return out;
+}
+
+/** Names of mountain ranges, kept to Mountains and Highland hexes on the new elevation. */
+function decodeRanges(raw: ElevationResponse['ranges'], elevation: ElevationData, existing: MountainRange[], cols: number, rows: number, warnings: string[]): MountainRange[] {
+  const out: MountainRange[] = [];
+  (raw ?? []).forEach((entry, i) => {
+    const name = typeof entry?.name === 'string' ? entry.name.trim() : '';
+    if (!name) return;
+    const hexes = spanHexes(entry.spans, cols, rows).filter((index) => isRangeElevation(elevation[index]));
+    if (hexes.length === 0) {
+      warnings.push(`The range name "${name}" covers no Mountains or Highland hex and was dropped.`);
+      return;
+    }
+    out.push({ id: reuseIdByName(existing, entry.previousName ?? name) ?? stableId('rng', name, i), name, hexes });
+  });
   return out;
 }

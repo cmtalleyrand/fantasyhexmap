@@ -35,7 +35,7 @@ const reply = (sharedHexes?: unknown[]) => ({
     { key: 'A', name: 'Kingdom', shortName: 'K', colour: '#884422', hexes: 2 },
     { key: 'B', name: 'Duchy', shortName: 'D', colour: '#446688', parent: 'Kingdom', hexes: 6 },
   ],
-  rows: ['B.B', 'BBB', 'BAA'], notes: '', decisions: [], ...(sharedHexes ? { sharedHexes } : {}),
+  rows: ['B.B', 'BBB', 'BAA'], ...(sharedHexes ? { sharedHexes } : {}),
 });
 
 test('all transports retain physical settings, overrides and measured land fractions in prompt context', () => {
@@ -94,13 +94,13 @@ test('two-pass output carries sharing and zero-direct-territory parents through 
   assert.match(paint.user, /Kingdom.*0 hexes/);
   assert.match(paint.user, /Duchy.*parent=Kingdom/);
   assert.match(paint.user, /CURRENT|POLITIES/);
-  const combined = combinePasses('polities', roster, null, { rows: ['B.B', 'BBB', 'BBB'],
-    sharedHexes: [{ col: 1, row: 2, with: 'A', share: 0.5 }], notes: '', decisions: [] });
+  const combined = combinePasses('polities', roster, { rows: ['B.B', 'BBB', 'BBB'],
+    sharedHexes: [{ col: 1, row: 2, with: 'A', share: 0.5 }] });
   const result = decodeLayer('polities', combined, ctx, existingFeatures(ctx));
   assert.equal((result.data as PolitiesData).shares!['7']!.share, 0.5);
   assert.ok(!result.warnings.some((w) => /Kingdom holds/.test(w)));
   const renamed = { kind: 'polities' as const, entries: roster.entries.map((e) => ({ ...e, name: `${e.name} renamed`, parent: e.parent ? `${e.parent} renamed` : undefined })) };
-  const folded = rosterOnlyResponse('polities', renamed, {}, ctx);
+  const folded = rosterOnlyResponse('polities', renamed, ctx);
   const renamedData = decodeLayer('polities', folded, ctx, existingFeatures(ctx)).data as PolitiesData;
   assert.equal(renamedData.polities[1]!.id, 'duke');
   assert.equal(renamedData.polities[1]!.cityState, true);
@@ -109,7 +109,7 @@ test('two-pass output carries sharing and zero-direct-territory parents through 
 
 test('city edits retain manual sites and capital status, including explicit renames and removal of capital status', () => {
   const ctx = contextFromMap(fixture(), 'Rename Seat to New Seat.');
-  const input = { cities: [{ name: 'New Seat', previousName: 'Seat', col: 0, row: 2, population: 5000, reason: '' }], notes: '', decisions: [] };
+  const input = { cities: [{ name: 'New Seat', previousName: 'Seat', col: 0, row: 2, population: 5000 }] };
   const city = (decodeLayer('cities', input, ctx, existingFeatures(ctx)).data as CitiesData).cities[0]!;
   assert.equal(city.id, 'seat'); assert.equal(city.site, 'inland'); assert.equal(city.capital, true);
   const removed = (decodeLayer('cities', { ...input, cities: [{ ...input.cities[0], capital: false }] }, ctx, existingFeatures(ctx)).data as CitiesData).cities[0]!;
@@ -134,7 +134,7 @@ test('roster-only river renames retain exact manually edited geometry and connec
   map.layers.rivers.data = { rivers: [{ id: 'r', name: 'Old', terminus: 'Sea',
     segments: [{ col: 1, row: 2, entryEdge: null, exitEdge: 2, navigable: true, reach: { min: 0.5, max: null } }] }] };
   const ctx = contextFromMap(map, null);
-  const folded = rosterOnlyResponse('rivers', { kind: 'rivers', entries: [{ name: 'New', course: '' }] }, {}, ctx);
+  const folded = rosterOnlyResponse('rivers', { kind: 'rivers', entries: [{ name: 'New', course: '' }] }, ctx);
   const output = decodeLayer('rivers', folded, ctx, existingFeatures(ctx)).data as RiversData;
   assert.deepEqual(output.rivers[0], { ...map.layers.rivers.data.rivers[0], name: 'New' });
 });

@@ -9,7 +9,7 @@
  *  - Output grids are described in whichever form the caller asked for: keyed
  *    cell by cell for the API, which enforces it, or row strings for webchat.
  *  - The latest edit overrides conflicting parts of the brief. Saved map scale
- *    and supported data shapes are authoritative; explanations are exceptional.
+ *    and supported data shapes are authoritative. Replies carry data only.
  *  - The stable rules (grid geometry, scale, house style) live in the system
  *    prompt so they cache; only the varying map state goes in the user turn.
  */
@@ -46,6 +46,7 @@ import {
   type HexShape,
   type IslandSpec,
   type GeoName,
+  type MountainRange,
   type VegetationGroup,
 } from '../shared/types.js';
 import type {
@@ -68,6 +69,7 @@ export interface PromptContext {
   islandSpecs?: Record<string, IslandSpec>;
   hexShapes?: Record<string, HexShape>;
   geoNames?: GeoName[];
+  mountainRanges?: MountainRange[];
   base: BaseData | null;
   elevation: ElevationData | null;
   climate: ClimateData | null;
@@ -93,11 +95,6 @@ export interface PromptContext {
    * the output instructions; context grids are shown the same way either way.
    */
   gridFormat?: 'rows' | 'keyed';
-  /**
-   * Webchat's compact style: the reply carries only the layer data as JSON, and
-   * the plan and the decisions are written in the chat around it.
-   */
-  decisionsInChat?: boolean;
 }
 
 const isExcluded = (ctx: PromptContext, layer: LayerId) =>
@@ -133,7 +130,7 @@ The map is a rectangular grid of pointy-top hexes, ${cols} columns wide and ${ro
 - Neighbours of hex (c, r) depend on the parity of r:
     even r:  E=(c+1,r)  SE=(c,r+1)    SW=(c-1,r+1)  W=(c-1,r)  NW=(c-1,r-1)  NE=(c,r-1)
     odd  r:  E=(c+1,r)  SE=(c+1,r+1)  SW=(c,r+1)    W=(c-1,r)  NW=(c,r-1)    NE=(c+1,r-1)
-- Nothing exists beyond the grid: the map edge is either open ocean continuing off-map, or land continuing off-map. Do not treat it as a wall.
+- Nothing exists beyond the grid, but the finished map will gain one row above and one below, and one column to the left and one to the right. Assume that this added ring is always Sea Ice or Sea, unless the brief specifies otherwise. A hex on the map edge therefore has water or ice beyond it unless the brief says otherwise: let a coast run along the edge where that is natural, and do not treat the edge as a wall.
 
 ${scaleRules(cols, rows, dimensions)}`;
 }
@@ -155,9 +152,9 @@ function scaleRules(cols: number, rows: number, dimensions?: HexDimensions): str
 - Whole-hex area is 0.75 * width * height = ${0.75 * d.width * d.height} ${d.unit}^2. Use the supplied effective
   land fractions and measured areas to match land areas in the brief, rather than counting every coast/island as a full hex.
 - Do not infer another scale from the brief or from existing hex counts. Convert document units to the saved units.
-  Respect stated sizes as closely as grid resolution permits. If they cannot all fit, briefly flag the material conflict.
+  Respect stated sizes as closely as grid resolution permits. If they cannot all fit, keep the largest and most prominent.
 - A small polity may occupy one whole hex even when that exceeds its described area; do not split it merely to improve area accuracy.
-- Straight distances and river course lengths differ. River rules explain the drawn bends and additional length correction.`;
+- Straight distances and river course lengths differ. River rules describe the drawn bends and additional length correction.`;
 }
 
 function rowFormatRules(cols: number, rows: number, kind: 'char' | 'token', format: PromptContext['gridFormat']): string {
@@ -212,7 +209,7 @@ Return the COMPLETE updated data required by
 this pass's response schema, not a patch. A roster pass returns roster fields only; a geometry pass returns geometry
 against the fixed roster; a whole-layer pass returns the whole layer. Do not return app-managed presentation settings.
 In roster-only edits, retain the order of existing entries: roster positions retain their existing geometry.
-If the request also needs a change in another layer, do not attempt it here; mention it only if it prevents this edit.
+If the request also needs a change in another layer, do not attempt it here.
 For a renamed river or city, set previousName to its exact existing name so the app retains its identity.`;
 }
 
@@ -293,21 +290,7 @@ function polityGrid(ctx: PromptContext, title: string, withColours: boolean): st
   ]);
 }
 
-export function recordDecisions(ctx: PromptContext): string {
-  return ctx.decisionsInChat
-    ? `EXPLANATIONS: Normally none. After the JSON, use at most two short sentences in total only for an
-unavoidable conflict, unmet requirement or consequential assumption. No routine commentary or restatement of the data.`
-    : `EXPLANATIONS: Normally return notes = "" and decisions = []. Only an unavoidable conflict, unmet requirement
-or consequential assumption warrants an explanation: at most two short sentences total, without repeating it in both fields.`;
-}
-
-function planInstruction(ctx: PromptContext): string {
-  return ctx.decisionsInChat
-    ? 'Plan against the brief internally; do not write a checklist or preamble.'
-    : 'Plan against the brief internally. In brief.scale, give only the saved scale; normally brief.requirements = []. Record only a material conflict there, without an exhaustive checklist.';
-}
-
-export function houseStyle(ctx: PromptContext): string {
+export function houseStyle(): string {
   return `THE BRIEF COMES FIRST
 The brief is the user's specification, not a source of inspiration. A later explicit edit overrides it where they conflict.
 Output schemas, supported terrain restrictions and saved map dimensions always apply. Everything else in this prompt - typical sizes,
@@ -315,16 +298,66 @@ usual placements, suggested counts, default proportions, "usually" and "rarely" 
 silent. Where the brief is specific (a size, an area, a distance, a position, a count, a named feature, something
 that must not exist), it overrides those defaults every time. Follow explicit ecological or magical exceptions in the brief and keep them coherent.
 
-${planInstruction(ctx)}
+Plan against the brief internally. Reply with the requested data only: no notes, comments, explanations or lists of assumptions.
 
 HOW TO WORK
 - Think about the map as a whole before writing any of it. Geography is continuous: coastlines, ranges, climate belts and borders are large connected shapes, not per-hex noise.
+- Avoid straight lines. Do not draw the hex equivalent of one: a row, column or diagonal run of hexes of one value, or a coast, border, range or river course that follows a single hex direction for more than two or three hexes. Natural features curve, wander and vary in width.
 - Never produce speckle - isolated single hexes of one value scattered through a field of another - unless the brief explicitly calls for it (an archipelago, an oasis chain).
 - Keep positions exact. Read where things are from the row labels and "[n]" column anchors in the context grids, not by counting characters, and put each value at the same row and column as the hex it describes.
 - Where the brief is silent, make a decision that is plausible and interesting rather than uniform.`;
 }
 
 /* -------------------------------------------------------------------- base */
+
+/**
+ * The seas, lakes, islands and land regions the base layer names. The grid
+ * itself holds only terrain codes, so names are a separate list of runs.
+ */
+function namingRules(ctx: PromptContext): string {
+  return section('NAMING PLACES - "names"', [
+    'Alongside the grid, return "names": one entry per named place, each with a kind, a name and "spans" - the hexes it',
+    'covers as runs along rows (row, from column, to column, inclusive). Use as few runs as the shape needs.',
+    '- sea: a sea, ocean, gulf, bay or strait. Covers Sea, Sea Ice, Strait and Islands hexes. Coastal land is not included.',
+    '- lake: a lake. Covers Lake hexes.',
+    '- island: an island or archipelago. Covers Islands hexes and the land hexes of a landmass that water surrounds on',
+    '  every side and that does not reach the map edge.',
+    '- land: a land region - a desert, steppe, forest, plain, peninsula, tundra or ice sheet. Covers land hexes.',
+    'Land region names are for largely unpopulated areas: those with a population density of 1 person per km^2 or less,',
+    'judged from the brief and the terrain (deserts, tundra, ice sheets, deep forest, barrens, high wastes). Settled country is',
+    'already identified on the map by its polities and cities, so give it no region name unless the brief names it.',
+    'Seas, oceans and lakes are unpopulated, so name them freely. Islands too, unless they are settled enough to be identified',
+    'by their polities and cities.',
+    '- Every place the brief names must be named, covering the extent the brief implies.',
+    '- Otherwise name the seas, gulfs and large lakes a reader would need to find their way around, and the empty regions',
+    '  that would be labelled on a real map. Do not name every puddle; an empty list is right for a map that names nothing.',
+    '- A name covers one connected shape. Within a kind a hex carries one name. Never cover a hex the kind cannot hold.',
+    "- Names should suit the brief's cultures and be consistent with each other.",
+    ...(ctx.instruction
+      ? ['On an edit, the existing names are shown in the context. List a name again only to add it or change its extent or',
+         'kind; names you do not list keep their hexes. To rename a place, give its exact old name as previousName.']
+      : []),
+  ]);
+}
+
+/** The mountain ranges the elevation layer names. */
+function rangeNamingRules(ctx: PromptContext): string {
+  return section('NAMING RANGES - "ranges"', [
+    'Alongside the grid, return "ranges": one entry per named mountain range or upland massif, each with a name and "spans" -',
+    'the hexes it covers as runs along rows (row, from column, to column, inclusive). A range covers only Mountains and',
+    'Highland hexes; Hills and lower ground are not part of it.',
+    '- Every range the brief names must be named, covering the extent the brief implies.',
+    '- Otherwise name the principal ranges and massifs. A chain is one range unless it clearly breaks into separate ones.',
+    '- Ranges are labelled where they are largely unpopulated: a population density of 1 person per km^2 or less, judged from',
+    '  the brief and the terrain. Settled uplands are already identified by their polities and cities, so leave them unnamed',
+    '  unless the brief names them.',
+    '- A hex belongs to one range. An empty list is right for a map with no ranges worth naming.',
+    ...(ctx.instruction
+      ? ['On an edit, the existing names are shown in the context. List a range again only to add it or change its extent;',
+         'ranges you do not list keep their hexes. To rename a range, give its exact old name as previousName.']
+      : []),
+  ]);
+}
 
 function basePrompt(ctx: PromptContext): BuiltPrompt {
   const system = [
@@ -362,11 +395,11 @@ function basePrompt(ctx: PromptContext): BuiltPrompt {
       '- If the brief gives no land/water balance, aim for roughly half the map as land.',
     ]),
     '',
+    namingRules(ctx),
+    '',
     rowFormatRules(ctx.cols, ctx.rows, 'char', ctx.gridFormat),
     '',
-    houseStyle(ctx),
-    '',
-    recordDecisions(ctx),
+    houseStyle(),
   ].join('\n');
 
   const parts = [descriptionBlock(ctx.description)];
@@ -422,13 +455,13 @@ function elevationPrompt(ctx: PromptContext): BuiltPrompt {
       '- Island hexes (Islands and Mainland and islands): use Lowland unless the brief describes those islands as mountainous.',
     ]),
     '',
+    rangeNamingRules(ctx),
+    '',
     rowFormatRules(ctx.cols, ctx.rows, 'char', ctx.gridFormat),
     '',
     'Land, Coastal Land, Glacier, Isthmus, Islands and Mainland and islands MUST have elevation. Sea, Sea Ice, Lake and Strait MUST be ".".',
     '',
-    houseStyle(ctx),
-    '',
-    recordDecisions(ctx),
+    houseStyle(),
   ].join('\n');
 
   const parts = [
@@ -468,7 +501,7 @@ function climatePrompt(ctx: PromptContext): BuiltPrompt {
     ]),
     '',
     section('HOW TO DECIDE', [
-      '1. LATITUDE FIRST. Decide from the brief what latitude band this map covers, state it in "latitudeBand",',
+      '1. LATITUDE FIRST. Decide from the brief what latitude band this map covers,',
       '   and map row 0 to the northern end of that band and the last row to the southern end. If the brief gives',
       '   no clue, choose a band that suits what it does describe (a frozen north and a desert south needs a wide',
       '   band; a single kingdom needs a narrow one). Latitude sets the baseline belt for each row.',
@@ -494,9 +527,7 @@ function climatePrompt(ctx: PromptContext): BuiltPrompt {
     '',
     rowFormatRules(ctx.cols, ctx.rows, 'token', ctx.gridFormat),
     '',
-    houseStyle(ctx),
-    '',
-    recordDecisions(ctx),
+    houseStyle(),
   ].join('\n');
 
   const parts = [
@@ -573,9 +604,7 @@ function vegetationPrompt(ctx: PromptContext): BuiltPrompt {
     '',
     rowFormatRules(ctx.cols, ctx.rows, 'token', ctx.gridFormat),
     '',
-    houseStyle(ctx),
-    '',
-    recordDecisions(ctx),
+    houseStyle(),
   ].join('\n');
 
   const parts = [
@@ -595,7 +624,7 @@ function vegetationPrompt(ctx: PromptContext): BuiltPrompt {
         ctx,
         'climate',
         'No climate layer exists yet - infer climate from latitude and elevation as you go.',
-        'This map will have no climate layer at all. Work out the climate for yourself from latitude, elevation, distance from the sea and rain shadow, commit to it, and flag only consequential assumptions - nothing later will correct it.',
+        'This map will have no climate layer at all. Work out the climate for yourself from latitude, elevation, distance from the sea and rain shadow, and commit to it - nothing later will correct it.',
       ),
     );
   }
@@ -729,9 +758,7 @@ function riversPrompt(ctx: PromptContext): BuiltPrompt {
     '',
     'Name rivers in a style consistent with the brief.',
     '',
-    houseStyle(ctx),
-    '',
-    recordDecisions(ctx),
+    houseStyle(),
   ].join('\n');
 
   const parts = [
@@ -770,13 +797,13 @@ function citiesPrompt(ctx: PromptContext): BuiltPrompt {
         ? [
             '- On Land, Coastal Land, Glacier, Isthmus, Strait, Islands or Mainland and islands hexes, or - since this world has submerged settlements - on Sea or Lake hexes',
             '  where the brief or the setting supports one (a drowned city, a merfolk reef-city, a pile-built lake town).',
-            '  Never on Sea Ice. Keep underwater cities rare; reason may be an empty string for an ordinary placement.',
+            '  Never on Sea Ice. Keep underwater cities rare.',
           ]
         : ['- On Land, Coastal Land, Glacier, Isthmus, Strait, Islands or Mainland and islands hexes only. Never on Sea, Sea Ice or Lake. A Strait city is a channel port straddling both banks.']),
       '- Cities want water and traffic: river mouths, the lowest bridging point of a river, confluences, sheltered',
       '  bays, the neck of a peninsula, the pass through a range, the edge of a fertile plain.',
       '- Cities want food: cultivated or fertile hexes nearby. A great city in the middle of a desert needs a reason',
-      '  (an oasis, a caravan road, a holy site); use only a few words in reason for an exception, otherwise "".',
+      '  (an oasis, a caravan road, a holy site).',
       '- Cities avoid Mountains and polar hexes except as mining or frontier towns, which stay small.',
       '- Spread them out: a hinterland is part of a city. Do not put two large cities in adjacent hexes.',
     ]),
@@ -791,7 +818,7 @@ function citiesPrompt(ctx: PromptContext): BuiltPrompt {
       '  of regional centres, and a larger number of small towns.',
       '- Typical ranges: great capital 60,000-250,000; regional centre 15,000-60,000; market town 3,000-15,000;',
       '  frontier or mining town 800-3,000. Shift the whole scale if the brief describes an unusually rich or',
-      '  sparse world, and mention it only if consequential. A population the brief states is used as given.',
+      '  sparse world. A population the brief states is used as given.',
       '- This is the city population only. The surrounding rural population is a separate layer.',
     ]),
     '',
@@ -801,9 +828,7 @@ function citiesPrompt(ctx: PromptContext): BuiltPrompt {
     '',
     'Do not report whether a city is coastal or on a river: that is derived from the map itself.',
     '',
-    houseStyle(ctx),
-    '',
-    recordDecisions(ctx),
+    houseStyle(),
   ].join('\n');
 
   const parts = [
@@ -823,7 +848,7 @@ function citiesPrompt(ctx: PromptContext): BuiltPrompt {
   } else if (isExcluded(ctx, 'rivers')) {
     parts.push(
       '',
-      'This map has no rivers layer. Judge water access from the coastline, the lakes and the shape of the land, and where you site a city on an implied river, say so in its reason.',
+      'This map has no rivers layer. Judge water access from the coastline, the lakes and the shape of the land.',
     );
   }
   if (ctx.instruction && ctx.cities) {
@@ -900,9 +925,7 @@ function politiesPrompt(ctx: PromptContext): BuiltPrompt {
       polityGridOutput(ctx),
     ]),
     '',
-    houseStyle(ctx),
-    '',
-    recordDecisions(ctx),
+    houseStyle(),
   ].join('\n');
 
   const parts = [
@@ -973,9 +996,7 @@ function populationPrompt(ctx: PromptContext): BuiltPrompt {
     '',
     rowFormatRules(ctx.cols, ctx.rows, 'token', ctx.gridFormat),
     '',
-    houseStyle(ctx),
-    '',
-    recordDecisions(ctx),
+    houseStyle(),
   ].join('\n');
 
   const parts = [
@@ -1008,7 +1029,7 @@ function populationPrompt(ctx: PromptContext): BuiltPrompt {
   if (missingForPopulation.length > 0) {
     parts.push(
       '',
-      `This map has no ${missingForPopulation.map((id) => LAYER_META[id].label).join(' or ')} layer. Base your figures on what you can see - the land, the coast and the latitude - and flag only consequential assumptions.`,
+      `This map has no ${missingForPopulation.map((id) => LAYER_META[id].label).join(' or ')} layer. Base your figures on what you can see - the land, the coast and the latitude.`,
     );
   }
   if (ctx.polities && ctx.polities.polities.length > 0) {
@@ -1044,7 +1065,7 @@ function politiesRosterPrompt(ctx: PromptContext): BuiltPrompt {
       'This is the first of two passes. Decide WHO exists on this map - the roster of polities - and nothing else.',
       'You are not drawing any borders yet and you must not return a grid. A later pass will partition the land',
       'between the polities you name here, so name them with that in mind: give a sense of where each one sits and',
-      'how big it is in your decisions, and the border pass will follow it.',
+      'how big it is in its hexes figure, and the border pass will follow it.',
       'Let the brief, geography, settlement pattern and plausible political fragmentation determine how many',
       'polities exist. Do not default to eight or any other fixed target. Every polity the brief names must be on the',
       'roster. Give them clearly different sizes, including major powers and smaller realms where the map supports',
@@ -1070,9 +1091,7 @@ function politiesRosterPrompt(ctx: PromptContext): BuiltPrompt {
       'not near-black and not near-white, and not two similar hues side by side.',
     ]),
     '',
-    houseStyle(ctx),
-    '',
-    recordDecisions(ctx),
+    houseStyle(),
   ].join('\n');
 
   const parts = [descriptionBlock(ctx.description), '', ...geographyContext(ctx)];
@@ -1126,9 +1145,7 @@ function politiesPaintPrompt(ctx: PromptContext, roster: Roster | null): BuiltPr
     '',
     section('OUTPUT', [polityGridOutput(ctx)]),
     '',
-    houseStyle(ctx),
-    '',
-    recordDecisions(ctx),
+    houseStyle(),
   ].join('\n');
 
   const parts = [
@@ -1178,9 +1195,7 @@ function riversRosterPrompt(ctx: PromptContext): BuiltPrompt {
       'Bay of Kelder". No hex coordinates.',
     ]),
     '',
-    houseStyle(ctx),
-    '',
-    recordDecisions(ctx),
+    houseStyle(),
   ].join('\n');
 
   const parts = [descriptionBlock(ctx.description), '', ...geographyContext(ctx)];
@@ -1236,9 +1251,7 @@ function riversPathsPrompt(ctx: PromptContext, roster: Roster | null): BuiltProm
       '- Small or steep rivers may be navigable nowhere at all. Say so with all-false entries.',
     ]),
     '',
-    houseStyle(ctx),
-    '',
-    recordDecisions(ctx),
+    houseStyle(),
   ].join('\n');
 
   const parts = [
@@ -1344,7 +1357,7 @@ export function layerRules(layer: LayerId, ctx: PromptContext): string {
     instruction: null,
   };
   let system = buildPrompt(layer, stand).system;
-  for (const shared of [gridRules(ctx.cols, ctx.rows, ctx.hexDimensions), houseStyle(ctx), recordDecisions(ctx)]) {
+  for (const shared of [gridRules(ctx.cols, ctx.rows, ctx.hexDimensions), houseStyle()]) {
     system = system.replace(shared, '');
   }
   return system.replace(/\n{3,}/g, '\n\n').trim();

@@ -31,6 +31,7 @@ export function contextFromMap(map: MapState, instruction: string | null): Promp
     islandSpecs: map.islandSpecs,
     hexShapes: map.hexShapes,
     geoNames: geoNamesOf(map),
+    mountainRanges: map.mountainRanges,
     base: map.layers.base.data,
     elevation: map.layers.elevation.data,
     climate: map.layers.climate.data,

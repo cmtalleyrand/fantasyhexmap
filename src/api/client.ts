@@ -21,7 +21,7 @@
 
 import { excludedLayers } from '../../shared/layers.js';
 import { geoNamesOf } from '../../shared/geoNames.js';
-import type { Decision, LayerDataMap, LayerId, MapState } from '../../shared/types.js';
+import type { GeoName, LayerDataMap, LayerId, MapState, MountainRange } from '../../shared/types.js';
 import type { PassSelection, Roster } from '../../core/rosters.js';
 import type { DirectOptions } from './direct.js';
 
@@ -45,8 +45,8 @@ export interface GenerateResult<K extends LayerId = LayerId> {
   layer: K;
   data: LayerDataMap[K];
   warnings: string[];
-  notes: string | null;
-  decisions: Decision[];
+  geoNames?: GeoName[];
+  mountainRanges?: MountainRange[];
   model: string | null;
   usage: { input: number; output: number; cacheRead: number; thinking: number } | null;
   elapsedMs: number;
@@ -139,6 +139,7 @@ export async function generateLayer(
         islandSpecs: map.islandSpecs,
         hexShapes: map.hexShapes,
         geoNames: geoNamesOf(map),
+        mountainRanges: map.mountainRanges,
         instruction,
         layers,
         excluded: excludedLayers(map),

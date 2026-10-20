@@ -99,7 +99,6 @@ export function emptyLayer<K extends LayerId>(): LayerState<K> {
   return {
     data: null,
     warnings: [],
-    notes: null,
     generatedAt: null,
     depVersions: {},
     version: 0,

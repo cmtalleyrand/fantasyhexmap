@@ -42,6 +42,31 @@ export function physicalContext(ctx: PromptContext): string {
         ...ctx.polities.polities.map((p) => `${p.name}: ${number(areas.get(p.id) ?? 0)} ${dims.unit}^2`));
     }
   }
-  if (ctx.geoNames?.length) parts.push('NAMED GEOGRAPHY (hex indices):', JSON.stringify(ctx.geoNames));
+  if (ctx.geoNames?.length) {
+    parts.push('NAMED PLACES (kind "name": row r, columns from-to):', ...ctx.geoNames.map((n) => `${n.kind} "${n.name}": ${runs(n.hexes, ctx.cols)}`));
+  }
+  if (ctx.mountainRanges?.length) {
+    parts.push('NAMED MOUNTAIN RANGES ("name": row r, columns from-to):', ...ctx.mountainRanges.map((n) => `"${n.name}": ${runs(n.hexes, ctx.cols)}`));
+  }
   return parts.join('\n');
+}
+
+/** Hex indices as runs along rows, the form the model writes names in. */
+function runs(hexes: number[], cols: number): string {
+  const out: string[] = [];
+  let last: { row: number; from: number; to: number } | null = null;
+  const flush = () => {
+    if (last) out.push(`r${last.row} c${last.from}${last.to > last.from ? `-${last.to}` : ''}`);
+  };
+  for (const index of [...hexes].sort((a, b) => a - b)) {
+    const row = Math.floor(index / cols);
+    const col = index % cols;
+    if (last && last.row === row && last.to === col - 1) last.to = col;
+    else {
+      flush();
+      last = { row, from: col, to: col };
+    }
+  }
+  flush();
+  return out.join('; ');
 }
