@@ -1,5 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { nearestOn } from '../src/render/footprint.ts';
+import { hexCenter, pixelToOffset } from '../shared/hex.ts';
+import { beginRenderProfile, endRenderProfile } from '../src/render/profile.ts';
 import { windingRiver, riverMetrics, cases, buildScene, landTestOf } from '../scripts/drawing-investigation-fixtures.ts';
 import { riverCourse, landBySide } from '../src/render/rivers.ts';
 import { evenOddTest } from '../src/render/coast.ts';
@@ -33,7 +36,7 @@ test('island land queries agree with the finished irregular island paths', () =>
   const paths: Extract<Prim, { kind: 'path' }>[] = [];
   const visit = (prims: Prim[]) => { for (const p of prims) {
     if (p.kind === 'group') visit(p.prims);
-    if (p.kind === 'path' && p.fill === opts.style.palette.island) paths.push(p);
+    if (p.kind === 'path' && p.fill === ((opts.uniformLand ?? opts.style.knobs.land === 'uniform') ? opts.style.palette.land : opts.style.palette.island) && p.stroke === undefined) paths.push(p);
   } };
   visit(scene.prims);
   assert.ok(paths.length > 0, 'painted island paths found');
@@ -63,6 +66,42 @@ test('an island drawn with curves inside a lake is dry ground', () => {
 test('a coast patch beside a lake belongs to dry ground outside the lake body', () => {
   const {map,opts}=cases().find(c=>c.name==='lake')!;
   assert.equal(landTestOf(buildScene(map,opts))!({x:136,y:140}),true);
+});
+
+test('a low-share open coast has no fold-back loops after roughening', () => {
+  const { map, opts } = cases().find(c => c.name === 'coast-fit-parchment')!;
+  const rings: { x: number; y: number }[][] = [];
+  const collect = (ps: Prim[]) => { for (const p of ps) {
+    if (p.kind === 'group') collect(p.prims);
+    else if (p.kind === 'path' && p.stroke === opts.style.palette.coast) rings.push(...pathPolylines(p.d, 12));
+  } };
+  collect(buildScene(map, opts).prims);
+  const cross = (a: {x:number;y:number}, b: {x:number;y:number}, c: {x:number;y:number}) =>
+    (b.x-a.x)*(c.y-a.y)-(b.y-a.y)*(c.x-a.x);
+  let crossings = 0;
+  for (const ring of rings) for (let i=0;i+1<ring.length;i++) for (let j=i+2;j+1<ring.length;j++) {
+    const a=ring[i]!,b=ring[i+1]!,c=ring[j]!,d=ring[j+1]!;
+    if(cross(a,b,c)*cross(a,b,d)<-1e-8&&cross(c,d,a)*cross(c,d,b)<-1e-8)crossings++;
+  }
+  assert.equal(crossings, 0, 'coast ink must not cross itself into a knot');
+  // Read the finished contour over a four-unit arc on each side, independently
+  // of the loop cleanup and fitter. The rejected cape turned about 143 degrees.
+  let worstTurn=0;
+  for(const ring of rings)for(let i=1;i+1<ring.length;i++) {
+    const p=ring[i]!;
+    if(p.x<155||p.x>195||p.y<120)continue;
+    const along=(direction:number)=>{
+      let j=i,length=0;
+      while(j+direction>=0&&j+direction<ring.length&&length<opts.size*.1){
+        const a=ring[j]!,b=ring[j+direction]!;length+=Math.hypot(b.x-a.x,b.y-a.y);j+=direction;
+      }
+      return ring[j]!;
+    };
+    const a=along(-1),b=along(1),ux=p.x-a.x,uy=p.y-a.y,vx=b.x-p.x,vy=b.y-p.y;
+    worstTurn=Math.max(worstTurn,Math.abs(Math.atan2(ux*vy-uy*vx,ux*vx+uy*vy))*180/Math.PI);
+  }
+  assert.ok(worstTurn<110,`low-share cape is pinched into a ${worstTurn.toFixed(1)} degree turn`);
+
 });
 
 test('stopping plateau escarpments at water does not produce a compromise notice', () => {
@@ -103,4 +142,23 @@ test('river names cannot use an open-sea fallback and an omitted name is reporte
   const {map,opts}=cases().find(c=>c.name==='river-mouth')!;
   const scene=buildScene(map,opts);
   assert.deepEqual(auditScene(map,scene,opts.size).filter(i=>i.kind==='river-name-over-water'),[]);
+});
+
+for (const name of ['coast-fit-classic', 'coast-fit-parchment']) test(`${name} reaches its land share on the finished outline`, () => {
+  const {map,opts}=cases().find(c=>c.name===name)!;
+  beginRenderProfile();
+  const scene=buildScene(map,{...opts,cache:'off'}),profile=endRenderProfile()!;
+  const land=landTestOf(scene)!,c=hexCenter(2,2,opts.size);
+  const ink: {rings: {x:number;y:number}[][];reach:number}[]=[];
+  const collect=(ps:Prim[])=>{for(const p of ps){if(p.kind==='group')collect(p.prims);else if(p.kind==='path'&&p.stroke===opts.style.palette.coast)ink.push({rings:pathPolylines(p.d,12),reach:(p.strokeWidth??1)/2});}};
+  collect(scene.prims);
+  let total=0,dry=0;
+  for(let y=c.y-opts.size;y<c.y+opts.size;y+=.25)for(let x=c.x-opts.size;x<c.x+opts.size;x+=.25){
+    const h=pixelToOffset(x,y,opts.size);if(h.col!==2||h.row!==2)continue;
+    total++;if(land({x,y})||ink.some(s=>nearestOn({x,y},s.rings).dist<=s.reach))dry++;
+  }
+  const wanted=map.hexShapes!['12']!.land!;
+  assert.ok(Math.abs(100*dry/total-wanted)<1, `${100*dry/total}% versus ${wanted}%`);
+  assert.ok(!scene.compromises?.some(c=>c.hexes.includes(12)&&/land share/i.test(c.what)));
+  if(name==='coast-fit-classic')assert.equal(profile.counters['coast.globalPasses'],4);
 });

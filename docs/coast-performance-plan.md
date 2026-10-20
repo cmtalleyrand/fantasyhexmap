@@ -436,3 +436,68 @@ outranks share, so the one-bank stacked straits asked for 45% now reach about 24
 1.496 against its 1.5 limit, which is marginal.
 
 Left open: hexes whose smoothed coast never enters them, and feasibility flagging as shares are set.
+
+
+## 2026-10-20: prior-attempt review before further fixes
+
+Do this review before proposing another coast or cache variant. The owner identified repeated
+experimentation without consulting the retained evidence as a source of wasted work.
+
+| Approach | Existing evidence | Disposition |
+|---|---|---|
+| Local curvature limit on detail | `050892a`, component-area review: already used for aggregate closed coasts, excluding explicit-share/open cases | Not a new idea. Extending it to the 5% open fixture still left the pointed tip; the uncommitted variation was removed. |
+| More smooth fitting rounds / more line-search scales | Original follow-up handoff: tried, failed to solve the knot, reverted | Do not repeat without a distinct measured cause. |
+| Rounding joins left by loop deletion | Two local radii tried in this continuation; the final fit still produced a pinched point | Unsuccessful proposal removed; no full galleries or suites run for these variants. |
+| Ink caching / scanline allocation variants | Parts 1–2 report discarded two ink caches because overhead erased savings; this continuation's scalar/interval-pool and extra scanline-reuse variants did not remove Classic's cold overhead | Uncommitted variants removed. Do not present them as an accepted optimization. |
+| Curved page-rim continuation | `rim.ts` history only contains the original `658b0ff` straight-projection implementation | Distinct from earlier coast smoothing. Current gridded proposal improves the edge; it must enter the shared geometry before fitting, not only the coast stroke. |
+| Exact final island layout/outline reuse | `dfb07fc` introduced scalar scale reuse; existing reports describe shape/island memos, not a persistent final outline/layout result | Targeted 48-run comparison against the published PR improved warm median/p95 64.6/92.8→47.2/70.4 ms and ownership 56.8/106.2→41.7/92.7 ms. Keep as a candidate, not final-head or end-to-end proof. |
+
+Next diagnostic for the pointed cape: inspect the same pinned contour before initial share cuts,
+after component shaping, after loop removal, after tangential skew, and after each accepted area-fit
+round. Identify the first stage that creates or amplifies the pointedness before changing it.
+Keep the full hex grid in visual evidence. Do not enlarge a requested land share to improve appearance.
+
+### Stage evidence and the distinct ordering proposal
+
+The pinned Parchment coast has a 120° local turn after loop removal. The seeded tangential skew
+sharpens it to about 139°, then accepted area-fit rounds stretch the tip from y=132.13 to y=139.94.
+This explains why a fillet applied before the shape-changing skew was not sufficient. A diagnostic
+proposal rounds the loop-removal join **after** that skew and before the area solve; it does not add
+rounds, change tolerances, or reapply broad smoothing to the whole coast. Its gridded Canvas image is
+[drawing-followup/parchment-after-skew-proposal.png](drawing-followup/parchment-after-skew-proposal.png).
+The independent 4× painted mask shows 4.6726% land for the requested 5%, with no compromise notice.
+This is one fixture's visual/area evidence, not final validation of a production implementation.
+
+### Connected implementation and allocation diagnosis
+
+`coastCorners.ts` now applies that repair only to surviving loop-removal joins after tangential
+skew. Protected passages and intersections with retained coastline reject a proposed fillet.
+`rim.ts` continues open component coasts with a bounded quadratic tangent into the same fixed page
+endpoint; a crossing proposal falls back to the old straight projection. Both changes enter the
+shared coastline before the existing area solver. They do not alter the requested land, solver
+round count, symbol floor or one-percentage-point gate. The guarded renderer's gridded PNG is
+byte-identical to the proposal linked above. The complete 150-case coast sweep passes (maximum
+errors Classic 0.789, Parchment 0.470, Atlas 0.440 percentage points), as do 200 island and 600
+enclosed-sea cases.
+
+A separate 48-pair CPU/allocation/GC diagnostic of the published implementation against current
+main recorded 246 minor collections (1,378 ms total) and four major collections (175 ms total),
+with 55–63 ms major pauses inside slow follow-up redraws. CPU samples identify repeated `layoutAt`,
+`mainlandNear` and `islandScale` work: caching the scalar scale still rebuilt final island positions
+and paths on every redraw. The diagnostic has profiler overhead and both versions share the V8
+heap; it establishes avoidable repeated work and GC pauses, not exclusive causality for the earlier
+benchmark's p95 difference.
+
+`islandDrawingCache.ts` now retains exact final layouts and paths by the existing complete land-input
+revision and hex. Scale searches and final drawings share one LRU budget (10,000 entries / 4 MB
+estimated payload and keys), replacing the previous scalar-only map. Within a build, mainland distance
+functions are shared across layout attempts. Geometry-changing inputs invalidate final drawings;
+ownership and colour edits can reuse them. No approximate predicate or reduced fitting accuracy is
+introduced. An isolated connected benchmark and a separate production-worker study establish the
+final cost; the earlier failed benchmark remains in `drawing-followup.md`.
+
+The newer-main shore check subsequently exposed another shared-heap tail failure. The final
+continuation retains coast paint geometry within the existing coast-cache budget and separates
+benchmark JavaScript heaps; it preserves all failed and successful intermediate records. Read
+[the connected report](drawing-followup-connected.md) for final main `6f3d5c7` / runtime `be084b1`
+measurements, exact validation scope, the 50×50 unique-edit worker study and retained-heap limits.

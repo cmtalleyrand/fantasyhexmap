@@ -95,6 +95,7 @@ test('terrain-mark elevation preserves geography colours and encodes height with
     visible,
     labels: false,
     elevationStyle: 'contours',
+    uniformLand: false, // Explicit coastal band; the default now uses one land colour.
   });
   const fills = scene.prims.filter((p) => p.kind === 'polygon').map((p) => p.fill);
   const marks = scene.prims.filter(
@@ -105,6 +106,9 @@ test('terrain-mark elevation preserves geography colours and encodes height with
   assert.equal(marks.length, 6);
   assert.equal(marks.filter((p) => p.points.length === 2).length, 2);
   assert.equal(marks.filter((p) => p.points.length === 3).length, 4);
+  const uniform = buildScene(map, { size: 20, visible, labels: false, elevationStyle: 'contours' });
+  assert.deepEqual(uniform.prims.filter(p => p.kind === 'polygon').map(p => p.fill),
+    ['#c4d49b', '#c4d49b', '#c4d49b']);
 });
 
 test('contrasting polity colours separate adjacent realms deterministically', () => {

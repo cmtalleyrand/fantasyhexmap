@@ -257,7 +257,7 @@ test('scene coast tracing uses component area before per-hex reshaping can split
     map.layers.base.data = Array(64).fill('Sea');
     for (const i of [19, 27, 36]) map.layers.base.data[i] = 'Coastal Land';
     const scene = buildScene(map, { size, visible: defaultVisibility(), labels: false, style });
-    const land = scene.prims.find(p => p.kind === 'group' && p.clipRule === 'evenodd' && p.clip && p.prims.some(q => (q.kind === 'polygon' || q.kind === 'path') && q.fill === style.palette.coastalLand));
+    const land = scene.prims.find(p => p.kind === 'group' && p.clipRule === 'evenodd' && p.clip && p.prims.some(q => (q.kind === 'polygon' || q.kind === 'path') && q.fill === (style.knobs.land === 'uniform' ? style.palette.land : style.palette.coastalLand)));
     assert.ok(land && land.kind === 'group' && land.clip);
     const rings = pathPolylines(land.clip, 6);
     assert.equal(rings.length, 1, `${percent}%, ${seed}: component remains a single island`);

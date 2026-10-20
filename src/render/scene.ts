@@ -1,3 +1,5 @@
+import { coastPaintGeometry, type CoastPaintGeometry } from './coastPaintGeometry.js';
+import { IslandDrawingCache, type DrawnIsle as Isle } from './islandDrawingCache.js';
 import { BoundedMemo, renderCachesEnabled, withRenderCaches } from './cache.js';
 import { cachedPlacement, clearPlacementCache } from './placementCache.js';
 import { profileCount, profileTime, profilePhases } from './profile.js';
@@ -76,6 +78,7 @@ import {
 import {
   blobPath,
   chainEdges,
+  coastChainArea,
   alike,
   coastKey,
   drawnLand,
@@ -125,7 +128,7 @@ import { coastPaintPatches, coastPaintPaths } from './coastPaint.js';
 import { realmBoundary } from './realmBoundary.js';
 import { boundsOf, intersects, type Bounds } from './bounds.js';
 import { CLASSIC_STYLE, type ElevationStyle, type MapStyle } from './styles.js';
-import { extendToRim, rimPieces } from './rim.js';
+import { extendCoastToRim, extendToRim, rimPieces } from './rim.js';
 import { grainTile } from './texture.js';
 
 export type { CitySymbol, PathCmd, Prim } from './prims.js';
@@ -354,6 +357,7 @@ function cachedPolityLabels(
  * are traced as land here, and so are islands that stand in a lake.
  */
 interface TracedCoast {
+  paint: CoastPaintGeometry;
   geometry: CoastGeometry;
   coverage: Map<number, { wanted: number; shown: number }>;
   lakes: number[][];
@@ -375,10 +379,12 @@ interface TracedCoast {
 const coastCache = new BoundedMemo<TracedCoast>(4, 20_000_000);
 const coastComponents = new BoundedMemo<CoastComponentRecord>(192, 16_000_000);
 const coastFits = new BoundedMemo<Pick<CoastGeometry, 'paths' | 'anchors'>>(8, 12_000_000);
+const glacierMargins = new BoundedMemo<CoastGeometry>(4, 8_000_000);
+const packIceDrawings = new BoundedMemo<Prim[]>(4, 8_000_000);
 
 /** The sea predicate can be reused with a traced coast; symbol fitting has a separate land dependency below. */
 let symbolFits = new WeakMap<object, { dry: ((p: Point) => boolean) | null }>();
-interface SymbolFitRecord { revision: { id: number }; fit: Fitted; probes: Array<{ at: Point; land: boolean }> }
+interface SymbolFitRecord { revisions: Array<{ id: number }>; fit: Fitted; probes: Array<{ at: Point; land: boolean }> }
 const symbolPlacements = new BoundedMemo<SymbolFitRecord>(10000, 16_000_000);
 const terrainRevisions = new BoundedMemo<{ id: number }>(4, 1_000_000);
 let terrainRevisionNumber = 0;
@@ -387,7 +393,7 @@ let terrainRevisionNumber = 0;
 const shapeMemo: ShapeMemo = new Map();
 
 /** The size islands are drawn at to cover their share, by everything that fixes their shape (see `islandScale`). */
-const islandScaleMemo = new Map<string, number>();
+const islandDrawings = new IslandDrawingCache();
 
 let sceneCacheScope = '';
 function prepareSceneCacheScope(map: MapState, size: number): void {
@@ -395,8 +401,8 @@ function prepareSceneCacheScope(map: MapState, size: number): void {
   const scope = JSON.stringify([map.id, map.cols, map.rows, size]);
   if (scope === sceneCacheScope) return;
   sceneCacheScope = scope;
-  coastCache.clear(); coastComponents.clear(); coastFits.clear(); symbolPlacements.clear(); terrainRevisions.clear();
-  symbolFits = new WeakMap(); clearPlacementCache(); shapeMemo.clear(); islandScaleMemo.clear();
+  coastCache.clear(); coastComponents.clear(); coastFits.clear(); glacierMargins.clear(); packIceDrawings.clear(); symbolPlacements.clear(); terrainRevisions.clear();
+  symbolFits = new WeakMap(); clearPlacementCache(); shapeMemo.clear(); islandDrawings.clear();
 }
 
 /** The numerical solve and its stopping tests couple all fitting rings. Its exact
@@ -550,7 +556,7 @@ function cachedCoast(
       }
     }
     const boundaries = [...new Set(cells.flatMap(i => [...(boundariesByHex.get(i) ?? [])]))];
-    if (boundaries.length !== 1 || !boundaries[0]!.closed || cells.length < 2 || boundaries[0]!.edges.some(edge =>
+    if (boundaries.length !== 1 || !boundaries[0]!.closed || coastChainArea(boundaries[0]!) <= 0 || cells.length < 2 || boundaries[0]!.edges.some(edge =>
       (edge.hex !== undefined && surface.split.has(edge.hex)) || (edge.across !== undefined && surface.split.has(edge.across))) || cells.some(i => {
       const shape = shapes?.[String(i)];
       return !['Land', 'Coastal Land'].includes(base[i] ?? '') || shape?.land !== undefined || (shape?.concentration ?? 0) > 0;
@@ -578,7 +584,14 @@ function cachedCoast(
   const trace = (shares: ReadonlyMap<number, ShapeTarget>) => {
     profileCount('coast.traces');
     const shaped = shares.size > 0 ? profileTime('coast.shape', () => shapeCoast(seaEdges, surface, size, shares, lakeEdges, memo)) : null;
-    return { shaped, geometry: profileTime('coast.silhouette', () => coastGeometryOf(shaped?.edges ?? seaEdges, smooth, rough, shaped ?? undefined, { cache: coastComponents, policyKey: JSON.stringify([seed, cols, rows, size]) })) };
+    let geometry = profileTime('coast.silhouette', () => coastGeometryOf(shaped?.edges ?? seaEdges, smooth, rough, shaped ?? undefined, { cache: coastComponents, policyKey: JSON.stringify([seed, cols, rows, size]) }));
+    if (geometry.component) {
+      const bounds = gridPixelSize(cols, rows, size);
+      const paths=[...geometry.paths];
+      for(let k=0;k<paths.length;k++)paths[k]=extendCoastToRim(paths[k]!,geometry.chains[k]!.closed,bounds,size,paths.filter((_,j)=>j!==k));
+      geometry = { ...geometry, paths };
+    }
+    return { shaped, geometry };
   };
   let { shaped, geometry } = trace(targets);
   // Fit the final outline and stroke, not requested area plus signed correction
@@ -594,7 +607,9 @@ function cachedCoast(
   // through the smoothing, so this loop cannot converge hex by hex; two passes bring the
   // shapes near enough for the coupled fit on the final outline below to finish.
   coastPhase('globalPasses');
-  const passes = 3;
+  // Unsmooth styles have no coupled fit to finish a residual left by the cuts.
+  // Permit one more measured candidate only when the existing area gate is missed.
+  const passes = smooth ? 3 : 4;
   for (let pass = 0; pass < passes && shaped && (smooth || inkReach > 0); pass++) {
     profileCount('coast.globalPasses');
     const outlines = pathPolylines(drawnLand(geometry, page.width, page.height, size), 8);
@@ -605,6 +620,7 @@ function cachedCoast(
     const drift = lakeLength.size ? driftOf(geometry, geometry.strips.length, new Set(targets.keys()), cols, rows, size, d => pathPolylines(d, 6)) : new Map<number, number>();
     const ink = lakeLength.size ? coastLengthIn(strokes, new Set(targets.keys()), cols, rows, size) : new Map<number, number>();
     let miss = 0;
+    let maxError = 0;
     let movement = 0;
     const next = new Map<number, ShapeTarget>();
     for (const [i, target] of targets) {
@@ -619,6 +635,7 @@ function cachedCoast(
         : measure(hexCorners(i % cols, Math.floor(i / cols), size)) / hexArea;
       const short = wanted.get(i)! - shows;
       miss += short * short;
+      maxError = Math.max(maxError, Math.abs(short));
       const bracket = brackets.get(i)!;
       if (short > 0) bracket.low = was;
       else bracket.high = was;
@@ -640,7 +657,7 @@ function cachedCoast(
     }
     if (!best || miss < best.miss) best = { shaped, geometry, miss, shares: new Map(aimed) };
     // The final candidate has already been measured; avoid an unused trace.
-    if (movement < 0.0005 || pass === passes - 1) break;
+    if (movement < 0.0005 || pass === passes - 1 || (pass === 2 && maxError <= 0.01)) break;
     aimed = next;
     ({ shaped, geometry } = trace(aimed));
   }
@@ -723,9 +740,10 @@ function cachedCoast(
     if (lakeLength.has(i) && !seaLength.has(i) && !surface.split.has(i)) lakeAim.set(i, { land: wanted.get(i)!, lake: false });
   }
   for (const i of lakeInsets.keys()) lakeAim.set(i, { land: landFraction('Lake', undefined, dimensions, shapes?.[String(i)]), lake: true });
-  const entry = { key, geometry, coverage, lakes, lakeIslands, surface, insets: shaped?.insets ?? new Map<number, number>(), lakeInsets, lakeAim, onLand: landTest(surface, shaped?.land ?? new Map(), size) };
+  const paint = coastPaintGeometry(geometry, page.width, page.height, size);
+  const entry = { key, paint, geometry, coverage, lakes, lakeIslands, surface, insets: shaped?.insets ?? new Map<number, number>(), lakeInsets, lakeAim, onLand: landTest(surface, shaped?.land ?? new Map(), size) };
   coastCache.set(key, entry, geometry.paths.reduce((n, path) => n + path.length * 192, 0)
-    + (geometry.toLand.length + geometry.toWater.length) * 256 + base.length * 128);
+    + (geometry.toLand.length + geometry.toWater.length) * 256 + base.length * 128 + paint.estimatedBytes);
   coastPhase();
   return entry;
 }
@@ -899,9 +917,8 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
   const inkReachOf = knobs.coast === 'none' ? 0 : Math.max(0.8, size * palette.coastWidth * knobs.lineWeight) / 2;
   phase('coast');
   const traced = base ? cachedCoast(base, cols, rows, size, knobs.coast === 'smooth', map.hexShapes, map.defaultIrregularity, normaliseHexDimensions(map.hexDimensions), seed, inkReachOf) : null;
-  // All clips in one build share the same immutable painted coast outline.
-  let coastLandPath: PathCmd[] | undefined;
-  const drawnCoastLand = (): PathCmd[] => coastLandPath ??= traced ? drawnLand(traced.geometry, width, height, size) : [];
+  // Exact clips and donor geometry survive redraws with their traced coast.
+  const drawnCoastLand = (): PathCmd[] => traced?.paint.land ?? [];
   phase('landAndFills');
   // The one answer to "is this point land?" for everything placed on the map (with the islands
   // and lake bodies added once they are laid out: see `landAt`): inside the sea coast as drawn,
@@ -946,9 +963,14 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
   ): Fitted => {
     const cacheKey = `${seed}/${cols}/${rows}/${size}/${key}`;
     const known = symbolPlacements.get(cacheKey);
-    if (known && (known.revision === symbolLandRevision || known.probes.every(p => onLand(p.at) === p.land))) {
-      if (known.revision !== symbolLandRevision) profileCount('symbols.revalidatedFits');
-      known.revision = symbolLandRevision;
+    if (known && (known.revisions.includes(symbolLandRevision) || known.probes.every(p => onLand(p.at) === p.land))) {
+      if (!known.revisions.includes(symbolLandRevision)) {
+        profileCount('symbols.revalidatedFits');
+        // Retain exact validation for the same four content revisions as terrainRevisions.
+        // Undo/redo need not replay every failed candidate in an unchanged fit again.
+        known.revisions.push(symbolLandRevision);
+        if (known.revisions.length > 4) known.revisions.shift();
+      }
       profileCount('symbols.cacheHits');
       return { ...known.fit, placed: refit(draw, known.fit, size) };
     }
@@ -961,7 +983,7 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
       return land;
     }, inHex);
     const fit = { ...fitted, placed: [] };
-    symbolPlacements.set(cacheKey, { revision: symbolLandRevision, fit, probes }, probes.length * 48 + 128);
+    symbolPlacements.set(cacheKey, { revisions: [symbolLandRevision], fit, probes }, probes.length * 48 + 192);
     return fitted;
   };
   /** Records a hex whose symbols (`what`, such as "hills symbols") were drawn smaller than asked, or left out. */
@@ -1170,17 +1192,8 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
     const ground: Prim[] = [];
     // Component area adjustment can move beyond the former local 1.2-radius budget.
     // Extend donor ground around source edges, clipped to the final component silhouette.
-    for (const chain of traced.geometry.chains) for (const edge of chain.edges) {
-      const dx = edge.to.x - edge.from.x, dy = edge.to.y - edge.from.y;
-      const length = Math.hypot(dx, dy) || 1;
-      const tx = dx / length * size * 2.5, ty = dy / length * size * 2.5;
-      const points = [
-        { x: edge.from.x - tx - ty, y: edge.from.y - ty + tx },
-        { x: edge.to.x + tx - ty, y: edge.to.y + ty + tx },
-        { x: edge.to.x + tx + ty, y: edge.to.y + ty - tx },
-        { x: edge.from.x - tx + ty, y: edge.from.y - ty - tx },
-      ];
-      ground.push({ kind: 'polygon', points, fill: groundColour(edge.land) });
+    for (const { donor, points } of traced.paint.ground) {
+      ground.push({ kind: 'polygon', points, fill: groundColour(donor) });
     }
     prims.push({ kind: 'group', clip: drawnCoastLand(), clipRule: 'evenodd', prims: ground });
   }
@@ -1280,16 +1293,28 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
   let iceMargin: CoastGeometry | null = null;
   if (base && texturedIce && glacierHexes.length > 0) {
     if (organicIce) {
-      iceMargin = glacierEdges({
-        cols,
-        rows,
-        size,
-        glacier: new Set(glacierHexes),
-        isWater: (j) => sideOf(base[j]) === 'water',
-        levelOf,
-        rankOf: (j) => (elevationData?.[j] ? ELEVATION_RANK[elevationData[j]!] : null),
-        noise: (x, y, k) => unit(seed, 'ice-margin', Math.round(x * 1000), Math.round(y * 1000), k),
-      });
+      // Only geometry inputs belong here: ownership, colours and opacity do not move ice.
+      // Content keys survive worker cloning and undo, while cache:'off' remains independent.
+      const marginKey = JSON.stringify([seed, cols, rows, size, base, elevationData, map.hexShapes, map.defaultIrregularity]);
+      iceMargin = glacierMargins.get(marginKey) ?? null;
+      if (iceMargin) profileCount('glacier.marginHits');
+      else {
+        profileCount('glacier.marginBuilds');
+        iceMargin = glacierEdges({
+          cols,
+          rows,
+          size,
+          glacier: new Set(glacierHexes),
+          isWater: (j) => sideOf(base[j]) === 'water',
+          levelOf,
+          rankOf: (j) => (elevationData?.[j] ? ELEVATION_RANK[elevationData[j]!] : null),
+          noise: (x, y, k) => unit(seed, 'ice-margin', Math.round(x * 1000), Math.round(y * 1000), k),
+        });
+        const weight = iceMargin.paths.reduce((n, path) => n + path.length * 64, 0)
+          + [...iceMargin.toLand, ...iceMargin.toWater].reduce((n, sliver) => n + sliver.d.length * 64, 0)
+          + iceMargin.chains.reduce((n, chain) => n + chain.edges.length * 256, 0);
+        glacierMargins.set(marginKey, iceMargin, weight);
+      }
       // Ground regained from the ice and ice gained over the ground beside it,
       // each in the colours of the hex it belongs to.
       for (const sliver of [...iceMargin.toWater, ...iceMargin.toLand]) {
@@ -1389,10 +1414,7 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
 
   // --- water --------------------------------------------------------------------
   const coast = traced && (knobs.coast !== 'none' || knobs.water !== 'flat') ? traced.geometry : null;
-  const componentWaterClip: PathCmd[] | null = coast?.component ? [
-    ...polygonPath([{ x: -size, y: -size }, { x: width + size, y: -size }, { x: width + size, y: height + size }, { x: -size, y: height + size }]),
-    ...drawnCoastLand(),
-  ] : null;
+  const componentWaterClip = coast?.component ? traced!.paint.water : null;
   // Sea ice lies on ordinary sea; its pack is drawn over the water below.
   const waterColour = (i: number) => (base?.[i] === 'Lake' ? palette.lake : palette.sea);
   const islands: number[] = [];
@@ -1434,6 +1456,7 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
     }
     // The notches the hex grid leaves at the page's edge belong to the border
     // hex beside them: what it is, they are, so nothing stops short of the rim.
+    const rimLand: Prim[] = [];
     for (let i = 0; i < base.length; i++) {
       const col = i % cols;
       const row = Math.floor(i / cols);
@@ -1451,8 +1474,14 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
         }
         const donor = split ? split.donors[6 + piece.edge]! : i;
         const fill = groundColour(donor);
-        prims.push({ kind: 'path', d: polygonPath(piece.points), fill, stroke: fill, strokeWidth: seal });
+        rimLand.push({ kind: 'path', d: polygonPath(piece.points), fill, stroke: fill, strokeWidth: seal });
       }
+    }
+    // Border-hex ownership does not make its whole rim notch dry. The final
+    // coast may cut through it just as it cuts through the original hex fill.
+    if (rimLand.length) {
+      if (coast?.component) prims.push({ kind: 'group', clip: drawnCoastLand(), clipRule: 'evenodd', prims: rimLand });
+      else prims.push(...rimLand);
     }
     // Clip the original sea fills too: their sealing strokes can otherwise leave tiny
     // traces of old hex edges inside the new coastline, even when later patches are clipped.
@@ -1495,16 +1524,6 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
     const side = spec.side ?? coastalIslandSide(base!, cols, rows, i);
     return (side * Math.PI) / 3;
   };
-  interface Isle {
-    c: Point;
-    rx: number;
-    ry: number;
-    axis: number;
-    /** A large island (it takes the large-island share) rather than a small one. */
-    large: boolean;
-    /** How much of the usual share of its kind this island takes (islands of a kind average 1), so that islands differ in size. */
-    weight?: number;
-  }
   /**
    * Islands laid in one of nature's patterns (see `IslandArrangement`), about `centre`, running along
    * `grain`. Only the places, shapes and turn of each island are set here; its size comes from its share.
@@ -1690,7 +1709,7 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
       const toward = coastward(i, islandSpecFor(base![i], map.islandSpecs?.[String(i)]));
       return { x: c.x + Math.cos(toward) * size * 0.5, y: c.y + Math.sin(toward) * size * 0.5 };
     }
-    const biggest = sizedIsles(i).sort((a, b) => b.rx * b.ry - a.rx * a.ry)[0];
+    const biggest = sizedIsles(i).slice().sort((a, b) => b.rx * b.ry - a.rx * a.ry)[0];
     return biggest?.c ?? c;
   };
   const dimensions = normaliseHexDimensions(map.hexDimensions);
@@ -1721,7 +1740,15 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
    * keeps the hex's share); islands kept clear of the polygon were crowded off land that is
    * water as drawn, and drawn far smaller than their share.
    */
-  const mainlandNear = (i: number): ((p: Point) => { dist: number; at: Point }) | null => {
+  type MainlandDistance = (p: Point) => { dist: number; at: Point };
+  const mainlandDistances = new Map<number, MainlandDistance | null>();
+  const mainlandNear = (i: number): MainlandDistance | null => {
+    if (mainlandDistances.has(i)) return mainlandDistances.get(i)!;
+    const near = buildMainlandDistance(i);
+    mainlandDistances.set(i, near);
+    return near;
+  };
+  const buildMainlandDistance = (i: number): MainlandDistance | null => {
     const polys = mainlandOf(i);
     if (polys.length === 0) return null;
     if (!coast?.component || !seaCoastLand) return (p) => nearestOn(p, polys);
@@ -1918,8 +1945,6 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
     return { isles: isles.map((s, k) => ({ ...s, c: { x: centre.x + at[k]!.x, y: centre.y + at[k]!.y } })), crowd };
   };
   const sizedIslesAt = (i: number, times: number): Isle[] => layoutAt(i, times, islandFloor(i)).isles;
-  /** The islands of an island hex, as closed paths, for islands drawn `times` their share. */
-  const islandPathAt = (i: number, times: number): PathCmd[] => islandPathFrom(i, sizedIslesAt(i, times));
   const islandPathFrom = (i: number, isles: Isle[]): PathCmd[] => {
     const rand = islandRand(i);
     const blob = knobs.islands === 'blob';
@@ -1980,7 +2005,7 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
     if (base![i] === 'Mainland and islands') mainlandNear(i);
     const mainland = base![i] === 'Mainland and islands' ? [...mainlandOf(i).map((ring) => ring.map(q => [q.x, q.y])), mainlandKeys.get(i) ?? ''] : [];
     const memoKey = JSON.stringify([size, seed, inkReach, i, cols, levelOf(i), knobs.islands, spec, coastward(i, spec), want, dimensions.largeIslandPercent, dimensions.smallIslandPercent, mainland]);
-    let times = renderCachesEnabled() ? islandScaleMemo.get(memoKey) : undefined;
+    let times = islandDrawings.scale(memoKey);
     if (times === undefined) {
       times = 1;
       const floor = islandFloor(i);
@@ -2026,19 +2051,28 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
         // Islands that cannot all fit at their share are drawn smaller, not run together.
         times = fits > 0 && over < Infinity ? Math.min(best.t, fits) : best.t;
       }
-      if (renderCachesEnabled() && islandScaleMemo.size > 20000) islandScaleMemo.clear();
-      if (renderCachesEnabled()) islandScaleMemo.set(memoKey, times);
+      islandDrawings.setScale(memoKey, times);
     }
     islandScales.set(i, times);
     return times;
   };
-  const sizedIsles = (i: number): Isle[] => sizedIslesAt(i, islandScale(i));
-  const islandPaths = new Map<number, PathCmd[]>();
-  const islandPath = (i: number): PathCmd[] => {
-    let path = islandPaths.get(i);
-    if (!path) islandPaths.set(i, path = islandPathAt(i, islandScale(i)));
-    return path;
+  const drawings = new Map<number, { isles: Isle[]; path: PathCmd[] }>();
+  const islandDrawing = (i: number) => {
+    let drawing = drawings.get(i);
+    if (drawing) return drawing;
+    drawing = islandDrawings.drawing(symbolLandRevision.id, i);
+    if (drawing) profileCount('islands.drawingHits');
+    else {
+      profileCount('islands.drawingBuilds');
+      const isles = sizedIslesAt(i, islandScale(i));
+      drawing = { isles, path: islandPathFrom(i, isles) };
+      islandDrawings.setDrawing(symbolLandRevision.id, i, drawing);
+    }
+    drawings.set(i, drawing);
+    return drawing;
   };
+  const sizedIsles = (i: number): Isle[] => islandDrawing(i).isles;
+  const islandPath = (i: number): PathCmd[] => islandDrawing(i).path;
 
   /** Whether a point is land as drawn: the coast's land, or one of the islands of an island hex. */
   const isleMemo = new Map<number, (p: Point) => boolean>();
@@ -2171,8 +2205,13 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
     const drawn: Prim[] = [];
     if (iceHexes.length > 0) {
       const margin = size * 2;
-      drawn.push(
-        ...seaIcePrims({
+      const packKey = JSON.stringify([seed, cols, rows, size, base, sides, map.hexShapes, map.defaultIrregularity,
+        iceColours, texturedIce, knobs.coast]);
+      let pack = packIceDrawings.get(packKey);
+      if (pack) profileCount('ice.packHits');
+      else {
+        profileCount('ice.packBuilds');
+        pack = seaIcePrims({
           cols,
           rows,
           size,
@@ -2185,8 +2224,11 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
           textured: texturedIce,
           organic: knobs.coast === 'smooth',
           noise: iceNoise,
-        }),
-      );
+        });
+        // Conservative payload estimate, paid only on a cold pack build; keys count separately.
+        packIceDrawings.set(packKey, pack, JSON.stringify(pack).length * 4);
+      }
+      drawn.push(...pack);
     }
     // Bergs break off the glacier's coast, more of them the more irregular it is.
     if (texturedIce && knobs.coast === 'smooth' && glacierHexes.length > 0 && !thematic) drawn.push(...floeFringe(coastLines, size, seed, nearGlacier, iceColours));

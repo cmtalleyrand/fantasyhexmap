@@ -41,6 +41,13 @@ try {
       const fullMs = performance.now() - fullStart;
       // Each production scene is cloned once on its way to the paint worker.
       const cachedWorker = structuredClone(cached), fullWorker = structuredClone(full);
+      // Export inputs need an equal Path2D history too. Chromium can rasterize a
+      // previously stroked Path2D a channel level differently from a fresh one,
+      // even for the same scene object (see drawing-followup.md). Cloning both
+      // inputs preserves their values and aliases, but prevents earlier cases'
+      // painter memo entries from favouring the incremental side. Pixel and scene
+      // comparisons remain exact; production painting is unchanged.
+      const cachedExport = structuredClone(cached), fullExport = structuredClone(full);
       const coastPrims = prims => prims.flatMap(p => p.kind === 'group' ? coastPrims(p.prims)
         : p.kind === 'path' && p.stroke === options.style.palette.coast ? [p] : []);
       const coast = coastPrims(full.prims), focusHex = Object.keys(map.hexShapes ?? {})[0];
@@ -52,8 +59,8 @@ try {
       for (const dpr of [1, 2]) for (const zoom of ['fit', 4]) for (const mode of ['full', 'coast']) for (const compositor of ['worker', 'export']) {
         const pixels = [], width = 1000 * dpr, height = 800 * dpr;
         const canvases = [];
-        for (const [original, painter] of [[compositor === 'worker' ? cachedWorker : cached, api],
-          [compositor === 'worker' ? fullWorker : full, referenceApi]]) {
+        for (const [original, painter] of [[compositor === 'worker' ? cachedWorker : cachedExport, api],
+          [compositor === 'worker' ? fullWorker : fullExport, referenceApi]]) {
           const scene = mode === 'full' ? original : { ...original, background: '#fff', prims: coastPrims(original.prims) };
           const canvas = compositor === 'worker' ? new OffscreenCanvas(width, height) : Object.assign(document.createElement('canvas'), { width, height });
           const ctx = canvas.getContext('2d'), scale = zoom === 'fit' ? Math.min(1000 / scene.width, 800 / scene.height) : zoom;

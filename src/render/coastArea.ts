@@ -1,3 +1,4 @@
+import { roundLoopJoins } from './coastCorners.js';
 import { profileCount, profilePhases, profileTime } from './profile.js';
 /** Fit every hex's share on the final coastline (see `fitCoastAreas`). */
 import { hexCenter, hexCorners, type Point } from '../../shared/hex.js';
@@ -8,15 +9,17 @@ import { pathPolylines } from './ice.js';
 import type { PathCmd } from './prims.js';
 
 /** Remove small fold-back loops already introduced by roughening tight caps. */
-function untangle(ring: Point[]): Point[] {
+function untangle(ring: Point[], closed: boolean): { ring: Point[]; joins: Point[] } {
+  const joins: Point[] = [];
   const area = (points: Point[]) => Math.abs(points.reduce((sum, p, i) => {
     const q = points[(i + 1) % points.length]!;
     return sum + p.x * q.y - q.x * p.y;
   }, 0));
   const cross = (a: Point, b: Point, c: Point) => (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
-  let points = ring.slice(0, -1);
+  let points = closed ? ring.slice(0, -1) : ring.slice();
   for (let pass = 0; pass < 32; pass++) {
     const n = points.length;
+    const segments = closed ? n : n - 1;
     // The first crossing in (i, j) order, as an all-pairs search would find it, from a grid
     // of the segments' boxes: only segments whose boxes meet can cross.
     let xs = Infinity, ys = Infinity, xe = -Infinity, ye = -Infinity;
@@ -30,14 +33,14 @@ function untangle(ring: Point[]): Point[] {
       const y0 = Math.floor((Math.min(a.y, b.y) - ys) / cell), y1 = Math.floor((Math.max(a.y, b.y) - ys) / cell);
       for (let x = x0; x <= x1; x++) for (let y = y0; y <= y1; y++) visit(key(x, y));
     };
-    for (let k = 0; k < n; k++) cellsOf(k, c => { const list = grid.get(c); if (list) list.push(k); else grid.set(c, [k]); });
+    for (let k = 0; k < segments; k++) cellsOf(k, c => { const list = grid.get(c); if (list) list.push(k); else grid.set(c, [k]); });
     let hit: { i: number; j: number } | null = null;
-    for (let i = 0; i < n && !hit; i++) {
+    for (let i = 0; i < segments && !hit; i++) {
       const a = points[i]!, b = points[(i + 1) % n]!;
       let best = Infinity;
       cellsOf(i, c => {
         for (const j of grid.get(c)!) {
-          if (j < i + 2 || j >= best || (i === 0 && j === n - 1)) continue;
+          if (j < i + 2 || j >= best || (closed && i === 0 && j === n - 1)) continue;
           const c0 = points[j]!, d = points[(j + 1) % n]!;
           if (Math.max(a.x, b.x) < Math.min(c0.x, d.x) || Math.min(a.x, b.x) > Math.max(c0.x, d.x) ||
             Math.max(a.y, b.y) < Math.min(c0.y, d.y) || Math.min(a.y, b.y) > Math.max(c0.y, d.y)) continue;
@@ -53,11 +56,13 @@ function untangle(ring: Point[]): Point[] {
     const dx = b.x - a.x, dy = b.y - a.y, ex = d.x - c.x, ey = d.y - c.y;
     const t = ((c.x - a.x) * ey - (c.y - a.y) * ex) / (dx * ey - dy * ex);
     const intersection = { x: a.x + t * dx, y: a.y + t * dy };
+    joins.push(intersection);
     const outer = [...points.slice(0, i + 1), intersection, ...points.slice(j + 1)];
     const loop = [intersection, ...points.slice(i + 1, j + 1)];
-    points = area(outer) >= area(loop) ? outer : loop;
+    // An open coast must keep both endpoints: its little loop cannot become a new island.
+    points = !closed || area(outer) >= area(loop) ? outer : loop;
   }
-  return [...points, points[0]!];
+  return { ring: closed ? [...points, points[0]!] : points, joins };
 }
 
 /**
@@ -88,11 +93,13 @@ export function fitCoastAreas(geometry: CoastGeometry, targets: ReadonlyMap<numb
   phase('prepare');
   const hexArea = 1.5 * Math.sqrt(3) * size * size;
   const closed = geometry.chains.map(c => c.closed);
-  let rings = geometry.paths.map((d, k) => {
-    const ring = pathPolylines(d, 8)[0] ?? [];
-    if (!closed[k] || ring.length < 4) return ring;
-    return untangle(ring);
+  const prepared = geometry.paths.map((d,k) => {
+    const ring=pathPolylines(d,8)[0]??[];
+    return ring.length<4 ? {ring,joins:[]} : untangle(ring,closed[k]!);
   });
+  let rings = prepared.map(p=>p.ring);
+  // Retain surviving loop joins by sample index through the tangential skew.
+  const loopJoins = prepared.map(({ring,joins})=>joins.map(p=>ring.indexOf(p)).filter(i=>i>=0));
   const pathsOf = (rs: Point[][]): PathCmd[][] => rs.map((ring, k) => {
     if (!ring.length) return geometry.paths[k]!;
     const d: PathCmd[] = ring.map((p, j) => [j === 0 ? 'M' : 'L', p.x, p.y]);
@@ -242,6 +249,14 @@ export function fitCoastAreas(geometry: CoastGeometry, targets: ReadonlyMap<numb
   const swellCentres = new Map<number, Point>();
   const forward = new Float64Array(hexes.length), transpose = new Float64Array(hexes.length * 2);
   rings = skewAlongShore(rings);
+  // A smooth spatial warp preserves a sharp join. Repair that join after the
+  // shape-changing skew, then let the existing solver restore every area target.
+  // Process rings in order so each repair checks already repaired neighbours too.
+  for(let k=0;k<rings.length;k++) {
+    const ring=rings[k]!;
+    rings[k]=roundLoopJoins(ring,closed[k]!,loopJoins[k]!.map(i=>ring[i]!),size*.32,
+      p=>passageFade(p)>=1,rings.filter((_,j)=>j!==k));
+  }
   const initial = profileTime('fit.measure', () => measureAll(rings, touched));
   const want = new Map([...touched].map(h => [h, targets.get(h)?.share ?? initial.get(h)!]));
   let shown = initial;
