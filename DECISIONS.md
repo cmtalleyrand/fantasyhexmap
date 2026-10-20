@@ -1361,3 +1361,15 @@ show Parchment median 27.0→24.1 ms, Classic 3.1→4.0 ms. The Classic extra ca
 29.0% relative cold cost; p95 adds 1.2 ms (+27.9%). This exceeds 10% on that small fixture and remains
 unapproved. The populated-map cold result cannot be used to hide it. The diagnostic asserts that base
 geography is visible and a coastline was actually built; an initial empty-base setup was discarded.
+
+## 65. Use one land colour by default and continue retiring Classic
+
+**Owner direction.** Coastal land should use the inland land colour by default. All preset defaults
+now use `land: 'uniform'`; an explicit coastal-band override remains a supported choice. Land shares,
+coast geometry and saved owner data are unchanged.
+
+Classic's unsmoothed hex-based coast exposes abrupt cut joins at low shares. It remains a legacy
+compatibility path; new users already start in Parchment. Continue retiring its picker/fallback and
+legacy preference paths with a deliberate migration, rather than further Classic-specific styling.
+Do not silently restyle saved choices or disable its correctness checks. See the owner-review note
+in `docs/drawing-next-agent.md`.

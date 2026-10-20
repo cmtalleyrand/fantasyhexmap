@@ -45,6 +45,24 @@ The connected failures from the previous handoff were repaired in `f67ca94`, aft
 - Current matched performance against `1179712`, including raw records and limits, is in the follow-up
   report. Never substitute the old `6786d4a` figures for current evidence.
 
+## Owner review: defaults and Classic retirement
+
+The owner confirmed that the small Parchment coastline difference is relevant, but the synthetic
+before image's stray land at the map boundary is not representative of their map. Do not describe
+those synthetic/SVG screenshots as captures of the owner's before view. Diagnose boundary fragments
+through the actual Canvas/export path before attributing them to owner data or approving their shape.
+
+All preset defaults now use `land: 'uniform'`: coastal land has the same colour as inland land.
+Explicit `land: 'band'` overrides remain available. This is the owner's requested display default,
+not a change to land percentages or coastline geometry.
+
+**Continue retiring Classic.** Its unsmoothed hex-based coast exposes abrupt joins at low land shares;
+it is a legacy compatibility style, not the natural-geography target. New users already start in
+Parchment. Inventory the Classic picker entry, fallback styles, legacy preferences and exports, then
+retire them deliberately. Preserve saved choices until an approved migration exists; do not silently
+restyle existing maps or remove Classic assertions to hide failures. Prefer work on natural coastlines
+over further Classic-specific styling. The owner does not use Classic.
+
 ## Next priorities
 
 **Merge blocker first:** the current strict performance run fails warm p95 (+24.1%, 169.1→209.8 ms)
