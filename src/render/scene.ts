@@ -1,3 +1,4 @@
+import { coastPaintGeometry, type CoastPaintGeometry } from './coastPaintGeometry.js';
 import { IslandDrawingCache, type DrawnIsle as Isle } from './islandDrawingCache.js';
 import { BoundedMemo, renderCachesEnabled, withRenderCaches } from './cache.js';
 import { cachedPlacement, clearPlacementCache } from './placementCache.js';
@@ -356,6 +357,7 @@ function cachedPolityLabels(
  * are traced as land here, and so are islands that stand in a lake.
  */
 interface TracedCoast {
+  paint: CoastPaintGeometry;
   geometry: CoastGeometry;
   coverage: Map<number, { wanted: number; shown: number }>;
   lakes: number[][];
@@ -738,9 +740,10 @@ function cachedCoast(
     if (lakeLength.has(i) && !seaLength.has(i) && !surface.split.has(i)) lakeAim.set(i, { land: wanted.get(i)!, lake: false });
   }
   for (const i of lakeInsets.keys()) lakeAim.set(i, { land: landFraction('Lake', undefined, dimensions, shapes?.[String(i)]), lake: true });
-  const entry = { key, geometry, coverage, lakes, lakeIslands, surface, insets: shaped?.insets ?? new Map<number, number>(), lakeInsets, lakeAim, onLand: landTest(surface, shaped?.land ?? new Map(), size) };
+  const paint = coastPaintGeometry(geometry, page.width, page.height, size);
+  const entry = { key, paint, geometry, coverage, lakes, lakeIslands, surface, insets: shaped?.insets ?? new Map<number, number>(), lakeInsets, lakeAim, onLand: landTest(surface, shaped?.land ?? new Map(), size) };
   coastCache.set(key, entry, geometry.paths.reduce((n, path) => n + path.length * 192, 0)
-    + (geometry.toLand.length + geometry.toWater.length) * 256 + base.length * 128);
+    + (geometry.toLand.length + geometry.toWater.length) * 256 + base.length * 128 + paint.estimatedBytes);
   coastPhase();
   return entry;
 }
@@ -914,9 +917,8 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
   const inkReachOf = knobs.coast === 'none' ? 0 : Math.max(0.8, size * palette.coastWidth * knobs.lineWeight) / 2;
   phase('coast');
   const traced = base ? cachedCoast(base, cols, rows, size, knobs.coast === 'smooth', map.hexShapes, map.defaultIrregularity, normaliseHexDimensions(map.hexDimensions), seed, inkReachOf) : null;
-  // All clips in one build share the same immutable painted coast outline.
-  let coastLandPath: PathCmd[] | undefined;
-  const drawnCoastLand = (): PathCmd[] => coastLandPath ??= traced ? drawnLand(traced.geometry, width, height, size) : [];
+  // Exact clips and donor geometry survive redraws with their traced coast.
+  const drawnCoastLand = (): PathCmd[] => traced?.paint.land ?? [];
   phase('landAndFills');
   // The one answer to "is this point land?" for everything placed on the map (with the islands
   // and lake bodies added once they are laid out: see `landAt`): inside the sea coast as drawn,
@@ -1190,17 +1192,8 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
     const ground: Prim[] = [];
     // Component area adjustment can move beyond the former local 1.2-radius budget.
     // Extend donor ground around source edges, clipped to the final component silhouette.
-    for (const chain of traced.geometry.chains) for (const edge of chain.edges) {
-      const dx = edge.to.x - edge.from.x, dy = edge.to.y - edge.from.y;
-      const length = Math.hypot(dx, dy) || 1;
-      const tx = dx / length * size * 2.5, ty = dy / length * size * 2.5;
-      const points = [
-        { x: edge.from.x - tx - ty, y: edge.from.y - ty + tx },
-        { x: edge.to.x + tx - ty, y: edge.to.y + ty + tx },
-        { x: edge.to.x + tx + ty, y: edge.to.y + ty - tx },
-        { x: edge.from.x - tx + ty, y: edge.from.y - ty - tx },
-      ];
-      ground.push({ kind: 'polygon', points, fill: groundColour(edge.land) });
+    for (const { donor, points } of traced.paint.ground) {
+      ground.push({ kind: 'polygon', points, fill: groundColour(donor) });
     }
     prims.push({ kind: 'group', clip: drawnCoastLand(), clipRule: 'evenodd', prims: ground });
   }
@@ -1421,10 +1414,7 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
 
   // --- water --------------------------------------------------------------------
   const coast = traced && (knobs.coast !== 'none' || knobs.water !== 'flat') ? traced.geometry : null;
-  const componentWaterClip: PathCmd[] | null = coast?.component ? [
-    ...polygonPath([{ x: -size, y: -size }, { x: width + size, y: -size }, { x: width + size, y: height + size }, { x: -size, y: height + size }]),
-    ...drawnCoastLand(),
-  ] : null;
+  const componentWaterClip = coast?.component ? traced!.paint.water : null;
   // Sea ice lies on ordinary sea; its pack is drawn over the water below.
   const waterColour = (i: number) => (base?.[i] === 'Lake' ? palette.lake : palette.sea);
   const islands: number[] = [];

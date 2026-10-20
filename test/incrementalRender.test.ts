@@ -134,3 +134,23 @@ test('unchanged island drawings reuse layouts and outlines while shape edits inv
   assert.ok(changed.profile.counters['islands.drawingBuilds']!>0);
   assert.deepEqual(changed.scene,buildStaticScene(edited,{...options,cache:'off'}));
 });
+
+test('coast paint geometry survives colour redraws without retaining old colours', () => {
+  const map = componentFixture(), options = editOptions();
+  const underlay = (scene: ReturnType<typeof buildStaticScene>) => {
+    const group = scene.prims.find(p => p.kind === 'group' && p.clip && p.prims[0]?.kind === 'polygon');
+    assert.ok(group?.kind === 'group' && group.clip);
+    const ground = group.prims[0]!;
+    assert.ok(ground.kind === 'polygon');
+    return { clip: group.clip, points: ground.points, fill: ground.fill };
+  };
+  const before = underlay(buildStaticScene(map, options));
+  const coloured = { ...options, style: { ...options.style!, palette: { ...options.style!.palette, land: '#c01030' } } };
+  const warm = buildStaticScene(structuredClone(map), coloured), after = underlay(warm);
+  assert.equal(after.clip, before.clip);
+  assert.equal(after.points, before.points);
+  assert.notEqual(after.fill, before.fill);
+  const full = buildStaticScene(map, { ...coloured, cache: 'off' });
+  assert.notEqual(underlay(full).clip, before.clip);
+  assert.deepEqual(warm, full);
+});
