@@ -4,7 +4,7 @@ import { lakeStraitFixture, LAKE_STRAIT_CASES } from './fixtures/lakeStrait.ts';
 import { buildScene, defaultVisibility, landTestOf } from '../src/render/scene.ts';
 import { resolveStyle } from '../src/render/styles.ts';
 import { pathPolylines } from '../src/render/ice.ts';
-import { areaCoverage } from '../src/render/footprint.ts';
+import { lakeStraitFrame, areaCoverage } from '../src/render/footprint.ts';
 import { evenOddTest } from '../src/render/coast.ts';
 import { hexCenter, hexCorners } from '../shared/hex.ts';
 import type { ChannelWidth, Irregularity, MapState } from '../shared/types.ts';
@@ -141,18 +141,40 @@ test('west and east lake junction selections move the rendered passage', () => {
   assert.equal(landTestOf(east.scene)?.(eastThroat), false, 'moved channel is water for placement too');
   assert.ok(connected(west)); assert.ok(connected(east));
 });
-test('lake strait land shares are measured on the drawn bank and unattainable shares are reported', () => {
+test('lake straits report land shares without sacrificing their headland shape to high targets', () => {
   const low = render(fixture('Narrow', undefined, 30));
   const middle = render(fixture('Narrow', undefined, 50));
   assert.ok(Math.abs(low.share() - 0.3) < 0.01, `30% request rendered ${low.share()}`);
   assert.ok(Math.abs(middle.share() - 0.5) < 0.01, `50% request rendered ${middle.share()}`);
+  const natural = render(fixture('Narrow'));
   const eighty = render(fixture('Narrow', undefined, 80));
-  assert.ok(Math.abs(eighty.share() - 0.8) < 0.01, `80% request rendered ${eighty.share()}`);
-  const high = render(fixture('Normal', undefined, 80));
-  assert.ok(high.share() > render(fixture('Normal', undefined, 30)).share());
-  const note = high.scene.compromises?.find(c => c.hexes.includes(centre));
-  assert.match(note?.why ?? '', /width/);
-  assert.ok(Math.abs(Number(note?.what.match(/^(\d+)%/)?.[1]) / 100 - high.share()) < 0.01);
+  assert.deepEqual(eighty.rings, natural.rings, '80% must not flatten the headlands to force a land-area target');
+  const note = eighty.scene.compromises?.find(c => c.hexes.includes(centre));
+  assert.ok(note, 'the ignored high target must be reported');
+  assert.ok(Math.abs(Number(note.what.match(/^(\d+)%/)?.[1]) / 100 - eighty.share()) < 0.01);
+});
+
+test('natural lake straits are short gaps between tips, opening rapidly on both sides', () => {
+  const c = hexCenter(3, 3, size), corners = hexCorners(3, 3, size);
+  for (const irregular of ['Smooth', 'Ragged', 'Fractured'] as const) {
+    const draw = render(fixture('Narrow', undefined, undefined, irregular));
+    const frame = lakeStraitFrame(corners, c, [2, 4, 5], .15 * Math.sqrt(3) * size)!;
+    const normal = frame.normal, tangent = { x: normal.y, y: -normal.x };
+    const gap = (u: number) => {
+      const at = (v: number) => ({ x: frame.centre.x + tangent.x * u + normal.x * v,
+        y: frame.centre.y + tangent.y * u + normal.y * v });
+      assert.ok(draw.water(at(0)), 'the short throat must connect to both wider water bodies');
+      let width = 0;
+      for (const side of [-1, 1]) for (let v = .1; v < size * 1.5; v += .1) {
+        if (!draw.water(at(v * side))) break;
+        width += .1;
+      }
+      return width;
+    };
+    const neck = gap(0);
+    for (const side of [-1, 1]) assert.ok(gap(side * size * .4) > neck + size * .25,
+      `${irregular}: banks must recede within 0.4 radii of the tips, not form a long canal`);
+  }
 });
 test('lake shores adjoining a strait retain their own land-share controls', () => {
   const map = fixture();

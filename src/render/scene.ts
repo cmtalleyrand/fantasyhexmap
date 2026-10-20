@@ -2447,7 +2447,6 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
         return [{ centre, mouths, junction: frame.centre, normal: frame.normal,
           rough: { Smooth: 0, Wavy: .04, Ragged: .07, Fractured: .12 }[shape.irregular],
           phase: Array.from({ length: 6 }, (_, k) => unit(seed, 'lake-strait-shore', i, k) * Math.PI * 2),
-          rootEdges: dry.map(e => [corners[e]!, corners[(e + 1) % 6]!] as [Point, Point]),
           width, outline: corners, land: channelShareSet(base[i], dimensions, map.hexShapes?.[String(i)]), ink: inkReachOf }];
       });
       // Keep the established coastal solver for isthmuses and junctions with

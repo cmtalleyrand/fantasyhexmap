@@ -9,7 +9,6 @@ export interface LakeShorePassage {
   centre: Point;
   junction: Point;
   normal: Point;
-  rootEdges: Array<[Point, Point]>;
   mouths: Point[];
   width: number;
   outline: Point[];
@@ -23,8 +22,7 @@ const segmentDistance = (p: Point, a: Point, b: Point) => {
   const x = b.x - a.x, y = b.y - a.y, t = Math.max(0, Math.min(1, ((p.x - a.x) * x + (p.y - a.y) * y) / (x * x + y * y || 1)));
   return Math.hypot(p.x - a.x - x * t, p.y - a.y - y * t);
 };
-const smoothMin = (a: number, b: number, k: number) => Math.min(a, b) - Math.max(0, k - Math.abs(a - b)) ** 2 / (4 * k);
-/** Blend a curved, flaring passage into the existing lake's signed shore field. */
+/** Blend two rounded headland tips into the existing lake's signed shore field. */
 export function lakeShoreFields(original: PathCmd[], passages: LakeShorePassage[], size: number): PathCmd[] {
   let path = original;
   for (const spec of passages) {
@@ -63,7 +61,7 @@ export function lakeShoreFields(original: PathCmd[], passages: LakeShorePassage[
     }
     const noise = (u: number, side: number) => {
       const off = side > 0 ? 0 : 3, x = u / size;
-      return .6 * Math.sin(x * 4.1 + spec.phase[off]!) + .27 * Math.sin(x * 10.3 + spec.phase[off + 1]!) + .13 * Math.sin(x * 21.7 + spec.phase[off + 2]!);
+      return .72 * Math.sin(x * 4.1 + spec.phase[off]!) + .28 * Math.sin(x * 8.3 + spec.phase[off + 1]!);
     };
     // Sample only the local edit. The old signed distance field keeps existing
     // coves and headlands as influence fades towards the surrounding lake.
@@ -76,28 +74,24 @@ export function lakeShoreFields(original: PathCmd[], passages: LakeShorePassage[
       const curve = c2 * limited * limited + c3 * limited ** 3, prime = 2 * c2 * limited + 3 * c3 * limited * limited;
       const centre = curve + (u - limited) * prime;
       const d = distance(p, spec.centre) / size;
-      const t = Math.max(0, Math.min(1, (1.5 - d) / (spec.land !== null && spec.land > .65 ? .45 : .5)));
-      const j = Math.max(0, Math.min(1, (1.9 - distance(p, spec.junction) / size) / 1.35));
-      const blend = t * t * (3 - 2 * t) * (spec.land !== null && spec.land > .65 ? 1 : j * j * (3 - 2 * j));
-      let root = Infinity;
-      for (const [aa, bb] of spec.rootEdges) {
-        const pin = { x: (aa.x + bb.x) / 2, y: (aa.y + bb.y) / 2 }, end = { x: pin.x * 2 - spec.centre.x, y: pin.y * 2 - spec.centre.y };
-        root = Math.min(root, segmentDistance(p, pin, end) - size * .1);
-      }
-      return { p, u, v, centre, prime, blend, root, old: oldField(p), edge: i % n === 0 || i % n === n - 1 || i < n || i >= n * (n - 1) };
+      const t = Math.max(0, Math.min(1, (1.5 - d) / .5));
+      const blend = t * t * (3 - 2 * t);
+      return { p, u, v, centre, prime, blend, old: oldField(p), edge: i % n === 0 || i % n === n - 1 || i < n || i >= n * (n - 1) };
     });
-    const draw = (flare: number) => {
+    const draw = (depth: number) => {
       const values = nodes.map(node => {
         if (node.edge)
           return -size;
-        const growth = flare * (node.u / size) ** 2;
-        const bank = growth * Math.exp(noise(node.u, node.v - node.centre) * spec.rough * 10);
+        // Rounded headland tips: a short curved nose, then rapidly receding
+        // flanks. Noise varies each flank without serrating the tip itself.
+        const radius = size * (.48 + .045 * Math.sin(spec.phase[node.v > node.centre ? 0 : 3]!));
+        const growth = depth * (Math.sqrt(1 + (node.u / radius) ** 2) - 1);
+        const bank = growth * Math.exp(noise(node.u, node.v - node.centre) * spec.rough * 2);
         const half = spec.width / 2 * Math.sqrt(1 + node.prime * node.prime) + bank;
         const channel = (half - Math.abs(node.v - node.centre)) / Math.sqrt(1 + node.prime * node.prime);
-        const shaped = smoothMin(channel, node.root, size * .07);
-        const f = node.old + (shaped - node.old) * node.blend;
+        const f = node.old + (channel - node.old) * node.blend;
         const floor = (spec.width / 2 * Math.sqrt(1 + node.prime * node.prime) + size * .05 * (node.u / size) ** 2 - Math.abs(node.v - node.centre)) / Math.sqrt(1 + node.prime * node.prime);
-        const safe = Math.min(floor, node.root, size * 1.45 - distance(node.p, spec.centre));
+        const safe = Math.min(floor, size * 1.45 - distance(node.p, spec.centre));
         return Math.max(f, safe, spec.width / 2 - distance(node.p, spec.junction));
       });
       // March triangles (rather than ambiguous four-corner squares), orienting
@@ -163,20 +157,21 @@ export function lakeShoreFields(original: PathCmd[], passages: LakeShorePassage[
       }
       return out;
     };
-    let flare = size * .18 + spec.width * .1, result = draw(flare);
-    // Fit area on the painted outline, including coastline ink. Flare changes
-    // the banks away from the throat without changing its requested width.
-    if (spec.land !== null) {
+    let depth = size * .75, result = draw(depth);
+    // Fit attainable area requests by varying headland depth, with a lower
+    // bound that keeps the constriction short. High shares such as 80% are
+    // left unfitted rather than flattening both tips into a canal.
+    if (spec.land !== null && spec.land < .8) {
       const page = [{ x: x0, y: y0 }, { x: x0 + pad * 2, y: y0 },
         { x: x0 + pad * 2, y: y0 + pad * 2 }, { x: x0, y: y0 + pad * 2 }];
       const area = 1.5 * Math.sqrt(3) * size * size;
       const share = (rs: Point[][]) => areaCoverage([page, ...rs], { evenOdd: true, stroke: { rings: rs, reach: spec.ink } })(spec.outline, 96) / area;
-      let best = Math.abs(share(result) - spec.land), low = 0, high = size * 20;
+      let best = Math.abs(share(result) - spec.land), low = size * .2, high = size * 4;
       for (let k = 0; k < 13 && best > .003; k++) {
         const at = (low + high) / 2, trial = draw(at), shown = share(trial), miss = Math.abs(shown - spec.land);
         if (miss < best) {
           best = miss;
-          flare = at;
+          depth = at;
           result = trial;
         }
         if (shown > spec.land)

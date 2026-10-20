@@ -23,12 +23,12 @@ export function lakeStraitFixture({ width, side, land, irregular }: LakeStraitCa
 export const LAKE_STRAIT_CASES: LakeStraitCase[] = [
   { width: 'Very narrow', irregular: 'Ragged' },
   { width: 'Very narrow', side: 3, irregular: 'Smooth' },
-  { width: 'Very narrow', side: 0, land: 80, irregular: 'Wavy' },
+  { width: 'Very narrow', side: 0, irregular: 'Wavy' },
   { width: 'Very narrow', side: 4, land: 30, irregular: 'Fractured' },
   { width: 'Narrow', irregular: 'Ragged' },
   { width: 'Narrow', side: 3, irregular: 'Ragged' },
   { width: 'Narrow', side: 0, irregular: 'Ragged' },
-  { width: 'Narrow', land: 80, irregular: 'Ragged' },
+  { width: 'Narrow', land: 50, irregular: 'Ragged' },
   { width: 'Normal', irregular: 'Ragged' },
   { width: 'Normal', side: 3, irregular: 'Ragged' },
   { width: 'Normal', side: 0, irregular: 'Ragged' },
@@ -36,5 +36,5 @@ export const LAKE_STRAIT_CASES: LakeStraitCase[] = [
   { width: 'Wide', irregular: 'Smooth' },
   { width: 'Wide', side: 1, land: 30, irregular: 'Ragged' },
   { width: 'Wide', side: 2, land: 50, irregular: 'Wavy' },
-  { width: 'Wide', side: 4, land: 80, irregular: 'Fractured' },
+  { width: 'Wide', side: 4, irregular: 'Fractured' },
 ];
