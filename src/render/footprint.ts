@@ -328,7 +328,8 @@ function landAt(hex: Split, r: number): Poly[] {
  * depth and breadth vary independently of the other bank's profile.
  * Selecting a side moves the junction towards that side, inset by half width.
  *
- * `fill` tunes connected bank sizes from 0 to 2. An explicit land share is
+ * `fill` grows connected banks from 0 to 2. Curved lake banks use 2 to 4
+ * to fill out their shoulders while retaining the throat. An explicit share is
  * fitted within the range the passage width allows. Below the natural bank
  * area the water becomes wider; above the maximum the chosen width wins and
  * the scene reports the achieved share. Isthmuses retain their minimum neck.
@@ -337,7 +338,64 @@ function fixedLand(hex: FixedHex, width: number, kind: 'strait' | 'isthmus', fil
   return fixedLandOf(hex, width, kind)(fill, pockets);
 }
 
-type FixedHex = { hex: Poly; centre: Point; dry: number[]; wet: number[]; junctionSide?: number; bankBias?: readonly number[]; rootHalfWidth?: readonly number[] };
+/** The rooted frame shared by bank construction and its smoothing guard. */
+export function lakeStraitFrame(outline: Poly, hexCentre: Point, dry: number[], width: number, junctionSide?: number) {
+  const dryRuns = dry.filter(e => !dry.includes((e + 5) % 6)).map(e => {
+    const run = [e];
+    while (dry.includes((run.at(-1)! + 1) % 6)) run.push((run.at(-1)! + 1) % 6);
+    return run;
+  });
+  if (dryRuns.length !== 2) return null;
+  const radius = Math.hypot(outline[0]!.x - hexCentre.x, outline[0]!.y - hexCentre.y);
+  const chosen = junctionSide === undefined ? hexCentre : {
+    x: (outline[junctionSide]!.x + outline[(junctionSide + 1) % 6]!.x) / 2,
+    y: (outline[junctionSide]!.y + outline[(junctionSide + 1) % 6]!.y) / 2,
+  };
+  const distance = Math.hypot(chosen.x - hexCentre.x, chosen.y - hexCentre.y);
+  const ratio = distance ? Math.max(0, distance - width / 2) / distance : 0;
+  let centre = { x: hexCentre.x + (chosen.x - hexCentre.x) * ratio, y: hexCentre.y + (chosen.y - hexCentre.y) * ratio };
+  const roots = dryRuns.map(run => {
+    const a = outline[run[0]!]!, b = outline[(run.at(-1)! + 1) % 6]!;
+    return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+  });
+  const dx = roots[1]!.x - roots[0]!.x, dy = roots[1]!.y - roots[0]!.y;
+  const length = Math.hypot(dx, dy) || 1, normal = { x: dx / length, y: dy / length };
+  const tangent = { x: normal.y, y: -normal.x };
+  // Opposing headlands grow towards each other. For non-opposite roots,
+  // their midpoint gives a balanced natural throat without hooking one
+  // bank around an unrelated hex-centre axis.
+  if (junctionSide === undefined) centre = { x: (roots[0]!.x + roots[1]!.x) / 2, y: (roots[0]!.y + roots[1]!.y) / 2 };
+  // Keep both tips in front of their mainland roots. A wide passage
+  // selected towards a bank must ease towards the middle rather than
+  // turn that bank inside out or sever it from its mainland.
+  let feasible = [...outline];
+  const insetFrom = (a: Point, b: Point) => {
+    const ex = b.x - a.x, ey = b.y - a.y, length = Math.hypot(ex, ey) || 1;
+    const clearance = Math.abs((-ey * normal.x + ex * normal.y) / length) * width / 2 + radius * 0.04;
+    feasible = cut(feasible, a, b, clearance, 'right');
+  };
+  for (let e = 0; e < 6; e++) insetFrom(outline[e]!, outline[(e + 1) % 6]!);
+  for (const run of dryRuns) insetFrom(outline[run[0]!]!, outline[(run.at(-1)! + 1) % 6]!);
+  if (feasible.length) centre = nearestOn(centre, [feasible]).at;
+  // The mouth-side ends of a broad root must stay behind the same
+  // throat support plane as its tip, including for the widest setting.
+  let lower = -Infinity, upper = Infinity;
+  for (const run of dryRuns) {
+    const points = [outline[run[0]!]!, ...run.map(e => outline[(e + 1) % 6]!)];
+    const coordinates = points.map(p => (p.x - hexCentre.x) * normal.x + (p.y - hexCentre.y) * normal.y);
+    if (coordinates.reduce((a,b) => a+b, 0) > 0) upper = Math.min(upper, Math.min(...coordinates) - width / 2);
+    else lower = Math.max(lower, Math.max(...coordinates) + width / 2);
+  }
+  if (lower <= upper) {
+    const at = (centre.x - hexCentre.x) * normal.x + (centre.y - hexCentre.y) * normal.y;
+    const shift = Math.max(lower, Math.min(upper, at)) - at;
+    centre = { x: centre.x + normal.x * shift, y: centre.y + normal.y * shift };
+  }
+
+  return { centre, normal, tangent };
+}
+
+type FixedHex = { hex: Poly; centre: Point; dry: number[]; wet: number[]; junctionSide?: number; bankBias?: readonly number[]; rootHalfWidth?: readonly number[]; curvedBanks?: boolean };
 
 /**
  * `fixedLand` for one hex and width at any fill. What does not depend on the fill (the
@@ -358,7 +416,7 @@ function fixedLandOf(hex: FixedHex, width: number, kind: 'strait' | 'isthmus'): 
   const chosen = kind === 'strait' && hex.junctionSide !== undefined ? mid(hex.junctionSide) : offCentre;
   const distance = Math.hypot(chosen.x - hexCentre.x, chosen.y - hexCentre.y);
   const ratio = distance === 0 ? 0 : Math.max(0, distance - width / 2) / distance;
-  const centre = { x: hexCentre.x + (chosen.x - hexCentre.x) * ratio, y: hexCentre.y + (chosen.y - hexCentre.y) * ratio };
+  let centre = { x: hexCentre.x + (chosen.x - hexCentre.x) * ratio, y: hexCentre.y + (chosen.y - hexCentre.y) * ratio };
   const span = Math.hypot(mid(0).x - mid(3).x, mid(0).y - mid(3).y);
   const band = (e: number, depth: number) => cut(outline, outline[e]!, outline[(e + 1) % 6]!, depth, 'left');
   if (kind === 'strait') {
@@ -383,10 +441,113 @@ function fixedLandOf(hex: FixedHex, width: number, kind: 'strait' | 'isthmus'): 
       // Averaging edge midpoints lies inside the hex and can leave a water hole.
       mouths.push(Number.isInteger(middle) ? mid(run[middle]!) : outline[run[Math.ceil(middle)]!]!);
     }
+    const dryRuns = dry.filter(e => !dry.includes((e + 5) % 6)).map(e => {
+      const run = [e];
+      while (dry.includes((run[run.length - 1]! + 1) % 6)) run.push((run[run.length - 1]! + 1) % 6);
+      return run;
+    });
+    if (hex.curvedBanks && mouths.length === 2 && dryRuns.length === 2) {
+      const frame = lakeStraitFrame(outline, hexCentre, dry, width, hex.junctionSide)!;
+      centre = frame.centre;
+      const { normal, tangent } = frame;
+      return (fill, pockets) => {
+        const growth = Math.max(0, Math.min(1, fill / 2));
+        if (growth < 1e-6) return [];
+        const banks = dryRuns.flatMap(run => {
+          const roots = [outline[run[0]!]!, ...run.map(e => outline[(e + 1) % 6]!)];
+          const lengths = roots.slice(1).map((p, k) => Math.hypot(p.x - roots[k]!.x, p.y - roots[k]!.y));
+          const total = lengths.reduce((a, b) => a + b, 0);
+          const pointAt = (distance: number): Point => {
+            let at = 0;
+            for (let k = 0; k < lengths.length; k++) {
+              if (distance <= at + lengths[k]! || k === lengths.length - 1) {
+                const t = Math.max(0, Math.min(1, (distance - at) / lengths[k]!));
+                return { x: roots[k]!.x + (roots[k + 1]!.x - roots[k]!.x) * t, y: roots[k]!.y + (roots[k + 1]!.y - roots[k]!.y) * t };
+              }
+              at += lengths[k]!;
+            }
+            return roots.at(-1)!;
+          };
+          const low = total * (1 - growth) / 2, high = total - low;
+          const rootPath = [pointAt(low)];
+          let arc = 0;
+          for (let k = 0; k < lengths.length - 1; k++) { arc += lengths[k]!; if (arc > low && arc < high) rootPath.push(roots[k + 1]!); }
+          rootPath.push(pointAt(high));
+          const a = rootPath.at(-1)!, b = rootPath[0]!, root = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+          const sign = (root.x - hexCentre.x) * normal.x + (root.y - hexCentre.y) * normal.y >= 0 ? 1 : -1;
+          const target = { x: centre.x + normal.x * sign * width / 2, y: centre.y + normal.y * sign * width / 2 };
+          const tip = target;
+          const direction = (b.x - a.x) * tangent.x + (b.y - a.y) * tangent.y >= 0 ? 1 : -1;
+          const spread = Math.hypot(b.x - a.x, b.y - a.y) * 0.12;
+          const firstSpread = Math.min(spread, Math.hypot(a.x - tip.x, a.y - tip.y) * 0.4);
+          const lastSpread = Math.min(spread, Math.hypot(b.x - tip.x, b.y - tip.y) * 0.4);
+          const shoulder = Math.max(0, Math.min(1, (fill - 2) / 2));
+          const project = (p: Point) => {
+            const offset = (p.x - tip.x) * normal.x + (p.y - tip.y) * normal.y;
+            const along = p === a ? -1 : 1;
+            return { x: p.x - normal.x * offset + tangent.x * direction * along * radius * 0.8,
+              y: p.y - normal.y * offset + tangent.y * direction * along * radius * 0.8 };
+          };
+          const blend = (a: Point, b: Point) => ({ x: a.x + (b.x - a.x) * shoulder, y: a.y + (b.y - a.y) * shoulder });
+          const before = blend({ x: tip.x - tangent.x * direction * firstSpread, y: tip.y - tangent.y * direction * firstSpread }, project(a));
+          const after = blend({ x: tip.x + tangent.x * direction * lastSpread, y: tip.y + tangent.y * direction * lastSpread }, project(b));
+          const control = (p: Point) => {
+            const bias = hex.bankBias?.[run[0]!] ?? 1;
+            const factor = p === a ? 0.55 + (bias - 1) * 0.4 : 0.55 - (bias - 1) * 0.4;
+            const bx = b.x - a.x, by = b.y - a.y, length = Math.hypot(bx, by) || 1;
+            const nx = -by / length, ny = bx / length;
+            const depth = (tip.x - root.x) * nx + (tip.y - root.y) * ny;
+            const basic = { x: p.x + nx * depth * factor, y: p.y + ny * depth * factor };
+            const intrusion = Math.min(0, ((basic.x - tip.x) * normal.x + (basic.y - tip.y) * normal.y) * sign);
+            basic.x -= normal.x * sign * intrusion; basic.y -= normal.y * sign * intrusion;
+            return blend(basic, project(p));
+          };
+          const first = control(a), last = control(b);
+          const shore: Point[] = [];
+          const curve = (p: Point, q: Point, r: Point, s: Point) => {
+            for (let k = 1; k <= 16; k++) {
+              const t = k / 16, u = 1 - t;
+              const weight = 1 + 16 * shoulder ** 3, denominator = u ** 3 + 3 * u * t * weight + t ** 3;
+              shore.push({ x: (u ** 3 * p.x + 3 * u * u * t * q.x * weight + 3 * u * t * t * r.x * weight + t ** 3 * s.x) / denominator,
+                y: (u ** 3 * p.y + 3 * u * u * t * q.y * weight + 3 * u * t * t * r.y * weight + t ** 3 * s.y) / denominator });
+            }
+          };
+          curve(a, first, before, tip); curve(tip, after, last, b);
+          let cap = wound(tidy([...rootPath, ...shore]));
+          // A shallow bank at a side-selected wide throat can run a full
+          // shoulder back through its own root. Its convex envelope is the
+          // limiting bank in that case, not a folded polygon for triangulation.
+          let folded = false;
+          for (let i = 0; i < cap.length && !folded; i++) for (let j = i + 2; j < cap.length; j++) {
+            if (i === 0 && j === cap.length - 1) continue;
+            const a = cap[i]!, b = cap[(i + 1) % cap.length]!, c = cap[j]!, d = cap[(j + 1) % cap.length]!;
+            if (right(a,b,c) * right(a,b,d) < -1e-10 && right(c,d,a) * right(c,d,b) < -1e-10) folded = true;
+          }
+          if (folded) cap = hull(cap);
+          const convex = cap.every((p, k) => right(cap[(k + cap.length - 1) % cap.length]!, p, cap[(k + 1) % cap.length]!) >= -1e-8);
+          const parts = convex ? [cap] : triangles([...cap]);
+          // Keep the curved boundary, including a necessary concave shoulder
+          // when the throat is selected near one end. Merge adjacent ears into
+          // substantial convex pieces instead of discarding a thin tip.
+          for (let merged = true; merged;) {
+            merged = false;
+            outer: for (let i = 0; i < parts.length; i++) for (let j = i + 1; j < parts.length; j++) {
+              if (!sharedEdge(parts[i]!, parts[j]!)) continue;
+              const joined = hull([...parts[i]!, ...parts[j]!]);
+              if (Math.abs(polyArea(joined) - polyArea(parts[i]!) - polyArea(parts[j]!)) > 1e-6) continue;
+              parts[i] = joined; parts.splice(j, 1); merged = true; break outer;
+            }
+          }
+          return parts.map(p => within(p, outline)).filter(p => p.length > 0);
+        });
+        const land = attachedBanks(banks, outline, dry);
+        return pockets ? withPockets(land, outline, wet) : land;
+      };
+    }
     // A side-selected junction is the throat. Flare towards each mouth rather
     // than cutting uniform-width arms, which could leave the apparent
     // constriction at the far end even when the junction moved to a side.
-    const mouthRadius = width * (hex.junctionSide === undefined ? 0.5 : 0.75);
+    const mouthRadius = width * (hex.curvedBanks && hex.junctionSide !== undefined ? 0.75 : 0.5);
     const channels = mouths.map(p => within(arm(centre, p, width / 2, mouthRadius), outline));
     const territory = without(outline, channels);
     // A shallow slab kept its full tangential breadth as its inland depth
@@ -499,7 +660,7 @@ function fillFor(hex: FixedHex, width: number, kind: 'strait' | 'isthmus', targe
   const share = (fill: number, pockets = false) => land(fill, pockets).reduce((sum, p) => sum + polyArea(p), 0) / hexArea;
   const search = (aim: number) => {
     let low = 0;
-    let high = 2;
+    let high = hex.curvedBanks && kind === 'strait' ? 4 : 2;
     if (share(low) >= aim) return low;
     if (share(high) <= aim) return high;
     for (let k = 0; k < 28 && high - low > 1e-5; k++) {
@@ -867,6 +1028,8 @@ export interface ShapeTarget {
   fit?: boolean;
   /** For a channel, move its common junction towards this hex side; absent leaves it central. */
   junctionSide?: number;
+  /** Draw lake passage banks as curved headlands, retaining a tangent at the throat. */
+  curvedBanks?: boolean;
   /** Independent seeded bank depths, indexed by hex side. */
   bankBias?: readonly number[];
   /** Preserve a coastal mainland's joins to land adjoining a split passage. */
@@ -895,7 +1058,9 @@ export function shapeCoast(
   const hexArea = 1.5 * Math.sqrt(3) * size * size;
   const shoreEdges = new Map<number, CoastEdge[]>();
   for (const edge of seaEdges) {
-    if (targets.get(edge.water)?.kind === 'shore') shoreEdges.set(edge.water, [...(shoreEdges.get(edge.water) ?? []), edge]);
+    // A split hex's water donor can be a distant lake hex. Only an
+    // actual shared hex edge can grow land into that lake hex.
+    if (edge.across !== undefined && targets.get(edge.across)?.kind === 'shore') shoreEdges.set(edge.across, [...(shoreEdges.get(edge.across) ?? []), edge]);
   }
   const lakeWet = new Map<number, CoastEdge[]>();
   for (const edge of lakeEdges) {
@@ -909,7 +1074,7 @@ export function shapeCoast(
   }
 
   /** One hex cut to its share: what it gives up, what it takes, and the land it is left with. */
-  const reshapeHex = (i: number, { share, kind, width, fit, concentrationSide, concentration, junctionSide, bankBias, keepJoins }: ShapeTarget): HexShape | null => {
+  const reshapeHex = (i: number, { share, kind, width, fit, concentrationSide, concentration, junctionSide, bankBias, keepJoins, curvedBanks }: ShapeTarget): HexShape | null => {
     const col = i % cols;
     const row = Math.floor(i / cols);
     const split = surface.split.get(i);
@@ -977,10 +1142,11 @@ export function shapeCoast(
         const projections = points.map(p => ((p.x - a.x) * (b.x - a.x) + (p.y - a.y) * (b.y - a.y)) / length);
         return projections.length ? (Math.max(...projections) - Math.min(...projections)) / 2 : size / 2;
       }) : undefined;
-      const shape = { hex: corners, centre: hexCenter(col, row, size), dry, wet, junctionSide, bankBias, rootHalfWidth };
+      const shape = { hex: corners, centre: hexCenter(col, row, size), dry, wet, junctionSide, bankBias, rootHalfWidth, curvedBanks };
       const type = kind === 'channel' ? 'strait' : 'isthmus';
       const fill = fit ? fillFor(shape, width, type, share, hexArea) : type === 'strait' ? 2 : 1;
-      const fixed = setAgainst(solid(fixedLand(shape, width, type, fill)), land, water, hexArea);
+      const made = fixedLand(shape, width, type, fill);
+      const fixed = setAgainst(curvedBanks ? made : solid(made), land, water, hexArea);
       const at = (p: Point) => nearest(p, land)?.donor ?? i;
       return { strips: fixed.strips, grown: fixed.grown, water: fixed.water.flatMap(toPath), land: fixed.land.map((poly) => ({ poly, hex: i, donor: at })) };
     }
@@ -1007,7 +1173,7 @@ export function shapeCoast(
   for (const [i, target] of targets) {
     // The same hex, cut to the same share among the same neighbours, is cut the same way.
     const code = (j: number) => `${surface.whole[j]}${surface.split.get(j)?.sides.join('') ?? ''}`;
-    const sig = [target.share, target.kind, target.width ?? '', target.fit ? 'fit' : '', target.junctionSide ?? '-', target.bankBias?.join(',') ?? '', target.keepJoins ? 'joins' : '', target.concentrationSide ?? '-', target.concentration ?? 0, code(i), ...[0, 1, 2, 3, 4, 5].map((e) => {
+    const sig = [target.share, target.kind, target.width ?? '', target.fit ? 'fit' : '', target.junctionSide ?? '-', target.curvedBanks ? 'curved' : '', target.bankBias?.join(',') ?? '', target.keepJoins ? 'joins' : '', target.concentrationSide ?? '-', target.concentration ?? 0, code(i), ...[0, 1, 2, 3, 4, 5].map((e) => {
       const n = neighbourOf(i % cols, Math.floor(i / cols), e);
       if (!inBounds(cols, rows, n.col, n.row)) return '-';
       const j = hexIndex(cols, n.col, n.row);
@@ -1026,7 +1192,9 @@ export function shapeCoast(
     if (result.water) waterLeft.set(i, result.water);
     if (result.depth !== undefined) insets.set(i, result.depth);
     if (result.lake) continue;
-    reshaped.set(i, result.land);
+    // Pocket repair appends land pieces below. Keep the memoized construction
+    // immutable so a later render does not inherit a previous pass's repairs.
+    reshaped.set(i, [...result.land]);
   }
   if (reshaped.size === 0 && insets.size === 0) return null;
 

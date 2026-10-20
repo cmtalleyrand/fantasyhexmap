@@ -1,31 +1,19 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { createMapState } from './seededMap.ts';
+import { lakeStraitFixture, LAKE_STRAIT_CASES } from './fixtures/lakeStrait.ts';
 import { buildScene, defaultVisibility, landTestOf } from '../src/render/scene.ts';
 import { resolveStyle } from '../src/render/styles.ts';
 import { pathPolylines } from '../src/render/ice.ts';
 import { areaCoverage } from '../src/render/footprint.ts';
 import { evenOddTest } from '../src/render/coast.ts';
-import { hexCenter, hexCorners, neighbourOf } from '../shared/hex.ts';
+import { hexCenter, hexCorners } from '../shared/hex.ts';
 import type { ChannelWidth, Irregularity, MapState } from '../shared/types.ts';
 const size = 30, cols = 7, centre = 24, hexArea = 1.5 * Math.sqrt(3) * size * size;
 const style = resolveStyle({ preset: 'parchment', overrides: { water: 'flat', grain: false, grid: 'none', land: 'uniform' } });
 
 /** A lake between a northern shore and a southwestern peninsula, as reported. */
 function fixture(width: ChannelWidth = 'Normal', side?: number, land?: number, irregular: Irregularity = 'Ragged'): MapState {
-  const map = createMapState('Lake strait regression', cols, cols);
-  map.id = 'lake-strait';
-  const base = map.layers.base.data = Array(49).fill('Land');
-  for (let y = 1; y < 6; y++) for (let x = 1; x < 6; x++) base[y * cols + x] = 'Lake';
-  base[centre] = 'Strait';
-  for (const e of [2, 4, 5]) {
-    const n = neighbourOf(3, 3, e), n2 = neighbourOf(n.col, n.row, e);
-    base[n.row * cols + n.col] = 'Land';
-    base[n2.row * cols + n2.col] = 'Land';
-  }
-  map.hexShapes = { [centre]: { type: 'Strait', width, straitJunctionSide: side, land, irregular } };
-  map.defaultLakeIrregularity = irregular;
-  return map;
+  return lakeStraitFixture({ width, side, land, irregular });
 }
 function render(map: MapState) {
   const scene = buildScene(map, { size, visible: defaultVisibility(), labels: false, style });
@@ -47,29 +35,61 @@ function gapAt(draw: ReturnType<typeof render>, x: number) {
   }
   return { width: count * 0.1, y: ySum / count };
 }
-/** Closest opposing shore points inside the hex, excluding nearby points along the same bank. */
-function throat(draw: ReturnType<typeof render>) {
-  const inside = evenOddTest([hexCorners(3, 3, size)], size / 8);
-  let best = { distance: Infinity, x: 0, y: 0 };
-  for (const ring of draw.rings) {
-    let arc = 0;
-    const points: Array<{ x: number; y: number; arc: number }> = [];
-    for (let k = 1; k < ring.length; k++) {
-      const a = ring[k - 1]!, b = ring[k]!, length = Math.hypot(b.x - a.x, b.y - a.y);
-      const count = Math.max(1, Math.ceil(length / 0.2));
-      for (let j = 0; j < count; j++) {
-        const t = j / count, p = { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t, arc: arc + length * t };
-        if (inside(p)) points.push(p);
+/** Measure opposing banks in the final water outline, rather than filtering pairs by arc length. */
+function throat(draw: ReturnType<typeof render>, extent = 1) {
+  const c = hexCenter(3, 3, size), step = size / 70;
+  const nx = Math.ceil(Math.sqrt(3) * size * extent / step) + 2, ny = Math.ceil(size * 2 * extent / step) + 2;
+  const x0 = c.x - Math.sqrt(3) * size * extent / 2, y0 = c.y - size * extent;
+  const corners = hexCorners(3, 3, size);
+  const clip = corners.map(p => ({ x: c.x + (p.x-c.x)*extent, y: c.y + (p.y-c.y)*extent }));
+  const inside = evenOddTest([clip], size / 8);
+  const labels = new Int16Array(nx * ny), bankOf = new Map<number, number>();
+  const pointAt = (i: number) => ({ x: x0 + (i % nx) * step, y: y0 + Math.floor(i / nx) * step });
+  const segmentDistance = (p: {x: number; y: number}, a: {x: number; y: number}, b: {x: number; y: number}) => {
+    const dx = b.x - a.x, dy = b.y - a.y, t = Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / (dx * dx + dy * dy)));
+    return Math.hypot(p.x - a.x - t * dx, p.y - a.y - t * dy);
+  };
+  for (let i = 0; i < labels.length; i++) { const p = pointAt(i); if (inside(p) && !draw.water(p)) labels[i] = -1; }
+  let next = 0;
+  for (let i = 0; i < labels.length; i++) {
+    if (labels[i] !== -1) continue;
+    const id = ++next, queue = [i]; labels[i] = id;
+    let group = 0;
+    for (let at = 0; at < queue.length; at++) {
+      const k = queue[at]!, p = pointAt(k), x = k % nx, y = Math.floor(k / nx);
+      for (const e of [2, 4, 5]) if (segmentDistance(p, corners[e]!, corners[(e + 1) % 6]!) < step * 1.6) group |= e === 2 ? 2 : 1;
+      for (const [dx, dy] of [[-1, 0], [1, 0], [0, -1], [0, 1]]) {
+        const xx = x + dx!, yy = y + dy!, j = yy * nx + xx;
+        if (xx < 0 || xx >= nx || yy < 0 || yy >= ny || labels[j] !== -1) continue;
+        labels[j] = id; queue.push(j);
       }
-      arc += length;
     }
-    for (let i = 0; i < points.length; i++) for (let j = i + 1; j < points.length; j++) {
-      const a = points[i]!, b = points[j]!, gap = Math.abs(b.arc - a.arc);
-      if (Math.min(gap, arc - gap) < size * 2) continue;
-      const distance = Math.hypot(a.x - b.x, a.y - b.y);
-      if (distance < best.distance) best = { distance, x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+    assert.notEqual(group, 3, 'opposing mainland banks must stay separate inside the strait');
+    bankOf.set(id, group);
+  }
+  const shores: Array<Array<{x: number; y: number}>> = [[], [], []];
+  for (const ring of draw.rings) for (let k = 1; k < ring.length; k++) {
+    const a = ring[k - 1]!, b = ring[k]!, length = Math.hypot(b.x - a.x, b.y - a.y);
+    if (!length) continue;
+    const count = Math.max(1, Math.ceil(length / step));
+    for (let j = 0; j < count; j++) {
+      const t = j / count, p = { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t };
+      if (!inside(p)) continue;
+      for (const reach of [step * 1.5, step * 3]) {
+        const q = { x: p.x + (b.y - a.y) / length * reach, y: p.y - (b.x - a.x) / length * reach };
+        const x = Math.round((q.x - x0) / step), y = Math.round((q.y - y0) / step);
+        if (x < 0 || x >= nx || y < 0 || y >= ny) continue;
+        const group = bankOf.get(labels[y * nx + x]!);
+        if (group === 1 || group === 2) { shores[group]!.push(p); break; }
+      }
     }
   }
+  let best = { distance: Infinity, x: 0, y: 0 };
+  for (const a of shores[1]!) for (const b of shores[2]!) {
+    const distance = Math.hypot(a.x - b.x, a.y - b.y);
+    if (distance < best.distance) best = { distance, x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+  }
+  assert.ok(Number.isFinite(best.distance), 'both connected mainland banks must be visible');
   return best;
 }
 
@@ -110,22 +130,25 @@ test('lake strait widths alter the rendered constriction', () => {
   const c = hexCenter(3, 3, size);
   const narrow = render(fixture('Narrow')), normal = render(fixture('Normal'));
   assert.ok(gapAt(normal, c.x).width > gapAt(narrow, c.x).width + size * 0.1);
+  for (const [draw, fraction] of [[narrow, 0.15], [normal, 0.3]] as const) {
+    const actual = throat(draw).distance, expected = fraction * Math.sqrt(3) * size;
+    assert.ok(Math.abs(actual - expected) < size * 0.04, `painted shore width ${actual} must match requested ${expected}`);
+  }
 });
 test('west and east lake junction selections move the rendered passage', () => {
   const west = render(fixture('Normal', 3)), east = render(fixture('Normal', 0));
   assert.notDeepEqual(west.rings, east.rings, 'junction setting must affect final lake shore');
-  const c = hexCenter(3, 3, size), dx = size * 0.6;
+  const c = hexCenter(3, 3, size);
   const westThroat = throat(west), eastThroat = throat(east);
-  assert.ok(westThroat.x < c.x - size * 0.15, 'western selection puts the constriction west of centre');
-  assert.ok(eastThroat.x > c.x + size * 0.15, 'eastern selection puts the constriction east of centre');
-  assert.ok(eastThroat.x - westThroat.x > size * 0.5, 'the constriction follows the selected side');
+  assert.ok(westThroat.x < c.x - size * 0.4, 'western selection puts the constriction west of centre');
+  assert.ok(eastThroat.x > c.x + size * 0.4, 'eastern selection puts the constriction east of centre');
+  assert.ok(eastThroat.x - westThroat.x > size * 0.8, 'the constriction follows the selected side');
   // The banks are non-opposite: compare the route's position, not vertical
   // mouth widths (which also depend on the channel's angle).
-  assert.ok(west.water({ x: c.x - dx, y: c.y }), 'western junction lies in water');
-  assert.ok(east.water({ x: c.x + dx, y: c.y }), 'eastern junction lies in water');
-  assert.equal(west.water({ x: c.x + dx, y: c.y }), false, 'the eastern junction was land before moving it');
-  assert.equal(landTestOf(west.scene)?.({ x: c.x + dx, y: c.y }), true, 'expanded lake bank is available for land placement');
-  assert.equal(landTestOf(east.scene)?.({ x: c.x + dx, y: c.y }), false, 'moved channel is water for placement too');
+  assert.ok(west.water(westThroat), 'western junction lies in water');
+  assert.ok(east.water(eastThroat), 'eastern junction lies in water');
+  assert.equal(landTestOf(west.scene)?.({ x: c.x, y: c.y - size * 0.75 }), true, 'expanded lake bank is available for land placement');
+  assert.equal(landTestOf(east.scene)?.(eastThroat), false, 'moved channel is water for placement too');
   assert.ok(connected(west)); assert.ok(connected(east));
 });
 test('lake strait land shares are measured on the drawn bank and unattainable shares are reported', () => {
@@ -133,17 +156,19 @@ test('lake strait land shares are measured on the drawn bank and unattainable sh
   const middle = render(fixture('Narrow', undefined, 50));
   assert.ok(Math.abs(low.share() - 0.3) < 0.01);
   assert.ok(Math.abs(middle.share() - 0.5) < 0.01);
+  const eighty = render(fixture('Narrow', undefined, 80));
+  assert.ok(Math.abs(eighty.share() - 0.8) < 0.01, '80% must be reached at Narrow width, rather than merely getting a compromise note');
   const high = render(fixture('Normal', undefined, 80));
-  assert.ok(high.share() > middle.share());
+  assert.ok(high.share() > render(fixture('Normal', undefined, 30)).share());
   const note = high.scene.compromises?.find(c => c.hexes.includes(centre));
   assert.match(note?.why ?? '', /width/);
   assert.ok(Math.abs(Number(note?.what.match(/^(\d+)%/)?.[1]) / 100 - high.share()) < 0.01);
 });
 test('lake shores adjoining a strait retain their own land-share controls', () => {
   const map = fixture();
-  map.hexShapes!['8'] = { type: 'Lake', land: 30 };
+  map.hexShapes!['25'] = { type: 'Lake', land: 30 };
   const draw = render(map);
-  assert.ok(Math.abs(draw.share(8) - 0.3) < 0.01);
+  assert.ok(Math.abs(draw.share(25) - 0.3) < 0.01, `adjoining lake land share: ${draw.share(25)}`);
 });
 
 test('a separate lake keeps its existing outline when another lake contains a strait', () => {
@@ -174,4 +199,41 @@ test('a lake passage reaching the map edge closes its water clip along the page'
   assert.equal(draw.water(hexCenter(0, 3, size)), true);
   assert.equal(draw.water(hexCenter(0, 0, size)), false);
   assert.equal(draw.water(hexCenter(6, 6, size)), false);
+});
+
+for (const [index, example] of LAKE_STRAIT_CASES.entries()) {
+  test(`representative lake strait ${index + 1}: ${example.width}, side=${example.side ?? 'middle'}, land=${example.land ?? 'natural'}, ${example.irregular}`, () => {
+    const draw = render(lakeStraitFixture(example));
+    assert.ok(connected(draw), 'a painted water route must remain between the two lake arms');
+    const measured = throat(draw);
+    assert.ok(measured.distance > draw.ink * 2, 'the opposing banks must remain separated after ink');
+    const percent = { 'Very narrow': 5, Narrow: 15, Normal: 30, Wide: 50 }[example.width];
+    assert.ok(Math.abs(measured.distance - percent / 100 * Math.sqrt(3) * size) < size * 0.04, `requested ${percent}% width, measured ${measured.distance}`);
+    const segments = draw.rings.flatMap(r => r.slice(1).map((b, i) => [r[i]!, b] as const));
+    const cross = (a: {x:number;y:number}, b: {x:number;y:number}, c: {x:number;y:number}) => (b.x-a.x)*(c.y-a.y)-(b.y-a.y)*(c.x-a.x);
+    for (let i = 0; i < segments.length; i++) for (let j = i + 1; j < segments.length; j++) {
+      const [a, b] = segments[i]!, [c, d] = segments[j]!;
+      assert.ok(!(cross(a,b,c)*cross(a,b,d)<-1e-8 && cross(c,d,a)*cross(c,d,b)<-1e-8), `the bank outline must not fold across itself: ${JSON.stringify([a,b,c,d])}`);
+    }
+  });
+}
+
+test('editing a passage preserves the distant shore of the same lake', () => {
+  const narrow = render(fixture('Narrow')), normal = render(fixture('Normal'));
+  const c = hexCenter(3, 3, size);
+  const distanceTo = (p: {x:number;y:number}, rings: typeof normal.rings) => {
+    let best = Infinity;
+    for (const ring of rings) for (let k = 1; k < ring.length; k++) {
+      const a = ring[k-1]!, b = ring[k]!, dx = b.x-a.x, dy = b.y-a.y;
+      const t = Math.max(0,Math.min(1,((p.x-a.x)*dx+(p.y-a.y)*dy)/(dx*dx+dy*dy||1)));
+      best = Math.min(best,Math.hypot(p.x-a.x-t*dx,p.y-a.y-t*dy));
+    }
+    return best;
+  };
+  let checked = 0;
+  for (const p of narrow.rings.flat()) if (Math.hypot(p.x-c.x,p.y-c.y) > size*2.6) {
+    assert.ok(distanceTo(p,normal.rings) < size*0.006, 'changing width must not redraw the distant lake shore');
+    checked++;
+  }
+  assert.ok(checked > 20);
 });
