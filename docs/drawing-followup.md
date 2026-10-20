@@ -1,5 +1,20 @@
 # Drawing follow-up: enclosed seas and repeated redraw work
 
+**Publication status: draft, with unresolved checks.** The passing results below were recorded before
+rebasing onto `e40c473` (#144), which changed geography defaults. After rebase, 477 Node tests,
+application typecheck and build pass, but the area sweep fails: Classic `coverage-1` at 20% shows
+21.275%; Parchment `coverage-2` at 5% shows 3.695%. The existing 1 percentage point limit stays intact.
+The Parchment coast has five self-crossings; the subsequent open-coast loop repair removes all five
+in its targeted regression and removes its fitting notice. Its finished-pixel area and performance
+have not been revalidated. The Classic fitting issue remains unresolved.
+
+The rebased browser replay has identical scene data but two changed pixels (one colour-channel level)
+in the `components/shore` and `components/undo` export/fit/DPR-1 cases. The same failure reproduces on
+unchanged main. A readback-context experiment did not fix it and was reverted; the exact comparison
+remains unchanged. No post-rebase performance result was obtained because that replay failed first.
+The owner asked to stop rerunning and create the PR. Historical results must not be presented as a
+green validation of the current head. See [the next-agent handoff](drawing-next-agent.md).
+
 Baseline: merged main `6786d4a` (#145). The package/browser setup repair is separate in
 [PR #146](https://github.com/cmtalleyrand/fantasyhexmap/pull/146). Its Drawing tests CI installed the
 pinned Playwright Chromium and passed both commands without driver/browser overrides. A fresh archived

@@ -1294,3 +1294,21 @@ checks mainland, enclosed water and nested land-island hex centres across 200 se
 400/600 baseline cases fail and none fail after correction. Existing 200 island-seed and 150 ordinary-coast
 area checks remain unchanged. Added work is a source-chain signed-area sum. Images and timings are in
 the follow-up report. This removes a misrendering; it is not an unapproved style change.
+
+## 61. Remove fold-back loops in open coasts as well as closed ones (draft)
+
+**Problem.** Main's revised default coastal share exposes a 5%-land Parchment fixture whose open coast
+has five self-crossings. The existing loop cleanup only handles closed coasts; fitting then cannot
+reach the requested share without making those crossings worse.
+
+**Proposed in the follow-up PR.** Extend the same crossing detection to open chains. Remove their
+fold-back detour while retaining both endpoints; never turn that detour into a separate island. Keep
+closed-chain behavior and every crossing/distortion guard unchanged. The targeted failing-before test
+now passes with zero crossings, and its share-loss notice disappears. No additional fitting rounds or
+relaxed movement guards were retained.
+
+**Unfinished validation/cost.** Open chains now incur the crossing-index scan, so cold cost must be
+measured before merge. The final pixel-area sweep, performance comparison and full suite after this
+last change were not rerun: the owner requested PR publication at this point. The Classic share failure
+and a two-pixel Canvas replay difference reproduced on unchanged main remain open. Earlier passing
+measurements in the report describe the pre-rebase configuration, not this unverified head.
