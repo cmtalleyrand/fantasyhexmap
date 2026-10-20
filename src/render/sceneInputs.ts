@@ -3,7 +3,7 @@ import type { MapState } from '../../shared/types.js';
 /** Undo stacks and generation logs are not rendering inputs. */
 export function renderSnapshot(map: MapState): MapState {
   return { ...map, history: undefined, journal: [], layers: Object.fromEntries(
-    Object.entries(map.layers).map(([id, layer]) => [id, { ...layer, past: [], future: [], notes: null, warnings: [], depVersions: {} }]),
+    Object.entries(map.layers).map(([id, layer]) => [id, { ...layer, past: [], future: [], warnings: [], depVersions: {} }]),
   ) as unknown as MapState['layers'] };
 }
 

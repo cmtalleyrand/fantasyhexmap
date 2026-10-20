@@ -585,7 +585,6 @@ export interface LayerDataMap {
 export interface LayerSnapshot<K extends LayerId = LayerId> {
   data: LayerDataMap[K] | null;
   warnings: string[];
-  notes: string | null;
   generatedAt: number | null;
   /** Versions of the layers this one was generated against; absent key = layer did not exist. */
   depVersions: Partial<Record<LayerId, number>>;
@@ -600,22 +599,6 @@ export interface LayerState<K extends LayerId = LayerId> extends LayerSnapshot<K
 
 export type LayersState = { [K in LayerId]: LayerState<K> };
 
-/**
- * One choice the model made while generating a layer, in its own words.
- *
- * The map itself only records *what* is where. This records *why*, which is the
- * part a reader of the map cannot reconstruct and the part that makes a
- * generated world defensible rather than arbitrary.
- */
-export interface Decision {
-  /** Short headline, e.g. "Rain shadow east of the Kelder Spine". */
-  title: string;
-  /** One to three sentences of reasoning. */
-  detail: string;
-  /** Hexes the decision is about, as "col,row" - optional and often absent. */
-  hexes?: string[];
-}
-
 /** Token counts reported for one generation; `thinking` is the part of `output` spent reasoning. */
 export interface TokenUsage {
   input: number;
@@ -627,9 +610,9 @@ export interface TokenUsage {
 export type JournalKind = 'generate' | 'instruct' | 'manual' | 'import' | 'undo' | 'redo';
 
 /**
- * A chronological account of how the map came to look the way it does. AI
- * entries carry the model's reasoning; the others are recorded so the record
- * never implies the AI decided something a person actually did.
+ * A chronological account of how the map came to look the way it does. Hand
+ * edits are recorded alongside generations so the record never implies the AI
+ * did something a person actually did.
  */
 export interface JournalEntry {
   id: string;
@@ -640,7 +623,6 @@ export interface JournalEntry {
   instruction: string | null;
   /** One-line summary; for manual entries, what was changed. */
   summary: string;
-  decisions: Decision[];
   /**
    * Model that produced this, or null for a manual edit or the offline
    * generator. For an `import` entry this is whatever the user said produced it

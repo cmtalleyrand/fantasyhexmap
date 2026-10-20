@@ -6,13 +6,11 @@
  *  - `grid: 'keyed'` is what the API is given. Every grid row and every cell is
  *    a required property with an enumerated value, which constrained decoding
  *    does enforce - so the grid comes back exactly `cols` x `rows`, every time.
- *    The `brief` checklist is required and comes first, so the model commits to
- *    a scale and to what the brief demands before it writes a single cell.
  *  - `grid: 'rows'` (the default) is what the webchat path describes and what
  *    the decoders read: one string per row. Nothing enforces its size, so
  *    `checkResponse` below accepts a miscount as a warning for the decoders to
- *    repair rather than a reason to discard the layer. `brief` is optional
- *    here, so a pasted reply that leaves it out still imports.
+ *    repair rather than a reason to discard the layer. Name lists are optional
+ *    here, so a pasted reply that leaves them out still imports.
  *
  * The pipeline flattens a keyed grid into row strings straight after parsing
  * (see `core/grid.ts`), so everything downstream sees one shape. That is why
@@ -25,7 +23,8 @@
 import * as z from 'zod/v4';
 
 import { BASE_CHARS, CLIMATE_EMPTY, ELEVATION_CHARS, POLITY_UNCLAIMED, VEGETATION_CODES, VEGETATION_EMPTY } from '../shared/codec.js';
-import { BASE_GEO_VALUES, CLIMATE_VALUES, ELEVATION_VALUES, VEGETATION_VALUES } from '../shared/types.js';
+import { GEO_NAME_KINDS } from '../shared/geoNames.js';
+import { BASE_GEO_VALUES, CLIMATE_VALUES, ELEVATION_VALUES, VEGETATION_VALUES, type GeoNameKind } from '../shared/types.js';
 import { keyedGrid } from './grid.js';
 
 export interface SchemaOptions {
@@ -37,64 +36,24 @@ export interface SchemaOptions {
 
 const keyed = (opts: SchemaOptions) => opts.grid === 'keyed';
 
-const notes = z
-  .string()
-  .describe('Normally empty. At most two short sentences total across notes and decisions, only for a material conflict or consequential assumption.');
-
-/** Saved scale plus exceptional conflicts only; the historical field remains import-compatible. */
-const briefCheck = z
-  .object({
-    scale: z
-      .string()
-      .describe(
-        'Only the saved physical scale supplied by the app; do not infer a different scale from the brief.',
-      ),
-    requirements: z
-      .array(
-        z.object({
-          requirement: z
-            .string()
-            .describe('One thing the brief states or clearly implies that bears on THIS layer, quoted or closely paraphrased.'),
-          target: z
-            .string()
-            .describe(
-              'What it means on this grid, as concretely as possible: a hex count (converted from any stated area with the scale), a location in rows and columns, a relative size.',
-            ),
-        }),
-      )
-      .describe(
-        'Normally empty. Include only an unavoidable material conflict; do not restate the brief or write a checklist.',
-      ),
-  })
-  .describe('Keep this minimal: saved scale and normally an empty requirements list.');
-
-const briefField = (opts: SchemaOptions) => (keyed(opts) ? briefCheck : briefCheck.optional());
-
-/** A decision about more hexes than this is really a decision about the map. */
-const MAX_DECISION_HEXES = 40;
-
-/** Keep older records importable; new prompts normally request an empty list. */
-const decisions = z
+/**
+ * Names for places. A name covers a set of hexes, given as runs along rows
+ * because a sea or a range is far shorter to write that way than hex by hex.
+ */
+const nameSpans = z
   .array(
     z.object({
-      title: z
-        .string()
-        .describe('Short headline for the decision, e.g. "Rain shadow east of the Kelder Spine".'),
-      detail: z
-        .string()
-        .describe(
-          'One short sentence only for an unavoidable conflict or consequential assumption.',
-        ),
-      hexes: z
-        .array(z.string())
-        .max(MAX_DECISION_HEXES)
-        .describe('Hexes this decision is about as "col,row" strings. Omit or leave empty if it is about the map as a whole.'),
+      row: z.number().int(),
+      from: z.number().int(),
+      to: z.number().int(),
     }),
   )
-  .max(8)
   .describe(
-    'Normally empty. At most two short sentences total across decisions and notes; no routine explanations.',
+    'The hexes the name covers, as runs along rows: every hex in row `row` from column `from` to column `to` inclusive. Use as few runs as the shape needs.',
   );
+
+const nameList = <T extends z.ZodType>(opts: SchemaOptions, entry: T, description: string) =>
+  keyed(opts) ? z.array(entry).describe(description) : z.array(entry).optional().describe(description);
 
 /**
  * A grid field. In rows form, one string per row; in keyed form, the enforced
@@ -140,46 +99,49 @@ function polityCell(opts: SchemaOptions): z.ZodType {
 
 export const BaseResponse = (cols: number, rows: number, opts: SchemaOptions = {}) =>
   z.object({
-    brief: briefField(opts),
     rows: gridField(cols, rows, opts, 'char', BASE_CELL, 'base-geography character'),
-    notes,
-    decisions,
+    names: nameList(
+      opts,
+      z.object({
+        kind: z.enum(GEO_NAME_KINDS as [GeoNameKind, ...GeoNameKind[]]),
+        name: z.string(),
+        previousName: z.string().optional().describe('For a rename only, the exact existing name.'),
+        spans: nameSpans,
+      }),
+      'Names for seas, lakes, islands and land regions, one entry per named place. Empty when nothing is named.',
+    ),
   });
 export type BaseResponse = z.infer<ReturnType<typeof BaseResponse>>;
 
 export const ElevationResponse = (cols: number, rows: number, opts: SchemaOptions = {}) =>
   z.object({
-    brief: briefField(opts),
     rows: gridField(cols, rows, opts, 'char', ELEVATION_CELL, 'elevation character'),
-    notes,
-    decisions,
+    ranges: nameList(
+      opts,
+      z.object({
+        name: z.string(),
+        previousName: z.string().optional().describe('For a rename only, the exact existing name.'),
+        spans: nameSpans,
+      }),
+      'Names for mountain ranges and upland massifs, one entry per range, covering its Mountains and Highland hexes. Empty when nothing is named.',
+    ),
   });
 export type ElevationResponse = z.infer<ReturnType<typeof ElevationResponse>>;
 
 export const ClimateResponse = (cols: number, rows: number, opts: SchemaOptions = {}) =>
   z.object({
-    brief: briefField(opts),
-    latitudeBand: z
-      .string()
-      .describe('The latitude band you decided the map spans, e.g. "roughly 15N to 60N".'),
     rows: gridField(cols, rows, opts, 'token', CLIMATE_CELL, 'Köppen code'),
-    notes,
-    decisions,
   });
 export type ClimateResponse = z.infer<ReturnType<typeof ClimateResponse>>;
 
 export const VegetationResponse = (cols: number, rows: number, opts: SchemaOptions = {}) =>
   z.object({
-    brief: briefField(opts),
     rows: gridField(cols, rows, opts, 'token', VEGETATION_CELL, 'two-letter vegetation code'),
-    notes,
-    decisions,
   });
 export type VegetationResponse = z.infer<ReturnType<typeof VegetationResponse>>;
 
 export const PopulationResponse = (cols: number, rows: number, opts: SchemaOptions = {}) =>
   z.object({
-    brief: briefField(opts),
     rows: gridField(
       cols,
       rows,
@@ -188,8 +150,6 @@ export const PopulationResponse = (cols: number, rows: number, opts: SchemaOptio
       POPULATION_CELL,
       keyed(opts) ? 'integer (0 for water)' : 'integer ("-" for water)',
     ),
-    notes,
-    decisions,
   });
 export type PopulationResponse = z.infer<ReturnType<typeof PopulationResponse>>;
 
@@ -216,12 +176,9 @@ const riverNavigable = z
   .array(z.boolean())
   .describe('One entry per hex in path: is the river navigable through that hex?');
 
-export const RiversResponse = (_cols: number, _rows: number, opts: SchemaOptions = {}) =>
+export const RiversResponse = () =>
   z.object({
-    brief: briefField(opts),
     rivers: z.array(z.object({ name: z.string(), previousName: z.string().optional().describe('For a rename only, the exact existing river name.'), path: riverPath, navigable: riverNavigable, ...riverLinks })),
-    notes,
-    decisions,
   });
 export type RiversResponse = z.infer<ReturnType<typeof RiversResponse>>;
 
@@ -231,9 +188,8 @@ export type RiversResponse = z.infer<ReturnType<typeof RiversResponse>>;
  * `course` carries just enough for the second pass to draw the geometry without
  * re-deciding the hydrology from scratch.
  */
-export const RiversRosterResponse = (_cols: number, _rows: number, opts: SchemaOptions = {}) =>
+export const RiversRosterResponse = () =>
   z.object({
-    brief: briefField(opts),
     rivers: z.array(
       z.object({
         name: z.string(),
@@ -245,26 +201,20 @@ export const RiversRosterResponse = (_cols: number, _rows: number, opts: SchemaO
           ),
       }),
     ),
-    notes,
-    decisions,
   });
 export type RiversRosterResponse = z.infer<ReturnType<typeof RiversRosterResponse>>;
 
 /** Rivers, second pass: the hex geometry for an already-named set of rivers. */
-export const RiversPathsResponse = (_cols: number, _rows: number, opts: SchemaOptions = {}) =>
+export const RiversPathsResponse = () =>
   z.object({
-    brief: briefField(opts),
     rivers: z.array(z.object({ name: z.string(), previousName: z.string().optional().describe('For a rename only, the exact existing river name.'), path: riverPath, navigable: riverNavigable, ...riverLinks })),
-    notes,
-    decisions,
   });
 export type RiversPathsResponse = z.infer<ReturnType<typeof RiversPathsResponse>>;
 
 /* ------------------------------------------------------------------ cities */
 
-export const CitiesResponse = (_cols: number, _rows: number, opts: SchemaOptions = {}) =>
+export const CitiesResponse = () =>
   z.object({
-    brief: briefField(opts),
     cities: z.array(
       z.object({
         name: z.string(),
@@ -272,15 +222,12 @@ export const CitiesResponse = (_cols: number, _rows: number, opts: SchemaOptions
         col: z.number().int(),
         row: z.number().int(),
         population: z.number().int().min(0),
-        reason: z.string().describe('Normally empty; at most a few words for an exceptional placement.'),
         capital: z
           .boolean()
           .optional()
           .describe('True for the seat of a realm or kingdom the brief names; omit for every other settlement.'),
       }),
     ),
-    notes,
-    decisions,
   });
 export type CitiesResponse = z.infer<ReturnType<typeof CitiesResponse>>;
 
@@ -313,12 +260,9 @@ const sharedHexes = z.array(z.object({
 
 export const PolitiesResponse = (cols: number, rows: number, opts: SchemaOptions = {}) =>
   z.object({
-    brief: briefField(opts),
     polities: z.array(polityEntry(opts)),
     rows: gridField(cols, rows, opts, 'char', polityCell(opts), 'polity key'),
     sharedHexes,
-    notes,
-    decisions,
   });
 export type PolitiesResponse = z.infer<ReturnType<typeof PolitiesResponse>>;
 
@@ -331,21 +275,15 @@ export type PolitiesResponse = z.infer<ReturnType<typeof PolitiesResponse>>;
  */
 export const PolitiesRosterResponse = (_cols: number, _rows: number, opts: SchemaOptions = {}) =>
   z.object({
-    brief: briefField(opts),
     polities: z.array(polityEntry(opts)),
-    notes,
-    decisions,
   });
 export type PolitiesRosterResponse = z.infer<ReturnType<typeof PolitiesRosterResponse>>;
 
 /** Polities, second pass: the partition, against a roster that is already fixed. */
 export const PolitiesPaintResponse = (cols: number, rows: number, opts: SchemaOptions = {}) =>
   z.object({
-    brief: briefField(opts),
     rows: gridField(cols, rows, opts, 'char', polityCell(opts), 'polity key'),
     sharedHexes,
-    notes,
-    decisions,
   });
 export type PolitiesPaintResponse = z.infer<ReturnType<typeof PolitiesPaintResponse>>;
 
@@ -353,7 +291,7 @@ export type PolitiesPaintResponse = z.infer<ReturnType<typeof PolitiesPaintRespo
 
 /**
  * Zod issue codes that are about how many of something there are, not what it
- * is: a row one character short, 29 rows instead of 30, nine decisions instead
+ * is: a row one character short, 29 rows instead of 30, nine polities instead
  * of eight. The decoders already pad, truncate and report exactly these, so
  * they are warnings about a usable layer, not reasons to throw it away.
  */

@@ -122,3 +122,33 @@ export function withMigratedGeoNames<T extends MapState>(map: T): T {
   const { waterNames: _legacy, ...rest } = map;
   return { ...rest, geoNames: geoNamesOf(map) } as T;
 }
+
+/**
+ * Fold names a generation produced into the names a map already has.
+ *
+ * A generated name that matches an existing one (same id or name, same group)
+ * keeps that one's id and visibility and takes the new name and hexes, so regenerating a layer
+ * does not duplicate what it names again. Names the generation did not mention
+ * stay as they are. `sameGroup` limits where a hex may carry only one name: a
+ * hex claimed by a generated name is taken from every other name in its group
+ * (all of them, when it is omitted).
+ */
+export function mergeGeneratedNames<T extends { id: string; name: string; hexes: number[]; hidden?: boolean }>(
+  existing: T[],
+  incoming: T[],
+  sameGroup: (a: T, b: T) => boolean = () => true,
+): T[] {
+  const key = (n: T) => n.name.trim().toLowerCase();
+  let out = [...existing];
+  for (const name of incoming) {
+    const at = out.findIndex((n) => sameGroup(n, name) && (n.id === name.id || key(n) === key(name)));
+    const entry = at >= 0 ? { ...out[at]!, name: name.name, hexes: name.hexes } : name;
+    const claimed = new Set(entry.hexes);
+    out = out
+      .filter((_, i) => i !== at)
+      .map((n) => (sameGroup(n, entry) ? { ...n, hexes: n.hexes.filter((i) => !claimed.has(i)) } : n))
+      .filter((n) => n.hexes.length > 0);
+    out.push(entry);
+  }
+  return out;
+}

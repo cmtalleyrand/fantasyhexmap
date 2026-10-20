@@ -24,19 +24,10 @@ function when(at: number): string {
 }
 
 /**
- * The record of how this map came to be: what the model decided and why, in its
- * own words, interleaved with the edits a person made. It is kept honest by
- * logging both - a reader can always tell which choices were the AI's.
+ * The record of how this map came to be: each generation and each edit a person
+ * made. Both are logged, so a reader can always tell which changes were the AI's.
  */
-export default function DecisionLog({
-  map,
-  onClose,
-  onSelectHexes,
-}: {
-  map: MapState;
-  onClose: () => void;
-  onSelectHexes: (indices: number[]) => void;
-}) {
+export default function DecisionLog({ map, onClose }: { map: MapState; onClose: () => void }) {
   const [layerFilter, setLayerFilter] = useState<LayerId | 'all'>('all');
   const [aiOnly, setAiOnly] = useState(true);
 
@@ -49,37 +40,18 @@ export default function DecisionLog({
     );
   }, [map.journal, layerFilter, aiOnly]);
 
-  const decisionCount = (map.journal ?? []).reduce((n, e) => n + e.decisions.length, 0);
-
-  const jumpTo = (hexes: string[]) => {
-    const indices = hexes
-      .map((h) => {
-        const [col, row] = h.split(',').map(Number);
-        if (col === undefined || row === undefined) return -1;
-        if (!Number.isFinite(col) || !Number.isFinite(row)) return -1;
-        if (col < 0 || row < 0 || col >= map.cols || row >= map.rows) return -1;
-        return row * map.cols + col;
-      })
-      .filter((i) => i >= 0);
-    if (indices.length > 0) {
-      onSelectHexes(indices);
-      onClose();
-    }
-  };
-
   return (
-    <Modal label="How this map was decided" className="wide" onClose={onClose}>
+    <Modal label="Change history" className="wide" onClose={onClose}>
       <div className="row" style={{ alignItems: 'baseline' }}>
-        <h2 style={{ marginBottom: 4 }}>How this map was decided</h2>
+        <h2 style={{ marginBottom: 4 }}>Change history</h2>
         <span className="grow" />
         <span className="hint">
-          {decisionCount} decision{decisionCount === 1 ? '' : 's'} across{' '}
           {(map.journal ?? []).length} change{(map.journal ?? []).length === 1 ? '' : 's'}
         </span>
       </div>
       <p className="hint" style={{ marginTop: 0 }}>
-        What the model chose and why, as it reported at the time. Hand edits are listed too, so it
-        is always clear which choices were not the AI's.
+        Generations and rewrites, with the hand edits listed too, so it is always clear which
+        changes were not the AI&rsquo;s.
       </p>
 
       <div className="row" style={{ margin: '10px 0' }}>
@@ -104,7 +76,7 @@ export default function DecisionLog({
             checked={aiOnly}
             onChange={(e) => setAiOnly(e.target.checked)}
           />
-          AI decisions only
+          Generations only
         </label>
         <span className="grow" />
         <button className="tiny" onClick={() => exportDecisions(map, { aiOnly: false })}>
@@ -114,10 +86,7 @@ export default function DecisionLog({
 
       <div className="journal">
         {entries.length === 0 && (
-          <p className="hint">
-            Nothing recorded yet{aiOnly ? ' from the AI' : ''}. Generate a layer and its reasoning
-            appears here.
-          </p>
+          <p className="hint">Nothing recorded yet{aiOnly ? ' from the AI' : ''}.</p>
         )}
         {entries.map((entry) => (
           <div key={entry.id} className={`journal-entry ${entry.kind}`}>
@@ -146,22 +115,6 @@ export default function DecisionLog({
               <p className="hint" style={{ margin: '4px 0 0' }}>
                 {describeUsage(entry.model, entry.usage, entry.elapsedMs)}
               </p>
-            )}
-
-            {entry.decisions.length > 0 && (
-              <ol className="decisions">
-                {entry.decisions.map((d, i) => (
-                  <li key={i}>
-                    <b>{d.title}</b>
-                    {d.detail && <div>{d.detail}</div>}
-                    {d.hexes && d.hexes.length > 0 && (
-                      <button className="tiny" style={{ marginTop: 4 }} onClick={() => jumpTo(d.hexes!)}>
-                        select {d.hexes.length} hex{d.hexes.length === 1 ? '' : 'es'}
-                      </button>
-                    )}
-                  </li>
-                ))}
-              </ol>
             )}
 
             {entry.warnings > 0 && (

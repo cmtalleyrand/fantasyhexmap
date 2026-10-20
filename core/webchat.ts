@@ -30,14 +30,11 @@ import {
   gridRules,
   houseStyle,
   layerRules,
-  recordDecisions,
   type PromptContext,
 } from './prompts.js';
 import {
   decodeLayer,
   extractJsonObject,
-  proseAround,
-  withBriefRecorded,
   type DecodedLayer,
   type ExistingFeatures,
 } from './decode.js';
@@ -58,15 +55,11 @@ import type { Roster } from './rosters.js';
 /**
  * How the reply is to be laid out.
  *
- * `full` asks for one JSON object holding everything, notes and decisions
- * included, and spells out the whole JSON Schema - the most mechanical form, and
- * the one that brings the decision record into the app intact.
+ * `full` spells out the whole JSON Schema and a worked example - the most
+ * mechanical form.
  *
- * `compact` asks for the layer data alone as JSON, with the plan and the
- * decisions written as ordinary chat around it. The prompt is shorter (a field
- * list instead of a schema), and a chat model is better at explaining itself in
- * prose than inside a string field. The prose is kept on import as the layer's
- * notes, so the explanation is not lost.
+ * `compact` describes the same JSON object as a field list instead, which makes
+ * the prompt shorter.
  */
 export type WebchatStyle = 'full' | 'compact';
 
@@ -79,14 +72,14 @@ export interface WebchatPromptOptions {
   style?: WebchatStyle;
 }
 
-/** The context as the webchat prompts use it: row strings, and where the explanation goes. */
-function chatContext(ctx: PromptContext, style: WebchatStyle): PromptContext {
-  return { ...ctx, gridFormat: 'rows', decisionsInChat: style === 'compact' };
+/** The context as the webchat prompts use it: row strings. */
+function chatContext(ctx: PromptContext): PromptContext {
+  return { ...ctx, gridFormat: 'rows' };
 }
 
 export function buildWebchatPrompt(options: WebchatPromptOptions): string {
   const { layer, pass, roster = null, style = 'full' } = options;
-  const ctx = chatContext(options.ctx, style);
+  const ctx = chatContext(options.ctx);
   const { system, user } = promptForPass(layer, pass, ctx, roster);
   const schema = schemaForPass(layer, pass, ctx.cols, ctx.rows);
   const jsonSchema = z.toJSONSchema(schema) as JsonSchema;
@@ -97,22 +90,20 @@ export function buildWebchatPrompt(options: WebchatPromptOptions): string {
     style === 'compact'
       ? [
           'HOW TO REPLY',
-          'Reply with the layer as ONE JSON object in a ```json code block, with no preamble.',
-          'It holds only these fields - no notes, no decisions:',
+          'Reply with the layer as ONE JSON object in a ```json code block, with no preamble and nothing after it.',
+          'It holds these fields:',
           ...fieldLines(jsonSchema).map((line) => `   ${line}`),
           ...sizeRule.map((line) => `   ${line}`),
-          'After the code block, at most two short sentences only for material conflicts or consequential assumptions; otherwise nothing.',
           '',
           returnsRows ? 'SHAPE OF THE JSON (a 4x3 map - not your answer)' : 'SHAPE OF THE JSON (not your answer)',
           '```json',
-          JSON.stringify(dataOnly(exampleFor(layer, pass))),
+          JSON.stringify(exampleFor(layer, pass)),
           '```',
         ]
       : [
           'HOW TO REPLY',
           'Reply with a single JSON object and nothing else - no commentary before or after it, and no',
-          'explanation of what you did. Everything you want to say about the map goes in "notes" and',
-          '"decisions", which are part of the object.',
+          'explanation of what you did.',
           '',
           'Nothing is validating this as you write it, so check the shape yourself before you answer.',
           ...sizeRule,
@@ -200,7 +191,7 @@ export function buildMultiWebchatPrompt(options: MultiWebchatPromptOptions): str
   // An instruction turns this into an edit of layers that already exist: they
   // are shown as they stand, and the instruction is stated once for all of them.
   const instruction = options.ctx.instruction?.trim() || null;
-  const ctx = chatContext({ ...options.ctx, instruction }, style);
+  const ctx = chatContext({ ...options.ctx, instruction });
   const labels = layers.map((id) => `${LAYER_META[id].label} ("${id}")`);
   const existing = existingContext(ctx, instruction ? [] : layers);
   const excluded = (ctx.excluded ?? []).filter((id) => !layers.includes(id));
@@ -214,12 +205,12 @@ export function buildMultiWebchatPrompt(options: MultiWebchatPromptOptions): str
     '',
     gridRules(ctx.cols, ctx.rows, ctx.hexDimensions),
     '',
-    houseStyle(ctx),
+    houseStyle(),
   ];
   layers.forEach((id, i) => {
     parts.push('', divider(), `LAYER ${i + 1} OF ${layers.length}: ${LAYER_META[id].label.toUpperCase()} ("${id}")`, '', layerRules(id, ctx));
   });
-  parts.push('', divider(), '', recordDecisions(ctx), '', divider(), '', physicalContext(ctx), '', descriptionBlock(ctx.description));
+  parts.push('', divider(), '', physicalContext(ctx), '', descriptionBlock(ctx.description));
   if (existing.length > 0) {
     parts.push(
       '',
@@ -250,7 +241,7 @@ export function buildMultiWebchatPrompt(options: MultiWebchatPromptOptions): str
   if (excluded.length > 0) {
     parts.push(
       '',
-      `This map will never have these layers: ${excluded.map((id) => LAYER_META[id].label).join(', ')}. Anything that would depend on them, settle yourself and say what you assumed.`,
+      `This map will never have these layers: ${excluded.map((id) => LAYER_META[id].label).join(', ')}. Anything that would depend on them, settle yourself.`,
     );
   }
 
@@ -263,20 +254,19 @@ export function buildMultiWebchatPrompt(options: MultiWebchatPromptOptions): str
       divider(),
       '',
       'HOW TO REPLY',
-      'Reply with the JSON code block only, with no planning preamble.',
+      'Reply with the JSON code block only, with no preamble and nothing after it.',
       `ONE JSON object in a \`\`\`json code block with one key per layer - ${layers.map((id) => `"${id}"`).join(', ')} - each holding`,
-      '   only that layer\'s data, no notes and no decisions:',
+      '   only that layer\'s data:',
     );
     for (const id of layers) {
       parts.push(`   "${id}":`, ...fieldLines(layerJsonSchema(id, ctx)).map((line) => `     ${line}`));
     }
     if (hasRows) parts.push(...rowSizeRule(ctx).map((line) => `   ${line}`));
     parts.push(
-      'After the JSON, at most two short sentences total only for material conflicts or consequential assumptions; otherwise nothing.',
       '',
       hasRows ? 'SHAPE OF THE JSON (a 4x3 map - not your answer)' : 'SHAPE OF THE JSON (not your answer)',
       '```json',
-      JSON.stringify(Object.fromEntries(Object.entries(combinedExample).map(([id, v]) => [id, dataOnly(v)]))),
+      JSON.stringify(combinedExample),
       '```',
     );
   } else {
@@ -289,7 +279,7 @@ export function buildMultiWebchatPrompt(options: MultiWebchatPromptOptions): str
       '',
       'HOW TO REPLY',
       `Reply with a single JSON object and nothing else, with one key per layer: ${layers.map((id) => `"${id}"`).join(', ')}.`,
-      'Each value is that layer\'s complete object, with its own "brief", "notes" and "decisions".',
+      'Each value is that layer\'s complete object.',
       '',
       'Nothing is validating this as you write it, so check the shape yourself before you answer.',
       ...(hasRows ? rowSizeRule(ctx) : []),
@@ -317,8 +307,6 @@ interface JsonSchema {
   items?: JsonSchema;
 }
 
-const NOT_DATA = new Set(['brief', 'notes', 'decisions']);
-
 function layerJsonSchema(layer: LayerId, ctx: PromptContext): JsonSchema {
   return z.toJSONSchema(schemaForPass(layer, 'full', ctx.cols, ctx.rows)) as JsonSchema;
 }
@@ -326,7 +314,6 @@ function layerJsonSchema(layer: LayerId, ctx: PromptContext): JsonSchema {
 /** The data fields of a response, one line each - the compact style's stand-in for a schema. */
 function fieldLines(schema: JsonSchema): string[] {
   return Object.entries(schema.properties ?? {})
-    .filter(([key]) => !NOT_DATA.has(key))
     .map(([key, value]) => `- "${key}": ${describeField(value)}`);
 }
 
@@ -339,13 +326,6 @@ function describeField(field: JsonSchema): string {
     return `${own}A list of objects, each with ${inner}.`;
   }
   return (own || field.type || 'a value').trim();
-}
-
-/** An example response with the parts the compact style moves into the chat taken out. */
-function dataOnly(example: unknown): unknown {
-  return Object.fromEntries(
-    Object.entries(example as Record<string, unknown>).filter(([key]) => !NOT_DATA.has(key)),
-  );
 }
 
 /** A one-line reminder of what the user is about to paste into where. */
@@ -365,61 +345,25 @@ export function webchatPromptTitle(layer: LayerId, pass: PassId): string {
 function exampleFor(layer: LayerId, pass: PassId): unknown {
   const ctx = exampleContext();
   const full = mockLayer(layer, ctx) as Record<string, unknown>;
-  const notes = 'One or two sentences about the layer as a whole.';
-  const decisions = EXAMPLE_DECISIONS;
-  const brief = EXAMPLE_BRIEF;
 
-  if (pass === 'full') return { brief, ...full, notes, decisions };
+  if (pass === 'full') return full;
 
   if (layer === 'polities') {
-    return pass === 'roster'
-      ? { brief, polities: full.polities, notes, decisions }
-      : { brief, rows: full.rows, notes, decisions };
+    return pass === 'roster' ? { polities: full.polities } : { rows: full.rows };
   }
   if (layer === 'rivers') {
     const rivers = (full.rivers ?? []) as { name: string; path: unknown; navigable: unknown }[];
     return pass === 'roster'
       ? {
-          brief,
           rivers: rivers.map((r) => ({
             name: r.name,
             course: 'rises in the northern hills, runs south-west into the sea',
           })),
-          notes,
-          decisions,
         }
-      : { brief, rivers, notes, decisions };
+      : { rivers };
   }
-  return { brief, ...full, notes, decisions };
+  return full;
 }
-
-const EXAMPLE_BRIEF = {
-  scale: '~50 km per hex (~2,165 km^2 each), from the 1,500 km width the brief gives the continent',
-  requirements: [
-    {
-      requirement: 'The inland sea covers about 90,000 km^2',
-      target: 'about 42 Lake hexes, centred near column 20, row 14',
-    },
-  ],
-};
-
-const EXAMPLE_DECISIONS = [
-  {
-    title: 'A short headline for the choice',
-    detail: 'One to three sentences on what you decided and why. Not a restatement of the data.',
-    hexes: ['1,0', '2,0'],
-  },
-  {
-    title: 'Where the brief pulled two ways',
-    detail: 'Which cue you followed and what you gave up to follow it.',
-    hexes: [],
-  },
-  {
-    title: 'Something you invented',
-    detail: 'What the brief was silent about, and what you decided instead.',
-    hexes: [],
-  },
-];
 
 /**
  * A 4x3 world for the example to be generated against.
@@ -468,11 +412,8 @@ export interface WebchatImportResult extends DecodedLayer {
   roster: Roster | null;
 }
 
-/** Longest stretch of chat prose kept as a layer's notes. */
-const MAX_PROSE_NOTES = 6000;
-
-/** Find, parse and return the reply's JSON object, and the prose around it. */
-function readReply(text: string): { raw: Record<string, unknown>; prose: string } {
+/** Find, parse and return the reply's JSON object. */
+function readReply(text: string): Record<string, unknown> {
   const json = extractJsonObject(text);
   if (!json) {
     throw new WebchatImportError(
@@ -491,25 +432,7 @@ function readReply(text: string): { raw: Record<string, unknown>; prose: string 
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
     throw new WebchatImportError('The reply\'s JSON is not an object.');
   }
-  return { raw: raw as Record<string, unknown>, prose: proseAround(text, json) };
-}
-
-/**
- * A compact-style reply carries no notes or decisions in its JSON; the
- * explanation is the chat around it. Keep that prose as the layer's notes, so
- * the decision record still says why, and supply the empty decision list the
- * schema expects. A full-style reply is left exactly as it came.
- */
-function withChatNotes(raw: unknown, prose: string): unknown {
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return raw;
-  const obj = raw as Record<string, unknown>;
-  const notes =
-    typeof obj.notes === 'string'
-      ? obj.notes
-      : prose.length > MAX_PROSE_NOTES
-        ? `${prose.slice(0, MAX_PROSE_NOTES).trimEnd()} …`
-        : prose;
-  return { ...obj, notes, decisions: Array.isArray(obj.decisions) ? obj.decisions : [] };
+  return raw as Record<string, unknown>;
 }
 
 function checkShape(layer: LayerId, pass: PassId, ctx: PromptContext, raw: unknown, where = ''): unknown {
@@ -521,7 +444,7 @@ function checkShape(layer: LayerId, pass: PassId, ctx: PromptContext, raw: unkno
         'Paste that back to the model and ask it to correct those fields.',
     );
   }
-  return withBriefRecorded(result.data);
+  return result.data;
 }
 
 /**
@@ -533,12 +456,12 @@ function checkShape(layer: LayerId, pass: PassId, ctx: PromptContext, raw: unkno
  */
 export function importWebchatResponse(options: WebchatImportOptions): WebchatImportResult {
   const { layer, pass, ctx, text, roster = null, existing } = options;
-  const { raw, prose } = readReply(text);
-  const parsed = checkShape(layer, pass, ctx, withChatNotes(raw, prose));
+  const raw = readReply(text);
+  const parsed = checkShape(layer, pass, ctx, raw);
 
   if (pass === 'roster') {
     const produced = rosterFromResponse(layer, parsed);
-    const folded = rosterOnlyResponse(layer, produced, parsed, ctx);
+    const folded = rosterOnlyResponse(layer, produced, ctx);
     return { ...decodeLayer(layer, folded, ctx, existing), roster: produced };
   }
 
@@ -548,7 +471,7 @@ export function importWebchatResponse(options: WebchatImportOptions): WebchatImp
         'Importing painted geometry needs the roster it was drawn for. Import or supply the roster first.',
       );
     }
-    const combined = combinePasses(layer, roster, null, parsed);
+    const combined = combinePasses(layer, roster, parsed);
     return { ...decodeLayer(layer, combined, ctx, existing), roster };
   }
 
@@ -578,7 +501,7 @@ export interface MultiWebchatImportResult {
  */
 export function importMultiWebchatResponse(options: MultiWebchatImportOptions): MultiWebchatImportResult[] {
   const layers = orderLayers(options.layers);
-  const { raw, prose } = readReply(options.text);
+  const raw = readReply(options.text);
 
   const missing = layers.filter((id) => raw[id] == null);
   if (missing.length > 0) {
@@ -591,7 +514,7 @@ export function importMultiWebchatResponse(options: MultiWebchatImportOptions): 
   let ctx = options.ctx;
   const out: MultiWebchatImportResult[] = [];
   for (const layer of layers) {
-    const parsed = checkShape(layer, 'full', ctx, withChatNotes(raw[layer], prose), ` for "${layer}"`);
+    const parsed = checkShape(layer, 'full', ctx, raw[layer], ` for "${layer}"`);
     const result = decodeLayer(layer, parsed, ctx, options.existing);
     out.push({ layer, result });
     ctx = { ...ctx, [layer]: result.data };

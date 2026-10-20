@@ -183,7 +183,7 @@ export default function WebchatDialog({
       <p className="hint">
         Copy the prompt into any chat window, then paste the JSON it replies with back here. It
         goes through the same checks and the same undo stack as a generation made from inside the
-        app, and is recorded as imported so the decision log does not credit this app&rsquo;s model
+        app, and is recorded as imported so the history does not credit this app&rsquo;s model
         for it.
       </p>
 
@@ -198,15 +198,15 @@ export default function WebchatDialog({
         <div className="stack" style={{ gap: 4, flex: 1 }}>
           <label>Reply style</label>
           <select value={style} onChange={(e) => setStyle(e.target.value as WebchatStyle)}>
-            <option value="full">Everything in the JSON</option>
-            <option value="compact">JSON for the data, decisions in the chat</option>
+            <option value="full">Full JSON schema and worked example</option>
+            <option value="compact">Short field list</option>
           </select>
         </div>
       </div>
       <p className="hint" style={{ margin: 0 }}>
         {style === 'compact'
-          ? 'A shorter prompt: the model replies with the layer data as JSON and explains its plan and decisions in ordinary chat around it. That explanation is kept as the layer notes when you import the whole reply.'
-          : 'The model replies with one JSON object that also carries its notes and decisions, which go into the decision log.'}
+          ? 'A shorter prompt: the reply shape is described as a list of fields instead of a full JSON Schema.'
+          : 'The reply shape is given as a full JSON Schema with a worked example.'}
       </p>
 
       {scope === 'several' && (
@@ -321,7 +321,7 @@ export default function WebchatDialog({
           onChange={(e) => setSource(e.target.value)}
         />
         <p className="hint" style={{ margin: 0 }}>
-          Recorded in the decision log so the record stays honest.
+          Recorded in the change history so the record stays honest.
         </p>
       </div>
 

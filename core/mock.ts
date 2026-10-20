@@ -312,7 +312,7 @@ function buildCities(ctx: PromptContext) {
     (ctx.rivers?.rivers ?? []).flatMap((r) => r.segments.map((s) => `${s.col},${s.row}`)),
   );
   const target = Math.max(4, Math.round((cols * rows) / 55));
-  const chosen: { name: string; col: number; row: number; population: number; reason: string }[] = [];
+  const chosen: { name: string; col: number; row: number; population: number }[] = [];
   let attempts = 0;
   while (chosen.length < target && attempts < target * 60) {
     attempts++;
@@ -336,7 +336,6 @@ function buildCities(ctx: PromptContext) {
       col,
       row,
       population,
-      reason: onRiver ? 'river crossing' : coastal ? 'sheltered harbour' : 'inland market',
     });
   }
   return chosen;
@@ -443,74 +442,47 @@ function toRowTokens(values: (string | null)[], cols: number, rows: number, empt
   return out;
 }
 
-const MOCK_NOTE = 'Generated offline by the procedural mock generator, not by Claude.';
-
-/**
- * The offline generator has no reasoning to report - it is arithmetic. Rather
- * than invent prose that would read like the model's, it states the rule it
- * actually applied, so a map made this way is never mistaken for a designed one.
- */
-function mockDecisions(layer: LayerId, ctx: PromptContext): { title: string; detail: string; hexes: string[] }[] {
-  const rules: Record<LayerId, [string, string][]> = {
-    base: [
-      ['Landmasses from overlapping blobs', 'Three to five random discs were summed and thresholded; no part of the brief was read.'],
-      ['Ice at both edges', `The top and bottom ${Math.max(1, Math.round(ctx.rows * 0.06))} rows were frozen regardless of latitude or climate: land became Glacier and water Sea Ice.`],
-    ],
-    elevation: [
-      ['Height from distance to water', 'Each land hex was ranked by how many hexes it sits from the nearest sea, plus one arbitrary north-south ridge line.'],
-      ['Islands are always Lowland', 'No attempt was made to read the brief for mountainous islands.'],
-    ],
-    climate: [
-      ['Latitude bands only', 'Row position was mapped to a pole-to-pole gradient and shifted colder on high ground. There is no rain shadow, no continentality and no monsoon.'],
-    ],
-    vegetation: [
-      ['One cover type per climate code', 'A lookup table maps each Köppen code to a single vegetation, with cultivated land sprinkled at random in temperate lowlands.'],
-    ],
-    rivers: [
-      ['Greedy downhill walks', 'Rivers start on high ground and step to the lowest unvisited neighbour until they reach water; paths that fail to reach the sea are discarded.'],
-      ['Navigable below the midpoint', 'The lower half of each path is marked navigable with no regard to elevation or size.'],
-    ],
-    cities: [
-      ['Random sites, spaced apart', 'Candidate hexes are drawn at random, rejected if within three hexes of an existing city, and biased towards coast and river hexes.'],
-      ['Populations by rank alone', 'The first city drawn becomes the primate city; the rest are scaled by draw order, not by site quality.'],
-    ],
-    polities: [
-      ['Flood fill from random seeds', 'Borders are a Voronoi partition grown outward from random land hexes, ignoring rivers, ranges and coasts entirely.'],
-    ],
-    population: [
-      ['Table lookup by vegetation', 'Each hex takes a fixed figure for its land cover, scaled down on high ground and jittered. Rivers, coasts and polities are ignored.'],
-    ],
-  };
-  return (rules[layer] ?? []).map(([title, detail]) => ({ title, detail, hexes: [] }));
+/** Runs along rows covering the hexes at `indices`, the form name lists are given in. */
+function toSpans(indices: number[], cols: number): { row: number; from: number; to: number }[] {
+  const spans: { row: number; from: number; to: number }[] = [];
+  for (const index of [...indices].sort((x, y) => x - y)) {
+    const row = Math.floor(index / cols);
+    const col = index % cols;
+    const last = spans[spans.length - 1];
+    if (last && last.row === row && last.to === col - 1) last.to = col;
+    else spans.push({ row, from: col, to: col });
+  }
+  return spans;
 }
 
 export function mockLayer(layer: LayerId, ctx: PromptContext): unknown {
   const { cols, rows } = ctx;
-  const decisions = mockDecisions(layer, ctx);
   switch (layer) {
-    case 'base':
-      return {
-        rows: toRowChars(buildBase(ctx).map((v) => BASE_CHARS[v]), cols, rows, BASE_CHARS.Sea),
-        notes: MOCK_NOTE,
-        decisions,
+    case 'base': {
+      const base = buildBase(ctx);
+      const named = (kind: 'sea' | 'land', name: string, test: (v: BaseGeo) => boolean) => {
+        const hexes = base.flatMap((v, i) => (test(v) ? [i] : []));
+        return hexes.length > 0 ? [{ kind, name, spans: toSpans(hexes, cols) }] : [];
       };
-    case 'elevation':
       return {
-        rows: toRowChars(
-          buildElevation(ctx).map((v) => (v ? ELEVATION_CHARS[v] : null)),
-          cols,
-          rows,
-          '.',
-        ),
-        notes: MOCK_NOTE,
-        decisions,
+        rows: toRowChars(base.map((v) => BASE_CHARS[v]), cols, rows, BASE_CHARS.Sea),
+        names: [
+          ...named('sea', 'The Mock Sea', (v) => v === 'Sea'),
+          ...named('land', 'Mockland', (v) => v === 'Land'),
+        ],
       };
+    }
+    case 'elevation': {
+      const elevation = buildElevation(ctx);
+      const peaks = elevation.flatMap((v, i) => (v === 'Mountains' ? [i] : []));
+      return {
+        rows: toRowChars(elevation.map((v) => (v ? ELEVATION_CHARS[v] : null)), cols, rows, '.'),
+        ranges: peaks.length > 0 ? [{ name: 'The Mock Spine', spans: toSpans(peaks, cols) }] : [],
+      };
+    }
     case 'climate':
       return {
-        latitudeBand: 'mock: pole to pole',
         rows: toRowTokens(buildClimate(ctx), cols, rows, '--'),
-        notes: MOCK_NOTE,
-        decisions,
       };
     case 'vegetation':
       return {
@@ -520,15 +492,13 @@ export function mockLayer(layer: LayerId, ctx: PromptContext): unknown {
           rows,
           '--',
         ),
-        notes: MOCK_NOTE,
-        decisions,
       };
     case 'rivers':
-      return { rivers: buildRivers(ctx), notes: MOCK_NOTE, decisions };
+      return { rivers: buildRivers(ctx) };
     case 'cities':
-      return { cities: buildCities(ctx), notes: MOCK_NOTE, decisions };
+      return { cities: buildCities(ctx) };
     case 'polities':
-      return { ...buildPolities(ctx), notes: MOCK_NOTE, decisions };
+      return { ...buildPolities(ctx) };
     case 'population':
       return {
         rows: toRowTokens(
@@ -537,8 +507,6 @@ export function mockLayer(layer: LayerId, ctx: PromptContext): unknown {
           rows,
           '-',
         ),
-        notes: MOCK_NOTE,
-        decisions,
       };
     default:
       throw new Error(`No mock generator for ${layer}`);

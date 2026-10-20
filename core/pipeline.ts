@@ -15,17 +15,16 @@ import Anthropic from '@anthropic-ai/sdk';
 import { betaZodOutputFormat } from '@anthropic-ai/sdk/helpers/beta/zod';
 import * as z from 'zod/v4';
 
-import type { Decision, LayerDataMap, LayerId } from '../shared/types.js';
+import type { GeoName, LayerDataMap, LayerId, MountainRange } from '../shared/types.js';
 import type { PromptContext } from './prompts.js';
 import {
   decodeLayer,
   extractJsonObject,
   flattenGrid,
-  withBriefRecorded,
   type ExistingFeatures,
 } from './decode.js';
 
-export { flattenGrid, withBriefRecorded } from './decode.js';
+export { flattenGrid } from './decode.js';
 import { mockLayer } from './mock.js';
 import { LAYER_META } from '../shared/layers.js';
 import { clampTaskBudget, DEFAULT_TASK_BUDGET, type Effort } from './config.js';
@@ -69,9 +68,10 @@ export interface GenerateResult<K extends LayerId = LayerId> {
   layer: K;
   data: LayerDataMap[K];
   warnings: string[];
-  notes: string | null;
-  /** The model's account of the choices that shaped this layer. */
-  decisions: Decision[];
+  /** Names given to seas, lakes, islands and land regions (base layer). */
+  geoNames?: GeoName[];
+  /** Names given to mountain ranges (elevation layer). */
+  mountainRanges?: MountainRange[];
   /** Model that produced it, or null when the offline generator did. */
   model: string | null;
   usage: Usage | null;
@@ -467,7 +467,7 @@ function projectMock(
 ): unknown {
   if (!canSplit(layer)) return full;
   if (selection === 'roster') {
-    return rosterOnlyResponse(layer, roster ?? rosterFromResponse(layer, full), full, ctx);
+    return rosterOnlyResponse(layer, roster ?? rosterFromResponse(layer, full), ctx);
   }
   if (selection === 'paint') {
     const against = roster ?? rosterFromContext(layer, ctx);
@@ -476,10 +476,10 @@ function projectMock(
         `Painting ${LAYER_LABEL[layer]} needs a roster. Generate one first, reuse the existing one, or supply your own.`,
       );
     }
-    return combinePasses(layer, against, null, full);
+    return combinePasses(layer, against, full);
   }
   // Both passes, but with a roster supplied: honour it rather than the mock's.
-  return roster ? combinePasses(layer, roster, null, full) : full;
+  return roster ? combinePasses(layer, roster, full) : full;
 }
 
 async function runPasses(
@@ -540,7 +540,7 @@ async function runPasses(
     }
     usages.push(result.usage);
     responseWarnings.push(...result.warnings);
-    return withBriefRecorded(flattenGrid(layer, result.parsed, ctx.cols, ctx.rows));
+    return flattenGrid(layer, result.parsed, ctx.cols, ctx.rows);
   };
 
   let combined: unknown;
@@ -558,9 +558,9 @@ async function runPasses(
         );
       }
       const painted = await call('paint');
-      combined = combinePasses(layer, roster, rosterParsed, painted);
+      combined = combinePasses(layer, roster, painted);
     } else {
-      combined = rosterOnlyResponse(layer, roster!, rosterParsed, ctx);
+      combined = rosterOnlyResponse(layer, roster!, ctx);
     }
   }
 
@@ -571,8 +571,8 @@ async function runPasses(
     layer,
     data: decoded.data,
     warnings: [...responseWarnings, ...decoded.warnings],
-    notes: decoded.notes,
-    decisions: decoded.decisions,
+    ...(decoded.geoNames ? { geoNames: decoded.geoNames } : {}),
+    ...(decoded.mountainRanges ? { mountainRanges: decoded.mountainRanges } : {}),
     model: config.model,
     usage: sumUsage(usages),
   };

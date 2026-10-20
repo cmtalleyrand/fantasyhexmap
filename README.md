@@ -35,8 +35,7 @@ HEXMAP_MOCK=1 npm run dev
 
 Mock mode swaps Claude for an offline procedural generator that returns the same JSON shapes the
 model is asked for, so it flows through the identical decode-validate-render path. It is there to
-exercise the application end to end (and to develop the UI) without spending tokens. Generated
-layers say so in their notes.
+exercise the application end to end (and to develop the UI) without spending tokens.
 
 ### Configuration
 
@@ -252,24 +251,27 @@ Parent polity areas include their descendants. A pure umbrella parent has zero d
 City sites, city-state flags, automatic polity shading and unchanged river reach guidance are retained
 by the app rather than reconstructed by the model. Renamed features can supply `previousName` to retain identity.
 
-## The decision record
+## Replies and the change history
 
-Generation normally returns data with no explanation. Only unavoidable conflicts, unmet requirements
-or consequential assumptions warrant a note, limited to two short sentences total. Older decision
-records remain readable and exportable. The saved hex scale, land percentages, island counts and
-per-hex overrides are supplied to the AI together with effective land fractions and measured areas.
-The latest explicit edit takes precedence over conflicting parts of the original description.
+The model returns data only: no notes, decisions or explanations are requested, stored or shown. The
+saved hex scale, land percentages, island counts and per-hex overrides are supplied to the AI together
+with effective land fractions and measured areas. The latest explicit edit takes precedence over
+conflicting parts of the original description. The finished map is assumed to gain one row above and
+below and one column left and right, always Sea Ice or Sea unless the brief says otherwise, and the
+prompts ask the model to avoid hex-straight lines.
 
-- The inspector shows **why the layer being edited looks like this**, inline.
-- **decisions** in the top bar opens the whole record: every generation and instruction with the
-  model's reasoning, filterable by layer.
+The base layer also returns names for seas, lakes, islands and land regions, and the elevation layer
+names mountain ranges. Each name is a set of runs along rows (`row`, `from`, `to`), kept on import to
+the hexes its kind may hold. Land regions, islands and ranges are labelled only where largely
+unpopulated (1 person per km² or less); seas and lakes are always eligible. Generated names merge into
+the map's names: a name matching an existing one keeps its id, and `previousName` renames.
+
+- **history** in the top bar lists every generation and instruction, filterable by layer.
 - Hand edits, undos and redos are logged alongside, so the record never credits the AI with a
-  choice you made. The "AI decisions only" toggle separates them.
-- **Export Markdown** writes the record out as a document, grouped by layer, with the brief at the
-  top — the reasoning survives outside the app.
-- Decisions with hex references have a **select** button that jumps to the hexes they are about.
+  choice you made. The "Generations only" toggle separates them.
+- **Export Markdown** writes the history out as a document, grouped by layer, with the brief at the top.
 
-The record is part of the map: it is autosaved, exported in the JSON, and imported back with it.
+The history is part of the map: it is autosaved, exported in the JSON, and imported back with it.
 
 ## Generating in two passes
 
@@ -314,10 +316,9 @@ ask for a correction.
 
 Two choices in the dialog:
 
-- **Reply style.** *Everything in the JSON* asks for one object that carries notes and decisions too,
-  and includes the full JSON Schema. *JSON for the data, decisions in the chat* is the stripped-down
-  form: the prompt lists data fields instead of a schema and asks for a fenced JSON block with no
-  planning preamble. Only material conflicts or consequential assumptions receive a short explanation afterwards. Paste the whole reply: the prose around the JSON is kept as the layer's notes.
+- **Reply style.** *Full JSON schema and worked example* describes the reply with the whole JSON
+  Schema. *Short field list* is the stripped-down form: the prompt lists the data fields instead of a
+  schema and asks for a fenced JSON block with no preamble and nothing after it.
 - **Several layers in one reply.** Tick any layers the map has in its plan. The shared rules and the
   brief are stated once, each layer's own rules follow in pipeline order, and the reply is one JSON
   object with a key per layer (`"base"`, `"elevation"`, …). Each layer is built on the ones written
@@ -325,7 +326,7 @@ Two choices in the dialog:
   nothing is applied. Each layer still gets its own undo entry. Polities and rivers run as a single
   pass in this mode, and an edit instruction is not used.
 
-The decision record marks these as imported rather than generated. It already refuses to credit the
+The change history marks these as imported rather than generated. It already refuses to credit the
 AI with a choice you made by hand; crediting this app's model with a choice made somewhere else
 would be the same lie.
 
@@ -380,13 +381,13 @@ cancels it. Shortcuts are ignored while you are typing in a field.
 value chosen to apply. On Polities, the hex count beside each polity selects its territory.
 
 **Files.** The **File** menu holds everything that moves a map in or out: new map, saved maps,
-import, image export, JSON export (with or without undo history) and the decision record. Starting a
+import, image export, JSON export (with or without undo history) and the change history. Starting a
 new map offers to save or download the current one first, because the autosave only keeps one map.
 Click the map's name in the top bar to rename it.
 
 **Feedback.** Errors and outcomes appear at the top of the map. Each generation reports how long it
 took and how many tokens it used (and how many of them were reasoning). When the model's price is
-known, it also gives a rough cost; the decision record keeps the same figures.
+known, it also gives a rough cost; the change history keeps the same figures.
 
 ## Exports
 
@@ -406,8 +407,8 @@ known, it also gives a rough cost; the decision record keeps the same figures.
   clear of land, names, city markers, the legend and the other pieces; a piece that fits nowhere goes in the margin band, which
   grows on that side to hold it. "Check names for overlaps" in the export panel, or `npx tsx scripts/audit-labels.ts map.json`,
   reports every overlap among names, markers and furniture.
-- **Markdown** (File menu, or the decisions dialog). The decision record: what the model chose, why, and what you changed by hand.
-- **JSON.** The full map state including the decision record, with or without undo history, and a
+- **Markdown** (File menu, or the history dialog). The change history: each generation and what you changed by hand.
+- **JSON.** The full map state including the change history, with or without undo history, and a
   matching import.
 
 ## Persistence
@@ -441,8 +442,8 @@ streamed so a long generation reports progress instead of sitting on an open req
 
 **Reasoning and the answer share one budget.** This is the thing that is easy to get wrong, and was.
 Small answers do not make small responses: the model thinks by default, thinking is output, and on a
-hard layer it dwarfs the answer. A 30×30 polity map is about three thousand tokens of rows, roster,
-notes and decisions, and can still exhaust a sixty-thousand-token budget deciding where the borders
+hard layer it dwarfs the answer. A 30×30 polity map is about three thousand tokens of rows and roster,
+and can still exhaust a sixty-thousand-token budget deciding where the borders
 run. So generations carry an advisory **task budget** the model paces itself against, rather than
 only the hard cap it cannot see and is simply cut off by; a truncated response is retried once at
 lower effort rather than discarded; and when it does fail, the error reports how much went on

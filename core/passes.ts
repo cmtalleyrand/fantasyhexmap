@@ -132,26 +132,12 @@ export function rosterFromResponse(layer: LayerId, parsed: unknown): Roster {
   throw new Error(`Layer "${layer}" has no roster.`);
 }
 
-/**
- * Fold a roster and a geometry response into the single-request shape.
- *
- * Notes and decisions from both halves are kept: the roster pass is where the
- * "why these powers" reasoning lives and the paint pass is where "why this
- * border" lives, and losing either would leave the decision record with a hole
- * exactly where a two-pass generation is most interesting.
- */
+/** Fold a roster and a geometry response into the single-request shape. */
 export function combinePasses(
   layer: LayerId,
   roster: Roster | null,
-  rosterParsed: unknown | null,
   paintParsed: unknown,
 ): unknown {
-  const decisions = [
-    ...asDecisions(rosterParsed),
-    ...asDecisions(paintParsed),
-  ];
-  const notes = [asNotes(rosterParsed), asNotes(paintParsed)].filter(Boolean).join(' ');
-
   if (layer === 'polities') {
     const paint = paintParsed as z.infer<ReturnType<typeof PolitiesPaintResponse>>;
     const entries = roster?.kind === 'polities' ? roster.entries : [];
@@ -167,8 +153,6 @@ export function combinePasses(
       })),
       rows: paint.rows ?? [],
       sharedHexes: paint.sharedHexes,
-      notes,
-      decisions,
     };
   }
   if (layer === 'rivers') {
@@ -176,7 +160,7 @@ export function combinePasses(
     const entries = roster?.kind === 'rivers' ? roster.entries : [];
     return { rivers: (paint.rivers ?? []).map((r) => ({
       ...r, previousName: r.previousName ?? entries.find((e) => e.name === r.name)?.previousName,
-    })), notes, decisions };
+    })) };
   }
   throw new Error(`Layer "${layer}" does not run in passes.`);
 }
@@ -189,12 +173,8 @@ export function combinePasses(
 export function rosterOnlyResponse(
   layer: LayerId,
   roster: Roster,
-  rosterParsed: unknown,
   ctx: PromptContext,
 ): unknown {
-  const decisions = asDecisions(rosterParsed);
-  const notes = asNotes(rosterParsed);
-
   if (layer === 'polities') {
     const entries = roster.kind === 'polities' ? roster.entries : [];
     const existing = ctx.polities;
@@ -223,8 +203,6 @@ export function rosterOnlyResponse(
         hexes: e.hexes,
       })),
       rows,
-      notes,
-      decisions,
     };
   }
   if (layer === 'rivers') {
@@ -249,19 +227,7 @@ export function rosterOnlyResponse(
           ...(river.branchOf ? { branchOf: nameOf(river.branchOf) } : {}),
         };
       }),
-      notes,
-      decisions,
     };
   }
   throw new Error(`Layer "${layer}" does not run in passes.`);
-}
-
-function asDecisions(parsed: unknown): unknown[] {
-  const raw = (parsed as { decisions?: unknown } | null)?.decisions;
-  return Array.isArray(raw) ? raw : [];
-}
-
-function asNotes(parsed: unknown): string {
-  const raw = (parsed as { notes?: unknown } | null)?.notes;
-  return typeof raw === 'string' ? raw.trim() : '';
 }

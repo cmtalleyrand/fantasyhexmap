@@ -158,28 +158,15 @@ test('a roster and a painting recombine into the single-request shape', () => {
       { key: 'A', name: 'Ardh', colour: '#b5533c' },
       { key: 'B', name: 'Brenn', colour: '#3f7a8c' },
     ],
-    notes: 'Two powers.',
-    decisions: [{ title: 'Why two', detail: 'The brief implies a rivalry.', hexes: [] }],
   });
 
-  const combined = combinePasses(
-    'polities',
-    roster,
-    { notes: 'Two powers.', decisions: [{ title: 'Why two', detail: 'A rivalry.', hexes: [] }] },
-    {
-      rows: ['AABB', 'AABB'],
-      notes: 'Split east-west.',
-      decisions: [{ title: 'Why there', detail: 'The ridge.', hexes: [] }],
-    },
-  ) as { polities: unknown[]; rows: string[]; notes: string; decisions: unknown[] };
+  const combined = combinePasses('polities', roster, { rows: ['AABB', 'AABB'] }) as {
+    polities: unknown[];
+    rows: string[];
+  };
 
   assert.equal(combined.polities.length, 2);
   assert.deepEqual(combined.rows, ['AABB', 'AABB']);
-  // Both halves reason about different things; losing either leaves the record
-  // with a hole exactly where a two-pass generation is most interesting.
-  assert.equal(combined.decisions.length, 2);
-  assert.match(combined.notes, /Two powers/);
-  assert.match(combined.notes, /Split east-west/);
 });
 
 test('a roster pass alone renames in place, keeping the existing partition', () => {
@@ -192,12 +179,7 @@ test('a roster pass alone renames in place, keeping the existing partition', () 
     name: `Renamed ${i}`,
   }));
 
-  const folded = rosterOnlyResponse(
-    'polities',
-    { kind: 'polities', entries: renamed },
-    { notes: 'Renamed them all.', decisions: [] },
-    withPolities,
-  );
+  const folded = rosterOnlyResponse('polities', { kind: 'polities', entries: renamed }, withPolities);
   const result = decodeLayer('polities', folded, withPolities).data as PolitiesData;
 
   assert.deepEqual(

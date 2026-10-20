@@ -16,7 +16,7 @@
 import { recomputeCityFacts, canHoldSettlement } from '../../shared/derive.js';
 import { CHANNEL_WIDTH_VALUES, hasChannelWidth, hasLandConcentration, hasLandShare, isIslandType, isShapedType, islandSpecFor, type ChannelWidth, type HexShape, type IslandSpec, type Irregularity } from '../../shared/types.js';
 import { migrateLegacyIslands } from '../../shared/islandMigration.js';
-import { GEO_KIND_LABEL, geoEligibility, geoNamesOf, withMigratedGeoNames } from '../../shared/geoNames.js';
+import { GEO_KIND_LABEL, geoEligibility, geoNamesOf, mergeGeneratedNames, withMigratedGeoNames } from '../../shared/geoNames.js';
 import { withValidParents } from '../../shared/polityTree.js';
 import { applyAutoShade } from '../../shared/polityShade.js';
 import { clampShare, pruneShares, withoutShares } from '../../shared/polityShares.js';
@@ -34,7 +34,6 @@ import { MAX_DIM, isRangeElevation, type PolitiesData } from '../../shared/types
 import type {
   City,
   CitySite,
-  Decision,
   JournalEntry,
   JournalKind,
   LayerDataMap,
@@ -89,8 +88,10 @@ export type Action =
       layer: LayerId;
       data: LayerDataMap[LayerId];
       warnings: string[];
-      notes: string | null;
-      decisions?: Decision[];
+      /** Names the generation gave to seas, lakes, islands and land regions. */
+      geoNames?: GeoName[];
+      /** Names the generation gave to mountain ranges. */
+      mountainRanges?: MountainRange[];
       model?: string | null;
       instruction?: string | null;
       /**
@@ -160,7 +161,6 @@ function snapshotOf<K extends LayerId>(layer: LayerState<K>): LayerSnapshot<K> {
   return {
     data: layer.data,
     warnings: layer.warnings,
-    notes: layer.notes,
     generatedAt: layer.generatedAt,
     depVersions: layer.depVersions,
   };
@@ -481,7 +481,6 @@ const manualEntry = (layer: LayerId, summary: string) => ({
   kind: 'manual' as JournalKind,
   instruction: null,
   summary,
-  decisions: [],
   model: null,
   warnings: 0,
 });
@@ -750,7 +749,6 @@ function reduceMap(map: MapState, action: Action): MapState {
         kind: 'manual',
         instruction: null,
         summary: `Changed the layer plan: ${parts.join('; ')}.`,
-        decisions: [],
         model: null,
         warnings: 0,
       });
@@ -809,7 +807,6 @@ function reduceMap(map: MapState, action: Action): MapState {
         commit(layer, {
           data: action.data,
           warnings: action.warnings,
-          notes: action.notes,
           generatedAt: Date.now(),
           depVersions: currentDepVersions(map, action.layer),
         }),
@@ -819,15 +816,21 @@ function reduceMap(map: MapState, action: Action): MapState {
           layer: action.layer,
           kind: action.imported ? 'import' : action.instruction ? 'instruct' : 'generate',
           instruction: action.instruction ?? null,
-          summary:
-            action.notes ??
-            `${LAYER_META[action.layer].label} ${action.imported ? 'imported.' : 'generated.'}`,
-          decisions: action.decisions ?? [],
+          summary: `${LAYER_META[action.layer].label} ${action.imported ? 'imported.' : 'generated.'}`,
           model: action.model ?? null,
           warnings: action.warnings.length,
           ...(action.usage ? { usage: action.usage } : {}),
           ...(action.elapsedMs !== undefined ? { elapsedMs: action.elapsedMs } : {}),
         });
+      }
+      if (action.geoNames?.length) {
+        next = {
+          ...withMigratedGeoNames(next),
+          geoNames: mergeGeneratedNames(geoNamesOf(next), action.geoNames, (a, b) => a.kind === b.kind),
+        };
+      }
+      if (action.mountainRanges?.length) {
+        next = { ...next, mountainRanges: mergeGeneratedNames(next.mountainRanges ?? [], action.mountainRanges) };
       }
       return action.layer === 'base' || action.layer === 'rivers' ? reconcile(next) : next;
     }
@@ -1381,7 +1384,6 @@ function reduceMap(map: MapState, action: Action): MapState {
           commit(layer as LayerState, {
             data: empty,
             warnings: [],
-            notes: null,
             generatedAt: Date.now(),
             depVersions: currentDepVersions(map, action.layer),
           }),
@@ -1398,7 +1400,7 @@ function reduceMap(map: MapState, action: Action): MapState {
         withLayer(
           map,
           action.layer,
-          commit(layer, { data: null, warnings: [], notes: null, generatedAt: null, depVersions: {} }),
+          commit(layer, { data: null, warnings: [], generatedAt: null, depVersions: {} }),
         ),
         manualEntry(action.layer, `Cleared the ${LAYER_META[action.layer].label} layer.`),
       );
