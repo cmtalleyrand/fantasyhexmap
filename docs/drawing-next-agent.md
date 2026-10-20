@@ -59,6 +59,17 @@ All preset defaults now use `land: 'uniform'`: coastal land has the same colour 
 Explicit `land: 'band'` overrides remain available. This is the owner's requested display default,
 not a change to land percentages or coastline geometry.
 
+**Coast review must show hex borders.** The owner rejected the remaining 5%-land Parchment tip as too
+pointy and asked for visible hex boundaries in comparison images, including water hexes. Use a clearly
+visible full grid for geography review; a grid-free beauty view is optional, not the sole evidence.
+The [current gridded Canvas view](drawing-followup/parchment-grid-review.png) leaves geometry unchanged.
+Its left horizontal coast is the straight page-rim extension ending at a border junction, rather than
+a regular hex edge. The diagonal towards the central tip crosses the target hex rather than following
+its edge exactly. Both the boundary transition and the pinched low-share cape still require naturalness
+work; passing area/topology checks does not establish a satisfactory shape. Keep requested area and
+crossing/passage guards while investigating a less pointy result. Show the proposal with the same grid
+before accepting a shape change.
+
 **Continue retiring Classic.** Its unsmoothed hex-based coast exposes abrupt joins at low land shares;
 it is a legacy compatibility style, not the natural-geography target. New users already start in
 Parchment. Inventory the Classic picker entry, fallback styles, legacy preferences and exports, then
