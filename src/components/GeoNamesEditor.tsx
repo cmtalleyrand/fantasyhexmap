@@ -1,7 +1,9 @@
+import { hexCount } from './selectionText.js';
 import { useMemo, useState } from 'react';
 import { GEO_KIND_LABEL, GEO_NAME_KINDS, geoEligibility, geoNamesOf, liveHexes } from '../../shared/geoNames.js';
 import type { GeoNameKind, MapState } from '../../shared/types.js';
 import type { Action } from '../state/store.js';
+import AreaEditControls from './AreaEditControls.js';
 import CommitInput from './CommitInput.js';
 
 export default function GeoNamesEditor(props: {
@@ -57,7 +59,7 @@ export default function GeoNamesEditor(props: {
         <input id="new-geo-name" placeholder="Feature name" value={name}
           onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && create()} />
         <div className="geo-selection-summary" role="status">
-          <b>{selected.length} hexes selected</b>
+          <b>{hexCount(selected.length)} selected</b>
           {selected.length > 0 && <span>{picked.length} eligible · {selected.length - picked.length} excluded</span>}
         </div>
         <button className="primary" disabled={!picked.length || !name.trim()} onClick={create}>
@@ -70,39 +72,23 @@ export default function GeoNamesEditor(props: {
       <div className="geo-list">
         {names.map((n) => {
           const live = liveHexes(n, eligible);
-          const inName = new Set(n.hexes);
-          const addable = picked.filter((i) => !inName.has(i));
-          const removable = selected.filter((i) => inName.has(i));
           const isActive = n.id === paintId;
           return (
             <article key={n.id} className={`geo-card ${isActive ? 'active' : ''}`} aria-label={n.name}>
               <button className="geo-title" aria-pressed={isActive} onClick={() => choose(n.id)}>{n.name}</button>
-              <div className="geo-area">{isActive && <span className="area-key" />}Current area: <b>{live.length} hexes</b>{isActive && <span className="geo-badge">Active</span>}</div>
+              <div className="geo-area">{isActive && <span className="area-key" />}Current area: <b>{hexCount(live.length)}</b>{isActive && <span className="geo-badge">Active</span>}</div>
               {live.length < n.hexes.length && <details className="geo-help geo-excluded">
-                <summary>{n.hexes.length - live.length} assigned hexes excluded</summary>
+                <summary>{n.hexes.length - live.length} assigned hex{n.hexes.length - live.length === 1 ? '' : 'es'} excluded</summary>
                 <p>{n.hexes.length} assigned in total. Excluded hexes no longer match this feature’s terrain and are not part of its displayed area.</p>
               </details>}
               {isActive && <>
-                <div className="geo-edit-tools">
-                  <div className="geo-modes" role="group" aria-label="Edit feature area">
-                    {(['select', 'add', 'remove'] as const).map((mode) => (
-                      <button key={mode} aria-pressed={editMode === mode} onClick={() => props.setEditMode(mode)}>
-                        {mode === 'select' ? 'Select hexes' : mode === 'add' ? '+ Add to area' : '− Remove from area'}
-                      </button>
-                    ))}
-                  </div>
-                  <p>{editMode === 'select' ? 'Select hexes, then apply them below.' : `Click or drag on the map to ${editMode === 'add' ? 'add eligible hexes' : 'remove hexes'}. Changes apply on release.`}</p>
-                </div>
+                <AreaEditControls label={label.singular.toLowerCase()} selected={selected} hexes={n.hexes} eligible={eligible}
+                  mode={editMode} setMode={props.setEditMode}
+                  onAdd={indices => dispatch({ type: 'nameGeo', id: n.id, kind, name: n.name, indices })}
+                  onRemove={indices => dispatch({ type: 'unnameGeoHexes', id: n.id, indices })} />
                 <label htmlFor={`geo-name-${n.id}`}>Name</label>
                 <CommitInput id={`geo-name-${n.id}`} aria-label={`${label.singular} name`} value={n.name}
                   onCommit={(next) => dispatch({ type: 'renameGeo', id: n.id, name: next })} />
-                <div className="geo-batch">
-                  <span>Apply selection · {selected.length} hexes</span>
-                  <div className="geo-actions">
-                    <button disabled={!addable.length} onClick={() => dispatch({ type: 'nameGeo', id: n.id, kind, name: n.name, indices: addable })}>Add {addable.length} to area</button>
-                    <button disabled={!removable.length} onClick={() => dispatch({ type: 'unnameGeoHexes', id: n.id, indices: removable })}>Remove {removable.length} from area</button>
-                  </div>
-                </div>
               </>}
               <div className="geo-actions">
                 <button onClick={() => { choose(n.id); props.setSelection(new Set(live)); }}>Select area</button>

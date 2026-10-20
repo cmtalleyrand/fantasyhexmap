@@ -510,3 +510,31 @@ button.eye:hover:not(:disabled) { border-color: var(--line); }
 .map-status-stack > * { pointer-events: auto; }
 .map-status-stack .map-messages { position: static; transform: none; width: min(640px, 100%); }
 .map-status-stack .map-render-status { position: static; color: var(--ink-dim); }
+
+/* All named-feature editors use the same focus, title and action hierarchy. */
+.entity-editor button, .area-edit-controls button, .polity-entry button { min-height: 32px; }
+.entity-editor button[aria-pressed='true'], .area-edit-controls button[aria-pressed='true'], .polity-entry button[aria-pressed='true'] { border-color: #40d2e1; background: #16383e; color: #bdf6fb; }
+.entity-heading { display: block; font-size: 16px; font-weight: 600; overflow-wrap: anywhere; white-space: normal; }
+.polity-entry.active, .river-card { border-color: #40d2e1; box-shadow: inset 3px 0 #40d2e1; }
+.entity-details { margin: 8px 0; min-width: 0; }
+.entity-details > summary { cursor: pointer; font-size: 12px; color: var(--ink-dim); margin-bottom: 8px; }
+.entity-fields { flex-wrap: wrap; }
+.entity-fields input[aria-label='Polity name'] { flex: 1 0 100%; width: 100%; order: -1; }
+.polity-entry .row { flex-wrap: wrap; }
+.polity-entry .row > .grow { flex-basis: 100%; }
+.area-edit-controls p { margin: 0; }
+.geo-card > .geo-actions { margin-top: 10px; }
+.river-tools { flex-wrap: wrap; gap: 4px; }
+.river-tools .seg { flex-basis: 40%; min-height: 34px; }
+.river-list .river-row { flex-wrap: wrap; }
+.river-title { flex: 1 0 100%; min-width: 0; }
+.river-list .river-row.selected { border-color: #40d2e1; box-shadow: inset 3px 0 #40d2e1; background: #112b30; }
+.segment-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.segment-row > .hint { flex-basis: 100%; }
+.segment-row .check { display: flex; gap: 5px; align-items: center; margin: 0; text-transform: none; letter-spacing: normal; }
+.segment-row .check input { width: auto; }
+
+.geo-card button[aria-pressed='true'] { border-color: #40d2e1; background: #16383e; color: #bdf6fb; }
+.selection-card { border-color: #8f7638; }
+.selection-card > .hint:first-child { color: #ffcc55; font-size: 12px; }
+.sharing-summary { font-size: 12px; color: var(--ink); overflow-wrap: anywhere; }

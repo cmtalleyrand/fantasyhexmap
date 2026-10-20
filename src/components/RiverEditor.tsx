@@ -48,7 +48,7 @@ const TOOLS: { id: ToolButton; label: string; hint: string }[] = [
   {
     id: 'extend',
     label: 'Add hexes',
-    hint: "Click a hex to stretch the selected river's nearer end to it. Click water to give it a new mouth; click another river to select that one instead.",
+    hint: "Click a destination hex to extend the nearer end of the active river. Click a lake upstream to move its source there, or another river to join it.",
   },
   {
     id: 'navigability',
@@ -111,7 +111,7 @@ export default function RiverEditor(props: RiverEditorProps) {
   const lengths = useMemo(() => new Map(rivers.map((r) => [r.id, props.riverMeasurements?.[r.id]?.length ?? riverLength(r, dims)])), [rivers, dims, props.riverMeasurements]);
   const total = useMemo(() => [...lengths.values()].reduce((a, b) => a + b, 0), [lengths]);
 
-  const select = (id: string | null) => setRiverTool({ ...tool, selectedId: id });
+  const select = (id: string | null) => { setRiverTool({ ...tool, kind: 'select', selectedId: id }); props.setSelection(new Set()); };
 
   const endDraft = () => {
     props.setRiverDraft(null);
@@ -144,9 +144,7 @@ export default function RiverEditor(props: RiverEditorProps) {
           </button>
         ))}
       </div>
-      <p className="hint" style={{ margin: 0 }}>
-        {TOOLS.find((t) => t.id === active)?.hint}
-      </p>
+      <details className="geo-help"><summary>How to use {TOOLS.find(t => t.id === active)?.label.toLowerCase()}</summary><p>{TOOLS.find(t => t.id === active)?.hint}</p></details>
 
       {notice && (
         <div className={`notice ${notice.kind === 'error' ? 'error' : 'info'}`} role="status">
@@ -166,12 +164,14 @@ export default function RiverEditor(props: RiverEditorProps) {
           <div className="row">
             <button
               className={`tiny ${tool.paintNavigable ? 'primary' : ''}`}
+              aria-pressed={tool.paintNavigable}
               onClick={() => setRiverTool({ ...tool, paintNavigable: true })}
             >
               paint navigable
             </button>
             <button
               className={`tiny ${!tool.paintNavigable ? 'primary' : ''}`}
+              aria-pressed={!tool.paintNavigable}
               onClick={() => setRiverTool({ ...tool, paintNavigable: false })}
             >
               paint not navigable
@@ -329,7 +329,7 @@ function SelectedRiver(
   const { map, dispatch, river, rivers, setNotice } = props;
   const [showSegments, setShowSegments] = useState(false);
   const base = map.layers.base.data;
-  const picked = [...props.selection][0];
+  const picked = props.selection.size === 1 ? [...props.selection][0] : undefined;
   const pickedOffset = picked === undefined ? null : indexToOffset(map.cols, picked);
   const pickedIndex = pickedOffset
     ? river.segments.findIndex((s) => s.col === pickedOffset.col && s.row === pickedOffset.row)
@@ -390,6 +390,9 @@ function SelectedRiver(
 
   return (
     <div className="card river-card stack">
+      <div className="geo-area"><i className="area-key" />Active river</div>
+      <strong className="entity-heading">{river.name || riverLabel(river, rivers)}</strong>
+      <label>River name</label>
       <CommitInput
         aria-label="River name"
         value={river.name}
@@ -402,10 +405,10 @@ function SelectedRiver(
           {navigable === 0 ? 'not navigable' : navigable === river.segments.length ? 'navigable throughout' : `${navigable} hexes navigable`}
         </span>
       </div>
-      <p className="hint" style={{ margin: 0 }}>
+      <details className="geo-help"><summary>Source and mouth</summary><p>
         {river.fromLake ? 'It flows out of a lake. ' : 'To have it flow out of a lake, drag its first hex onto the lake, or use Extend and click the lake. '}
-        To have it flow into another river, use Extend and click a hex of that river.
-      </p>
+        To have it flow into another river, use Add hexes and click a hex of that river.
+      </p></details>
       {branches.length > 0 && (
         <div className="hint">
           With its {branches.length} branch{branches.length === 1 ? '' : 'es'}:{' '}
@@ -422,6 +425,10 @@ function SelectedRiver(
         </div>
       )}
 
+      <div className="geo-actions">
+        <button onClick={() => props.setSelection(new Set(river.segments.map(s => hexIndex(map.cols, s.col, s.row))))}>Select course hexes</button>
+        <button onClick={() => props.onSelect(null)}>Done editing</button>
+      </div>
       <div className="row" style={{ flexWrap: 'wrap', gap: 6 }}>
         <button className="tiny" disabled={navigable === river.segments.length} onClick={() => setAllNavigable(true)}>
           all navigable
@@ -477,7 +484,7 @@ function SelectedRiver(
               branch from here
             </button>
             <button className="tiny danger" onClick={removePicked}>
-              remove this hex
+              Remove hex {pickedOffset.col},{pickedOffset.row} from river
             </button>
           </div>
         </div>
@@ -521,40 +528,17 @@ function SegmentList({ river, map, dispatch, pickedIndex, onPick }: {
   pickedIndex: number;
   onPick: (index: number) => void;
 }) {
-  return (
-    <div className="segment-list">
-      {river.segments.map((s, i) => {
-        const elevation = map.layers.elevation.data?.[hexIndex(map.cols, s.col, s.row)];
-        return (
-          <label
-            key={`${s.col},${s.row},${i}`}
-            className={`check segment-row ${pickedIndex === i ? 'selected' : ''}`}
-            onClick={() => onPick(i)}
-          >
-            <input
-              type="checkbox"
-              checked={s.navigable}
-              onChange={(e) => {
-                e.stopPropagation();
-                const segments = river.segments.slice();
-                segments[i] = { ...s, navigable: e.target.checked };
-                dispatch({ type: 'updateRiver', river: { ...river, segments } });
-              }}
-            />
-            <span>
-              {s.col},{s.row}
-              <span className="hint">
-                {' '}
-                · in {s.entryEdge ?? '–'} → out {s.exitEdge ?? '–'}
-                {elevation ? ` · ${elevation}` : ''}
-                {s.reach && (s.reach.min !== null || s.reach.max !== null) ? ' · course adjusted' : ''}
-              </span>
-            </span>
-          </label>
-        );
-      })}
-    </div>
-  );
+  return <div className="segment-list">
+    {river.segments.map((s, i) => <div key={`${s.col},${s.row},${i}`} className={`segment-row ${pickedIndex === i ? 'selected' : ''}`}>
+      <button aria-pressed={pickedIndex === i} onClick={() => onPick(i)}>Select hex {s.col},{s.row}</button>
+      <label className="check"><input type="checkbox" checked={s.navigable} onChange={e => {
+        const segments = river.segments.slice();
+        segments[i] = { ...s, navigable: e.target.checked };
+        dispatch({ type: 'updateRiver', river: { ...river, segments } });
+      }} />Navigable</label>
+      <span className="hint">Entry edge: {s.entryEdge ?? 'source'} · Exit edge: {s.exitEdge ?? 'mouth'}{map.layers.elevation.data?.[hexIndex(map.cols, s.col, s.row)] ? ` · ${map.layers.elevation.data[hexIndex(map.cols, s.col, s.row)]}` : ''}</span>
+    </div>)}
+  </div>;
 }
 
 /* ---------------------------------------------------------------- the list */
@@ -659,6 +643,7 @@ function RiverList(
         </div>
       )}
 
+      {joining && <div className="geo-selection-summary"><b>{tickedRivers.length} rivers chosen to join</b><span>Hex selection is separate from this list.</span></div>}
       <div className="list river-list">
         {tree.map(({ river, depth }) => {
           const isSelected = props.riverTool.selectedId === river.id;
@@ -689,10 +674,11 @@ function RiverList(
                   aria-label={`Join ${riverLabel(river, rivers)}`}
                 />
               )}
-              <span className="grow">
+              <span className="entity-heading river-title">
                 {depth > 0 && <span className="hint">↳ </span>}
                 {river.name.trim() ? river.name : <i>{riverLabel(river, rivers)}</i>}
               </span>
+              {isSelected && <span className="geo-badge">Active</span>}
               <span className="hint">{formatLength(props.lengths.get(river.id) ?? 0, props.unit, props.rounding)}</span>
               <span className="hint" style={{ minWidth: 44, textAlign: 'right' }}>
                 {river.segments.length} hex

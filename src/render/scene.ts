@@ -2852,7 +2852,7 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
       prims.push({
         kind: 'polyline',
         points: halo,
-        stroke: withAlpha(MAP_COLOURS.selection, 0.55),
+        stroke: withAlpha('#40d2e1', 0.55),
         strokeWidth: Math.max(5, size * 0.42),
         round: true,
         smooth: true,
@@ -2972,7 +2972,7 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
         c: hexCenter(seg.col, seg.row, size),
         r: Math.max(2.5, size * 0.13),
         fill: '#ffffff',
-        stroke: MAP_COLOURS.selection,
+        stroke: '#40d2e1',
         strokeWidth: Math.max(1.5, size * 0.07),
       });
     }

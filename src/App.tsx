@@ -1,4 +1,5 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
+import { featureFocus } from './state/featureFocus.js';
 import { GEO_KIND_LABEL, geoEligibility, geoNamesOf } from '../shared/geoNames.js';
 import { hexIndex, hexLine, indexToOffset } from '../shared/hex.js';
 import { canHoldSettlement, riversThroughHex } from '../shared/derive.js';
@@ -6,7 +7,7 @@ import { extendRiver, moveRiverSegment } from '../shared/riverEdit.js';
 import { LAYER_META, createMapState, plannedLayers } from '../shared/layers.js';
 import { generationOrder, nextGenerationWave } from '../shared/generationQueue.js';
 import { instructionForLayer, planMultiLayerEdit } from '../shared/multiEdit.js';
-import { LAYER_ORDER, type LayerId, type MapState } from '../shared/types.js';
+import { LAYER_ORDER, isRangeElevation, type LayerId, type MapState } from '../shared/types.js';
 import {
   detectTransport,
   generateLayer as requestLayer,
@@ -114,10 +115,13 @@ export default function App() {
   const [brushMode, setBrushMode] = useState(false);
   /** The active geographical feature, independent of the selected hexes and editing tool. */
   const [geoPaintId, setGeoPaintId] = useState<string | null>(null);
-  const [geoEditMode, setGeoEditMode] = useState<'select' | 'add' | 'remove'>('select');
+  const [focusedFeatureId, setFocusedFeatureId] = useState<string | null>(null);
+  const [areaEditMode, setAreaEditMode] = useState<'select' | 'add' | 'remove'>('select');
   useEffect(() => {
     setGeoPaintId(null);
-    setGeoEditMode('select');
+    setFocusedFeatureId(null);
+    setBrushMode(false);
+    setAreaEditMode('select');
   }, [map?.id, activeLayer]);
   const [instruction, setInstruction] = useState('');
   const [busyLayers, setBusyLayers] = useState<Set<LayerId>>(new Set());
@@ -226,7 +230,7 @@ export default function App() {
       } else if (e.key === 'Escape' && riverDraft === null) {
         // A river being drawn handles its own Escape.
         setSelection(new Set());
-        setGeoEditMode('select');
+        setAreaEditMode('select');
       }
     };
     window.addEventListener('keydown', onKey);
@@ -432,10 +436,37 @@ export default function App() {
     return activeGeoName && geoEligible ? activeGeoName.hexes.filter(geoEligible) : null;
   }, [activeGeoName, geoEligible]);
 
+  const focused = useMemo(() => map && manualMode ? featureFocus(map, activeLayer,
+    activeLayer === 'polities' ? brush.polities : activeLayer === 'rivers' ? riverTool.selectedId : focusedFeatureId) : null,
+    [map, manualMode, activeLayer, brush.polities, riverTool.selectedId, focusedFeatureId]);
+  const areaEligible = useMemo(() => {
+    if (!map) return undefined;
+    if (activeLayer === 'base') return geoEligible;
+    if (activeLayer === 'elevation') return (i: number) => isRangeElevation(map.layers.elevation.data?.[i]);
+    if (activeLayer === 'polities') return (i: number) => canHoldSettlement(map.layers.base.data?.[i], map.allowUnderwater);
+    return undefined;
+  }, [map, activeLayer, geoEligible]);
+  const areaEditable = !!activeGeoName || !!focused?.editable;
+  const pointerLabel = manualMode ? (riverDraft !== null && activeLayer === 'rivers' ? 'Draw river · click source to mouth'
+    : activeLayer === 'rivers' ? riverTool.kind === 'extend' ? 'Extend river · click a destination'
+      : riverTool.kind === 'navigability' ? `Paint ${riverTool.paintNavigable ? 'navigable' : 'not navigable'}` : 'Select river · drag a course hex to move it'
+    : activeLayer === 'cities' ? 'Select city · drag a city to move it'
+    : brushMode ? (brush[activeLayer] === '' ? `Clear ${LAYER_META[activeLayer].label} on the map` : `Paint ${LAYER_META[activeLayer].label} · ${brush[activeLayer] ?? 'choose a value'}`) : undefined) : undefined;
+
   const onStrokeEnd = useCallback(
     (indices: number[]) => {
       if (!map || indices.length === 0) return;
-      if (geoPaintId && activeLayer === 'base' && geoEditMode !== 'select') {
+      if (focused?.editable && areaEditMode !== 'select') {
+        if (activeLayer === 'elevation') {
+          dispatch(areaEditMode === 'remove' ? { type: 'unnameMountainRangeHexes', id: focused.id, indices }
+            : { type: 'nameMountainRange', id: focused.id, name: focused.name, indices });
+        } else if (activeLayer === 'polities') {
+          dispatch(areaEditMode === 'remove' ? { type: 'removePolityClaims', id: focused.id, indices }
+            : { type: 'setPolityOwner', polityId: focused.id, indices });
+        }
+        return;
+      }
+      if (geoPaintId && activeLayer === 'base' && areaEditMode !== 'select') {
         // One stroke edits the active feature as one undo entry.
         const name = geoNamesOf(map).find((n) => n.id === geoPaintId);
         const base = map.layers.base.data;
@@ -444,7 +475,7 @@ export default function App() {
           setError('The name being painted no longer exists.');
           return;
         }
-        if (geoEditMode === 'remove') {
+        if (areaEditMode === 'remove') {
           dispatch({ type: 'unnameGeoHexes', id: name.id, indices });
           setError(null);
           return;
@@ -489,7 +520,7 @@ export default function App() {
         });
       }
     },
-    [map, brushMode, activeLayer, brush, geoPaintId, geoEditMode],
+    [map, brushMode, activeLayer, brush, geoPaintId, areaEditMode, focused],
   );
 
   const onRiverDraftClick = useCallback(
@@ -1180,7 +1211,7 @@ export default function App() {
           mapStyle={mapStyle}
           selection={selection}
           onSelectionChange={setSelection}
-          onStrokeEnd={manualMode && canEdit && (brushMode || (!!activeGeoName && geoEditMode !== 'select')) ? onStrokeEnd : null}
+          onStrokeEnd={manualMode && canEdit && (brushMode || (areaEditable && areaEditMode !== 'select')) ? onStrokeEnd : null}
           activeLayer={activeLayer}
           riverDraft={manualMode ? riverDraft : null}
           onRiverDraftClick={manualMode && riverDraft !== null ? onRiverDraftClick : null}
@@ -1190,11 +1221,15 @@ export default function App() {
           onRiverMove={onRiverMove}
           onRiverExtend={onRiverExtend}
           onRiverPaint={onRiverPaint}
-          paintHexes={paintHexes}
-          geoEligible={geoEligible}
-          geoEditMode={geoEditMode}
-          activeGeoName={activeGeoName?.name}
-          onGeoEditModeChange={setGeoEditMode}
+          featureHexes={paintHexes ?? focused?.hexes}
+          areaEligible={areaEligible}
+          areaEditable={areaEditable}
+          featureKind={activeGeoName ? GEO_KIND_LABEL[activeGeoName.kind].singular : focused?.kind}
+          toolLabel={pointerLabel}
+          onCitySelect={setFocusedFeatureId}
+          areaEditMode={areaEditMode}
+          activeFeatureName={activeGeoName?.name ?? focused?.name}
+          onAreaEditModeChange={(mode) => { setAreaEditMode(mode); setBrushMode(false); if (activeLayer === 'rivers') { setRiverTool(tool => ({ ...tool, kind: 'select' })); setRiverDraft(null); setRiverDraftParent(null); } }}
           overlay={emptyMapOverlay}
           banner={banner}
           onCompromises={setCompromises}
@@ -1233,12 +1268,14 @@ export default function App() {
             brushMode={brushMode}
             setBrushMode={(on) => {
               setBrushMode(on);
-              if (on) setGeoPaintId(null);
+              if (on) { setGeoPaintId(null); setFocusedFeatureId(null); setAreaEditMode('select'); }
             }}
-            geoEditMode={geoEditMode}
-            setGeoEditMode={setGeoEditMode}
+            focusedFeatureId={focused?.id ?? null}
+            focusFeature={(id) => { setFocusedFeatureId(id); setAreaEditMode('select'); setBrushMode(false); }}
+            areaEditMode={areaEditMode}
+            setAreaEditMode={setAreaEditMode}
             geoPaintId={geoPaintId}
-            setGeoPaintId={(id) => { setGeoPaintId(id); setGeoEditMode('select'); }}
+            setGeoPaintId={(id) => { setGeoPaintId(id); setAreaEditMode('select'); }}
             instruction={instruction}
             setInstruction={setInstruction}
             onAiEdit={() => void runGeneration(activeLayer, instruction.trim())}

@@ -1,3 +1,4 @@
+import { hexCount } from './selectionText.js';
 import { holdersOf } from '../../shared/polityShares.js';
 import type { PolityNameMin } from '../render/labels.js';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
@@ -58,11 +59,15 @@ export interface MapViewProps {
   /**
    * The active feature’s eligible area, drawn independently of the selection.
    */
-  paintHexes?: number[] | null;
-  activeGeoName?: string;
-  geoEligible?: (index: number) => boolean;
-  geoEditMode?: 'select' | 'add' | 'remove';
-  onGeoEditModeChange?: (mode: 'select' | 'add' | 'remove') => void;
+  featureHexes?: number[] | null;
+  activeFeatureName?: string;
+  areaEditable?: boolean;
+  featureKind?: string;
+  toolLabel?: string;
+  onCitySelect?: (id: string) => void;
+  areaEligible?: (index: number) => boolean;
+  areaEditMode?: 'select' | 'add' | 'remove';
+  onAreaEditModeChange?: (mode: 'select' | 'add' | 'remove') => void;
   /** Shown over the middle of the map, such as the first step on an empty map. */
   overlay?: React.ReactNode;
   /** Messages pinned to the top of the map: errors and the outcome of the last action. */
@@ -113,7 +118,7 @@ export default function MapView(props: MapViewProps) {
   const [panReady, setPanReady] = useState(false);
   const [selectionMode, setSelectionMode] = useState<SelectionMode>('replace');
   const [strokePreview, setStrokePreview] = useState<Set<number>>(new Set());
-  const featurePainting = !!props.activeGeoName && props.geoEditMode !== 'select' && !!onStrokeEnd;
+  const featurePainting = !!props.areaEditable && !!props.activeFeatureName && props.areaEditMode !== 'select' && !!onStrokeEnd;
   const [navigationTool, setNavigationTool] = useState<MapNavigationTool>('select');
   useEffect(() => {
     const typing = (e: KeyboardEvent) => {
@@ -142,8 +147,8 @@ export default function MapView(props: MapViewProps) {
   useEffect(() => {
     setNavigationTool('select');
     setStrokePreview(new Set());
-    drag.current = null;
-  }, [props.geoEditMode, props.activeGeoName]);
+    if (drag.current?.mode === 'select' && drag.current.featureStroke) drag.current = null;
+  }, [props.areaEditMode, props.activeFeatureName]);
 
   // Wait for the style's lettering before the one full layout, so loading
   // fonts cannot rebuild a newly opened map just to replace fallback widths.
@@ -189,9 +194,9 @@ export default function MapView(props: MapViewProps) {
   useEffect(() => {
     onCompromises?.(metadata?.compromises ?? []);
   }, [metadata, onCompromises]);
-  const strokeTargets = useMemo(() => new Set([...strokePreview].filter(i => props.geoEditMode === 'remove'
-    ? props.paintHexes?.includes(i) : props.geoEligible?.(i) && !props.paintHexes?.includes(i))),
-    [strokePreview, props.geoEditMode, props.paintHexes, props.geoEligible]);
+  const strokeTargets = useMemo(() => new Set([...strokePreview].filter(i => props.areaEditMode === 'remove'
+    ? props.featureHexes?.includes(i) : props.areaEligible?.(i) && !props.featureHexes?.includes(i))),
+    [strokePreview, props.areaEditMode, props.featureHexes, props.areaEligible]);
   const decoration = useMemo(() => {
     const riverDraftSelection = props.riverDraft ? new Set(props.riverDraft) : null;
     return decorationPrims(map, {
@@ -199,12 +204,12 @@ export default function MapView(props: MapViewProps) {
       visible,
       labels,
       selection: riverDraftSelection ?? selection,
-      featureArea: props.paintHexes,
+      featureArea: props.featureHexes,
       areaStroke: strokeTargets,
-      areaStrokeMode: props.geoEditMode === 'remove' ? 'remove' : 'add',
+      areaStrokeMode: props.areaEditMode === 'remove' ? 'remove' : 'add',
       hover,
     });
-  }, [map, visible, labels, selection, hover, props.riverDraft, props.paintHexes, strokeTargets, props.geoEditMode]);
+  }, [map, visible, labels, selection, hover, props.riverDraft, props.featureHexes, strokeTargets, props.areaEditMode]);
 
   // Fit the map into the viewport the first time it is laid out, and again
   // whenever a different map (a load, an import, a new map) takes its place.
@@ -484,6 +489,7 @@ export default function MapView(props: MapViewProps) {
         (candidate) => hexIndex(map.cols, candidate.col, candidate.row) === index,
       );
       if (city) {
+        props.onCitySelect?.(city.id);
         drag.current = { mode: 'city', cityId: city.id, target: index };
         onSelectionChange(new Set([index]));
         return;
@@ -587,7 +593,7 @@ export default function MapView(props: MapViewProps) {
       if (props.riverTool?.kind === 'extend') return `Click a hex to extend the selected river to it (a lake upstream to rise in it, another river to flow into it) · ${nav}`;
       if (props.riverTool?.kind === 'navigability') return `Drag along a river to set navigability · ${nav}`;
       if (props.riverTool) return `Click a river to select it, drag one of its hexes to move it · ${nav}`;
-      if (featurePainting) return `Drag to ${props.geoEditMode} hexes · Space-drag to pan · Esc stops brush`;
+      if (featurePainting) return `Drag to ${props.areaEditMode} hexes · Space-drag to pan · Esc stops brush`;
       return props.onCityMove
         ? `Drag a city to move it · ${nav}`
         : nav;
@@ -649,20 +655,21 @@ export default function MapView(props: MapViewProps) {
       <div className="map-status-stack">
       {props.banner}
       <div className="map-selection-status" role="status">
-        {props.activeGeoName && <div className="map-active-feature">
-          <strong>{props.activeGeoName}</strong>
-          <span>{navigationTool === 'pan' ? 'Pan map' : featurePainting ? `${props.geoEditMode === 'remove' ? '− Remove from' : '+ Add to'} area · drag to apply` : 'Select hexes'}</span>
-          <div className="geo-modes" role="group" aria-label="Map feature tools">
+        {(props.activeFeatureName || props.toolLabel) && <div className="map-active-feature">
+          {props.activeFeatureName && <span>Active {props.featureKind?.toLowerCase()}</span>}
+          <strong>{props.activeFeatureName ?? props.toolLabel}</strong>
+          {props.activeFeatureName && <span>{navigationTool === 'pan' ? 'Pan map' : featurePainting ? `${props.areaEditMode === 'remove' ? '− Remove from' : '+ Add to'} area · drag to apply` : props.toolLabel ?? 'Select hexes'}</span>}
+          {props.areaEditable && <div className="geo-modes" role="group" aria-label="Map feature tools">
             {(['select', 'add', 'remove'] as const).map(mode => <button key={mode}
-              aria-pressed={props.geoEditMode === mode && navigationTool === 'select'}
-              onClick={() => { setNavigationTool('select'); props.onGeoEditModeChange?.(mode); }}>
+              aria-pressed={props.areaEditMode === mode && navigationTool === 'select'}
+              onClick={() => { setNavigationTool('select'); props.onAreaEditModeChange?.(mode); }}>
               {mode === 'select' ? 'Select' : mode === 'add' ? '+ Add to area' : '− Remove from area'}
             </button>)}
-          </div>
-          {!!strokePreview.size && <span className={props.geoEditMode === 'remove' ? 'stroke-remove' : 'stroke-add'}>{props.geoEditMode === 'remove' ? '− Remove' : '+ Add'} {strokeTargets.size} hexes · release to apply</span>}
-          <span><i className="area-key" />Current area · {props.paintHexes?.length ?? 0} hexes</span>
+          </div>}
+          {!!strokePreview.size && <span className={props.areaEditMode === 'remove' ? 'stroke-remove' : 'stroke-add'}>{props.areaEditMode === 'remove' ? '− Remove' : '+ Add'} {hexCount(strokeTargets.size)} · release to apply</span>}
+          {props.activeFeatureName && <span><i className="area-key" />{props.featureKind === 'City' ? 'Current location' : props.featureKind === 'River' ? 'Current course' : props.featureKind === 'Polity' ? 'Direct territory' : 'Current area'} · {hexCount(props.featureHexes?.length ?? 0)}</span>}
         </div>}
-        <div className="map-selection-count"><span><i className="selection-key" />{selection.size} hexes selected</span>
+        <div className="map-selection-count"><span><i className="selection-key" />{hexCount(selection.size)} selected</span>
           <button disabled={!selection.size} onClick={() => onSelectionChange(new Set())}>Clear selection</button>
         </div>
       </div>
@@ -673,8 +680,8 @@ export default function MapView(props: MapViewProps) {
         <div className="map-tool-toggle" aria-label="Pointer tool">
           <button
             className="tiny"
-            aria-pressed={navigationTool === 'select' && !featurePainting}
-            onClick={() => { setNavigationTool('select'); props.onGeoEditModeChange?.('select'); }}
+            aria-pressed={navigationTool === 'select' && !onStrokeEnd && !props.onRiverDraftClick && (!props.riverTool || props.riverTool.kind === 'select')}
+            onClick={() => { setNavigationTool('select'); props.onAreaEditModeChange?.('select'); }}
             title="Drag across hexes to select them"
           >
             select
