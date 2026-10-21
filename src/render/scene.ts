@@ -2383,7 +2383,10 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
       const midpoint = hexEdgeMidpoint(lake % cols, Math.floor(lake / cols), shape.concentrationSide, size);
       const chosenAngle = Math.atan2(midpoint.y - centre.y, midpoint.x - centre.x);
       const pointAngle = Math.atan2(p.y - centre.y, p.x - centre.x);
-      grown *= 1 + 0.9 * ((shape.concentration ?? 0) / 100) * Math.cos(pointAngle - chosenAngle);
+      // Fit the mean inset independently of the directional bias. At low land
+      // shares lakeFix can make the mean negative; multiplying that signed mean
+      // reverses the requested direction and grows water towards the chosen side.
+      grown += grown0! * 0.9 * ((shape.concentration ?? 0) / 100) * Math.cos(pointAngle - chosenAngle);
     }
     if (grown === null) return cut;
     return (cut ?? 0) - grown;
@@ -2466,9 +2469,14 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
   const aims = traced?.lakeAim;
   if (aims && aims.size > 0) {
     const hexArea = 1.5 * Math.sqrt(3) * size * size;
-    for (let pass = 0; pass < 6; pass++) {
-      const rings = lakeDraws.flatMap((d) => pathPolylines(d, 4));
-      const coverage = areaCoverage(rings);
+    for (let pass = 0; pass < 12; pass++) {
+      const rings = lakeDraws.flatMap((d) => pathPolylines(d, 8));
+      // Measure the actual land silhouette with shoreline ink, as the sea-coast
+      // fitter does. Subtracting length * ink overcounts overlapping ink around
+      // tight, concentrated lake shores and leaves their land share too high.
+      const frame = [{ x: -size, y: -size }, { x: width + size, y: -size },
+        { x: width + size, y: height + size }, { x: -size, y: height + size }];
+      const coverage = areaCoverage([frame, ...rings], { evenOdd: true, stroke: { rings, reach: inkReachOf } });
       // Attribute shoreline segments once per pass, rather than rescanning every
       // lake for every hex whose land share is being fitted.
       const lengths = new Map<number, number>();
@@ -2489,8 +2497,7 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
         const corners = hexCorners(h % cols, Math.floor(h / cols), size);
         const length = lengths.get(h) ?? 0;
         if (length < 1e-6) continue;
-        const water = Math.max(0, coverage(corners, 64) - length * inkReachOf);
-        const err = aim.land - (1 - water / hexArea);
+        const err = aim.land - coverage(corners, 192) / hexArea;
         miss = Math.max(miss, Math.abs(err));
         const step = ((err * hexArea) / length) * 0.8;
         if (aim.lake) lakeFix.set(h, (lakeFix.get(h) ?? 0) + step);

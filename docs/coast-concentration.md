@@ -6,7 +6,7 @@ The endpoint bias is bounded over the whole hex, including projections beyond th
 
 ## Before and after
 
-Baseline: current main at `849f12f7ff5b6e8bf0048816d57d27f1f93ab101`. Both renderers receive identical inputs: a 5×5 map, fixed seed, Smooth coast, and a central coastal hex with exactly one sea-facing edge, to the east. The two selected directions are existing sides 1 (SE) and 5 (NE), which have equal facing relative to that coast. The dashed outline marks the edited hex. Each column uses the full scene renderer, spline fitting, and coastline ink.
+Baseline: main immediately before the fix at `937a95cce10e30c5298b089470b9640ad455bec6`. The after renderer is rebased onto `ad0023e`, which includes the merged fix from PR #154. Both renderers receive identical inputs: a 5×5 map, fixed seed, the app’s new-user Parchment preset with no style overrides, inherited Ragged coastal irregularity, and a central coastal hex with exactly one sea-facing edge, to the east. The two selected directions are existing sides 1 (SE) and 5 (NE), which have equal facing relative to that coast. These default-style images replace the earlier forced-Smooth comparisons. No map or hex irregularity is set, and `NEW_USER_STYLE_CHOICE` supplies the preset without overriding textures, water, or grid. The dashed outline marks the edited hex. Each column uses the full scene renderer, spline fitting, and coastline ink.
 
 ### 80% land target
 
@@ -18,23 +18,60 @@ Baseline: current main at `849f12f7ff5b6e8bf0048816d57d27f1f93ab101`. Both rende
 
 At 100% concentration:
 
-| Land target | Before: SE / NE land drawn | After: SE / NE land drawn | Before: directional redistribution | After: directional redistribution |
+| Land target | Before: SE / NE coast area | After: SE / NE coast area | Before: directional redistribution | After: directional redistribution |
 | --- | --- | --- | --- | --- |
-| 80% | 79.982% / 79.982% | 80.016% / 80.016% | 0.00 pp | 7.10 pp |
-| 50% | 49.999% / 49.999% | 49.999% / 49.999% | 0.00 pp | 17.98 pp |
+| 80% | 79.769% / 79.769% | 79.928% / 79.745% | 0.00 pp | 8.42 pp |
+| 50% | 50.271% / 50.271% | 50.139% / 50.103% | 0.00 pp | 10.26 pp |
 
-Redistribution measures the difference in land within the southern half when selecting SE versus NE, expressed as percentage points of the whole hex. It measures where land moves, independently of total land area. Across all 24 before/after scenes, the largest measured rendered-area error is 0.037 percentage points; no scene reports a drawing compromise. Polygon land-share error is below 0.000003 percentage points in these fixtures. Rendered measurements use 256 scanlines and include coastline ink.
+Redistribution measures the difference in land within the southern half when selecting SE versus NE, expressed as percentage points of the whole hex. It measures where land moves, independently of total land area. Across all 24 before/after scenes, the largest measured coastline-area error is 0.271 percentage points; no scene reports a drawing compromise. Polygon land-share error is below 0.000003 percentage points in these fixtures. Measurements use 256 scanlines of the outlined coastline and include coastline ink. They do not measure every painted pixel.
 
-The comparison script also checks that baseline concentration is inert, zero concentration preserves the coast, and increasing strength moves more land in the selected direction. The asymmetric geometry survives the existing downstream fitter, whose cache key already includes the changed paths and anchors; no additional spline constraint is needed for these cases. This change uses the existing six-side selector and does not introduce a separate corner selector. A direction perpendicular to the coastal edge has no tangential skew.
+**Correction to the earlier comparison:** the coloured patches crossing the coastline were caused by repeated SVG clip and pattern IDs in the HTML contact sheet. Each scene exporter starts its IDs at the same value. Embedding several exported SVGs inline let later panels use the first panel’s clip paths. This was a comparison-image defect, not a fill/shoreline mismatch in the standalone app scene. The regenerated sheet embeds each SVG as a separate image document, preserves its XML namespaces, and verifies each panel screenshot byte-for-byte against its standalone render at the same pixel position. All 24 coastal panels pass.
+
+The comparison script checks cancellation on the baseline polygon, preservation of the zero-concentration coast, and movement towards the selected side at both 50% and 100% strength. Ragged fitting can alter local details and need not move each half monotonically with strength. The asymmetric geometry survives the existing downstream fitter, whose cache key already includes the changed paths and anchors; no additional spline constraint is needed for these cases. This change uses the existing six-side selector and does not introduce a separate corner selector. A direction perpendicular to the coastal edge has no tangential skew.
+
+## Lakes
+
+Testing the actual-default lake renderer found two independent issues:
+
+- At low land shares, the fitted mean inset could become negative. Multiplying that signed inset by the concentration factor reversed the selected direction. Directional bias now uses the original positive inset and is added independently of the fitted mean.
+- Lake area fitting approximated shoreline ink using length × stroke reach and stopped after six passes. It now measures the actual land silhouette and ink coverage, with up to twelve passes for strongly concentrated cases.
+
+The two new lake regressions fail against pre-fix main and pass after these changes. With plain Land neighbours, browser validation covers 54 Parchment/default-Ragged lake scenes: 20%, 40%, and 80% land, all six directions, and strengths 0%, 50%, and 100%. Every lake fill uses the same path as its outline. All targets are within one percentage point; the largest measured error is 0.500 percentage points. Zero concentration ignores direction, and nonzero concentration preserves more land towards the chosen side at all three shares. All 18 lake gallery panels also match their standalone screenshots byte-for-byte.
+
+![Lake concentration at 20% land](lake-concentration-comparison-20.png)
+
+[40% land lake gallery](lake-concentration-comparison-40.png) · [80% land lake gallery](lake-concentration-comparison-80.png) · [Lake measurements](lake-concentration-results.json).
+
+## Coastal Land neighbour comparison
+
+The original lake fixture had plain Land neighbours. The requested follow-up changes only the six adjacent hexes to Coastal Land; the remaining hexes stay Land. The seed, central lake land target, concentration, and Parchment style remain identical. Neither terrain type sets an explicit shore irregularity: both inherit the Ragged lake default. Coastal Land additionally asks for its default 80% land share in each adjacent hex, so this changes the geometry constraints rather than just the shore appearance. Lakes still use `lakeBodyPath`, a different curve-building routine from the sea-coast component fitter.
+
+![Same lake, Land versus Coastal Land neighbours](lake-neighbour-comparison-40.png)
+
+The plain-Land control still passes all 54 checks. The Coastal Land variant has **29 failed land-area checks and 3 failed direction checks across 54 scenes**. Some cases draw the central hex entirely as water. The default-style image checks continue to pass and fills share their geometry with the outlines; the failures are in area/directional fitting, rather than SVG clipping. This experiment exposes a remaining coupled lake/coastal-neighbour fitting issue; it does not fix that issue.
+
+The gallery and measurements deliberately preserve these failures. The browser script now saves diagnostic images and results before returning a failing exit status. [20% lake target](lake-coastal-neighbours-20.png) · [40% lake target, both directions](lake-coastal-neighbours-40.png) · [80% lake target](lake-coastal-neighbours-80.png) · [Full failing results](lake-coastal-neighbours-results.json).
+
+Reproduce both variants and their direct comparison:
+
+```sh
+node scripts/lake-concentration-validation.mjs --surrounding Land --output work/coast-concentration/land
+node scripts/lake-concentration-validation.mjs --surrounding 'Coastal Land' --output work/coast-concentration/coastal-land
+# The Coastal Land run exits nonzero after saving evidence.
+node scripts/lake-neighbour-comparison.mjs
+```
+
+Append the runtime’s `--driver` and `--chromium` arguments when necessary. Each displayed image is verified against its standalone rendering.
 
 ## Validation
 
-- `npm run typecheck`
-- All 61 test files passed, run separately with `node --import tsx test/<file>.test.ts` because the sandbox prevents the `tsx` CLI IPC listener.
-- Six orientation regressions in `test/coastConcentration.test.ts`: opposite directions, zero concentration, multiple land shares including 0%, 1%, and 99%, exact polygon coverage, and redistribution after smoothing and coupled area fitting.
-- Browser comparison assertions for both 50% and 80% targets, two directions, three strengths, and both implementations.
+- `npm run typecheck` passed.
+- All 64 test files passed, run individually with `node --import tsx test/<file>.test.ts` because the sandbox prevents the `tsx` CLI IPC listener.
+- Six coast-orientation regressions and two new actual-default lake regressions passed.
+- Browser assertions cover 24 coastal scenes and 54 lake scenes, including area accuracy, direction, fill/outline agreement for lakes, and zero concentration.
+- All 42 gallery panels match their standalone screenshots byte-for-byte. Separate SVG image documents prevent cross-panel clip and pattern collisions.
 
-Raw measurements: [coast-concentration-results.json](coast-concentration-results.json).
+Raw coastal measurements: [coast-concentration-results.json](coast-concentration-results.json).
 
 ## Reproduce
 
@@ -42,9 +79,17 @@ From the repository root, with dependencies installed:
 
 ```sh
 mkdir -p work/coast-concentration/baseline
-git archive 849f12f7ff5b6e8bf0048816d57d27f1f93ab101 | tar -x -C work/coast-concentration/baseline
+git archive 937a95cce10e30c5298b089470b9640ad455bec6 | tar -x -C work/coast-concentration/baseline
 ln -s "$(pwd)/node_modules" work/coast-concentration/baseline/node_modules
-node scripts/coast-concentration-comparison.mjs --baseline-ref 849f12f7ff5b6e8bf0048816d57d27f1f93ab101
+node scripts/coast-concentration-comparison.mjs --baseline-ref 937a95cce10e30c5298b089470b9640ad455bec6
 ```
 
 The browser script uses the repository's Playwright browser helper. Where the runtime supplies an external driver and browser, append `--driver /path/to/playwright-core/index.mjs --chromium /path/to/chromium`. PNG comparisons, HTML contact sheets, and `results.json` are written under `work/coast-concentration/`. No live server or external browser requests are needed.
+
+To reproduce the lake checks and galleries:
+
+```sh
+node scripts/lake-concentration-validation.mjs
+```
+
+It supports the same `--driver`, `--chromium`, and `--output` options.
