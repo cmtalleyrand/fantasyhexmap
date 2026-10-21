@@ -36,11 +36,32 @@ Testing the actual-default lake renderer found two independent issues:
 - At low land shares, the fitted mean inset could become negative. Multiplying that signed inset by the concentration factor reversed the selected direction. Directional bias now uses the original positive inset and is added independently of the fitted mean.
 - Lake area fitting approximated shoreline ink using length × stroke reach and stopped after six passes. It now measures the actual land silhouette and ink coverage, with up to twelve passes for strongly concentrated cases.
 
-The two new lake regressions fail against pre-fix main and pass after these changes. Browser validation covers 54 Parchment/default-Ragged lake scenes: 20%, 40%, and 80% land, all six directions, and strengths 0%, 50%, and 100%. Every lake fill uses the same path as its outline. All targets are within one percentage point; the largest measured error is 0.500 percentage points. Zero concentration ignores direction, and nonzero concentration preserves more land towards the chosen side at all three shares. All 18 lake gallery panels also match their standalone screenshots byte-for-byte.
+The two new lake regressions fail against pre-fix main and pass after these changes. With plain Land neighbours, browser validation covers 54 Parchment/default-Ragged lake scenes: 20%, 40%, and 80% land, all six directions, and strengths 0%, 50%, and 100%. Every lake fill uses the same path as its outline. All targets are within one percentage point; the largest measured error is 0.500 percentage points. Zero concentration ignores direction, and nonzero concentration preserves more land towards the chosen side at all three shares. All 18 lake gallery panels also match their standalone screenshots byte-for-byte.
 
 ![Lake concentration at 20% land](lake-concentration-comparison-20.png)
 
 [40% land lake gallery](lake-concentration-comparison-40.png) · [80% land lake gallery](lake-concentration-comparison-80.png) · [Lake measurements](lake-concentration-results.json).
+
+## Coastal Land neighbour comparison
+
+The original lake fixture had plain Land neighbours. The requested follow-up changes only the six adjacent hexes to Coastal Land; the remaining hexes stay Land. The seed, central lake land target, concentration, and Parchment style remain identical. Neither terrain type sets an explicit shore irregularity: both inherit the Ragged lake default. Coastal Land additionally asks for its default 80% land share in each adjacent hex, so this changes the geometry constraints rather than just the shore appearance. Lakes still use `lakeBodyPath`, a different curve-building routine from the sea-coast component fitter.
+
+![Same lake, Land versus Coastal Land neighbours](lake-neighbour-comparison-40.png)
+
+The plain-Land control still passes all 54 checks. The Coastal Land variant has **29 failed land-area checks and 3 failed direction checks across 54 scenes**. Some cases draw the central hex entirely as water. The default-style image checks continue to pass and fills share their geometry with the outlines; the failures are in area/directional fitting, rather than SVG clipping. This experiment exposes a remaining coupled lake/coastal-neighbour fitting issue; it does not fix that issue.
+
+The gallery and measurements deliberately preserve these failures. The browser script now saves diagnostic images and results before returning a failing exit status. [20% lake target](lake-coastal-neighbours-20.png) · [40% lake target, both directions](lake-coastal-neighbours-40.png) · [80% lake target](lake-coastal-neighbours-80.png) · [Full failing results](lake-coastal-neighbours-results.json).
+
+Reproduce both variants and their direct comparison:
+
+```sh
+node scripts/lake-concentration-validation.mjs --surrounding Land --output work/coast-concentration/land
+node scripts/lake-concentration-validation.mjs --surrounding 'Coastal Land' --output work/coast-concentration/coastal-land
+# The Coastal Land run exits nonzero after saving evidence.
+node scripts/lake-neighbour-comparison.mjs
+```
+
+Append the runtime’s `--driver` and `--chromium` arguments when necessary. Each displayed image is verified against its standalone rendering.
 
 ## Validation
 
