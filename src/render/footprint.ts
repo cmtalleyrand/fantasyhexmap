@@ -65,13 +65,18 @@ export function polyArea(p: Poly): number {
   return Math.abs(sum) / 2;
 }
 
-/** `poly` cut to one side of the line through a -> b, moved `off` to its right: the right (`keep`) or the left. */
-function cut(poly: Poly, a: Point, b: Point, off: number, keep: 'right' | 'left'): Poly {
+/** Clip against a -> b shifted inward by `off` at a and `endOff` at b. */
+function cut(poly: Poly, a: Point, b: Point, off: number, keep: 'right' | 'left', endOff = off): Poly {
   const sign = keep === 'right' ? 1 : -1;
   const out: Poly = [];
   const ex = b.x - a.x, ey = b.y - a.y;
   const len = Math.hypot(ex, ey) || 1;
-  const side = (q: Point) => sign * (((q.x - a.x) * -ey + (q.y - a.y) * ex) / len - off);
+  // Interpolate the endpoint depths along the infinite cutting line. Equal
+  // depths retain the original parallel half-plane exactly.
+  const side = (q: Point) => {
+    const t = ((q.x - a.x) * ex + (q.y - a.y) * ey) / (len * len);
+    return sign * (((q.x - a.x) * -ey + (q.y - a.y) * ex) / len - off - t * (endOff - off));
+  };
   let vp = poly.length > 0 ? side(poly[0]!) : 0;
   for (let k = 0; k < poly.length; k++) {
     const p = poly[k]!;
@@ -87,6 +92,22 @@ function cut(poly: Poly, a: Point, b: Point, off: number, keep: 'right' | 'left'
     vp = vq;
   }
   return tidy(out);
+}
+
+/** Preserve more land at the endpoint nearest the selected side. The positive
+ * endpoint factors keep increasing depth a nested, monotone area solve. */
+function concentratedCut(poly: Poly, a: Point, b: Point, depth: number, keep: 'right' | 'left',
+  corners: Poly, side: number | undefined, strength: number): Poly {
+  if (side === undefined || strength === 0) return cut(poly, a, b, depth, keep);
+  const centre = centroid(corners), u = corners[side]!, v = corners[(side + 1) % 6]!;
+  const dx = (u.x + v.x) / 2 - centre.x, dy = (u.y + v.y) / 2 - centre.y;
+  const ex = b.x - a.x, ey = b.y - a.y;
+  const along = (dx * ex + dy * ey) / (Math.hypot(dx, dy) * Math.hypot(ex, ey));
+  // A hex extends half an edge beyond either endpoint in tangent projection.
+  // Keep the extrapolated depth positive there too, so the area stays monotone.
+  const extent = Math.max(1, ...corners.map(p => Math.abs(2 * ((p.x - a.x) * ex + (p.y - a.y) * ey) / (ex * ex + ey * ey) - 1)));
+  const tilt = Math.min(0.45, 0.9 / extent) * strength * along;
+  return cut(poly, a, b, depth * (1 + tilt), keep, depth * (1 - tilt));
 }
 
 /** A polygon without repeated points, or none if too little is left of it. */
@@ -294,7 +315,7 @@ function landAt(hex: Split, r: number): Poly[] {
       // a mirror image about its land edges.
       const jitter = 1 + ((hex.bias?.[e] ?? 1) - 1) * 0.75;
       const multiplier = jitter * (0.45 + 0.275 * (away - 1)) * (hex.concentrationSide === undefined ? 1 : 1 - 0.9 * strength * Math.cos(delta * Math.PI / 3));
-      shape = cut(shape, outline[e]!, outline[(e + 1) % 6]!, depth * multiplier, 'right');
+      shape = concentratedCut(shape, outline[e]!, outline[(e + 1) % 6]!, depth * multiplier, 'right', outline, hex.concentrationSide, strength);
       if (shape.length < 3) return [];
     }
     return [shape];
@@ -852,13 +873,15 @@ function reshapeCoastHex(
     // Cut least at the chosen edge and most at its opposite, keeping every multiplier positive.
     return 1 - 0.9 * strength * facing;
   };
+  const clip = (poly: Poly, edge: CoastEdge, depth: number, keep: 'right' | 'left') =>
+    concentratedCut(poly, edge.from, edge.to, depth * multiplier(edge), keep, corners, concentrationSide, strength);
   const full = polyArea(corners);
   const share = Math.max(0, Math.min(1, target));
   if (joins.length && !lake.length && share > 0) {
     const centre = centroid(corners), size = Math.hypot(corners[0]!.x - centre.x, corners[0]!.y - centre.y);
     const landAt = (depth: number) => {
       let core = corners;
-      for (const edge of wet) core = cut(core, edge.from, edge.to, depth * multiplier(edge), 'right');
+      for (const edge of wet) core = clip(core, edge, depth, 'right');
       if (!core.length) return [];
       const roots = joins.flatMap(e => {
         const a = corners[e]!, b = corners[(e + 1) % 6]!, length = Math.hypot(b.x - a.x, b.y - a.y);
@@ -870,6 +893,7 @@ function reshapeCoastHex(
       return [hull([...core, ...roots])];
     };
     let low = 0, high = size * 2;
+    while (landAt(high).reduce((sum, p) => sum + polyArea(p), 0) / full > share) high *= 2;
     for (let k = 0; k < 28; k++) {
       const middle = (low + high) / 2;
       if (landAt(middle).reduce((sum, p) => sum + polyArea(p), 0) / full > share) low = middle;
@@ -880,10 +904,14 @@ function reshapeCoastHex(
   }
   let low = 0;
   let high = Math.hypot(corners[0]!.x - corners[3]!.x, corners[0]!.y - corners[3]!.y);
-  for (let k = 0; k < 24; k++) {
+  // Strong concentration can leave a shallow endpoint; bracket the whole
+  // hex before searching so even very small requested shares remain reachable.
+  const remaining = (depth: number) => allWet.reduce((shape, edge) => clip(shape, edge, depth, 'right'), corners);
+  while (polyArea(remaining(high)) / full > share) high *= 2;
+  for (let k = 0; k < 32; k++) {
     const middle = (low + high) / 2;
     let shape = corners;
-    for (const edge of allWet) shape = cut(shape, edge.from, edge.to, middle * multiplier(edge), 'right');
+    for (const edge of allWet) shape = clip(shape, edge, middle, 'right');
     if (shape.length >= 3 && polyArea(shape) / full > share) low = middle;
     else high = middle;
   }
@@ -893,10 +921,9 @@ function reshapeCoastHex(
   const strips: Frag[] = [];
   let rest: Poly = corners;
   for (const e of wet) {
-    const edgeDepth = depth * multiplier(e);
-    const away = cut(rest, e.from, e.to, edgeDepth, 'left');
+    const away = clip(rest, e, depth, 'left');
     if (away.length > 0) strips.push({ poly: away, donor: e.water });
-    rest = cut(rest, e.from, e.to, edgeDepth, 'right');
+    rest = clip(rest, e, depth, 'right');
   }
   // Cut back evenly from every sea edge, a hex with little land and sea on most
   // sides keeps only a bar along the edges it shares with its neighbours, off its

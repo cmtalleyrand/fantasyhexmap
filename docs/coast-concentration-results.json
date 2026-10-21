@@ -1,0 +1,277 @@
+{
+  "baselineCommit": "849f12f7ff5b6e8bf0048816d57d27f1f93ab101",
+  "browser": "151.0.7922.173",
+  "scope": "5x5 enclosed land fixture; center coastal hex has one sea-facing edge (east). Identical baseline/candidate inputs. Rendered coverage includes coastline ink; directional redistribution compares southern-half land as a fraction of the whole hex.",
+  "comparisons": [
+    {
+      "version": "before",
+      "requestedLandPercent": 50,
+      "towardSELandPercent": 49.9985758357187,
+      "towardNELandPercent": 49.9985758357187,
+      "southernHalfRedistributionPercentagePoints": 0
+    },
+    {
+      "version": "after",
+      "requestedLandPercent": 50,
+      "towardSELandPercent": 49.99922741336063,
+      "towardNELandPercent": 49.99942640070059,
+      "southernHalfRedistributionPercentagePoints": 17.976843822127996
+    },
+    {
+      "version": "before",
+      "requestedLandPercent": 80,
+      "towardSELandPercent": 79.98167268755437,
+      "towardNELandPercent": 79.98167268755437,
+      "southernHalfRedistributionPercentagePoints": 0
+    },
+    {
+      "version": "after",
+      "requestedLandPercent": 80,
+      "towardSELandPercent": 80.01568225677849,
+      "towardNELandPercent": 80.01596862930586,
+      "southernHalfRedistributionPercentagePoints": 7.10181280146403
+    }
+  ],
+  "metrics": [
+    {
+      "version": "before",
+      "share": 0.5,
+      "strength": 0,
+      "side": 1,
+      "polygonShare": 0.5000000029913719,
+      "renderedShare": 0.49998570821396376,
+      "southernHalfShare": 0.24999344575465365,
+      "compromises": []
+    },
+    {
+      "version": "after",
+      "share": 0.5,
+      "strength": 0,
+      "side": 1,
+      "polygonShare": 0.5000000029913719,
+      "renderedShare": 0.49998571598983815,
+      "southernHalfShare": 0.24999344969078072,
+      "compromises": []
+    },
+    {
+      "version": "before",
+      "share": 0.5,
+      "strength": 0,
+      "side": 5,
+      "polygonShare": 0.5000000029913719,
+      "renderedShare": 0.49998570821396376,
+      "southernHalfShare": 0.24999344575465365,
+      "compromises": []
+    },
+    {
+      "version": "after",
+      "share": 0.5,
+      "strength": 0,
+      "side": 5,
+      "polygonShare": 0.5000000029913719,
+      "renderedShare": 0.49998571598983815,
+      "southernHalfShare": 0.24999344969078072,
+      "compromises": []
+    },
+    {
+      "version": "before",
+      "share": 0.5,
+      "strength": 50,
+      "side": 1,
+      "polygonShare": 0.5000000072929662,
+      "renderedShare": 0.49998569057097747,
+      "southernHalfShare": 0.24999343693263243,
+      "compromises": []
+    },
+    {
+      "version": "after",
+      "share": 0.5,
+      "strength": 50,
+      "side": 1,
+      "polygonShare": 0.49999999988515115,
+      "renderedShare": 0.5003687176541715,
+      "southernHalfShare": 0.3067410236099053,
+      "compromises": []
+    },
+    {
+      "version": "before",
+      "share": 0.5,
+      "strength": 50,
+      "side": 5,
+      "polygonShare": 0.5000000072929662,
+      "renderedShare": 0.49998569057097747,
+      "southernHalfShare": 0.24999343693263243,
+      "compromises": []
+    },
+    {
+      "version": "after",
+      "share": 0.5,
+      "strength": 50,
+      "side": 5,
+      "polygonShare": 0.49999999988515037,
+      "renderedShare": 0.5003666700691832,
+      "southernHalfShare": 0.19341143841342462,
+      "compromises": []
+    },
+    {
+      "version": "before",
+      "share": 0.5,
+      "strength": 100,
+      "side": 1,
+      "polygonShare": 0.4999999775527298,
+      "renderedShare": 0.49998575835718695,
+      "southernHalfShare": 0.24999347082776646,
+      "compromises": []
+    },
+    {
+      "version": "after",
+      "share": 0.5,
+      "strength": 100,
+      "side": 1,
+      "polygonShare": 0.4999999999496183,
+      "renderedShare": 0.49999227413360625,
+      "southernHalfShare": 0.3398803414184673,
+      "compromises": []
+    },
+    {
+      "version": "before",
+      "share": 0.5,
+      "strength": 100,
+      "side": 5,
+      "polygonShare": 0.4999999775527298,
+      "renderedShare": 0.49998575835718695,
+      "southernHalfShare": 0.24999347082776646,
+      "compromises": []
+    },
+    {
+      "version": "after",
+      "share": 0.5,
+      "strength": 100,
+      "side": 5,
+      "polygonShare": 0.4999999999496179,
+      "renderedShare": 0.4999942640070059,
+      "southernHalfShare": 0.16011190319718732,
+      "compromises": []
+    },
+    {
+      "version": "before",
+      "share": 0.8,
+      "strength": 0,
+      "side": 1,
+      "polygonShare": 0.7999999963750201,
+      "renderedShare": 0.799816752340366,
+      "southernHalfShare": 0.3998863251666105,
+      "compromises": []
+    },
+    {
+      "version": "after",
+      "share": 0.8,
+      "strength": 0,
+      "side": 1,
+      "polygonShare": 0.7999999963750201,
+      "renderedShare": 0.7998167435426115,
+      "southernHalfShare": 0.3998863203786288,
+      "compromises": []
+    },
+    {
+      "version": "before",
+      "share": 0.8,
+      "strength": 0,
+      "side": 5,
+      "polygonShare": 0.7999999963750201,
+      "renderedShare": 0.799816752340366,
+      "southernHalfShare": 0.3998863251666105,
+      "compromises": []
+    },
+    {
+      "version": "after",
+      "share": 0.8,
+      "strength": 0,
+      "side": 5,
+      "polygonShare": 0.7999999963750201,
+      "renderedShare": 0.7998167435426115,
+      "southernHalfShare": 0.3998863203786288,
+      "compromises": []
+    },
+    {
+      "version": "before",
+      "share": 0.8,
+      "strength": 50,
+      "side": 1,
+      "polygonShare": 0.7999999785101901,
+      "renderedShare": 0.7998167201348527,
+      "southernHalfShare": 0.39988630935814373,
+      "compromises": []
+    },
+    {
+      "version": "after",
+      "share": 0.8,
+      "strength": 50,
+      "side": 1,
+      "polygonShare": 0.799999999943251,
+      "renderedShare": 0.8000737904523603,
+      "southernHalfShare": 0.41874495884639795,
+      "compromises": []
+    },
+    {
+      "version": "before",
+      "share": 0.8,
+      "strength": 50,
+      "side": 5,
+      "polygonShare": 0.7999999785101901,
+      "renderedShare": 0.7998167201348527,
+      "southernHalfShare": 0.39988630935814373,
+      "compromises": []
+    },
+    {
+      "version": "after",
+      "share": 0.8,
+      "strength": 50,
+      "side": 5,
+      "polygonShare": 0.799999999943251,
+      "renderedShare": 0.8000773842282564,
+      "southernHalfShare": 0.3813853795443121,
+      "compromises": []
+    },
+    {
+      "version": "before",
+      "share": 0.8,
+      "strength": 100,
+      "side": 1,
+      "polygonShare": 0.7999999946736077,
+      "renderedShare": 0.7998167268755436,
+      "southernHalfShare": 0.3998863126668932,
+      "compromises": []
+    },
+    {
+      "version": "after",
+      "share": 0.8,
+      "strength": 100,
+      "side": 1,
+      "polygonShare": 0.8000000000688943,
+      "renderedShare": 0.8001568225677849,
+      "southernHalfShare": 0.4356005908982912,
+      "compromises": []
+    },
+    {
+      "version": "before",
+      "share": 0.8,
+      "strength": 100,
+      "side": 5,
+      "polygonShare": 0.7999999946736077,
+      "renderedShare": 0.7998167268755436,
+      "southernHalfShare": 0.3998863126668932,
+      "compromises": []
+    },
+    {
+      "version": "after",
+      "share": 0.8,
+      "strength": 100,
+      "side": 5,
+      "polygonShare": 0.8000000000688943,
+      "renderedShare": 0.8001596862930587,
+      "southernHalfShare": 0.36458246288365087,
+      "compromises": []
+    }
+  ]
+}
