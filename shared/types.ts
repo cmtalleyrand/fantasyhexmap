@@ -153,6 +153,12 @@ export const DEFAULT_ISLAND_SPECS: Record<'Islands' | 'Mainland and islands', Is
   'Mainland and islands': { large: 0, small: 2 },
 };
 
+/** Sparse generated island settings; terrain and these edits form one undoable generation. */
+export interface GeneratedIslandSettings {
+  islandSpecs?: Record<string, IslandSpec>;
+  hexShapes?: Record<string, Pick<HexShape, 'type' | 'irregular'>>;
+}
+
 /** A stored spec, clamped to the allowed counts; the type's default when absent or empty. */
 export function islandSpecFor(value: BaseGeo | null | undefined, stored: IslandSpec | undefined): IslandSpec {
   const fallback = value === 'Mainland and islands' ? DEFAULT_ISLAND_SPECS['Mainland and islands'] : DEFAULT_ISLAND_SPECS.Islands;

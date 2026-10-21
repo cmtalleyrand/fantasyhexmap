@@ -37,7 +37,7 @@ import {
   validateRivers,
   validateVegetation,
 } from '../shared/validate.js';
-import { isRangeElevation } from '../shared/types.js';
+import { isRangeElevation, isIslandType, islandSpecFor } from '../shared/types.js';
 import type {
   City,
   BaseData,
@@ -50,6 +50,7 @@ import type {
   Polity,
   River,
   HexShare,
+  GeneratedIslandSettings,
 } from '../shared/types.js';
 import type { PromptContext } from './prompts.js';
 import { keyedToRows, type CellKind } from './grid.js';
@@ -72,7 +73,7 @@ export interface ExistingFeatures {
   polities?: Polity[];
 }
 
-export interface DecodedLayer<K extends LayerId = LayerId> {
+export interface DecodedLayer<K extends LayerId = LayerId> extends GeneratedIslandSettings {
   data: LayerDataMap[K];
   warnings: string[];
   /** Names the response gave to seas, lakes, islands and land regions (base layer). */
@@ -208,6 +209,7 @@ export function decodeLayer(
   let data: LayerDataMap[LayerId];
   let geoNames: GeoName[] | undefined;
   let mountainRanges: MountainRange[] | undefined;
+  const islandSettings: GeneratedIslandSettings = {};
 
   switch (layer) {
     case 'base': {
@@ -216,6 +218,35 @@ export function decodeLayer(
       warnings.push(...decoded.warnings);
       data = decoded.data;
       geoNames = decodeGeoNames(r.names, decoded.data, ctx.geoNames ?? [], cols, rows, warnings);
+      const seen = new Set<number>();
+      for (const edit of r.islands ?? []) {
+        const { col, row } = edit;
+        const i = row * cols + col;
+        if (!Number.isInteger(col) || !Number.isInteger(row) || col < 0 || col >= cols || row < 0 || row >= rows ||
+          !isIslandType(decoded.data[i]) || seen.has(i)) {
+          warnings.push(`Ignored invalid or duplicate island settings at ${col},${row}.`);
+          continue;
+        }
+        seen.add(i);
+        const key = String(i);
+        const previous = ctx.base?.[i] === decoded.data[i] ? ctx.islandSpecs?.[key] : undefined;
+        const spec = { ...islandSpecFor(decoded.data[i], previous) };
+        if (edit.large !== undefined) spec.large = edit.large;
+        if (edit.small !== undefined) spec.small = edit.small;
+        if (!Number.isInteger(spec.large) || spec.large < 0 || spec.large > 2 ||
+          !Number.isInteger(spec.small) || spec.small < 0 || spec.small > 6 || spec.large + spec.small === 0) {
+          warnings.push(`Ignored empty or invalid island counts at ${col},${row}.`);
+          continue;
+        }
+        if (edit.arrangement !== undefined) spec.arrangement = edit.arrangement;
+        if (edit.orientation !== undefined) spec.orientation = edit.orientation;
+        if (edit.large !== undefined || edit.small !== undefined || edit.arrangement !== undefined || edit.orientation !== undefined) {
+          (islandSettings.islandSpecs ??= {})[key] = spec;
+        }
+        if (edit.irregular !== undefined) {
+          (islandSettings.hexShapes ??= {})[key] = { type: decoded.data[i]!, irregular: edit.irregular };
+        }
+      }
       break;
     }
     case 'elevation': {
@@ -442,6 +473,7 @@ export function decodeLayer(
   return {
     data,
     warnings,
+    ...islandSettings,
     ...(geoNames?.length ? { geoNames } : {}),
     ...(mountainRanges?.length ? { mountainRanges } : {}),
   };

@@ -15,6 +15,7 @@
 
 import { recomputeCityFacts, canHoldSettlement } from '../../shared/derive.js';
 import { CHANNEL_WIDTH_VALUES, hasChannelWidth, hasLandConcentration, hasLandShare, isIslandType, isShapedType, islandSpecFor, type ChannelWidth, type HexShape, type IslandSpec, type Irregularity } from '../../shared/types.js';
+import { mergeGeneratedIslandSettings } from '../../shared/generatedIslands.js';
 import { migrateLegacyIslands } from '../../shared/islandMigration.js';
 import { GEO_KIND_LABEL, geoEligibility, geoNamesOf, mergeGeneratedNames, withMigratedGeoNames } from '../../shared/geoNames.js';
 import { withValidParents } from '../../shared/polityTree.js';
@@ -32,6 +33,7 @@ import { cosmeticallyEqual, currentDepVersions, identicalData, trimHistory } fro
 import { LAYER_META, normaliseSelection } from '../../shared/layers.js';
 import { MAX_DIM, isRangeElevation, type PolitiesData } from '../../shared/types.js';
 import type {
+  GeneratedIslandSettings,
   City,
   CitySite,
   JournalEntry,
@@ -83,7 +85,7 @@ export type Action =
   /** Set the irregularity of lake shores whose land has none of its own; null goes back to the usual (Ragged). */
   | { type: 'setDefaultLakeIrregularity'; irregular: Irregularity | null }
   | { type: 'growMap'; amounts: GrowAmounts }
-  | {
+  | ({
       type: 'applyGeneration';
       layer: LayerId;
       data: LayerDataMap[LayerId];
@@ -104,7 +106,7 @@ export type Action =
       journal?: false;
       usage?: TokenUsage | null;
       elapsedMs?: number;
-    }
+    } & GeneratedIslandSettings)
   | { type: 'setHexValues'; layer: 'base' | 'elevation' | 'climate' | 'vegetation' | 'population'; indices: number[]; value: unknown }
   | { type: 'removePolityClaims'; id: string; indices: number[] }
   | { type: 'setPolityOwner'; indices: number[]; polityId: string | null }
@@ -824,6 +826,9 @@ function reduceMap(map: MapState, action: Action): MapState {
           ...(action.usage ? { usage: action.usage } : {}),
           ...(action.elapsedMs !== undefined ? { elapsedMs: action.elapsedMs } : {}),
         });
+      }
+      if (action.layer === 'base') {
+        next = { ...next, ...mergeGeneratedIslandSettings(map.layers.base.data, action.data as BaseGeo[], next, action) };
       }
       if (action.geoNames?.length) {
         next = {

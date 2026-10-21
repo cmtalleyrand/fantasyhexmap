@@ -20,7 +20,8 @@
 
 import * as z from 'zod/v4';
 
-import type { LayerId } from '../shared/types.js';
+import { mergeGeneratedIslandSettings } from '../shared/generatedIslands.js';
+import type { BaseData, LayerId } from '../shared/types.js';
 import { generationOrder } from '../shared/generationQueue.js';
 import { LAYER_META } from '../shared/layers.js';
 import { physicalContext } from './physicalContext.js';
@@ -517,7 +518,9 @@ export function importMultiWebchatResponse(options: MultiWebchatImportOptions): 
     const parsed = checkShape(layer, 'full', ctx, raw[layer], ` for "${layer}"`);
     const result = decodeLayer(layer, parsed, ctx, options.existing);
     out.push({ layer, result });
-    ctx = { ...ctx, [layer]: result.data };
+    ctx = { ...ctx, [layer]: result.data,
+      ...(layer === 'base' ? mergeGeneratedIslandSettings(ctx.base, result.data as BaseData, ctx, result) : {}),
+    };
   }
   return out;
 }

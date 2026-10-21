@@ -100,6 +100,17 @@ function polityCell(opts: SchemaOptions): z.ZodType {
 export const BaseResponse = (cols: number, rows: number, opts: SchemaOptions = {}) =>
   z.object({
     rows: gridField(cols, rows, opts, 'char', BASE_CELL, 'base-geography character'),
+    islands: z.array(z.object({
+      col: z.number().int().min(0).max(cols - 1),
+      row: z.number().int().min(0).max(rows - 1),
+      large: z.number().int().min(0).max(2).optional(),
+      small: z.number().int().min(0).max(6).optional(),
+      arrangement: z.enum(['scattered', 'chain', 'arc', 'barrier', 'ring']).optional(),
+      orientation: z.enum(['free', 'along', 'across']).optional(),
+      irregular: z.enum(['Smooth', 'Wavy', 'Ragged', 'Fractured']).optional(),
+    })).max(cols * rows).optional().describe(
+      'Sparse island settings for Islands/Mainland and islands hexes only. Omitted fields retain existing settings/defaults; counts together must be at least one. No entries means no settings changes.',
+    ),
     names: nameList(
       opts,
       z.object({

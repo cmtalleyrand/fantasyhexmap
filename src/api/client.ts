@@ -21,7 +21,7 @@
 
 import { excludedLayers } from '../../shared/layers.js';
 import { geoNamesOf } from '../../shared/geoNames.js';
-import type { GeoName, LayerDataMap, LayerId, MapState, MountainRange } from '../../shared/types.js';
+import type { GeneratedIslandSettings, GeoName, LayerDataMap, LayerId, MapState, MountainRange } from '../../shared/types.js';
 import type { PassSelection, Roster } from '../../core/rosters.js';
 import type { DirectOptions } from './direct.js';
 
@@ -41,7 +41,7 @@ export interface ProgressEvent {
   model?: string;
 }
 
-export interface GenerateResult<K extends LayerId = LayerId> {
+export interface GenerateResult<K extends LayerId = LayerId> extends GeneratedIslandSettings {
   layer: K;
   data: LayerDataMap[K];
   warnings: string[];

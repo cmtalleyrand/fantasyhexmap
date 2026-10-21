@@ -1,5 +1,5 @@
 import { baseSurfaceStatistics, landFraction, normaliseHexDimensions, politySurfaceAreas } from '../shared/surfaceArea.js';
-import { BASE_GEO_VALUES, DEFAULT_HEX_DIMENSIONS, DEFAULT_ISLAND_SPECS } from '../shared/types.js';
+import { BASE_GEO_VALUES, DEFAULT_ISLAND_SPECS } from '../shared/types.js';
 import { gridView } from './grid.js';
 import type { PromptContext } from './prompts.js';
 
@@ -14,9 +14,8 @@ export function physicalContext(ctx: PromptContext): string {
     'Whole-hex area = 0.75 * width * height. Land area = whole-hex area * effective land fraction.',
     'Use land area for land/realm sizes and population carrying capacity; water area for seas/lakes.',
     'Measured grids and totals below describe the existing map. If replacing base geography, recompute them',
-    'for the new terrain using these settings and applicable overrides; do not treat old totals as new geography.',
-    'Factory defaults (current map settings below override these):',
-    JSON.stringify(DEFAULT_HEX_DIMENSIONS),
+    'for your proposed output using these settings, proposed island counts and applicable overrides. Independently',
+    'check stated areas, counts and distances before replying, including in an external chat without app access.',
     'Current map settings (land percentages, channel widths and physical dimensions):',
     JSON.stringify(dims),
     `Default island configurations: ${JSON.stringify(DEFAULT_ISLAND_SPECS)}`,
