@@ -15,7 +15,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { betaZodOutputFormat } from '@anthropic-ai/sdk/helpers/beta/zod';
 import * as z from 'zod/v4';
 
-import type { GeoName, LayerDataMap, LayerId, MountainRange } from '../shared/types.js';
+import type { GeneratedIslandSettings, GeoName, LayerDataMap, LayerId, MountainRange } from '../shared/types.js';
 import type { PromptContext } from './prompts.js';
 import {
   decodeLayer,
@@ -64,7 +64,7 @@ export interface GenerationConfig {
   taskBudget?: number;
 }
 
-export interface GenerateResult<K extends LayerId = LayerId> {
+export interface GenerateResult<K extends LayerId = LayerId> extends GeneratedIslandSettings {
   layer: K;
   data: LayerDataMap[K];
   warnings: string[];
@@ -569,10 +569,8 @@ async function runPasses(
 
   return {
     layer,
-    data: decoded.data,
+    ...decoded,
     warnings: [...responseWarnings, ...decoded.warnings],
-    ...(decoded.geoNames ? { geoNames: decoded.geoNames } : {}),
-    ...(decoded.mountainRanges ? { mountainRanges: decoded.mountainRanges } : {}),
     model: config.model,
     usage: sumUsage(usages),
   };

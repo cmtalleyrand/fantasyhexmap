@@ -134,26 +134,25 @@ test('the keyed base and elevation schemas require the name lists; row form does
   assert.equal(BaseResponse(COLS, ROWS).safeParse({ rows: BASE_ROWS }).success, true);
 });
 
-test('the base prompt tells the model to name places and to label only unpopulated land', () => {
+test('the base prompt preserves supplied names and leaves unnamed features unnamed', () => {
   const { system } = buildPrompt('base', context());
   assert.match(system, /NAMING PLACES/);
   assert.match(system, /sea|lake|island|land/);
-  assert.match(system, /1 person per km\^2 or less/);
-  assert.match(system, /largely unpopulated/);
+  assert.match(system, /Leave unnamed features unnamed/);
 });
 
-test('the elevation prompt tells the model to name ranges, with the same density rule', () => {
+test('the elevation prompt preserves supplied range names', () => {
   const { system } = buildPrompt('elevation', context());
   assert.match(system, /NAMING RANGES/);
-  assert.match(system, /1 person per km\^2 or less/);
+  assert.match(system, /leave unnamed ranges unnamed/);
 });
 
-test('every prompt assumes a ring of ice or sea round the finished map and forbids straight hex lines', () => {
+test('every prompt assumes a ring of ice or sea round the finished map and bounds straight stretches', () => {
   for (const layer of ['base', 'elevation', 'climate', 'vegetation', 'rivers', 'cities', 'polities', 'population'] as const) {
     const { system } = buildPrompt(layer, context());
     assert.match(system, /one row above and one below, and one column to the left and one to the right/, layer);
     assert.match(system, /always Sea Ice or Sea, unless the brief specifies otherwise/, layer);
-    assert.match(system, /Avoid straight lines/, layer);
+    assert.match(system, /normally no more than 6 hexes and never more than 8/, layer);
   }
 });
 

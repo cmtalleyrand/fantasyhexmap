@@ -193,7 +193,7 @@ function polityGridOutput(ctx: PromptContext): string {
 export function descriptionBlock(description: string): string {
   return `THE BRIEF (original world specification; later explicit edits override conflicting parts)
 <description>
-${description.trim() || '(no description given - invent something coherent and interesting)'}
+${description.trim() || '(no description supplied - use the existing map and latest edit as the specification)'}
 </description>`;
 }
 
@@ -292,20 +292,26 @@ function polityGrid(ctx: PromptContext, title: string, withColours: boolean): st
 
 export function houseStyle(): string {
   return `THE BRIEF COMES FIRST
-The brief is the user's specification, not a source of inspiration. A later explicit edit overrides it where they conflict.
-Output schemas, supported terrain restrictions and saved map dimensions always apply. Everything else in this prompt - typical sizes,
-usual placements, suggested counts, default proportions, "usually" and "rarely" - is a default for where the brief is
-silent. Where the brief is specific (a size, an area, a distance, a position, a count, a named feature, something
-that must not exist), it overrides those defaults every time. Follow explicit ecological or magical exceptions in the brief and keep them coherent.
+Translate the supplied specification and existing map into the requested layer. The latest explicit edit overrides
+conflicting parts of the original brief. Output schemas, supported terrain restrictions and saved map dimensions apply.
+Preserve specified sizes, positions, counts, names, relationships and ecological or magical exceptions.
+Represent only supplied content: do not add places, names, settlements, polities, rivers or other world features merely
+because they would be plausible. Leave unnamed features unnamed. An explicit request to add a feature authorises that addition.
+Make only the placement, classification and interpolation decisions necessary to express the supplied content at this scale.
+Infer likely climate and required numeric attributes from supplied geography when needed; these are estimates, not additional features. Preserve unrelated existing content during edits.
 
-Plan against the brief internally. Reply with the requested data only: no notes, comments, explanations or lists of assumptions.
+Plan and validate internally. Reply with the requested data only: no notes, comments, explanations or lists of assumptions.
 
 HOW TO WORK
-- Think about the map as a whole before writing any of it. Geography is continuous: coastlines, ranges, climate belts and borders are large connected shapes, not per-hex noise.
-- Avoid straight lines. Do not draw the hex equivalent of one: a row, column or diagonal run of hexes of one value, or a coast, border, range or river course that follows a single hex direction for more than two or three hexes. Natural features curve, wander and vary in width.
-- Never produce speckle - isolated single hexes of one value scattered through a field of another - unless the brief explicitly calls for it (an archipelago, an oasis chain).
-- Keep positions exact. Read where things are from the row labels and "[n]" column anchors in the context grids, not by counting characters, and put each value at the same row and column as the hex it describes.
-- Where the brief is silent, make a decision that is plausible and interesting rather than uniform.`;
+- Think about connected features as whole shapes before assigning hexes. Preserve their proportions, orientations, connections and separations.
+- Allow straight stretches in a coast, border, range or river: normally no more than 6 hexes and never more than 8 consecutive hexes in one direction. Vary contours without repetitive staircases or sawtooth patterns. Uniform interiors need not be broken up.
+- Avoid accidental speckle, but retain isolated features required by the supplied content.
+- Keep positions exact. Read the row labels and "[n]" column anchors in context grids and use the odd-r neighbour rules.
+- Independently validate your proposed output before replying: dimensions and codes, adjacency and connectivity, feature locations,
+  required names and counts, areas and distances at the saved scale, and consistency with available layers. Supplied measurements
+  describe the existing map, not a replacement you are proposing. Recalculate changed areas and counts from your proposed data.
+- Resolve small ambiguities conservatively without adding world content. In an external chat, if essential source information is
+  missing, ask a focused question before producing the final JSON; no app access is needed. Keep the final reply schema-compatible.`;
 }
 
 /* -------------------------------------------------------------------- base */
@@ -323,16 +329,9 @@ function namingRules(ctx: PromptContext): string {
     '- island: an island or archipelago. Covers Islands hexes and the land hexes of a landmass that water surrounds on',
     '  every side and that does not reach the map edge.',
     '- land: a land region - a desert, steppe, forest, plain, peninsula, tundra or ice sheet. Covers land hexes.',
-    'Land region names are for largely unpopulated areas: those with a population density of 1 person per km^2 or less,',
-    'judged from the brief and the terrain (deserts, tundra, ice sheets, deep forest, barrens, high wastes). Settled country is',
-    'already identified on the map by its polities and cities, so give it no region name unless the brief names it.',
-    'Seas, oceans and lakes are unpopulated, so name them freely. Islands too, unless they are settled enough to be identified',
-    'by their polities and cities.',
-    '- Every place the brief names must be named, covering the extent the brief implies.',
-    '- Otherwise name the seas, gulfs and large lakes a reader would need to find their way around, and the empty regions',
-    '  that would be labelled on a real map. Do not name every puddle; an empty list is right for a map that names nothing.',
+    '- Include every place named in the brief or existing map, using its supplied name and extent.',
+    '- Leave unnamed features unnamed; return an empty list when no places are named.',
     '- A name covers one connected shape. Within a kind a hex carries one name. Never cover a hex the kind cannot hold.',
-    "- Names should suit the brief's cultures and be consistent with each other.",
     ...(ctx.instruction
       ? ['On an edit, the existing names are shown in the context. List a name again only to add it or change its extent or',
          'kind; names you do not list keep their hexes. To rename a place, give its exact old name as previousName.']
@@ -347,11 +346,8 @@ function rangeNamingRules(ctx: PromptContext): string {
     'the hexes it covers as runs along rows (row, from column, to column, inclusive). A range covers only Mountains and',
     'Highland hexes; Hills and lower ground are not part of it.',
     '- Every range the brief names must be named, covering the extent the brief implies.',
-    '- Otherwise name the principal ranges and massifs. A chain is one range unless it clearly breaks into separate ones.',
-    '- Ranges are labelled where they are largely unpopulated: a population density of 1 person per km^2 or less, judged from',
-    '  the brief and the terrain. Settled uplands are already identified by their polities and cities, so leave them unnamed',
-    '  unless the brief names them.',
-    '- A hex belongs to one range. An empty list is right for a map with no ranges worth naming.',
+    '- Preserve existing named ranges and leave unnamed ranges unnamed. Return an empty list when no ranges are named.',
+    '- A hex belongs to one range.',
     ...(ctx.instruction
       ? ['On an edit, the existing names are shown in the context. List a range again only to add it or change its extent;',
          'ranges you do not list keep their hexes. To rename a range, give its exact old name as previousName.']
@@ -376,7 +372,7 @@ function basePrompt(ctx: PromptContext): BuiltPrompt {
       '         elevation, climate and the other land values like any Land hex. Use only where the brief implies polar or',
       '         glacial conditions.',
       'Sea Ice - sea frozen over: pack ice or an ice shelf on salt water. It is water, so it gets no land values.',
-      'Islands - a sea hex holding islands too small to need their own Land hexes: one or two large islands, or a',
+      'Islands - a water hex holding islands too small to need their own Land hexes: one or two large islands, or a',
       '         scatter of islets (an archipelago, skerries). A large island spanning several hexes is Land hexes',
       '         in the interior, with Coastal Land around the shore, not this.',
       'Mainland and islands - a hex that is part mainland coast and part sea, with islands just off the shore.',
@@ -388,15 +384,26 @@ function basePrompt(ctx: PromptContext): BuiltPrompt {
     '',
     section('GEOGRAPHIC SENSE', [
       '- Coastlines are continuous and irregular: bays, peninsulas, headlands. Not a rectangle of land in a rectangle of sea.',
-      '- Assign every coastal land hex a coastal base geography: Coastal Land for mainland and large-island shores,',
+      '- Assign ordinary dry-land shore hexes a coastal base geography: Coastal Land for mainland and large-island shores,',
       '  Mainland and islands for a mainland shore with offshore islands, or Islands for small islands and archipelagos.',
-      '  This includes land hexes bordering Sea or Sea Ice and shores at the map edge where the surrounding ring is water.',
-      '  Never leave a coastal land hex as ordinary Land, even when its shoreline follows a hex edge. Keep inland hexes as Land.',
+      '  This includes land hexes sharing an edge with Sea, Lake or Sea Ice and shores at the map edge where the surrounding ring is water.',
+      '  Never leave an ordinary shore hex as Land, even when the shoreline follows a hex edge. Retain Glacier or Isthmus where required; keep inland dry hexes as Land.',
       '- Seas connect to the map edge. An enclosed body of water surrounded by land is a Lake, however large.',
       '- Lakes sit inland, usually in lowlands or between highlands, and are small - one to a few hexes - unless the brief makes one larger.',
-      '- Ice belongs at the northern or southern edge of the map, or on high ground if the brief says so: Glacier on land, Sea Ice on the water beside it.',
-      '- Islands cluster: chains, arcs off a coast, scatterings in a strait. A lone island hex in mid-ocean is rare.',
-      '- If the brief gives no land/water balance, aim for roughly half the map as land.',
+      '- Place ice only where the supplied climate or glacial conditions support it: Glacier on land and Sea Ice on water. Map edges alone do not imply polar conditions.',
+      '- Preserve the supplied island locations and groupings. For multi-hex islands, consider their overall axis, taper',
+      '  and changes in width at this resolution; avoid generic round blobs and repeated silhouettes. Retain specified',
+      '  bays, peninsulas and channels without adding new geographical features for decoration.',
+      '- Resolve unspecified outlines conservatively from the described proportions and relationships; there is no land/water quota.',
+    ]),
+    '',
+    section('ISLAND CONFIGURATION - "islands"', [
+      'Return a sparse list for Islands or Mainland and islands hexes only; omit it or use [] to retain existing settings/defaults.',
+      'Each entry: col, row; optional large (0-2), small (0-6), arrangement (scattered, chain, arc, barrier, ring),',
+      'orientation (free, along, across relative to the coast), irregular (Smooth, Wavy, Ragged, Fractured).',
+      'Use only the fields needed to express supplied islands. Counts together must be at least one. Other settings are retained.',
+      'Consider the pattern and outline of existing islands; the app draws their detailed contours from these settings.',
+      'For example, {"col":2,"row":1,"arrangement":"chain","irregular":"Wavy"} configures an existing island hex.',
     ]),
     '',
     namingRules(ctx),
@@ -505,27 +512,21 @@ function climatePrompt(ctx: PromptContext): BuiltPrompt {
     ]),
     '',
     section('HOW TO DECIDE', [
-      '1. LATITUDE FIRST. Decide from the brief what latitude band this map covers,',
-      '   and map row 0 to the northern end of that band and the last row to the southern end. If the brief gives',
-      '   no clue, choose a band that suits what it does describe (a frozen north and a desert south needs a wide',
-      '   band; a single kingdom needs a narrow one). Latitude sets the baseline belt for each row.',
-      '2. ELEVATION SECOND. Alpine cooling is real: Highland and Mountains hexes shift one or two steps colder than',
-      '   their latitude (a Cfa lowland becomes Cfb or Dfb on Highland, ET on Mountains). Plateaus are cool and,',
-      '   being inland tablelands, usually drier - often BSk or Dwb.',
-      '3. CONTINENTALITY THIRD. Hexes far from any Sea swing to continental (D) or arid (B); hexes on the coast',
-      '   stay maritime (Cfb, Csb, Cfa) with milder ranges.',
-      '4. RAIN SHADOW FOURTH. Air rises and drops its rain on the windward flank of a range and descends dry on the',
-      '   lee. Assume prevailing westerlies in the temperate bands and easterlies in the tropics unless the brief',
-      '   says otherwise. The lee of a north-south range is a B-group belt, often BWk or BSk - this is where',
-      '   deserts come from, not from latitude alone.',
-      '5. THE BRIEF OVERRIDES ALL OF THE ABOVE. If it names a rain-shadow desert, a monsoon coast or an eternal',
-      '   winter, produce it, even where latitude alone would not.',
+      '1. Use explicit climate and environmental statements first, including ecological or magical exceptions.',
+      '2. Infer likely climate from stated latitude/location, saved map extent, elevation, maritime exposure,',
+      '   continentality and moisture-bearing winds. Row order alone establishes neither hemisphere nor latitude;',
+      '   the northern edge is not necessarily polar. Use a consistent interpretation supported by the brief and scale.',
+      '3. Elevation tends to cool; maritime exposure moderates temperature ranges. Neither determines moisture by itself.',
+      '   Coastal regions can be tropical, arid, temperate, continental or polar. Plateaus are not automatically dry.',
+      '4. Assess moisture separately. Where winds are unstated, cautiously use broad circulation assumptions:',
+      '   temperate westerlies and tropical easterlies. A rain shadow can make the lee drier without making it desert.',
+      '5. Select the most plausible permitted Köppen code from the available evidence, without implying a climate simulation.',
     ]),
     '',
     section('COHERENCE', [
       '- Climate belts are bands and blobs, not stripes of alternating codes. Neighbouring hexes should usually share',
       '  a code or a closely related one; a single BWh hex inside Cfb country is an error unless something causes it.',
-      '- Do not use E-group codes away from the polar edges or high mountains.',
+      '- Use E-group codes where polar or glacial conditions or sufficiently cold high ground support them, not merely at map edges.',
       '- Sea, Sea Ice and Lake hexes get no value.',
     ]),
     '',
@@ -743,10 +744,10 @@ function riversPrompt(ctx: PromptContext): BuiltPrompt {
       '- Every river ends at a Sea, a Lake, another river, or the edge of the map. A river that just stops inland is wrong.',
       '- Longer rivers gather in valleys and lowlands; short torrents run straight off coastal ranges.',
       '- Do not run two rivers along the same hexes. A tributary is its own river whose path stops on the first hex',
-      '  of the trunk river it reaches; set "joins" to the trunk\'s name. A large river may split into a delta near the',
-      '  sea: each extra arm is its own river starting on a hex of the main river, with "branchOf" set to its name.',
-      '- Unless the brief specifies a river count, choose the number of rivers from the terrain, climate and drainage basins; there is no fixed count or quota.',
-      '  Use varied lengths. Every river the brief names must appear, running where the brief says and at the length it gives.',
+      '  of the trunk river it reaches; set "joins" to the trunk\'s name. For a delta supplied in the specification,',
+      '  each arm is its own river starting on the main river, with "branchOf" set to its name.',
+      '- Include only rivers supplied by the brief, existing map or explicit edit; there is no river quota. Leave unnamed rivers unnamed.',
+      '  Preserve supplied relative lengths. Every river the brief names must appear, running where the brief says and at the length it gives.',
     ]),
     '',
     section('NAVIGABILITY', [
@@ -755,7 +756,7 @@ function riversPrompt(ctx: PromptContext): BuiltPrompt {
       '- Small or steep rivers may be navigable nowhere at all. Say so with all-false entries.',
     ]),
     '',
-    'Name rivers in a style consistent with the brief.',
+    'Preserve supplied river names; leave unnamed rivers unnamed.',
     '',
     houseStyle(),
   ].join('\n');
@@ -784,8 +785,6 @@ function riversPrompt(ctx: PromptContext): BuiltPrompt {
 /* ------------------------------------------------------------------ cities */
 
 function citiesPrompt(ctx: PromptContext): BuiltPrompt {
-  const lo = Math.max(3, Math.round((ctx.cols * ctx.rows) / 90));
-  const hi = Math.max(6, Math.round((ctx.cols * ctx.rows) / 35));
   const system = [
     'You are a historical geographer siting the cities of a fantasy hex map.',
     '',
@@ -821,9 +820,8 @@ function citiesPrompt(ctx: PromptContext): BuiltPrompt {
       '- This is the city population only. The surrounding rural population is a separate layer.',
     ]),
     '',
-    `Unless the brief says how many settlements there are, place between ${lo} and ${hi} on a map this size. Every city`,
-    'the brief names must appear, where the brief puts it and at any population it gives. Name the rest in a style',
-    'consistent with the brief, and keep the naming of nearby cities culturally consistent with each other.',
+    'Represent only settlements supplied by the brief, existing map or explicit edit. Preserve their supplied names.',
+    'There is no settlement quota. Return an empty cities list when no settlements are supplied.',
     '',
     'Do not report whether a city is coastal or on a river: that is derived from the map itself.',
     '',
@@ -901,9 +899,8 @@ function politiesPrompt(ctx: PromptContext): BuiltPrompt {
       '- Polities are shaped by their cities: a capital sits inside its own territory, usually well within it.',
       '- Leave genuinely hostile or remote country unclaimed - deep desert, high mountains, glaciers, far wilderness.',
       '  A map where every hex is owned looks like a modern state system, not a pre-modern one.',
-      '- Let the brief, geography, settlement pattern and plausible political fragmentation determine how many',
-      '  polities exist. Do not default to eight or any other fixed target. Give them clearly different sizes, including',
-      '  major powers and smaller realms where the map supports them.',
+      '- Include only polities supplied by the brief, existing map or explicit edit. Preserve their identities and names.',
+      '- There is no polity quota or required size hierarchy. Leave other land unclaimed.',
     ]),
     '',
     section('OUTPUT', [
@@ -1061,15 +1058,12 @@ function politiesRosterPrompt(ctx: PromptContext): BuiltPrompt {
     'You are a political geographer naming the powers of a fantasy hex map.',
     '',
     section('WHAT YOU ARE DOING', [
-      'This is the first of two passes. Decide WHO exists on this map - the roster of polities - and nothing else.',
+      'This is the first of two passes. Extract the supplied polities into a fixed roster; do not add entities.',
       'You are not drawing any borders yet and you must not return a grid. A later pass will partition the land',
       'between the polities you name here, so name them with that in mind: give a sense of where each one sits and',
       'how big it is in its hexes figure, and the border pass will follow it.',
-      'Let the brief, geography, settlement pattern and plausible political fragmentation determine how many',
-      'polities exist. Do not default to eight or any other fixed target. Every polity the brief names must be on the',
-      'roster. Give them clearly different sizes, including major powers and smaller realms where the map supports',
-      'them. Leave room for unclaimed wilderness - a map where every hex is owned looks like a modern state system,',
-      'not a pre-modern one.',
+      'Include only polities supplied by the brief, existing map or explicit edit. Preserve their identities and names.',
+      'There is no polity quota or required size hierarchy. An empty roster is correct when no polities are supplied.',
     ]),
     '',
     scaleRules(ctx.cols, ctx.rows, ctx.hexDimensions),
@@ -1094,6 +1088,7 @@ function politiesRosterPrompt(ctx: PromptContext): BuiltPrompt {
   ].join('\n');
 
   const parts = [descriptionBlock(ctx.description), '', ...geographyContext(ctx)];
+  if (ctx.polities && !ctx.instruction) parts.push('', polityGrid(ctx, 'CURRENT POLITIES', true));
   if (ctx.instruction) {
     parts.push('', editBlock(ctx.instruction, 'polities'));
   }
@@ -1174,13 +1169,13 @@ function riversRosterPrompt(ctx: PromptContext): BuiltPrompt {
     'You are a hydrologist planning the river systems of a fantasy hex map.',
     '',
     section('WHAT YOU ARE DOING', [
-      'This is the first of two passes. Decide WHAT rivers this map has - their names and roughly where each one',
+      'This is the first of two passes. Extract supplied rivers and their names and roughly where each one',
       'runs - and nothing else. Do not return any hex coordinates; a later pass traces the actual paths.',
-      'Unless the brief specifies a river count, choose the number of rivers from the terrain, climate and drainage basins; there is no fixed count or quota.',
-      'Use varied lengths. Every river the brief names must appear, running where the brief says and at the length it gives.',
+      'Include only rivers supplied by the brief, existing map or explicit edit. Leave unnamed rivers unnamed; there is no river quota.',
+      'Preserve supplied relative lengths. Every river the brief names must appear, running where the brief says and at the length it gives.',
       'Every river must rise in high ground or flow out of a Lake, and end at a Sea, a Lake, another river (a tributary) or the edge of the map. Say which, for each. A delta arm splits from a named river.',
       'Longer rivers gather in valleys and lowlands; short torrents run straight off coastal ranges.',
-      'Name rivers in a style consistent with the brief.',
+      'Preserve supplied river names; leave unnamed rivers unnamed.',
     ]),
     '',
     scaleRules(ctx.cols, ctx.rows, ctx.hexDimensions),

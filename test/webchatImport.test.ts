@@ -173,7 +173,7 @@ test('the compiled prompt carries the schema, an example and the grid size', () 
   assert.match(prompt, /WORKED EXAMPLE/);
   assert.match(prompt, /"maxLength": 30/, 'schema should pin the row width to the grid');
   assert.match(prompt, /exactly 30 entries/);
-  assert.match(prompt, /Do not default to eight or any other fixed target/);
+  assert.match(prompt, /There is no polity quota or required size hierarchy/);
   assert.doesNotMatch(prompt, /Aim for around 8 polities/);
   // Small enough to paste into a chat window.
   assert.ok(prompt.length < 40_000, `prompt was ${prompt.length} characters`);
@@ -183,7 +183,7 @@ test('the roster pass asks for no grid at all', () => {
   const ctx = contextWithBase(30, 30);
   const prompt = buildWebchatPrompt({ layer: 'polities', pass: 'roster', ctx });
   assert.match(prompt, /must not return a grid/);
-  assert.match(prompt, /Do not default to eight or any other fixed target/);
+  assert.match(prompt, /There is no polity quota or required size hierarchy/);
   assert.doesNotMatch(prompt, /Aim for around 8 polities/);
   assert.doesNotMatch(prompt, /every row string/);
   assert.doesNotMatch(prompt, /a 4x3 map/);

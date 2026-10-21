@@ -258,13 +258,31 @@ saved hex scale, land percentages, island counts and per-hex overrides are suppl
 with effective land fractions and measured areas. The latest explicit edit takes precedence over
 conflicting parts of the original description. The finished map is assumed to gain one row above and
 below and one column left and right, always Sea Ice or Sea unless the brief says otherwise, and the
-prompts ask the model to avoid hex-straight lines.
+prompts bound straight stretches of coastlines and other linear features.
 
-The base layer also returns names for seas, lakes, islands and land regions, and the elevation layer
-names mountain ranges. Each name is a set of runs along rows (`row`, `from`, `to`), kept on import to
-the hexes its kind may hold. Land regions, islands and ranges are labelled only where largely
-unpopulated (1 person per km² or less); seas and lakes are always eligible. Generated names merge into
-the map's names: a name matching an existing one keeps its id, and `previousName` renames.
+The AI represents supplied world content and preserves existing names and identities. It leaves unnamed features
+unnamed, with no quotas for extra cities, polities or rivers. Placement, required attributes and likely climate
+can be inferred to complete the requested layer. Coast, border, range and river straight stretches normally stop
+within six hexes and must never exceed eight; uniform interiors do not need artificial variation.
+
+Base replies can include a sparse `islands` list: `col`, `row`, and optional `large` (0–2), `small` (0–6),
+`arrangement` (scattered, chain, arc, barrier, ring), `orientation` (free, along, across) and `irregular`
+(Smooth, Wavy, Ragged, Fractured). Only Islands and Mainland and islands hexes accept these settings.
+Omitted fields preserve existing settings/defaults. Counts must total at least one. The app retains manual
+land shares and unrelated drawing settings. Terrain and generated island settings apply together and undo together.
+The same fields work through API generation and compact/full, single/multi-layer chat imports.
+
+The base layer returns supplied names for seas, lakes, islands and land regions; the elevation layer returns
+supplied mountain range names. Names are sets of row runs (`row`, `from`, `to`) kept on eligible terrain.
+Generated names merge with existing names; `previousName` preserves identity when renaming.
+
+Copied chat prompts include saved scale, current land fractions and measured existing-map areas. Agents must
+independently check their proposed grids, counts, areas, positions and connectivity. New geography needs new
+calculations; existing totals are context rather than measurements of a proposed replacement. External chat can
+resolve missing essential information conversationally before returning the final JSON.
+
+Automatic coasts and the three base-terrain families are a separate follow-up; see
+[the implementation plan](docs/automatic-coasts-next-steps.md).
 
 - **history** in the top bar lists every generation and instruction, filterable by layer.
 - Hand edits, undos and redos are logged alongside, so the record never credits the AI with a

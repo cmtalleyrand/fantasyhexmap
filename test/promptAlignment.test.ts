@@ -52,7 +52,7 @@ test('all transports retain physical settings, overrides and measured land fract
     const { user, system } = buildPrompt('polities', ctx);
     assert.match(user, /One whole hex: 450 km\^2/);
     assert.match(user, /r0: \[0\] 60 10 35/);
-    assert.match(user, /"coastalLandPercent":80/); // Factory defaults remain distinct from map overrides.
+    assert.doesNotMatch(user, /Factory defaults|"coastalLandPercent":80/);
     assert.match(user, /"coastalLandPercent":70/);
     assert.match(user, /Silver Lake/);
     assert.match(user, /Measured polity land areas/);
