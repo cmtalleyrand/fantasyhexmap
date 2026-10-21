@@ -1,5 +1,6 @@
 /** Reproduce single-edge coast comparisons against a git-archived baseline. */
 import assert from 'node:assert/strict';
+import { sceneImage, verifySceneImages } from './scene-image-comparison.mjs';
 import { buildSync } from 'esbuild';
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, writeFileSync } from 'node:fs';
@@ -56,7 +57,7 @@ try {
       const mid = e => ({ x: (corners[e].x + corners[(e + 1) % 6].x) / 2, y: (corners[e].y + corners[(e + 1) % 6].y) / 2 });
       const southernHalf = [mid(0), corners[1], corners[2], corners[3], mid(3)];
       let svg = api.sceneToSvg(scene, 'Single coast concentration');
-      svg = svg.replace(/<svg\b[^>]*>/, `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${centre.x - 43} ${centre.y - 40} 86 80" width="258" height="240">`);
+      svg = svg.replace(/<svg\b[^>]*>/, `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="${centre.x - 43} ${centre.y - 40} 86 80" width="258" height="240">`);
       svg = svg.replace('</svg>', `<polygon points="${corners.map(p => `${p.x},${p.y}`).join(' ')}" fill="none" stroke="#617580" stroke-width="0.35" stroke-dasharray="1.5 1"/></svg>`);
       records.push({ version, share, strength, side, preset: style.preset, knobs: style.knobs, irregularity: api.hexShapeFor('Coastal Land', map.hexShapes[hex], map.defaultIrregularity).irregular, polygonShare: land.reduce((sum, p) => sum + api.polyArea(p), 0) / full,
         renderedShare: coverage(corners, 256) / full, southernHalfShare: coverage(southernHalf, 256) / full,
@@ -64,7 +65,6 @@ try {
     }
     return records;
   });
-  writeFileSync(resolve(output, 'diagnostic-records.json'), JSON.stringify(records.map(({ svg, land, ...r }) => r), null, 2));
   const metrics = records.map(({ svg, land, ...r }) => r);
   for (const r of metrics) assert.ok(Math.abs(r.polygonShare - r.share) < 1e-6, `Polygon area: ${JSON.stringify(r)}`);
   const get = (version, share, strength, side) => records.find(r => r.version === version && r.share === share && r.strength === strength && r.side === side);
@@ -87,7 +87,7 @@ try {
       towardSELandPercent: south.renderedShare * 100, towardNELandPercent: north.renderedShare * 100,
       southernHalfRedistributionPercentagePoints: (south.southernHalfShare - north.southernHalfShare) * 100 });
   }
-  const style = `<style>*{box-sizing:border-box}body{margin:0;background:#f5f3ed;color:#233640;font-family:Arial,sans-serif}.sheet{width:1240px;padding:30px}h1{font-size:26px;margin:0 0 8px}.sub{font-size:15px;color:#59686e;margin-bottom:22px}.grid{display:grid;grid-template-columns:120px repeat(4,1fr);gap:12px}.head{font-size:15px;font-weight:bold;text-align:center;padding:8px}.row{display:flex;flex-direction:column;justify-content:center;font-size:18px}.row small{font-size:13px;color:#647078;margin-top:5px}.card{background:white;border:1px solid #dddcd7;border-radius:8px;overflow:hidden}.card svg{display:block;width:100%;height:240px}.metric{font-size:13px;text-align:center;padding:9px;border-top:1px solid #eee}.foot{font-size:13px;color:#59686e;margin-top:18px;line-height:1.5}</style>`;
+  const style = `<style>*{box-sizing:border-box}body{margin:0;background:#f5f3ed;color:#233640;font-family:Arial,sans-serif}.sheet{width:1240px;padding:30px}h1{font-size:26px;margin:0 0 8px}.sub{font-size:15px;color:#59686e;margin-bottom:22px}.grid{display:grid;grid-template-columns:120px repeat(4,1fr);gap:12px}.head{font-size:15px;font-weight:bold;text-align:center;padding:8px}.row{display:flex;flex-direction:column;justify-content:center;font-size:18px}.row small{font-size:13px;color:#647078;margin-top:5px}.card{background:white;border:1px solid #dddcd7;}.card img{display:block;width:100%;height:240px}.metric{font-size:13px;text-align:center;padding:9px;border-top:1px solid #eee}.foot{font-size:13px;color:#59686e;margin-top:18px;line-height:1.5}</style>`;
   for (const share of [0.5, 0.8]) {
     let html = `${style}<div class="sheet"><h1>Single-edge coast · ${share * 100}% land</h1><div class="sub">App defaults: Parchment preset, Ragged coast, no style overrides. Same map, seed and land target. Dashed outline marks the edited hex.</div><div class="grid"><div></div>`;
     for (const label of ['Before · towards SE', 'After · towards SE', 'Before · towards NE', 'After · towards NE']) html += `<div class="head">${label}</div>`;
@@ -95,14 +95,17 @@ try {
       html += `<div class="row">${strength}%<small>concentration</small></div>`;
       for (const [version, side] of [['before', 1], ['after', 1], ['before', 5], ['after', 5]]) {
         const r = get(version, share, strength, side);
-        html += `<div class="card">${r.svg}<div class="metric">${(r.renderedShare * 100).toFixed(2)}% coast area</div></div>`;
+        html += `<div class="card">${sceneImage(r.svg, `${version}, ${share * 100}% land, ${strength}% concentration, side ${side}`)}<div class="metric">${(r.renderedShare * 100).toFixed(2)}% coast area</div></div>`;
       }
     }
     html += `</div><div class="foot">Before: current main before this fix. After: endpoint-biased cutting with an area solve. Full scene renderer with default textures, grid, spline fitting and coastline ink.<br>Directions are existing hex sides 1 (SE) and 5 (NE). Both have the same facing relative to the single east coast.</div></div>`;
-    await page.setContent(html); await page.locator('.sheet').screenshot({ path: resolve(output, `comparison-${share * 100}.png`) });
+    await page.setContent(html);
+    await page.locator('.card img').evaluateAll(images => Promise.all(images.map(image => image.decode())));
+    await verifySceneImages(page);
+    await page.locator('.sheet').screenshot({ path: resolve(output, `comparison-${share * 100}.png`) });
     writeFileSync(resolve(output, `comparison-${share * 100}.html`), html);
   }
-  writeFileSync(resolve(output, 'results.json'), JSON.stringify({ baselineCommit, browser: browser.version(), scope: '5x5 enclosed land fixture; center coastal hex has one sea-facing edge (east). App new-user defaults: Parchment preset with no overrides; inherited Ragged coastal irregularity. Identical baseline/candidate inputs. Rendered coverage includes coastline ink; directional redistribution compares southern-half land as a fraction of the whole hex.', comparisons, metrics }, null, 2));
+  writeFileSync(resolve(output, 'results.json'), JSON.stringify({ baselineCommit, browser: browser.version(), imageIsolation: { panels: 24, check: 'Each panel screenshot is byte-identical to its standalone render at the same pixel position.' }, scope: '5x5 enclosed land fixture; center coastal hex has one sea-facing edge (east). App new-user defaults: Parchment preset with no overrides; inherited Ragged coastal irregularity. Identical baseline/candidate inputs. Rendered coverage includes coastline ink; directional redistribution compares southern-half land as a fraction of the whole hex.', comparisons, metrics }, null, 2));
   console.log(JSON.stringify(comparisons, null, 2));
   await context.close();
 } finally { await browser.close(); }
