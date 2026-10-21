@@ -6,7 +6,7 @@ The endpoint bias is bounded over the whole hex, including projections beyond th
 
 ## Before and after
 
-Baseline: current main at `849f12f7ff5b6e8bf0048816d57d27f1f93ab101`. Both renderers receive identical inputs: a 5×5 map, fixed seed, Smooth coast, and a central coastal hex with exactly one sea-facing edge, to the east. The two selected directions are existing sides 1 (SE) and 5 (NE), which have equal facing relative to that coast. The dashed outline marks the edited hex. Each column uses the full scene renderer, spline fitting, and coastline ink.
+Baseline: current main at `849f12f7ff5b6e8bf0048816d57d27f1f93ab101`. Both renderers receive identical inputs: a 5×5 map, fixed seed, the app’s new-user Parchment preset with no style overrides, inherited Ragged coastal irregularity, and a central coastal hex with exactly one sea-facing edge, to the east. The two selected directions are existing sides 1 (SE) and 5 (NE), which have equal facing relative to that coast. These default-style images replace the earlier forced-Smooth comparisons. No map or hex irregularity is set, and `NEW_USER_STYLE_CHOICE` supplies the preset without overriding textures, water, or grid. The dashed outline marks the edited hex. Each column uses the full scene renderer, spline fitting, and coastline ink.
 
 ### 80% land target
 
@@ -18,14 +18,16 @@ Baseline: current main at `849f12f7ff5b6e8bf0048816d57d27f1f93ab101`. Both rende
 
 At 100% concentration:
 
-| Land target | Before: SE / NE land drawn | After: SE / NE land drawn | Before: directional redistribution | After: directional redistribution |
+| Land target | Before: SE / NE coast area | After: SE / NE coast area | Before: directional redistribution | After: directional redistribution |
 | --- | --- | --- | --- | --- |
-| 80% | 79.982% / 79.982% | 80.016% / 80.016% | 0.00 pp | 7.10 pp |
-| 50% | 49.999% / 49.999% | 49.999% / 49.999% | 0.00 pp | 17.98 pp |
+| 80% | 79.769% / 79.769% | 79.928% / 79.745% | 0.00 pp | 8.42 pp |
+| 50% | 50.271% / 50.271% | 50.139% / 50.103% | 0.00 pp | 10.26 pp |
 
-Redistribution measures the difference in land within the southern half when selecting SE versus NE, expressed as percentage points of the whole hex. It measures where land moves, independently of total land area. Across all 24 before/after scenes, the largest measured rendered-area error is 0.037 percentage points; no scene reports a drawing compromise. Polygon land-share error is below 0.000003 percentage points in these fixtures. Rendered measurements use 256 scanlines and include coastline ink.
+Redistribution measures the difference in land within the southern half when selecting SE versus NE, expressed as percentage points of the whole hex. It measures where land moves, independently of total land area. Across all 24 before/after scenes, the largest measured coastline-area error is 0.271 percentage points; no scene reports a drawing compromise. Polygon land-share error is below 0.000003 percentage points in these fixtures. Measurements use 256 scanlines of the outlined coastline and include coastline ink. They do not measure every painted pixel.
 
-The comparison script also checks that baseline concentration is inert, zero concentration preserves the coast, and increasing strength moves more land in the selected direction. The asymmetric geometry survives the existing downstream fitter, whose cache key already includes the changed paths and anchors; no additional spline constraint is needed for these cases. This change uses the existing six-side selector and does not introduce a separate corner selector. A direction perpendicular to the coastal edge has no tangential skew.
+**Visible remaining issue:** the default-style after images expose a fill/shoreline mismatch at nonzero concentration: coloured patches cross the outlined coast. These are unretouched scene renders, and this comparison update does not fix that painting issue. The renderer does not emit a drawing-compromise warning for it. The outline-area measurements above must not be read as proof that the painted fill matches the outline.
+
+The comparison script checks cancellation on the baseline polygon, preservation of the zero-concentration coast, and movement towards the selected side at both 50% and 100% strength. Ragged fitting can alter local details and need not move each half monotonically with strength. The asymmetric geometry survives the existing downstream fitter, whose cache key already includes the changed paths and anchors; no additional spline constraint is needed for these cases. This change uses the existing six-side selector and does not introduce a separate corner selector. A direction perpendicular to the coastal edge has no tangential skew.
 
 ## Validation
 
