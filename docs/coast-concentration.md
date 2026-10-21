@@ -6,7 +6,7 @@ The endpoint bias is bounded over the whole hex, including projections beyond th
 
 ## Before and after
 
-Baseline: current main at `849f12f7ff5b6e8bf0048816d57d27f1f93ab101`. Both renderers receive identical inputs: a 5×5 map, fixed seed, the app’s new-user Parchment preset with no style overrides, inherited Ragged coastal irregularity, and a central coastal hex with exactly one sea-facing edge, to the east. The two selected directions are existing sides 1 (SE) and 5 (NE), which have equal facing relative to that coast. These default-style images replace the earlier forced-Smooth comparisons. No map or hex irregularity is set, and `NEW_USER_STYLE_CHOICE` supplies the preset without overriding textures, water, or grid. The dashed outline marks the edited hex. Each column uses the full scene renderer, spline fitting, and coastline ink.
+Baseline: main immediately before the fix at `937a95cce10e30c5298b089470b9640ad455bec6`. The after renderer is rebased onto `ad0023e`, which includes the merged fix from PR #154. Both renderers receive identical inputs: a 5×5 map, fixed seed, the app’s new-user Parchment preset with no style overrides, inherited Ragged coastal irregularity, and a central coastal hex with exactly one sea-facing edge, to the east. The two selected directions are existing sides 1 (SE) and 5 (NE), which have equal facing relative to that coast. These default-style images replace the earlier forced-Smooth comparisons. No map or hex irregularity is set, and `NEW_USER_STYLE_CHOICE` supplies the preset without overriding textures, water, or grid. The dashed outline marks the edited hex. Each column uses the full scene renderer, spline fitting, and coastline ink.
 
 ### 80% land target
 
@@ -32,7 +32,7 @@ The comparison script checks cancellation on the baseline polygon, preservation 
 ## Validation
 
 - `npm run typecheck`
-- All 61 test files passed, run separately with `node --import tsx test/<file>.test.ts` because the sandbox prevents the `tsx` CLI IPC listener.
+- The original fix passed all 61 test files before the subsequent lake-strait merge. After rebasing onto `ad0023e`, type checking, the six concentration regressions, all 44 hex-shape tests, and the regenerated browser comparison assertions passed. Tests use `node --import tsx test/<file>.test.ts` because the sandbox prevents the `tsx` CLI IPC listener.
 - Six orientation regressions in `test/coastConcentration.test.ts`: opposite directions, zero concentration, multiple land shares including 0%, 1%, and 99%, exact polygon coverage, and redistribution after smoothing and coupled area fitting.
 - Browser comparison assertions for both 50% and 80% targets, two directions, three strengths, and both implementations.
 
@@ -44,9 +44,9 @@ From the repository root, with dependencies installed:
 
 ```sh
 mkdir -p work/coast-concentration/baseline
-git archive 849f12f7ff5b6e8bf0048816d57d27f1f93ab101 | tar -x -C work/coast-concentration/baseline
+git archive 937a95cce10e30c5298b089470b9640ad455bec6 | tar -x -C work/coast-concentration/baseline
 ln -s "$(pwd)/node_modules" work/coast-concentration/baseline/node_modules
-node scripts/coast-concentration-comparison.mjs --baseline-ref 849f12f7ff5b6e8bf0048816d57d27f1f93ab101
+node scripts/coast-concentration-comparison.mjs --baseline-ref 937a95cce10e30c5298b089470b9640ad455bec6
 ```
 
 The browser script uses the repository's Playwright browser helper. Where the runtime supplies an external driver and browser, append `--driver /path/to/playwright-core/index.mjs --chromium /path/to/chromium`. PNG comparisons, HTML contact sheets, and `results.json` are written under `work/coast-concentration/`. No live server or external browser requests are needed.

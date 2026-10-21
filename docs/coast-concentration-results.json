@@ -1,5 +1,5 @@
 {
-  "baselineCommit": "849f12f7ff5b6e8bf0048816d57d27f1f93ab101",
+  "baselineCommit": "937a95cce10e30c5298b089470b9640ad455bec6",
   "browser": "151.0.7922.173",
   "scope": "5x5 enclosed land fixture; center coastal hex has one sea-facing edge (east). App new-user defaults: Parchment preset with no overrides; inherited Ragged coastal irregularity. Identical baseline/candidate inputs. Rendered coverage includes coastline ink; directional redistribution compares southern-half land as a fraction of the whole hex.",
   "comparisons": [
