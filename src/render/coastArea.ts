@@ -9,7 +9,7 @@ import { pathPolylines } from './ice.js';
 import type { PathCmd } from './prims.js';
 
 /** Remove small fold-back loops already introduced by roughening tight caps. */
-function untangle(ring: Point[], closed: boolean): { ring: Point[]; joins: Point[] } {
+export function untangle(ring: Point[], closed: boolean): { ring: Point[]; joins: Point[] } {
   const joins: Point[] = [];
   const area = (points: Point[]) => Math.abs(points.reduce((sum, p, i) => {
     const q = points[(i + 1) % points.length]!;

@@ -135,7 +135,7 @@ export function componentCoast(chain: CoastChain, rough: Roughness, clearance: R
     }
     return cached;
   };
-  const sigma = Math.min(size * (aggregate ? 1.3 : 0.85), perimeter / 6);
+  const sigma = Math.min(size * (rough.smoothing ?? (aggregate ? 1.3 : 0.85)), perimeter / 6);
   const silhouetteKernel = kernel(sigma);
   const span = silhouetteKernel.reach;
   const paddedSource = Array.from({ length: n + 2 * span }, (_, j) => at(j - span));
@@ -323,7 +323,13 @@ export function componentCoast(chain: CoastChain, rough: Roughness, clearance: R
       detail[i] = { x: centre.x + u * cos - v * sin, y: centre.y + u * sin + v * cos };
     });
   }
-  result.splice(0, result.length, ...detail);
+  // The final easing filter must respect a two-sided geographic constraint
+  // too; otherwise it can move a pinned throat after the earlier bounds.
+  result.splice(0, result.length, ...detail.map((p, i) => {
+    const settings = edgeSettings.get(donors[i]!)!;
+    if (settings.narrow || !Number.isFinite(settings.limit)) return p;
+    return lerp(source[i]!, p, Math.min(1, settings.limit / (distance(source[i]!, p) || 1)));
+  }));
   const onResult = (arc: number) => {
     const t = arc / step, j = Math.min(n - 1, Math.floor(t));
     return lerp(result[j]!, result[chain.closed ? (j + 1) % n : Math.min(n - 1, j + 1)]!, t - j);

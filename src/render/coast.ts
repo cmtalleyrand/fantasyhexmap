@@ -438,6 +438,8 @@ export interface Roughness {
   lean?: (edge: CoastEdge) => number;
   noise: (x: number, y: number, k: number) => number;
   size: number;
+  /** Silhouette filter radius in hex sizes; constructed curved banks need only local easing. */
+  smoothing?: number;
   /** Maximum total displacement for explicit neck/channel width constraints, in pixels. */
   displacementLimit?: (edge: CoastEdge) => number;
   /** Which side of an edge with a displacement limit is the narrow passage the limit protects: the water of a strait or the land of an isthmus. Unset, the limit holds both ways. */
@@ -779,7 +781,7 @@ export function coastGeometryOf(
   const paths = chains.map(chain => {
     // An edit that splits/joins a ring changes this content key. Clearance includes
     // every nearby edge it may inspect, so approaching components invalidate too.
-    const signature = cache ? JSON.stringify([reuse?.policyKey, smooth, chain.closed, rough?.size,
+    const signature = cache ? JSON.stringify([reuse?.policyKey, smooth, chain.closed, rough?.size, rough?.smoothing,
       rough?.componentArea?.(chain), rough?.componentInk, rough?.featureSeed?.(chain),
       chain.edges.map(edge => [edge.from.x, edge.from.y, edge.to.x, edge.to.y, edge.land, edge.water,
         edge.hex, edge.across, rough?.amplitude(edge), rough?.lean?.(edge), rough?.displacementLimit?.(edge), rough?.narrowSide?.(edge)]),
