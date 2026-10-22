@@ -1,5 +1,12 @@
 # Design decisions
 
+Current drawing implementation status, versioned evidence and next work are consolidated in
+[drawing-status](docs/drawing-status.md) and [drawing-work-plan](docs/drawing-work-plan.md)
+(initially reviewed at `849f12f`, rebased and updated through `12a33d7` / PR #156, 21 October 2026).
+Measurements below belong to their recorded versions;
+in particular §§67–69 performance figures precede the rebase onto `fd8d2f6` and do not measure
+the merged PR #148 head. Historical decisions remain here to explain the implementation.
+
 A record of the choices made while building this, and why. These were decisions taken by the AI
 that wrote the code, not requirements handed down in the brief: where the brief was specific this
 document does not restate it, and where the brief left a choice open, this is what was chosen and
@@ -1154,7 +1161,7 @@ including intermediate points along long strokes; wholly inland hexes retain the
 
 **Cost.** Outline queries have more work than ellipse queries; path reuse and bounds rejection avoid
 repeating island construction. Measurement and remaining scope are in
-[`docs/drawing-investigation.md`](docs/drawing-investigation.md). The test-only pixel masks add no app work.
+[`docs/drawing-status.md`](docs/drawing-status.md). The test-only pixel masks add no app work.
 
 ## 53. Gentle rivers retract only wander that introduces a sharp kink
 
@@ -1274,7 +1281,7 @@ limit, accounting for the extra references. Pack weights use four times serializ
 glacier weights count path commands, slivers and chain edges. These are estimates, not measured heap
 bounds. Failing-before tests check repeated work and compare edited scenes with uncached reconstruction.
 The historical pre-rebase 100-run comparison against `6786d4a` passed every unchanged performance gate: warm/ownership/shore
-medians improve about 32/31/26%, and cold median costs 0.7%. See `docs/drawing-followup.md` for raw evidence,
+medians improve about 32/31/26%, and cold median costs 0.7%. See `docs/drawing-status.md` for raw evidence,
 earlier failed configurations, output comparisons and measurement limits.
 
 ## 60. Treat enclosed seas as holes in the mainland
@@ -1310,7 +1317,7 @@ relaxed movement guards were retained.
 **Continuation validation/cost.** The single pinned Parchment fixture paints 4.635% versus 5% requested.
 The full unchanged 150-case raster area gate passes after the connected repair in §62; 600 enclosed-sea
 and 200 island checks also pass. Open chains incur a bounded crossing-index scan, measured with the
-current implementation against current main as recorded in `docs/drawing-followup.md`. The earlier
+then-current implementation against its recorded main as indexed in `docs/drawing-status.md`. The earlier
 publication deliberately left this cost unverified; its old results are retained as historical evidence.
 
 ## 62. Finish an unsmoothed coast only when it misses the share gate
@@ -1372,7 +1379,7 @@ Classic's unsmoothed hex-based coast exposes abrupt cut joins at low shares. It 
 compatibility path; new users already start in Parchment. Continue retiring its picker/fallback and
 legacy preference paths with a deliberate migration, rather than further Classic-specific styling.
 Do not silently restyle saved choices or disable its correctness checks. See the owner-review note
-in `docs/drawing-next-agent.md`.
+in `docs/drawing-work-plan.md`.
 
 ## 66. Clip border-notch land to the finished coast
 
@@ -1413,7 +1420,7 @@ The isolated comparison against main `1179712` improves warm p95 205.9→81.2 ms
 The earlier failed run remains published. CPU/GC diagnostics establish repeated work and long
 collections, but not exclusive causality for that earlier p95 result. Accounting estimates are
 not measured retained heap, and the populated-map result does not erase Classic's disclosed
-tiny-fixture cold cost. See `docs/drawing-followup-connected.md` for scope and worker evidence.
+tiny-fixture cold cost. See `docs/drawing-status.md` for scope and worker evidence.
 
 ## 69. Retain exact coast paint geometry and compare performance in independent heaps
 
