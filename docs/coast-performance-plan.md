@@ -494,10 +494,11 @@ estimated payload and keys), replacing the previous scalar-only map. Within a bu
 functions are shared across layout attempts. Geometry-changing inputs invalidate final drawings;
 ownership and colour edits can reuse them. No approximate predicate or reduced fitting accuracy is
 introduced. An isolated connected benchmark and a separate production-worker study establish the
-final cost; the earlier failed benchmark remains in `drawing-followup.md`.
+final cost at that pre-rebase version; the earlier failed benchmark is indexed in
+[the consolidated status](drawing-status.md#performance-version-boundaries-matter).
 
 The newer-main shore check subsequently exposed another shared-heap tail failure. The final
 continuation retains coast paint geometry within the existing coast-cache budget and separates
 benchmark JavaScript heaps; it preserves all failed and successful intermediate records. Read
-[the connected report](drawing-followup-connected.md) for final main `6f3d5c7` / runtime `be084b1`
+[the consolidated status](drawing-status.md) for pre-rebase main `6f3d5c7` / runtime `be084b1`
 measurements, exact validation scope, the 50×50 unique-edit worker study and retained-heap limits.
