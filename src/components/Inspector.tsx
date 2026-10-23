@@ -378,7 +378,7 @@ function SurfaceTotals({ map, layer }: { map: MapState; layer: LayerId }) {
       ? CLIMATE_VALUES
       : VEGETATION_VALUES;
   const statistics = layer === 'base'
-    ? baseSurfaceStatistics(base, dimensions, map.islandSpecs, map.hexShapes)
+    ? baseSurfaceStatistics(base, dimensions, map.islandSpecs, map.hexShapes, map.cols)
     : landLayerSurfaceStatistics(
         map.layers[layer].data as (string | null)[],
         values,
@@ -386,6 +386,7 @@ function SurfaceTotals({ map, layer }: { map: MapState; layer: LayerId }) {
         dimensions,
         map.islandSpecs,
         map.hexShapes,
+        map.cols,
       );
   return (
     <div className="section">
@@ -697,10 +698,10 @@ const LAND_SHARE_STEPS = Array.from({ length: 21 }, (_, n) => n * 5);
 function HexShapePanel(props: SubProps) {
   const { map, dispatch, selected } = props;
   const base = map.layers.base.data;
-  const hexes = selected.filter((i) => isShapedType(base?.[i]) || base?.[i] === 'Lake');
+  const hexes = selected.filter((i) => isShapedType(base?.[i]) || hasLandShare(base?.[i]));
   if (hexes.length === 0) return null;
   // A lake takes an irregularity for its own shore too; unset, its shore follows the land beside it, then the map's lake setting.
-  const shaped = hexes;
+  const shaped = hexes.filter(i => base![i] !== 'Sea');
   const irregularOf = (i: number): Irregularity =>
     base![i] === 'Lake'
       ? (map.hexShapes?.[String(i)]?.type === 'Lake' ? map.hexShapes[String(i)]!.irregular : undefined) ?? map.defaultLakeIrregularity ?? DEFAULT_LAKE_IRREGULARITY
@@ -759,6 +760,9 @@ function HexShapePanel(props: SubProps) {
               : ''}
             {landHexes.some((i) => base![i] === 'Lake')
               ? ' In a lake hex this is land drawn in from the edges it shares with land (the lake keeps the rest); 0% leaves the lake as it is.'
+              : ''}
+            {landHexes.some((i) => base![i] === 'Sea')
+              ? ' In a sea hex this extends the neighbouring shore into the water. The default is 0%; open sea without a land neighbour stays water.'
               : ''}
             {landHexes.some((i) => isIslandType(base![i]))
               ? ` An island hex adds up its islands (${dims.smallIslandPercent}% for each small one, ${dims.largeIslandPercent}% for each large one, plus ${dims.mainlandPercent}% for a mainland); its islands are drawn at that size, kept apart and inside the hex; if they cannot all fit at that size they are drawn as large as they can be.`

@@ -23,7 +23,7 @@ const positive = z.number().positive();
 const channel = z.enum(CHANNEL_WIDTH_VALUES as [string, ...string[]]);
 const dimensionsSchema = z.object({
   width: positive, height: positive, unit: z.string().trim().min(1),
-  coastalLandPercent: percent.optional(), lakeLandPercent: percent.optional(),
+  coastalLandPercent: percent.optional(), seaLandPercent: percent.optional(), lakeLandPercent: percent.optional(),
   largeIslandPercent: percent.optional(), smallIslandPercent: percent.optional(),
   mainlandPercent: percent.optional(), glacierPercent: percent.optional(),
   isthmusWidth: channel.optional(), straitWidth: channel.optional(),

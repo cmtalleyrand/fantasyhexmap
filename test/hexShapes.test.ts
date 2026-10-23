@@ -104,6 +104,7 @@ test('shape settings are applied to shaped hexes only, and can be cleared', () =
     '2': { type: 'Islands', land: 40, irregular: 'Ragged' },
     // Sea Ice has irregularity but no land share.
     '3': { type: 'Sea Ice', irregular: 'Ragged' },
+    '4': { type: 'Sea', land: 40 },
   });
   assert.equal(set.journal.at(-1)?.kind, 'manual');
 
@@ -112,11 +113,11 @@ test('shape settings are applied to shaped hexes only, and can be cleared', () =
   const emptied = reducer(partial, { type: 'setHexShape', indices: [1], change: { irregular: null } });
   assert.equal('1' in emptied.hexShapes!, false);
 
-  const reset = reducer(set, { type: 'setHexShape', indices: [1, 2, 3], change: null });
+  const reset = reducer(set, { type: 'setHexShape', indices: [1, 2, 3, 4], change: null });
   assert.deepEqual(reset.hexShapes, {});
   // Nothing to change: the same map comes back.
   assert.equal(reducer(reset, { type: 'setHexShape', indices: [1, 2, 3], change: null }), reset);
-  assert.equal(reducer(map, { type: 'setHexShape', indices: [0, 4], change: { land: 10 } }), map);
+  assert.equal(reducer(map, { type: 'setHexShape', indices: [0], change: { land: 10 } }), map);
 });
 
 test('coastal, mainland and lake hexes store a bounded directional concentration', () => {
@@ -667,7 +668,7 @@ test('the scene draws an isthmus differently at different widths', () => {
   assert.notEqual(draw('Very narrow'), draw('Wide'));
 });
 
-test('an isthmus beside lakes has the lake shore moved to its land share', () => {
+test('an isthmus beside lakes uses the same land construction as beside sea', () => {
   const K: BaseGeo = 'Lake';
   const L: BaseGeo = 'Land';
   const base: BaseGeo[] = [L, L, L, L, L, K, K, L, K, K, L, L, L, L, L, L, L, L, L, L];
@@ -676,9 +677,15 @@ test('an isthmus beside lakes has the lake shore moved to its land share', () =>
   const map = mapWith(base5.map((v, i) => (i === 12 ? ('Isthmus' as BaseGeo) : v)), 5, 5);
   const surface = surfaceMap(map.layers.base.data!, 5, 5);
   assert.ok(surface.split.has(12));
-  const at = (land: number) => shapeCoast([], surface, 10, new Map([[12, { share: land, kind: 'neck' as const }]]), [])?.insets.get(12) ?? 0;
-  assert.ok(at(0.2) > at(0.4), 'less land moves the shore further into it');
-  assert.ok(at(0.95) < 0, 'more land than the hex has moves the shore out into the lake');
+  const baseSea = map.layers.base.data!.map(v => v === 'Lake' ? 'Sea' as const : v);
+  for (const share of [0.2, 0.4, 0.95]) {
+    const targets = new Map([[12, { share, kind: 'neck' as const }]]);
+    const lake = shapeCoast(coastEdges(map.layers.base.data!, 5, 5, 10), surface, 10, targets)!;
+    const sea = shapeCoast(coastEdges(baseSea, 5, 5, 10), surfaceMap(baseSea, 5, 5), 10, targets)!;
+    assert.deepEqual(lake.land, sea.land);
+    const area = lake.land.get(12)!.reduce((sum, poly) => sum + polyAreaOf(poly), 0);
+    assert.ok(Math.abs(area / (1.5 * Math.sqrt(3) * 100) - share) < 0.01);
+  }
 });
 
 test('coast ink counts as land: a full coastal hex has its coastline inside it, and neighbouring islands keep their ink apart', () => {

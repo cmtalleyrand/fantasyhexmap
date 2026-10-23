@@ -1,4 +1,4 @@
-import { baseSurfaceStatistics, landFraction, normaliseHexDimensions, politySurfaceAreas } from '../shared/surfaceArea.js';
+import { baseSurfaceStatistics, landFraction, landFractionAt, normaliseHexDimensions, politySurfaceAreas } from '../shared/surfaceArea.js';
 import { BASE_GEO_VALUES, DEFAULT_ISLAND_SPECS } from '../shared/types.js';
 import { gridView } from './grid.js';
 import type { PromptContext } from './prompts.js';
@@ -30,10 +30,10 @@ export function physicalContext(ctx: PromptContext): string {
     'Strait land fraction = 1 minus that value. Land-bearing Lake/Strait hexes still have no land-only layer values.',
   ];
   if (ctx.base) {
-    const fractions = ctx.base.map((v, i) => landFraction(v, ctx.islandSpecs?.[String(i)], dims, ctx.hexShapes?.[String(i)]));
+    const fractions = ctx.base.map((_, i) => landFractionAt(ctx.base!, i, dims, ctx.islandSpecs, ctx.hexShapes, ctx.cols));
     const rows = Array.from({ length: ctx.rows }, (_, r) => fractions.slice(r * ctx.cols, (r + 1) * ctx.cols).map((f) => String(number(f * 100))).join(' '));
     parts.push('EFFECTIVE LAND PERCENTAGE OF EACH EXISTING HEX (after all overrides):', ...gridView(rows, 'token'));
-    parts.push('Measured surface totals:', ...baseSurfaceStatistics(ctx.base, dims, ctx.islandSpecs, ctx.hexShapes)
+    parts.push('Measured surface totals:', ...baseSurfaceStatistics(ctx.base, dims, ctx.islandSpecs, ctx.hexShapes, ctx.cols)
       .map((s) => `${s.label}: ${number(s.area)} ${dims.unit}^2`));
     if (ctx.polities) {
       const areas = politySurfaceAreas(ctx.base, ctx.polities, dims, ctx.islandSpecs, ctx.hexShapes, ctx.cols);

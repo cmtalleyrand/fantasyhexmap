@@ -65,7 +65,15 @@ test('an island drawn with curves inside a lake is dry ground', () => {
 
 test('a coast patch beside a lake belongs to dry ground outside the lake body', () => {
   const {map,opts}=cases().find(c=>c.name==='lake')!;
-  assert.equal(landTestOf(buildScene(map,opts))!({x:136,y:140}),true);
+  const scene = buildScene(map, opts);
+  const bodies = scene.prims.filter((p): p is Extract<Prim, { kind: 'path' }> => p.kind === 'path' && p.fill === opts.style.palette.lake);
+  assert.ok(bodies.length > 0);
+  const wet = evenOddTest(bodies.flatMap(p => pathPolylines(p.d, 12)), 2);
+  // The old fixed dry point can move into the lake under shared shaping. Placement
+  // must agree with the finished body on both sides of this stretch of shore.
+  for (let x = 130; x <= 142; x += 2) for (let y = 134; y <= 146; y += 2) {
+    assert.equal(landTestOf(scene)!({ x, y }), !wet({ x, y }), `at ${x},${y}`);
+  }
 });
 
 test('a low-share open coast has no fold-back loops after roughening', () => {

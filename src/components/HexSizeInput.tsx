@@ -22,6 +22,7 @@ const SMALL_ISLAND_PERCENT_OPTIONS = [2.5, ...LAND_PERCENT_OPTIONS.slice(1)];
 /** The land share of each shaped type, as (field, label) for the settings below. */
 const LAND_SHARES: Array<[keyof HexDimensions, string]> = [
   ['coastalLandPercent', 'Coastal land'],
+  ['seaLandPercent', 'Sea beside land (land in the hex)'],
   ['lakeLandPercent', 'Lake (land in the hex)'],
   ['largeIslandPercent', 'Each large island'],
   ['smallIslandPercent', 'Each small island'],
@@ -280,7 +281,7 @@ export default function HexSizeInput({
           </div>
         ))}
       </div>
-      <p className="hint">An isthmus or strait is drawn at a width: how narrow the neck of land (or channel of water) is at its thinnest, as a share of the hex's width, from 5% (very narrow) to 50% (wide). Its land percentage is optional: left on Natural it is whatever the width gives; set, it tunes how much land the hex has round that width (the flared ends of a neck, the banks of a channel). Each other such hex is drawn with its share as land (a coastal hex's shore is set in from its edge; an island is drawn at its share of the hex; a lake hex is the other way round, water with this share of land drawn in from its edges against land, 0% leaving the lake as it is), and polity areas in the legend count it. An island hex adds up its islands. A single hex can override its own share in the sidebar.</p>
+      <p className="hint">An isthmus or strait is drawn at a width: how narrow the neck of land (or channel of water) is at its thinnest, as a share of the hex's width, from 5% (very narrow) to 50% (wide). Its land percentage is optional: left on Natural it is whatever the width gives; set, it tunes how much land the hex has round that width (the flared ends of a neck, the banks of a channel). Each other such hex is drawn with its share as land (a coastal hex's shore is set in from its edge; an island is drawn at its share of the hex; a lake or sea hex is the other way round, water with this share of land drawn in from its edges against land; 0% adds no shore land, and open sea without a land neighbour stays water), and polity areas in the legend count it. An island hex adds up its islands. A single hex can override its own share in the sidebar.</p>
 
       <h3>Displayed measurement rounding</h3>
       <div className="row">

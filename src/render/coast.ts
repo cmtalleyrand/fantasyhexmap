@@ -239,6 +239,23 @@ export interface CoastChain {
   closed: boolean;
 }
 
+/** Reverse a single shoreline without resampling its curves. */
+export function reverseCoastPath(path: PathCmd[]): PathCmd[] {
+  const segments = path.filter(c => c[0] !== 'Z');
+  if (!segments.length) return [];
+  const end = segments[segments.length - 1]!;
+  const out: PathCmd[] = [['M', end.at(-2) as number, end.at(-1) as number]];
+  for (let k = segments.length - 1; k > 0; k--) {
+    const c = segments[k]!, previous = segments[k - 1]!;
+    const x = previous.at(-2) as number, y = previous.at(-1) as number;
+    if (c[0] === 'Q') out.push(['Q', c[1], c[2], x, y]);
+    else if (c[0] === 'C') out.push(['C', c[3], c[4], c[1], c[2], x, y]);
+    else out.push(['L', x, y]);
+  }
+  if (path.some(c => c[0] === 'Z')) out.push(['Z']);
+  return out;
+}
+
 /** Signed enclosed area: coasts run with land on the right, so negative rings enclose water. */
 export function coastChainArea(chain: CoastChain): number {
   return chain.points.reduce((sum, a, i) => {
@@ -1173,152 +1190,6 @@ export function coastalIslandSide(
     frontier = next;
   }
   return 0;
-}
-
-/**
- * The drawn body of a lake: its hex outline, smoothed well beyond the coast's
- * eighth-of-a-hex bound, then pushed out into the surrounding land by a
- * seeded amount that varies slowly round the shore. A lake therefore reaches
- * a little into its neighbouring hexes and never reads as a stamped hexagon
- * or a row of circles. Holes (land inside the lake) come out as inner loops
- * wound the other way, so a nonzero fill leaves them as land.
- */
-export function lakeBodyPath(
-  edges: CoastEdge[],
-  size: number,
-  rand: (k: number) => number,
-  /**
-   * How much of the usual outward reach is allowed at a point on the shore
-   * (1 = all of it). The caller uses it to keep a narrow strip of land between
-   * two arms of water from being swallowed.
-   */
-  reach: (p: Point) => number = () => 1,
-  /**
-   * How irregular the shore is at a point, as the coast's amplitude (in hex sizes; 0 leaves it
-   * smooth), with `noise` a stable value in [0, 1) for a position in hex sizes and a purpose k.
-   */
-  rough?: { amplitude: (p: Point) => number; noise: (x: number, y: number, k: number) => number },
-  /**
-   * For a land hex that is only partly land (a Coastal Land hex under 100%, or an isthmus, strait or
-   * mainland beside the lake), how far in from the lake's edge its shore is drawn, in pixels, at a point
-   * on that hex (negative: out into the lake); null elsewhere. The shore then lies exactly that far in,
-   * in place of the usual outward reach, so the land left is its share.
-   */
-  inset: (p: Point) => number | null = () => null,
-): PathCmd[] {
-  const d: PathCmd[] = [];
-  chainEdges(edges).forEach((chain, c) => {
-    const corners = chain.points;
-    const n = corners.length;
-    if (n < 3) return;
-    // Sample the quadratic B-spline through the edge midpoints.
-    let pts: Point[] = [];
-    for (let k = 0; k < n; k++) {
-      const a = mid(corners[(k - 1 + n) % n]!, corners[k]!);
-      const ctrl = corners[k]!;
-      const b = mid(corners[k]!, corners[(k + 1) % n]!);
-      for (let s = 0; s < 6; s++) {
-        const t = s / 6;
-        pts.push({
-          x: (1 - t) * (1 - t) * a.x + 2 * (1 - t) * t * ctrl.x + t * t * b.x,
-          y: (1 - t) * (1 - t) * a.y + 2 * (1 - t) * t * ctrl.y + t * t * b.y,
-        });
-      }
-    }
-    const smooth = (list: Point[], passes: number): Point[] => {
-      let out = list;
-      for (let p = 0; p < passes; p++) {
-        out = out.map((q, i) => {
-          const prev = out[(i - 1 + out.length) % out.length]!;
-          const next = out[(i + 1) % out.length]!;
-          return { x: 0.25 * prev.x + 0.5 * q.x + 0.25 * next.x, y: 0.25 * prev.y + 0.5 * q.y + 0.25 * next.y };
-        });
-      }
-      return out;
-    };
-    pts = smooth(pts, 6);
-    // How far each point moves out: a few slow seeded swells round the shore,
-    // so even a one-hex lake has bays and points, and a long shore varies
-    // every few hexes rather than at every sample.
-    const perimeter = pts.reduce((sum, q, i) => sum + Math.hypot(q.x - pts[(i + 1) % pts.length]!.x, q.y - pts[(i + 1) % pts.length]!.y), 0);
-    const waves = [1, 2, 3].map((h) => ({ h, phase: rand(c * 1000 + 10 + h) * Math.PI * 2, amp: [0.07, 0.05, 0.035][h - 1]! }));
-    const local = Math.max(1, Math.round(perimeter / (size * 3)));
-    const localPhase = rand(c * 1000 + 20) * Math.PI * 2;
-    const push = pts.map((_, i) => {
-      const f = (i / pts.length) * Math.PI * 2;
-      return 0.17
-        + waves.reduce((sum, w) => sum + w.amp * Math.cos(w.h * f + w.phase), 0)
-        + 0.04 * Math.cos(local * f + localPhase);
-    });
-    const normals = pts.map((_, i) => {
-      const prev = pts[(i - 1 + pts.length) % pts.length]!;
-      const next = pts[(i + 1) % pts.length]!;
-      const dx = next.x - prev.x;
-      const dy = next.y - prev.y;
-      const len = Math.hypot(dx, dy) || 1;
-      // The lake lies to the right of the direction of travel; land to the left.
-      return { x: dy / len, y: -dx / len };
-    });
-    // The allowed reach, judged where the shore would land, then eased round
-    // the shore so a held-back stretch narrows smoothly rather than in a step.
-    const allowed = pts.map((q, i) => reach({ x: q.x + normals[i]!.x * 0.2 * size, y: q.y + normals[i]!.y * 0.2 * size }));
-    const span = 5;
-    const eased = allowed.map((_, i) => {
-      let lowest = 1;
-      let sum = 0;
-      for (let k = -span; k <= span; k++) {
-        const v = allowed[(i + k + allowed.length) % allowed.length]!;
-        lowest = Math.min(lowest, v);
-        sum += v;
-      }
-      return (lowest + sum / (2 * span + 1)) / 2;
-    });
-    const depths = pts.map((q, i) => inset({ x: q.x + normals[i]!.x * 0.2 * size, y: q.y + normals[i]!.y * 0.2 * size }));
-    const out = smooth(
-      pts.map((q, i) => {
-        const r = depths[i]! !== null ? depths[i]! : push[i]! * eased[i]! * size;
-        return { x: q.x + normals[i]!.x * r, y: q.y + normals[i]!.y * r };
-      }),
-      2,
-    );
-    // Irregularity: seeded ripples round the shore, laid on after the smoothing so they survive
-    // it. Scaled by the amplitude beside each stretch (eased so it changes gradually between
-    // hexes) and held back where the reach is, so a narrow strip of land is not cut through.
-    if (rough) {
-      const amps = pts.map((q, i) => rough.amplitude({ x: q.x + normals[i]!.x * 0.2 * size, y: q.y + normals[i]!.y * 0.2 * size }));
-      if (amps.some((a) => a > 0)) {
-        const smoothed = amps.map((_, i) => {
-          let sum = 0;
-          for (let k = -span; k <= span; k++) sum += amps[(i + k + amps.length) % amps.length]!;
-          return sum / (2 * span + 1);
-        });
-        // Three bands of wobble, each with a slowly drifting wavelength and the whole under a slowly varying
-        // strength, so the shore has calm stretches and bold ones instead of one repeating ripple.
-        const bands = [2.2, 1.2, 0.7].map((wavelength, h) => ({
-          cycles: Math.max(1, Math.round(perimeter / (wavelength * size))),
-          phase: rand(c * 1000 + 30 + h) * Math.PI * 2,
-          weight: [1, 0.7, 0.45][h]!,
-          drift: 1 + Math.floor(rand(c * 1000 + 40 + h) * 3),
-          driftPhase: rand(c * 1000 + 50 + h) * Math.PI * 2,
-          swing: 0.9 + 1.6 * rand(c * 1000 + 60 + h),
-        }));
-        const norm = Math.sqrt(bands.reduce((sum, b) => sum + b.weight * b.weight, 0));
-        const envelope = [2, 3, 5].map((harmonic, h) => ({ harmonic, phase: rand(c * 1000 + 70 + h) * Math.PI * 2, weight: [0.5, 0.4, 0.3][h]! }));
-        out.forEach((q, i) => {
-          const f = (i / pts.length) * Math.PI * 2;
-          const shape = bands.reduce((sum, b) => sum + b.weight * Math.cos(b.cycles * f + b.phase + b.swing * Math.sin(b.drift * f + b.driftPhase)), 0) / norm;
-          const strength = Math.min(1.2, Math.max(0.2, 0.8 + envelope.reduce((sum, e) => sum + e.weight * Math.cos(e.harmonic * f + e.phase), 0)));
-          // Where land is narrow the lake is held back from reaching further in, but its shore may still wander: a
-          // strip a hex wide has room for it, and without this a hex between two lakes took no irregularity at all.
-          const r = shape * strength * smoothed[i]! * 2 * Math.max(eased[i]!, 0.55) * size;
-          out[i] = { x: q.x + normals[i]!.x * r, y: q.y + normals[i]!.y * r };
-        });
-      }
-    }
-    out.forEach((q, i) => d.push([i === 0 ? 'M' : 'L', q.x, q.y]));
-    d.push(['Z']);
-  });
-  return d;
 }
 
 /**
