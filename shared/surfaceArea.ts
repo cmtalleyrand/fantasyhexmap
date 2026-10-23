@@ -13,6 +13,7 @@ import {
   type PolitiesData,
 } from './types.js';
 import { straitSharers } from './straits.js';
+import { neighbourOf, inBounds } from './hex.js';
 
 /** Dimensions saved before land shares were set per type carried one island share. */
 type StoredHexDimensions = Partial<HexDimensions> & { islandLandPercent?: number };
@@ -36,6 +37,7 @@ export function normaliseHexDimensions(value?: StoredHexDimensions): HexDimensio
     }
   }
   out.smallIslandPercent = Math.max(2.5, out.smallIslandPercent);
+  out.seaLandPercent = Number.isFinite(out.seaLandPercent) ? Math.max(0, Math.min(100, out.seaLandPercent)) : 0;
   return out;
 }
 
@@ -105,6 +107,8 @@ export function landFraction(
       return percent(dimensions.glacierPercent);
     case 'Coastal Land':
       return percent(dimensions.coastalLandPercent);
+    case 'Sea':
+      return percent(dimensions.seaLandPercent ?? 0);
     case 'Lake':
       return percent(dimensions.lakeLandPercent);
     case 'Islands':
@@ -116,6 +120,24 @@ export function landFraction(
     default:
       return 0;
   }
+}
+
+/** Sea land shares extend existing shores; open sea contributes no land area. */
+export function landFractionAt(
+  base: BaseData, index: number, dimensions: HexDimensions,
+  specs?: Record<string, IslandSpec>, shapes?: Record<string, HexShape>, cols?: number,
+): number {
+  if (base[index] === 'Sea' && cols !== undefined) {
+    const rows = base.length / cols;
+    const shore = [0, 1, 2, 3, 4, 5].some(e => {
+      const n = neighbourOf(index % cols, Math.floor(index / cols), e);
+      if (!inBounds(cols, rows, n.col, n.row)) return false;
+      const v = base[n.row * cols + n.col];
+      return v === 'Land' || v === 'Coastal Land' || v === 'Glacier';
+    });
+    if (!shore) return 0;
+  }
+  return landFraction(base[index], specs?.[String(index)], dimensions, shapes?.[String(index)]);
 }
 
 /**
@@ -163,7 +185,7 @@ export function politySurfaceAreas(
   const areas = new Map(data.polities.map((polity) => [polity.id, 0]));
   for (let index = 0; index < data.owner.length; index++) {
     const owner = data.owner[index];
-    const fraction = landFraction(base[index], specs?.[String(index)], dimensions, shapes?.[String(index)]);
+    const fraction = landFractionAt(base, index, dimensions, specs, shapes, cols);
     if (!owner) {
       // An unowned strait is shared by the realms on its banks.
       if (!cols) continue;
@@ -221,12 +243,13 @@ export function baseSurfaceStatistics(
   dimensions: HexDimensions,
   specs?: Record<string, IslandSpec>,
   shapes?: Record<string, HexShape>,
+  cols?: number,
 ): SurfaceStatistic[] {
   const hexArea = dimensions.width * dimensions.height * 0.75;
   const stats = new Map(['Land', 'Sea', 'Lake'].map((label) => [label, { label, hexCount: 0, area: 0 }]));
   for (let index = 0; index < base.length; index++) {
     const value = base[index]!;
-    const land = landFraction(value, specs?.[String(index)], dimensions, shapes?.[String(index)]);
+    const land = landFractionAt(base, index, dimensions, specs, shapes, cols);
     const water = 1 - land;
     if (land > 0) {
       const stat = stats.get('Land')!;
@@ -253,6 +276,7 @@ export function landLayerSurfaceStatistics(
   dimensions: HexDimensions,
   specs?: Record<string, IslandSpec>,
   shapes?: Record<string, HexShape>,
+  cols?: number,
 ): SurfaceStatistic[] {
   const hexArea = dimensions.width * dimensions.height * 0.75;
   const stats = new Map(orderedValues.map((label) => [label, { label, hexCount: 0, area: 0 }]));
@@ -262,7 +286,7 @@ export function landLayerSurfaceStatistics(
     const stat = stats.get(value);
     if (!stat) continue;
     stat.hexCount++;
-    stat.area += hexArea * landFraction(base[index], specs?.[String(index)], dimensions, shapes?.[String(index)]);
+    stat.area += hexArea * landFractionAt(base, index, dimensions, specs, shapes, cols);
   }
   return [...stats.values()].filter((stat) => stat.hexCount > 0);
 }

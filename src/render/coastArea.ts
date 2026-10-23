@@ -260,6 +260,9 @@ export function fitCoastAreas(geometry: CoastGeometry, targets: ReadonlyMap<numb
   const initial = profileTime('fit.measure', () => measureAll(rings, touched));
   const want = new Map([...touched].map(h => [h, targets.get(h)?.share ?? initial.get(h)!]));
   let shown = initial;
+  // Bound the total deformation, not just each accepted step. Otherwise eight
+  // individually gentle steps can stretch a short cape into a long spike.
+  const referenceRings = rings;
   for (let round = 0; round < rounds; round++) {
     phase('field');
     profileCount('fit.rounds');
@@ -429,7 +432,7 @@ export function fitCoastAreas(geometry: CoastGeometry, targets: ReadonlyMap<numb
     for (const scale of [1, 0.5, 0.25, 0.125]) {
       profileCount('fit.trials');
       const trial = moveBy(scale);
-      if (!distorts(rings, trial) && !newCrossings(rings, trial, closed, size)) { next = trial; break; }
+      if (!distorts(referenceRings, trial) && !distorts(rings, trial) && !newCrossings(rings, trial, closed, size)) { next = trial; break; }
     }
     if (!next) break;
     // Keep closed rings closed on their first point.

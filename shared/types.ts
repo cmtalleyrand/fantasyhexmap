@@ -198,18 +198,17 @@ export function isShapedType(value: BaseGeo | null | undefined): boolean {
 }
 
 /**
- * Types with a land share: every shaped type but Sea Ice, which is all water, and Lake, which
- * is the other way round from a coast: water with some land (shore, mudflats) drawn in from
- * the edges it shares with land. A lake has no irregularity of its own (its shore takes the
- * land beside it, see `lakeShoreIrregularity`), so it is not a shaped type.
+ * Types with a land share: every shaped type but Sea Ice, plus Sea and Lake.
+ * Water hexes can grow shore land from their land-facing edges. Sea inherits shore
+ * irregularity from land; Lake also supports its own override and map default.
  */
 export function hasLandShare(value: BaseGeo | null | undefined): boolean {
-  return value === 'Lake' || (isShapedType(value) && value !== 'Sea Ice');
+  return value === 'Sea' || value === 'Lake' || (isShapedType(value) && value !== 'Sea Ice');
 }
 
 /** Types whose land can be biased towards one edge without changing its total share. */
 export function hasLandConcentration(value: BaseGeo | null | undefined): boolean {
-  return value === 'Coastal Land' || value === 'Mainland and islands' || value === 'Lake';
+  return value === 'Coastal Land' || value === 'Mainland and islands' || value === 'Lake' || value === 'Sea';
 }
 
 /**
@@ -249,7 +248,7 @@ export const DEFAULT_IRREGULARITY: Record<BaseGeo, Irregularity> = {
 /**
  * What a person has set on one shaped hex. `land` is the percentage of the hex
  * that is land, replacing the share its type would give it; `irregular` is how
- * ragged its outline is. A coast, mainland or lake may also concentrate its land towards
+ * ragged its outline is. A coast, mainland, sea or lake may also concentrate its land towards
  * one side. `type` is the base type the settings were made for: they are ignored
  * once the hex becomes something else.
  */
@@ -279,7 +278,7 @@ export function hexShapeFor(
 ): { land?: number; width?: ChannelWidth; straitJunctionSide?: number; irregular: Irregularity; concentrationSide?: number; concentration?: number } {
   const fallback = mapDefault && IRREGULARITY_VALUES.includes(mapDefault) && isShapedType(value) ? mapDefault : undefined;
   const irregular = fallback ?? (value ? DEFAULT_IRREGULARITY[value] : 'Smooth');
-  if (!value || !stored || stored.type !== value || !(isShapedType(value) || value === 'Lake')) return { irregular };
+  if (!value || !stored || stored.type !== value || !(isShapedType(value) || hasLandShare(value))) return { irregular };
   const land = hasLandShare(value) && typeof stored.land === 'number' && Number.isFinite(stored.land)
     ? Math.max(0, Math.min(100, stored.land))
     : undefined;
@@ -291,7 +290,7 @@ export function hexShapeFor(
     ...(land !== undefined ? { land } : {}),
     ...(width !== undefined ? { width } : {}),
     ...(straitJunctionSide !== undefined ? { straitJunctionSide } : {}),
-    irregular: IRREGULARITY_VALUES.includes(stored.irregular as Irregularity) ? (stored.irregular as Irregularity) : irregular,
+    irregular: value !== 'Sea' && IRREGULARITY_VALUES.includes(stored.irregular as Irregularity) ? (stored.irregular as Irregularity) : irregular,
     ...(hasLandConcentration(value) && Number.isInteger(stored.concentrationSide) && stored.concentrationSide! >= 0 && stored.concentrationSide! < 6
       ? { concentrationSide: stored.concentrationSide }
       : {}),
@@ -718,6 +717,8 @@ export interface HexDimensions {
   unit: string;
   /** Share of a hex that is land, by type, unless a hex sets its own (`MapState.hexShapes`). */
   coastalLandPercent: number;
+  /** Land extending from a neighbouring shore into a Sea hex. Defaults to zero. */
+  seaLandPercent: number;
   /** Land in a lake hex, drawn in from the edges it shares with land: the reverse of coastal land. */
   lakeLandPercent: number;
   /** Share of an island hex taken by each large island, and by each small one. */
@@ -748,6 +749,7 @@ export const DEFAULT_HEX_DIMENSIONS: HexDimensions = {
   height: 11.5470053838,
   unit: 'km',
   coastalLandPercent: 80,
+  seaLandPercent: 0,
   lakeLandPercent: 10,
   largeIslandPercent: 15,
   smallIslandPercent: 5,

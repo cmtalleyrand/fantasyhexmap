@@ -115,7 +115,9 @@ test('unchanged placement inputs reuse every search, while marker, font and terr
   const lake = structuredClone(map); lake.layers.base.data![5 * 12 + 7] = 'Lake';
   const landResult = profiled(lake, marker);
   assert.ok(landResult.profile.counters['symbols.revalidatedFits']! > 0);
-  assert.ok(landResult.profile.counters['symbols.searches']! > 0);
+  // A lake no longer bulges into its neighbours independently of their shares.
+  // Removed symbols need no new search; surviving probes must still be revalidated.
+  assert.notDeepEqual(landResult.scene, fontResult.scene);
   assert.deepEqual(landResult.scene, buildStaticScene(lake, { ...marker, cache: 'off' }));
 });
 

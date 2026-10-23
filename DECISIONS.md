@@ -1444,3 +1444,46 @@ Final runtime `be084b1` against main `6f3d5c7`, 100 warm/edit samples and five c
 199.3→80.1 ms, ownership 205.9→77.1, shore 269.2→157.7; cold median +0.8%, p95 −2.4%. The gate
 passes. Separate 50×50 production-worker and retained-heap evidence, including remaining costs,
 is recorded in the connected report. Do not claim all investigation items or all latency are solved.
+
+## Shared sea and lake coast geometry; land in shore-adjacent Sea hexes
+
+**Chosen.** Trace land against both sea and lake water, shape those shores with the same
+`shapeCoast` / `coastGeometryOf` pipeline, and fit their final land areas together with
+`fitCoastAreas`. Remove `lakeBodyPath` and the lake-only correction passes. Water identity
+remains available for lake colours, names, islands, masks and realm bands. Lake outlines may
+change; their old extra smoothing and outward bulges are deliberately removed. Hex-edge styles
+now apply equally to lakes. Lake classification as Coastal Land is handled separately upstream.
+
+**Settings.** Preserve the existing Lake land default (currently 10%), concentration and
+irregularity precedence: the lake's explicit override, the adjacent land's explicit override,
+then the lake default. Sea gains `hexDimensions.seaLandPercent`, default 0, and per-hex land
+and concentration overrides. It grows shore land from a whole-land neighbour, never an isolated
+island in open water. Sea irregularity still comes from its land neighbour. Saved maps without
+the field load at zero. Surface totals and physical prompt context use grid-aware sea shares.
+
+**Coupling.** A water hex growing land owns its initial boundary; independently cutting its
+land neighbour would strand that strip. The shared fitter measures both requests together,
+counts coastline ink once, preserves constrained passages, and reports achievable coverage.
+A land hex between sea and lake has one target measured against both shores. A lake-specific
+curve fix must now be expressed as a shared geometry fix or an explicit input policy; it must
+not introduce a second curve builder. The parity tests in `test/sharedShorelines.test.ts` exercise
+matching sea/lake policies through scene construction as well as through the geometry routines.
+
+**Validation and cost.** The complete Node suite, TypeScript checks and production build pass.
+Standalone SVGs were rendered with librsvg for visual inspection. The subsequent Chromium
+checks passed: all 18 Canvas/SVG coastal-paint cases, 21 finished-picture fixtures, 150 area
+cases, 200 island cases, 600 enclosed-water cases and 400 river seeds, with unchanged thresholds.
+Commands, browser results and benchmark details are in `docs/shared-shorelines.md`. Dense maps containing many small lakes
+have higher cold-build cost from fitting all shore shares together; exact cached redraws reuse
+those results. This change does not claim to solve that remaining performance cost.
+
+
+### Lake outline correction after rebasing onto a903a60
+
+Shared area fitting bounds cumulative distortion as well as each individual
+step, preventing repeated fitting from stretching small details into spikes.
+Upstream local lake-passage controls remain, applied to a stable shared-engine
+shore and incorporated into the final common geometry. Concentrated water holes
+remain water even when their hex centre lies outside them. Earlier browser
+results apply to the pre-rebase revision; see docs/shared-shorelines.md for
+current validation scope.

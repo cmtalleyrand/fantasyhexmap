@@ -768,40 +768,6 @@ function reshapeSplit(hex: Split, target: number, hexArea: number): Reshaped {
 }
 
 /**
- * How far a lake's shore beside a split hex must move from the boundary of the hex's
- * water pieces for the land left to be `target` of `hexArea`: into the land (positive)
- * when the hex has more land than that, into the water (negative) when it has less.
- * The boundary of every water piece (or land piece) moves by the same distance.
- */
-function lakeShoreOffset(land: Frag[], water: Frag[], target: number, hexArea: number, domain: Poly): number {
-  const natural = land.reduce((sum, f) => sum + polyArea(f.poly), 0) / hexArea;
-  if (Math.abs(natural - target) < 1e-5) return 0;
-  const shrinking = target < natural;
-  const dilate = (poly: Poly, d: number): Poly => {
-    let out = domain;
-    for (let k = 0; k < poly.length && out.length > 0; k++) out = cut(out, poly[k]!, poly[(k + 1) % poly.length]!, -d, 'right');
-    return out;
-  };
-  const landAt = (d: number): number => {
-    if (shrinking) {
-      const wet = water.map((w) => dilate(w.poly, d));
-      return land.reduce((sum, l) => sum + without(l.poly, wet).reduce((a, p) => a + polyArea(p), 0), 0) / hexArea;
-    }
-    const dry = land.map((l) => dilate(l.poly, d));
-    const taken = water.reduce((sum, w) => sum + without(w.poly, []).reduce((a, p) => a + polyArea(p), 0) - without(w.poly, dry).reduce((a, p) => a + polyArea(p), 0), 0);
-    return natural + taken / hexArea;
-  };
-  let low = 0;
-  let high = Math.hypot(domain[0]!.x - domain[2]!.x, domain[0]!.y - domain[2]!.y);
-  for (let k = 0; k < 36 && high - low > high * 1e-6; k++) {
-    const mid = (low + high) / 2;
-    if (shrinking ? landAt(mid) > target : landAt(mid) < target) low = mid;
-    else high = mid;
-  }
-  return shrinking ? (low + high) / 2 : -(low + high) / 2;
-}
-
-/**
  * What reshaping a split hex to `land` moves against the pieces it was cut into:
  * the land the pieces had and `land` does not (water drawn over it, in the donor
  * of the nearest water), and the water `land` takes (land drawn over it).
@@ -834,17 +800,14 @@ function reshapeCoastHex(
   corners: Poly,
   wet: CoastEdge[],
   target: number,
-  lake: CoastEdge[] = [],
   concentrationSide?: number,
   concentration = 0,
   joins: number[] = [],
   /** Seeded factors near 1, by edge: how much more or less each sea edge is cut. */
   bias?: readonly number[],
 ): Reshaped | null {
-  if (wet.length === 0 && lake.length === 0) return null;
+  if (wet.length === 0) return null;
   if (target >= 1) return null;
-  // Edges against a lake count towards the depth but are not cut: the lake is drawn over the hex.
-  const allWet = [...wet, ...lake];
   const strength = concentration / 100;
   // Cut back the same depth from every sea edge, each hex along a coast became the same
   // bulge, a mirror image of itself repeated hex after hex. Each edge is cut a seeded
@@ -877,7 +840,7 @@ function reshapeCoastHex(
     concentratedCut(poly, edge.from, edge.to, depth * multiplier(edge), keep, corners, concentrationSide, strength);
   const full = polyArea(corners);
   const share = Math.max(0, Math.min(1, target));
-  if (joins.length && !lake.length && share > 0) {
+  if (joins.length && share > 0) {
     const centre = centroid(corners), size = Math.hypot(corners[0]!.x - centre.x, corners[0]!.y - centre.y);
     const landAt = (depth: number) => {
       let core = corners;
@@ -906,17 +869,17 @@ function reshapeCoastHex(
   let high = Math.hypot(corners[0]!.x - corners[3]!.x, corners[0]!.y - corners[3]!.y);
   // Strong concentration can leave a shallow endpoint; bracket the whole
   // hex before searching so even very small requested shares remain reachable.
-  const remaining = (depth: number) => allWet.reduce((shape, edge) => clip(shape, edge, depth, 'right'), corners);
+  const remaining = (depth: number) => wet.reduce((shape, edge) => clip(shape, edge, depth, 'right'), corners);
   while (polyArea(remaining(high)) / full > share) high *= 2;
   for (let k = 0; k < 32; k++) {
     const middle = (low + high) / 2;
     let shape = corners;
-    for (const edge of allWet) shape = clip(shape, edge, middle, 'right');
+    for (const edge of wet) shape = clip(shape, edge, middle, 'right');
     if (shape.length >= 3 && polyArea(shape) / full > share) low = middle;
     else high = middle;
   }
   const depth = (concentrationSide === undefined || strength === 0) && !bias
-    ? landInsetDepth(corners, allWet, target)
+    ? landInsetDepth(corners, wet, target)
     : (low + high) / 2;
   const strips: Frag[] = [];
   let rest: Poly = corners;
@@ -932,7 +895,7 @@ function reshapeCoastHex(
   // from its neighbours in to its middle, the way a neck is. (A hex whose land
   // edges adjoin one another keeps its shore: the wedges between them already hold
   // the share, so `centredLand` declines.)
-  if (!lake.length && rest.length > 0 && (!inside(centroid(corners), rest) || (2 * polyArea(rest)) / perimeter(rest) < THIN_LAND * radiusOf(corners))) {
+  if (rest.length > 0 && (!inside(centroid(corners), rest) || (2 * polyArea(rest)) / perimeter(rest) < THIN_LAND * radiusOf(corners))) {
     const centred = centredLand(corners, wet, share, concentrationSide, strength);
     if (centred) return { ...centred, depth };
   }
@@ -990,8 +953,6 @@ function centredLand(corners: Poly, wet: CoastEdge[], share: number, concentrati
 
 /** What reshaping a hex gives and takes, and the land it is left with. */
 export interface HexShape {
-  /** A split hex beside a lake: only the lake's shore moves, by `depth`, and nothing else is reshaped. */
-  lake?: boolean;
   depth?: number;
   strips: Frag[];
   grown: Frag[];
@@ -1015,7 +976,7 @@ const toPath = (poly: Poly): PathCmd[] => [...poly.map((q, k) => [k === 0 ? 'M' 
 export type ShapeMemo = Map<string, { sig: string; result: HexShape | null }>;
 
 export interface ShapedCoast {
-  /** The sea coast, traced round the land as reshaped. */
+  /** Every coast, traced round the land as reshaped. */
   edges: CoastEdge[];
   /** Land drawn as water. Never overlapping, so they can be cut out of a clip together. */
   strips: Sliver[];
@@ -1025,14 +986,15 @@ export interface ShapedCoast {
   water: Map<number, PathCmd[]>;
   /** The land each reshaped hex is left with, by hex. */
   land: Map<number, Poly[]>;
-  /** How far in from its edges each cut coast hex was cut (see `lakeBodyPath`, which draws a lake shore that far in). */
+  /** Construction depth of each cut coast hex. */
   insets: Map<number, number>;
 }
 
 /**
  * What a hex is to be reshaped to: the part of it that is land, and how.
  *
- * - `inset`: the hex cut back from its sea-facing edges (a coast hex, or any hex with no land beside it).
+ * - `water`: shore land grown into a water hex from its land-facing edges.
+ * - `inset`: the hex cut back from its water-facing edges (a coast hex, or any hex with no land beside it).
  * - `neck`: land of uniform width from the middle to each land neighbour (an isthmus).
  * - `channel`: water of uniform width from the middle to each sea neighbour, the
  *   land being what it leaves (a strait).
@@ -1043,7 +1005,7 @@ export interface ShapedCoast {
  */
 export interface ShapeTarget {
   share: number;
-  kind: 'inset' | 'neck' | 'channel' | 'shore';
+  kind: 'inset' | 'neck' | 'channel' | 'water';
   concentrationSide?: number;
   concentration?: number;
   /**
@@ -1066,35 +1028,23 @@ export interface ShapeTarget {
 }
 
 /**
- * Reshape the hexes in `targets` and trace the sea coast again round the result.
- * `seaEdges` is the coast of the hexes as they are (`surfaceEdges`): a coast hex
+ * Reshape the hexes in `targets` and trace every land/water shore round the result.
+ * `shoreEdges` is the coast of the hexes as they are (`surfaceEdges`): a coast hex
  * is cut back from its edges. Null when nothing needs to move, which leaves the
  * coast as it was traced.
  */
 export function shapeCoast(
-  seaEdges: CoastEdge[],
+  shoreEdges: CoastEdge[],
   surface: SurfaceMap,
   size: number,
   targets: ReadonlyMap<number, ShapeTarget>,
-  /** The edges hexes have against a lake: they count towards a coast hex's depth but are not cut. */
-  lakeEdges: CoastEdge[] = [],
   /** What each hex was last cut to, kept between calls on the same coast: a hex whose share has not changed is not cut again. */
   memo?: ShapeMemo,
 ): ShapedCoast | null {
   const { cols, rows } = surface;
   const hexArea = 1.5 * Math.sqrt(3) * size * size;
-  const shoreEdges = new Map<number, CoastEdge[]>();
-  for (const edge of seaEdges) {
-    // A split hex's water donor can be a distant lake hex. Only an
-    // actual shared hex edge can grow land into that lake hex.
-    if (edge.across !== undefined && targets.get(edge.across)?.kind === 'shore') shoreEdges.set(edge.across, [...(shoreEdges.get(edge.across) ?? []), edge]);
-  }
-  const lakeWet = new Map<number, CoastEdge[]>();
-  for (const edge of lakeEdges) {
-    if (edge.hex !== undefined && targets.has(edge.hex) && !surface.split.has(edge.hex)) lakeWet.set(edge.hex, [...(lakeWet.get(edge.hex) ?? []), edge]);
-  }
   const wetEdges = new Map<number, CoastEdge[]>();
-  for (const edge of seaEdges) {
+  for (const edge of shoreEdges) {
     if (edge.hex !== undefined && targets.has(edge.hex) && !surface.split.has(edge.hex)) {
       wetEdges.set(edge.hex, [...(wetEdges.get(edge.hex) ?? []), edge]);
     }
@@ -1106,9 +1056,13 @@ export function shapeCoast(
     const row = Math.floor(i / cols);
     const split = surface.split.get(i);
     const corners = hexCorners(col, row, size);
-    if (kind === 'shore') {
-      const against = shoreEdges.get(i) ?? [];
-      if (!against.length) return null;
+    if (kind === 'water') {
+      const against = shoreEdges.filter(e => e.across === i && e.hex !== undefined && surface.whole[e.hex] === 'land' && !surface.split.has(e.hex));
+      if (!against.length || share <= 0) return null;
+      if (share >= 1) {
+        return { strips: [], grown: [{ poly: corners, donor: against[0]!.land }], water: [],
+          land: [{ poly: corners, hex: i, donor: against[0]!.land }] };
+      }
       // Land grows into a lake only from its existing land-facing edges.
       const c = hexCenter(col, row, size), chosen = concentrationSide === undefined ? null : {
         x: (corners[concentrationSide]!.x + corners[(concentrationSide + 1) % 6]!.x) / 2 - c.x,
@@ -1116,7 +1070,7 @@ export function shapeCoast(
       };
       const factors = against.map(e => {
         const x = (e.from.x + e.to.x) / 2 - c.x, y = (e.from.y + e.to.y) / 2 - c.y;
-        return chosen ? 1 + 0.9 * (concentration ?? 0) / 100 * (x * chosen.x + y * chosen.y) / (Math.hypot(x, y) * Math.hypot(chosen.x, chosen.y)) : 1;
+        return chosen ? Math.exp(3 * (concentration ?? 0) / 100 * (x * chosen.x + y * chosen.y) / (Math.hypot(x, y) * Math.hypot(chosen.x, chosen.y))) : 1;
       });
       const waterAt = (depth: number) => against.reduce((p, e, k) => cut(p, e.to, e.from, depth * factors[k]!, 'right'), corners);
       let low = 0, high = size * 2;
@@ -1139,22 +1093,18 @@ export function shapeCoast(
         return surface.split.get(j)?.sides[6 + (e + 3) % 6] === 'land' || surface.whole[j] === 'land';
       }) : [];
       // (A hex joining a passage keeps an even cut: its join is the passage's root.)
-      const result = reshapeCoastHex(corners, wetEdges.get(i) ?? [], share, lakeWet.get(i) ?? [], concentrationSide, concentration, joins, joins.length ? undefined : bankBias);
+      // A neighbouring water hex which grows land owns this initial boundary.
+      // Cutting its land neighbour back independently would strand the grown strip
+      // as an island. The final coupled fit resolves both hexes' area requests.
+      const wet = (wetEdges.get(i) ?? []).filter(e => targets.get(e.water)?.kind !== 'water');
+      const result = reshapeCoastHex(corners, wet, share, concentrationSide, concentration, joins, joins.length ? undefined : bankBias);
       return result ? { depth: result.depth, strips: result.strips, grown: [], land: result.land.map((poly) => ({ poly, hex: i, donor: i })) } : null;
     }
     const pieces = split.sides.map((side, p) => ({ side, poly: piecePoints(col, row, p, size), donor: split.donors[p]! }));
     const land = pieces.filter((p) => p.side === 'land');
-    if (split.sides.some((s) => s === 'lake')) {
-      // A lake has a body of its own, drawn over the hex: only its shore moves (see `lakeBodyPath`).
-      const c = hexCenter(col, row, size);
-      const r = size * 3;
-      const domain: Poly = [{ x: c.x - r, y: c.y - r }, { x: c.x + r, y: c.y - r }, { x: c.x + r, y: c.y + r }, { x: c.x - r, y: c.y + r }];
-      const offset = lakeShoreOffset(land, pieces.filter((p) => p.side === 'lake'), share, hexArea, domain);
-      return offset === 0 ? null : { depth: offset, strips: [], grown: [], land: [] , lake: true };
-    }
-    const water = pieces.filter((p) => p.side === 'sea');
+    const water = pieces.filter((p) => p.side !== 'land');
     const dry = [0, 1, 2, 3, 4, 5].filter((e) => split.sides[6 + e] === 'land');
-    const wet = [0, 1, 2, 3, 4, 5].filter((e) => split.sides[6 + e] === 'sea');
+    const wet = [0, 1, 2, 3, 4, 5].filter((e) => split.sides[6 + e] !== 'land');
     // A strait or isthmus of a set width has no share to find (see `fixedLand`).
     if (width !== undefined && kind !== 'inset') {
       if (dry.length === 0 || wet.length === 0) return null;
@@ -1204,7 +1154,7 @@ export function shapeCoast(
       const n = neighbourOf(i % cols, Math.floor(i / cols), e);
       if (!inBounds(cols, rows, n.col, n.row)) return '-';
       const j = hexIndex(cols, n.col, n.row);
-      return code(j) + (target.kind === 'channel' ? `:${targets.get(j)?.share ?? ''}` : '');
+      return code(j) + (targets.get(j)?.kind === 'water' ? ':shore-growth' : '') + (target.kind === 'channel' ? `:${targets.get(j)?.share ?? ''}` : '');
     })].join('|');
     const memoKey = `${size}:${cols}:${rows}:${i}`;
     let done = memo?.get(memoKey);
@@ -1218,7 +1168,6 @@ export function shapeCoast(
     grown.push(...result.grown);
     if (result.water) waterLeft.set(i, result.water);
     if (result.depth !== undefined) insets.set(i, result.depth);
-    if (result.lake) continue;
     // Pocket repair appends land pieces below. Keep the memoized construction
     // immutable so a later render does not inherit a previous pass's repairs.
     reshaped.set(i, [...result.land]);
@@ -1244,11 +1193,11 @@ export function shapeCoast(
     if (split) {
       const out: Land[] = [];
       split.sides.forEach((side, p) => {
-        if (side !== 'sea') out.push({ poly: piecePoints(col, row, p, size), hex: i, donor: split.donors[p]! });
+        if (side === 'land') out.push({ poly: piecePoints(col, row, p, size), hex: i, donor: split.donors[p]! });
       });
       return out;
     }
-    return surface.whole[i] === 'land' || surface.whole[i] === 'lake' ? [{ poly: hexCorners(col, row, size), hex: i, donor: i }] : [];
+    return surface.whole[i] === 'land' ? [{ poly: hexCorners(col, row, size), hex: i, donor: i }] : [];
   };
   const byHex = new Map<number, Land[]>();
   const lands = (i: number): Land[] => {
@@ -1267,7 +1216,7 @@ export function shapeCoast(
     stripsOf.set(j, [...(stripsOf.get(j) ?? []), frag]);
   }
 
-  const edges: CoastEdge[] = seaEdges.filter((e) => e.hex === undefined || !touched.has(e.hex));
+  const edges: CoastEdge[] = shoreEdges.filter((e) => e.hex === undefined || !touched.has(e.hex));
   for (const i of [...touched].sort((u, v) => u - v)) {
     const col = i % cols;
     const row = Math.floor(i / cols);
@@ -1329,13 +1278,13 @@ export function shapeCoast(
   // A small closed, water-facing loop that holds no sea hex is a pocket left
   // where independently reshaped hexes fail to meet (a strait's banks, the joins
   // of the coast beside it, two cut-back coasts), not a body of water anyone
-  // asked for: there is no lake there, and lakes are drawn by their own stage.
+  // asked for: no source water hex lies inside it.
   // Resolve these from the actual traced boundary, across however many hexes
   // the pocket spans; convex decomposition alone can miss them.
   const inland = new Set<CoastEdge>();
   const seaCentres: Point[] = [];
   for (let j = 0; j < surface.whole.length; j++) {
-    if (surface.whole[j] === 'sea') seaCentres.push(hexCenter(j % cols, Math.floor(j / cols), size));
+    if (surface.whole[j] === 'sea' || surface.whole[j] === 'lake') seaCentres.push(hexCenter(j % cols, Math.floor(j / cols), size));
   }
   for (const chain of chainEdges(joined)) {
     if (!chain.closed) continue;
@@ -1343,6 +1292,9 @@ export function shapeCoast(
     if (signed >= 0 || -signed / 2 > hexArea * 0.5) continue;
     const outline = chain.edges.map(e => e.from);
     if (seaCentres.some(c => enclosed(c, outline))) continue;
+    // Concentration can move a small water body away from its hex centre.
+    // Its explicitly grown shore is not an accidental inland pocket.
+    if (chain.edges.some(e => e.hex !== undefined && targets.get(e.hex)?.kind === 'water')) continue;
     const pieces = triangles(outline);
     if (!pieces.length || Math.abs(pieces.reduce((sum, p) => sum + polyArea(p), 0) - polyArea(outline)) > 1e-6) continue;
     const owners = pieces.map(p => nearestHex(centroid(p), cols, rows, size));
@@ -1358,7 +1310,7 @@ export function shapeCoast(
       if (!split) continue;
       const mine = pieces.filter((_, k) => owners[k] === i);
       split.sides.forEach((side, p) => {
-        if (side !== 'sea') return;
+        if (side === 'land') return;
         for (const poly of mine) {
           const made = within(poly, piecePoints(i % cols, Math.floor(i / cols), p, size));
           if (made.length) grown.push({ poly: made, donor });

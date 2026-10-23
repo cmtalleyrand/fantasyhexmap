@@ -1042,10 +1042,11 @@ test('a lake is treated as sea by realms: its shore carries the band and no real
     if (polityStyle === 'wash') {
       // The band strokes the drawn shore, inside a mask that cuts the lake out.
       const masks = flatPrims(prims).filter((p): p is Extract<Prim, { kind: 'group' }> => p.kind === 'group' && p.clipRule === 'evenodd' && JSON.stringify(p.clip).includes(JSON.stringify(body[0])));
-      assert.equal(masks.length, 1);
-      const stroke = flatPrims(masks[0]!.prims).find((p) => p.kind === 'path') as Extract<Prim, { kind: 'path' }>;
+      const bandMask = masks.find(mask => flatPrims(mask.prims).some(p => p.kind === 'path' && p.stroke && /170,\s*51,\s*51|#aa3333/i.test(p.stroke)));
+      assert.ok(bandMask, 'realm band is clipped against the final lake shore');
+      const stroke = flatPrims(bandMask.prims).find((p) => p.kind === 'path' && p.stroke && /170,\s*51,\s*51|#aa3333/i.test(p.stroke)) as Extract<Prim, { kind: 'path' }>;
       assert.ok(JSON.stringify(stroke.d).includes(JSON.stringify(body[0])), 'the band follows the lake shore');
-      assert.ok(JSON.stringify(masks[0]!.clip).includes(JSON.stringify(body[0])), 'the lake is cut out of the band');
+      assert.ok(JSON.stringify(bandMask.clip).includes(JSON.stringify(body[0])), 'the lake is cut out of the band');
     }
   }
 });

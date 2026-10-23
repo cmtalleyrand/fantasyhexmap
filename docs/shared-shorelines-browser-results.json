@@ -1,0 +1,435 @@
+{
+  "browser": "151.0.7922.173",
+  "status": "passed",
+  "thresholdsChanged": false,
+  "commands": [
+    "node scripts/coast-paint-validation.mjs --driver /opt/codex/runtimes/cua/lib/node_modules/playwright-core/index.mjs --chromium /usr/bin/chromium --output work/shared-shorelines/browser-coast-paint --check",
+    "node scripts/drawing-investigation.mjs --driver /opt/codex/runtimes/cua/lib/node_modules/playwright-core/index.mjs --chromium /usr/bin/chromium --output work/shared-shorelines/browser-drawing --check",
+    "node scripts/drawing-investigation-extended.mjs --driver /opt/codex/runtimes/cua/lib/node_modules/playwright-core/index.mjs --chromium /usr/bin/chromium --output work/shared-shorelines/browser-sweeps --check"
+  ],
+  "coastalPaint": [
+    {
+      "layout": "peninsula",
+      "irregular": "Wavy",
+      "mode": "wash",
+      "bandGaps": 0,
+      "maxBandDelta": 0,
+      "tintSeams": 0,
+      "maxTintDelta": 0,
+      "svgBandGaps": 0,
+      "svgTintSeams": 0
+    },
+    {
+      "layout": "peninsula",
+      "irregular": "Wavy",
+      "mode": "tint",
+      "bandGaps": 0,
+      "maxBandDelta": 0,
+      "tintSeams": 0,
+      "maxTintDelta": 2,
+      "svgBandGaps": 0,
+      "svgTintSeams": 0
+    },
+    {
+      "layout": "peninsula",
+      "irregular": "Ragged",
+      "mode": "wash",
+      "bandGaps": 0,
+      "maxBandDelta": 0,
+      "tintSeams": 0,
+      "maxTintDelta": 0,
+      "svgBandGaps": 0,
+      "svgTintSeams": 0
+    },
+    {
+      "layout": "peninsula",
+      "irregular": "Ragged",
+      "mode": "tint",
+      "bandGaps": 0,
+      "maxBandDelta": 0,
+      "tintSeams": 0,
+      "maxTintDelta": 2,
+      "svgBandGaps": 0,
+      "svgTintSeams": 0
+    },
+    {
+      "layout": "peninsula",
+      "irregular": "Fractured",
+      "mode": "wash",
+      "bandGaps": 0,
+      "maxBandDelta": 0,
+      "tintSeams": 0,
+      "maxTintDelta": 0,
+      "svgBandGaps": 0,
+      "svgTintSeams": 0
+    },
+    {
+      "layout": "peninsula",
+      "irregular": "Fractured",
+      "mode": "tint",
+      "bandGaps": 0,
+      "maxBandDelta": 0,
+      "tintSeams": 0,
+      "maxTintDelta": 2,
+      "svgBandGaps": 0,
+      "svgTintSeams": 0
+    },
+    {
+      "layout": "island",
+      "irregular": "Wavy",
+      "mode": "wash",
+      "bandGaps": 0,
+      "maxBandDelta": 0,
+      "tintSeams": 0,
+      "maxTintDelta": 0,
+      "svgBandGaps": 0,
+      "svgTintSeams": 0
+    },
+    {
+      "layout": "island",
+      "irregular": "Wavy",
+      "mode": "tint",
+      "bandGaps": 0,
+      "maxBandDelta": 0,
+      "tintSeams": 0,
+      "maxTintDelta": 1,
+      "svgBandGaps": 0,
+      "svgTintSeams": 0
+    },
+    {
+      "layout": "island",
+      "irregular": "Ragged",
+      "mode": "wash",
+      "bandGaps": 0,
+      "maxBandDelta": 0,
+      "tintSeams": 0,
+      "maxTintDelta": 0,
+      "svgBandGaps": 0,
+      "svgTintSeams": 0
+    },
+    {
+      "layout": "island",
+      "irregular": "Ragged",
+      "mode": "tint",
+      "bandGaps": 0,
+      "maxBandDelta": 0,
+      "tintSeams": 0,
+      "maxTintDelta": 1,
+      "svgBandGaps": 0,
+      "svgTintSeams": 0
+    },
+    {
+      "layout": "island",
+      "irregular": "Fractured",
+      "mode": "wash",
+      "bandGaps": 0,
+      "maxBandDelta": 0,
+      "tintSeams": 0,
+      "maxTintDelta": 0,
+      "svgBandGaps": 0,
+      "svgTintSeams": 0
+    },
+    {
+      "layout": "island",
+      "irregular": "Fractured",
+      "mode": "tint",
+      "bandGaps": 0,
+      "maxBandDelta": 0,
+      "tintSeams": 0,
+      "maxTintDelta": 2,
+      "svgBandGaps": 0,
+      "svgTintSeams": 0
+    },
+    {
+      "layout": "strait",
+      "irregular": "Wavy",
+      "mode": "wash",
+      "bandGaps": 0,
+      "maxBandDelta": 0,
+      "tintSeams": 0,
+      "maxTintDelta": 0,
+      "svgBandGaps": 0,
+      "svgTintSeams": 0
+    },
+    {
+      "layout": "strait",
+      "irregular": "Wavy",
+      "mode": "tint",
+      "bandGaps": 0,
+      "maxBandDelta": 0,
+      "tintSeams": 0,
+      "maxTintDelta": 3,
+      "svgBandGaps": 0,
+      "svgTintSeams": 0
+    },
+    {
+      "layout": "strait",
+      "irregular": "Ragged",
+      "mode": "wash",
+      "bandGaps": 0,
+      "maxBandDelta": 0,
+      "tintSeams": 0,
+      "maxTintDelta": 0,
+      "svgBandGaps": 0,
+      "svgTintSeams": 0
+    },
+    {
+      "layout": "strait",
+      "irregular": "Ragged",
+      "mode": "tint",
+      "bandGaps": 0,
+      "maxBandDelta": 0,
+      "tintSeams": 0,
+      "maxTintDelta": 3,
+      "svgBandGaps": 0,
+      "svgTintSeams": 0
+    },
+    {
+      "layout": "strait",
+      "irregular": "Fractured",
+      "mode": "wash",
+      "bandGaps": 0,
+      "maxBandDelta": 0,
+      "tintSeams": 0,
+      "maxTintDelta": 0,
+      "svgBandGaps": 0,
+      "svgTintSeams": 0
+    },
+    {
+      "layout": "strait",
+      "irregular": "Fractured",
+      "mode": "tint",
+      "bandGaps": 0,
+      "maxBandDelta": 0,
+      "tintSeams": 0,
+      "maxTintDelta": 2,
+      "svgBandGaps": 0,
+      "svgTintSeams": 0
+    }
+  ],
+  "drawingFixtures": [
+    {
+      "name": "coast-fit-classic",
+      "seaDisagreements": 0,
+      "symbolWet": 0,
+      "shelfWet": 0,
+      "riverNameWet": 0,
+      "waterNameDry": 0
+    },
+    {
+      "name": "coast-fit-parchment",
+      "seaDisagreements": 0,
+      "symbolWet": 0,
+      "shelfWet": 0,
+      "riverNameWet": 0,
+      "waterNameDry": 0
+    },
+    {
+      "name": "coast-5",
+      "seaDisagreements": 0,
+      "symbolWet": 0,
+      "shelfWet": 0,
+      "riverNameWet": 0,
+      "waterNameDry": 0
+    },
+    {
+      "name": "coast-10",
+      "seaDisagreements": 0,
+      "symbolWet": 0,
+      "shelfWet": 0,
+      "riverNameWet": 0,
+      "waterNameDry": 0
+    },
+    {
+      "name": "coast-20",
+      "seaDisagreements": 0,
+      "symbolWet": 0,
+      "shelfWet": 0,
+      "riverNameWet": 0,
+      "waterNameDry": 0
+    },
+    {
+      "name": "coast-50",
+      "seaDisagreements": 0,
+      "symbolWet": 0,
+      "shelfWet": 0,
+      "riverNameWet": 0,
+      "waterNameDry": 0
+    },
+    {
+      "name": "coast-90",
+      "seaDisagreements": 0,
+      "symbolWet": 0,
+      "shelfWet": 0,
+      "riverNameWet": 0,
+      "waterNameDry": 0
+    },
+    {
+      "name": "islands",
+      "seaDisagreements": 0,
+      "symbolWet": 0,
+      "shelfWet": 0,
+      "riverNameWet": 0,
+      "waterNameDry": 0
+    },
+    {
+      "name": "strait",
+      "seaDisagreements": 0,
+      "symbolWet": 0,
+      "shelfWet": 0,
+      "riverNameWet": 0,
+      "waterNameDry": 0
+    },
+    {
+      "name": "isthmus",
+      "seaDisagreements": 0,
+      "symbolWet": 0,
+      "shelfWet": 0,
+      "riverNameWet": 0,
+      "waterNameDry": 0
+    },
+    {
+      "name": "glacier",
+      "seaDisagreements": 0,
+      "symbolWet": 0,
+      "shelfWet": 0,
+      "riverNameWet": 0,
+      "waterNameDry": 0
+    },
+    {
+      "name": "lake",
+      "seaDisagreements": 0,
+      "symbolWet": 0,
+      "shelfWet": 0,
+      "riverNameWet": 0,
+      "waterNameDry": 0
+    },
+    {
+      "name": "realm-illustrated",
+      "seaDisagreements": 0,
+      "symbolWet": 0,
+      "shelfWet": 0,
+      "riverNameWet": 0,
+      "waterNameDry": 0
+    },
+    {
+      "name": "realm-hillshade",
+      "seaDisagreements": 0,
+      "symbolWet": 0,
+      "shelfWet": 0,
+      "riverNameWet": 0,
+      "waterNameDry": 0
+    },
+    {
+      "name": "realm-marks",
+      "seaDisagreements": 0,
+      "symbolWet": 0,
+      "shelfWet": 0,
+      "riverNameWet": 0,
+      "waterNameDry": 0
+    },
+    {
+      "name": "lake-island",
+      "seaDisagreements": 0,
+      "symbolWet": 0,
+      "shelfWet": 0,
+      "riverNameWet": 0,
+      "waterNameDry": 0
+    },
+    {
+      "name": "strait-very-narrow",
+      "seaDisagreements": 0,
+      "symbolWet": 0,
+      "shelfWet": 0,
+      "riverNameWet": 0,
+      "waterNameDry": 0
+    },
+    {
+      "name": "strait-normal",
+      "seaDisagreements": 0,
+      "symbolWet": 0,
+      "shelfWet": 0,
+      "riverNameWet": 0,
+      "waterNameDry": 0
+    },
+    {
+      "name": "small-sea-name",
+      "seaDisagreements": 0,
+      "symbolWet": 0,
+      "shelfWet": 0,
+      "riverNameWet": 0,
+      "waterNameDry": 0
+    },
+    {
+      "name": "small-lake-name",
+      "seaDisagreements": 0,
+      "symbolWet": 0,
+      "shelfWet": 0,
+      "riverNameWet": 0,
+      "waterNameDry": 0
+    },
+    {
+      "name": "river-mouth",
+      "seaDisagreements": 0,
+      "symbolWet": 0,
+      "shelfWet": 0,
+      "riverNameWet": 0,
+      "waterNameDry": 0
+    }
+  ],
+  "riverSweep": {
+    "runs": 400,
+    "failures": []
+  },
+  "areaCoverage": [
+    {
+      "preset": "classic",
+      "cases": 50,
+      "medianErrorPP": 0.13277842609366708,
+      "maxErrorPP": 0.7889674437314476,
+      "worst": {
+        "preset": "classic",
+        "seed": "coverage-1",
+        "share": 20,
+        "shown": 19.211032556268552,
+        "notices": []
+      }
+    },
+    {
+      "preset": "parchment",
+      "cases": 50,
+      "medianErrorPP": 0.18447067788858362,
+      "maxErrorPP": 0.47025852319059425,
+      "worst": {
+        "preset": "parchment",
+        "seed": "coverage-0",
+        "share": 90,
+        "shown": 89.5297414768094,
+        "notices": []
+      }
+    },
+    {
+      "preset": "atlas",
+      "cases": 50,
+      "medianErrorPP": 0.17509246242143206,
+      "maxErrorPP": 0.4402836231880798,
+      "worst": {
+        "preset": "atlas",
+        "seed": "coverage-0",
+        "share": 90,
+        "shown": 89.55971637681192,
+        "notices": []
+      }
+    }
+  ],
+  "islands": {
+    "runs": 200,
+    "failures": [],
+    "notices": 200,
+    "drawn": 10
+  },
+  "enclosedWater": {
+    "runs": 600,
+    "failures": []
+  }
+}
