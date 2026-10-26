@@ -35,18 +35,20 @@ export class ScenePainter {
         callbacks.built?.(job.scene, data.metadata);
       }
       if (data.overview) {
-        if (current) callbacks.overview(job.scene, data.overview);
+        // The overview follows its sharp frame in the background, after that
+        // job has been released; any overview of the current map is valid.
+        if (!this.disposed && data.version === this.version && this.scene) callbacks.overview(this.scene, data.overview);
         else data.overview.bitmap.close();
       }
       if (data.bitmap) {
         if (current && data.id === this.wanted && 'view' in job) callbacks.painted(job.scene, job, data.bitmap);
         else data.bitmap.close();
       }
-      if (data.complete !== false) {
+      if (data.bitmap || !data.overview) {
         this.jobs.delete(data.id);
         if (this.inFlight === data.id) this.inFlight = null;
       }
-      if (data.error && current) callbacks.failed();
+      if (data.error && !this.disposed && data.version === this.version) callbacks.failed();
       this.flush();
     };
   }

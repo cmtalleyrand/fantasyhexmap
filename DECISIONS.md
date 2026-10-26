@@ -1487,3 +1487,30 @@ shore and incorporated into the final common geometry. Concentrated water holes
 remain water even when their hex centre lies outside them. Earlier browser
 results apply to the pre-rebase revision; see docs/shared-shorelines.md for
 current validation scope.
+
+## 70. The whole-map overview never holds up an edit or a view
+
+**Problem.** A new map's first sharp frame kept its worker job open until the whole-map overview
+was also rasterized (about 240 ms at a whole-map view, about 600 ms zoomed in at the 4-megapixel
+cap). The painter keeps one job in flight, so an edit or a pan made meanwhile waited behind it.
+
+**Chosen.** The sharp frame releases its job. The overview follows in the background, in bands of
+about one megapixel, each rasterized on its own canvas and composited, with a yield before each
+band so a newer build or view runs first; a newer map abandons it. When the sharp frame already
+contains the whole map, the overview is copied from it rather than painted again. The overview
+is a navigation stand-in, replaced by a sharp frame once a view settles, so its pixels are not
+held to exact equality: banding changes about 0.03% of overview pixels at band edges, and the
+copy differs by resampling (mean 2.8/255 on the fixture), being taken from the sharp frame itself.
+The sharp frame of the current map is drawn over an overview that is still being replaced.
+
+**Cost.** Banding adds about a third to total overview work (measured 595 → 792 ms at 4 MP in
+four bands), spent only when nothing else is waiting; the longest uninterrupted stretch falls
+from about 595 to about 225 ms.
+
+**Evidence.** `scripts/render-interaction-study.mjs` drives the production worker and painter
+policy (headless software raster, 50×50 all-layer fixture, eight unique ownership edits, two runs
+each against `4e0db34`). A pan 50 ms after an edit's frame: median 430–438 → 250–254 ms at a
+whole-map view, 514–557 → 153–195 ms at 1×. Edits every 1.2 s: none superseded, against up to
+three of eight before (worst 4.8 s). Single-edit latency is unchanged (build and paint dominate).
+Edits faster than one build (every 0.4 s) show nothing until they stop, in both versions: every
+new edit discards the build in progress. That needs faster builds, not scheduling alone.
