@@ -5,8 +5,11 @@ import { resolve } from 'node:path';
 import { launchBrowser, serveBuild } from './browser-runtime.mjs';
 const arg=(k,d)=>process.argv.includes(k)?process.argv[process.argv.indexOf(k)+1]:d;
 const output=resolve(arg('--output','work/hypotheses/performance'));mkdirSync(output,{recursive:true});
+const diagnostic=arg('--diagnostic','');
+if(diagnostic&&!['cpu','allocations'].includes(diagnostic))throw Error('Unknown diagnostic');
+if(diagnostic&&process.argv.includes('--check'))throw Error('Sampled diagnostics cannot establish a performance gate');
 const scenarios=arg('--scenario','cold,warm,ownership,shore').split(',');
-if(scenarios.some(s=>!['cold','warm','ownership','shore'].includes(s)))throw Error('Unknown --scenario');
+if(scenarios.some(s=>!['cold','warm','ownership','unique-ownership','shore'].includes(s)))throw Error('Unknown --scenario');
 console.log('Measured scenarios:',scenarios);
 const bundles={};
 for(const [name,root]of [['before',arg('--baseline','work/hypotheses/baseline')],['after','.']]){
@@ -18,7 +21,7 @@ for(const [name,root]of [['before',arg('--baseline','work/hypotheses/baseline')]
 }
 const browser=await launchBrowser();
 try{
- const pages={},contexts=[],isolates={};
+ const pages={},contexts=[],isolates={},sessions={};
  for(const version of ['before','after']){
   const context=await browser.newContext();contexts.push(context);
   await serveBuild(context,'.',bundles);
@@ -29,7 +32,8 @@ try{
    await api.loadLettering(opts.style.knobs.lettering);await document.fonts.ready;
   },version);
   const cdp=await context.newCDPSession(page);
-  isolates[version]=(await cdp.send('Runtime.getIsolateId')).id;await cdp.detach();
+  isolates[version]=(await cdp.send('Runtime.getIsolateId')).id;
+  if(diagnostic)sessions[version]=cdp;else await cdp.detach();
   pages[version]=page;
  }
  if(isolates.before===isolates.after)throw Error('Performance versions share a JavaScript heap');
@@ -42,11 +46,23 @@ try{
   });
   const count=Number(arg(scenario==='cold'?'--cold-runs':'--runs',scenario==='cold'?'5':'20'));
   for(let run=0;run<count;run++)for(const version of(run%2?['after','before']:['before','after'])){
+   if(diagnostic&&run===2){
+    if(diagnostic==='cpu'){await sessions[version].send('Profiler.enable');await sessions[version].send('Profiler.start');}
+    else await sessions[version].send('HeapProfiler.startSampling',{samplingInterval:32768,includeObjectsCollectedByMajorGC:true,includeObjectsCollectedByMinorGC:true});
+   }
    const record=await pages[version].evaluate(({scenario,run})=>{
     if(scenario==='cold')map.id=`cold-${run}`;
     if(scenario==='ownership'){
      const p=map.layers.polities.data,owner=[...p.owner],hex=owner.findIndex((o,i)=>o&&map.layers.base.data[i]==='Land');
      owner[hex]=run%2?p.polities[0].id:p.polities.at(-1).id;map.layers.polities={...map.layers.polities,data:{...p,owner}};
+    }
+    if(scenario==='unique-ownership'){
+     const p=map.layers.polities.data,owner=[...p.owner];
+     const editable=base.layers.polities.data.owner.flatMap((o,i)=>o&&base.layers.base.data[i]==='Land'?[i]:[]);
+     if(run>=editable.length)throw Error('Insufficient unique ownership edits');
+     const hex=editable[run],next=p.polities.find(polity=>polity.id!==owner[hex]);
+     if(!next)throw Error('Unique ownership edits require two realms');
+     owner[hex]=next.id;map.layers.polities={...map.layers.polities,data:{...p,owner}};
     }
     if(scenario==='shore'){
      const data=[...map.layers.base.data],hex=base.layers.base.data.findIndex((v,i)=>v==='Land'&&base.layers.base.data[i+1]==='Sea');
@@ -58,6 +74,10 @@ try{
     return{scenario,run,ms,profile,symbolCount:api.symbolsOf(scene)?.length??0};
    },{scenario,run});
    results.push({...record,version});
+   if(diagnostic&&run===count-1&&count>2){
+    const sample=await sessions[version].send(diagnostic==='cpu'?'Profiler.stop':'HeapProfiler.stopSampling');
+    writeFileSync(resolve(output,`${scenario}-${version}-${diagnostic}.json`),JSON.stringify(sample));
+   }
   }
  }
  const summary=[];
@@ -66,7 +86,7 @@ try{
   const values=rows.map(r=>r.ms).sort((a,b)=>a-b);
   summary.push({scenario,version,n:values.length,median:values[Math.floor(values.length/2)],p95:values[Math.ceil(values.length*.95)-1]});
  }
- writeFileSync(resolve(output,'results.json'),JSON.stringify({browser:browser.version(),baseline:arg('--baseline','work/hypotheses/baseline'),isolation:'Separate browser contexts and JavaScript isolates; profile records retained in Node',isolates,scenarios,summary,records:results},null,2));console.log(JSON.stringify(summary,null,2));
+ writeFileSync(resolve(output,'results.json'),JSON.stringify({diagnostic:diagnostic||null,browser:browser.version(),baseline:arg('--baseline','work/hypotheses/baseline'),isolation:'Separate browser contexts and JavaScript isolates; profile records retained in Node',isolates,scenarios,summary,records:results},null,2));console.log(JSON.stringify(summary,null,2));
  if(process.argv.includes('--check'))for(const scenario of scenarios){
   const before=summary.find(r=>r.scenario===scenario&&r.version==='before');
   const after=summary.find(r=>r.scenario===scenario&&r.version==='after');

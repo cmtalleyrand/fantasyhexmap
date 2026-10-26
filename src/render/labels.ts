@@ -602,6 +602,19 @@ export function insideBox(box: OrientedBox, x: number, y: number): boolean {
   return Math.abs(dx * c - dy * s) <= box.halfW && Math.abs(dx * s + dy * c) <= box.halfH;
 }
 
+/** Snapshot an ordered obstacle list for repeated exact point queries.
+ * Rotation is invariant during a search; preserve insideBox's arithmetic and
+ * inclusive edges, but compute its sine/cosine only once per obstacle.
+ */
+export function boxPointTest(boxes: readonly OrientedBox[]): (x: number, y: number) => boolean {
+  const prepared = boxes.map(box => ({ ...box, c: Math.cos(-box.rotation), s: Math.sin(-box.rotation) }));
+  return (x, y) => prepared.some(box => {
+    const dx = x - box.cx;
+    const dy = y - box.cy;
+    return Math.abs(dx * box.c - dy * box.s) <= box.halfW && Math.abs(dx * box.s + dy * box.c) <= box.halfH;
+  });
+}
+
 export interface CityNameInput {
   id: string;
   name: string;

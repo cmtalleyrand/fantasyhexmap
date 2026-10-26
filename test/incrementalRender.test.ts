@@ -156,3 +156,46 @@ test('coast paint geometry survives colour redraws without retaining old colours
   assert.notEqual(underlay(full).clip, before.clip);
   assert.deepEqual(warm, full);
 });
+
+test('pack drawings survive land-type and unrelated shape edits while shore clips stay fresh', () => {
+  const map = createMapState('Pack actual inputs', 5, 4), options = editOptions();
+  map.layers.base.data = Array(20).fill('Sea');
+  map.layers.base.data![6] = 'Sea Ice'; map.layers.base.data![7] = 'Sea Ice';
+  map.layers.base.data![1] = 'Land';
+  profiled(map, options);
+  const changed = structuredClone(map);
+  changed.layers.base.data![1] = 'Coastal Land';
+  const coast = profiled(changed, options);
+  assert.equal(coast.profile.counters['ice.packHits'], 1);
+  assert.equal(coast.profile.counters['ice.packBuilds'] ?? 0, 0);
+  assert.deepEqual(coast.scene, buildStaticScene(structuredClone(changed), { ...options, cache: 'off' }));
+  changed.hexShapes = { ...changed.hexShapes, '1': { type: 'Coastal Land', irregular: 'Fractured' } };
+  const roughCoast = profiled(changed, options);
+  assert.equal(roughCoast.profile.counters['ice.packHits'], 1);
+  assert.deepEqual(roughCoast.scene, buildStaticScene(structuredClone(changed), { ...options, cache: 'off' }));
+  changed.hexShapes = { ...changed.hexShapes, '6': { type: 'Sea Ice', irregular: 'Fractured' } };
+  const roughIce = profiled(changed, options);
+  assert.equal(roughIce.profile.counters['ice.packBuilds'], 1);
+  assert.deepEqual(roughIce.scene, buildStaticScene(structuredClone(changed), { ...options, cache: 'off' }));
+});
+
+test('validated symbol drawings reuse geometry but refresh colours and fitting dependencies', () => {
+  const map = createMapState('Symbol drawing reuse', 5, 4), options = editOptions();
+  map.layers.base.data = Array(20).fill('Land'); map.layers.base.data![19] = 'Sea';
+  map.layers.elevation.data = Array(20).fill(null); map.layers.elevation.data![6] = 'Mountains';
+  const first = profiled(map, options);
+  const snapshot = JSON.stringify(first.scene);
+  const warm = profiled(structuredClone(map), options);
+  assert.ok(warm.profile.counters['symbols.drawingHits']! > 0);
+  assert.equal(warm.profile.counters['symbols.drawingBuilds'] ?? 0, 0);
+  assert.deepEqual(warm.scene, buildStaticScene(structuredClone(map), { ...options, cache: 'off' }));
+  const ink = { ...options, style: { ...options.style!, palette: { ...options.style!.palette, ink: '#204080' } } };
+  const changed = profiled(map, ink);
+  assert.ok(changed.profile.counters['symbols.drawingBuilds']! > 0);
+  assert.deepEqual(changed.scene, buildStaticScene(structuredClone(map), { ...ink, cache: 'off' }));
+  const taller = structuredClone(map); taller.layers.elevation.data![6] = 'Hills';
+  const reshaped = profiled(taller, ink);
+  assert.ok(reshaped.profile.counters['symbols.drawingBuilds']! > 0);
+  assert.deepEqual(reshaped.scene, buildStaticScene(structuredClone(taller), { ...ink, cache: 'off' }));
+  assert.equal(JSON.stringify(first.scene), snapshot, 'later drawings must not mutate a previous scene');
+});

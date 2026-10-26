@@ -144,3 +144,27 @@ test('a name longer than a one-hex island is set beside it, not over it, and cle
   const foreign = hexCenter(7, 2, SIZE).x - SIZE; // left edge of the other realm
   assert.ok(right < foreign, 'the name stays off the neighbouring realm');
 });
+
+test('prepared river obstacle queries retain exact rotated-box arithmetic and inclusive edges', async () => {
+  const { boxPointTest, insideBox } = await import('../src/render/labels.ts');
+  for (const scale of [1e-8, 1, 1e8]) for (let k = 0; k < 50; k++) {
+    const rotation = k * 0.17;
+    const box = { cx: 123 * scale, cy: -51 * scale, halfW: 20 * scale, halfH: 3 * scale, rotation };
+    const boxes = [box, { ...box, cx: box.cx + 100 * scale, rotation: -rotation }];
+    const query = boxPointTest(boxes);
+    for (const u of [-2, -1, -1 + Number.EPSILON, 0, 1 - Number.EPSILON, 1, 2]) {
+      for (const v of [-2, -1, 0, 1, 2]) {
+        const x = box.cx + u * box.halfW * Math.cos(rotation) - v * box.halfH * Math.sin(rotation);
+        const y = box.cy + u * box.halfW * Math.sin(rotation) + v * box.halfH * Math.cos(rotation);
+        assert.equal(query(x, y), boxes.some(b => insideBox(b, x, y)));
+      }
+    }
+  }
+  assert.equal(boxPointTest([])(0, 0), false);
+  const box = { cx: 0, cy: 0, halfW: 10, halfH: 5, rotation: 0 };
+  const query = boxPointTest([box]);
+  assert.equal(query(10, 5), true);
+  box.cx = 100;
+  assert.equal(query(10, 5), true, 'the prepared search owns an immutable snapshot');
+  assert.equal(boxPointTest([box])(10, 5), false, 'the next search sees changed obstacles');
+});

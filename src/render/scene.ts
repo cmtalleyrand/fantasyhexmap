@@ -376,7 +376,7 @@ const packIceDrawings = new BoundedMemo<Prim[]>(4, 8_000_000);
 
 /** The sea predicate can be reused with a traced coast; symbol fitting has a separate land dependency below. */
 let symbolFits = new WeakMap<object, { dry: ((p: Point) => boolean) | null }>();
-interface SymbolFitRecord { revisions: Array<{ id: number }>; fit: Fitted; probes: Array<{ at: Point; land: boolean }> }
+interface SymbolFitRecord { revisions: Array<{ id: number }>; fit: Fitted; probes: Array<{ at: Point; land: boolean }>; drawing?: { key: string; placed: Placed[]; weight: number } }
 const symbolPlacements = new BoundedMemo<SymbolFitRecord>(10000, 16_000_000);
 const terrainRevisions = new BoundedMemo<{ id: number }>(4, 1_000_000);
 let terrainRevisionNumber = 0;
@@ -1034,8 +1034,15 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
   }
   /** Every symbol drawn on the land, for the audit (see `symbolsOf`). */
   const traces: SymbolTrace[] = [];
+  // The audit already samples each drawing. Reuse those exact points for its
+  // anchor later in this build, without retaining another cross-redraw cache.
+  const sampledSymbols = new WeakMap<Placed, Point[]>();
   const trace = (hex: number, placed: Placed[]) => {
-    for (const p of placed) traces.push({ hex, points: samplePoints(p) });
+    for (const p of placed) {
+      const points = samplePoints(p);
+      traces.push({ hex, points });
+      sampledSymbols.set(p, points);
+    }
   };
   const symbolLandInputs = JSON.stringify([seed, cols, rows, size, base, map.hexShapes, normaliseHexDimensions(map.hexDimensions),
     map.defaultIrregularity, map.defaultLakeIrregularity, map.islandSpecs, knobs.coast, knobs.islands, inkReachOf]);
@@ -1049,9 +1056,20 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
     centre: Point,
     onLand: (p: Point) => boolean,
     inHex: (p: Point) => boolean,
+    drawingKey?: string,
   ): Fitted => {
     const cacheKey = `${seed}/${cols}/${rows}/${size}/${key}`;
     const known = symbolPlacements.get(cacheKey);
+    const rememberDrawing = (record: SymbolFitRecord, placed: Placed[]) => {
+      if (drawingKey !== undefined) {
+        // Drawings are immutable; callers get separate wrappers for their hex
+        // metadata. Colours are explicit inputs in addition to the fit key.
+        const drawing = placed.map(p => ({ y: p.y, prims: p.prims }));
+        record.drawing = { key: drawingKey, placed: drawing, weight: JSON.stringify(drawing).length * 2 + drawingKey.length * 2 };
+        profileCount('symbols.drawingBuilds');
+      }
+      symbolPlacements.set(cacheKey, record, record.probes.length * 48 + 192 + (record.drawing?.weight ?? 0));
+    };
     if (known && (known.revisions.includes(symbolLandRevision) || known.probes.every(p => onLand(p.at) === p.land))) {
       if (!known.revisions.includes(symbolLandRevision)) {
         profileCount('symbols.revalidatedFits');
@@ -1061,7 +1079,13 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
         if (known.revisions.length > 4) known.revisions.shift();
       }
       profileCount('symbols.cacheHits');
-      return { ...known.fit, placed: refit(draw, known.fit, size) };
+      if (drawingKey !== undefined && known.drawing?.key === drawingKey) {
+        profileCount('symbols.drawingHits');
+        return { ...known.fit, placed: known.drawing.placed.map(p => ({ ...p })) };
+      }
+      const placed = refit(draw, known.fit, size);
+      if (drawingKey !== undefined) rememberDrawing(known, placed);
+      return { ...known.fit, placed };
     }
     if (known) profileCount('symbols.invalidatedFits');
     profileCount('symbols.searches');
@@ -1072,7 +1096,7 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
       return land;
     }, inHex);
     const fit = { ...fitted, placed: [] };
-    symbolPlacements.set(cacheKey, { revisions: [symbolLandRevision], fit, probes }, probes.length * 48 + 192);
+    rememberDrawing({ revisions: [symbolLandRevision], fit, probes }, fitted.placed);
     return fitted;
   };
   /** Records a hex whose symbols (`what`, such as "hills symbols") were drawn smaller than asked, or left out. */
@@ -2295,8 +2319,11 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
     const drawn: Prim[] = [];
     if (iceHexes.length > 0) {
       const margin = size * 2;
-      const packKey = JSON.stringify([seed, cols, rows, size, base, sides, map.hexShapes, map.defaultIrregularity,
-        iceColours, texturedIce, knobs.coast]);
+      // Key the actual seaIcePrims inputs. Coast shapes still receive a fresh
+      // water clip below; a land-type edit need not rebuild identical ice plates.
+      const packKey = JSON.stringify([seed, cols, rows, size,
+        iceHexes.map(i => [i, levelOf(i)]), sides?.map(side => side === 'land'),
+        iceColours, texturedIce, knobs.coast === 'smooth']);
       let pack = packIceDrawings.get(packKey);
       if (pack) profileCount('ice.packHits');
       else {
@@ -2766,7 +2793,7 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
         const at = pixelToOffset(p.x, p.y, size);
         return at.col === col && at.row === row;
       };
-      const fitted = fitSymbols(`${i}/${height ?? ''}/${cover ?? ''}`, draw, centre, dry, inHex);
+      const fitted = fitSymbols(`${i}/${height ?? ''}/${cover ?? ''}`, draw, centre, dry, inHex, JSON.stringify(colours));
       placed.push(...fitted.placed);
       trace(i, fitted.placed);
       noteFit(i, `${[height, height !== 'Mountains' ? cover : null].filter(Boolean).join(' and ')} symbols`, fitted);
@@ -2793,7 +2820,7 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
     }
     placed.sort((a, b) => a.y - b.y);
     for (const p of placed) {
-      if (p.hex !== undefined) reliefRuns.push({ hex: p.hex, at: symbolAnchor(p), from: prims.length, to: prims.length + p.prims.length });
+      if (p.hex !== undefined) reliefRuns.push({ hex: p.hex, at: symbolAnchor(p, sampledSymbols.get(p)), from: prims.length, to: prims.length + p.prims.length });
       prims.push(...p.prims);
     }
   }

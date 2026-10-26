@@ -10,10 +10,11 @@ import { hexCenter, hexEdgeMidpoint, hexIndex, inBounds, pixelToOffset, type Poi
 import { isRangeElevation, type BaseGeo, type Elevation, type MountainRange, type River } from '../../shared/types.js';
 import type { FaceRole } from './lettering.js';
 import { LETTERINGS } from './lettering.js';
-import { insideBox, type OrientedBox } from './labels.js';
+import { boxPointTest, type OrientedBox } from './labels.js';
 import { glyphAdvances, glyphsAlong, glyphsStraight, type Glyph } from './glyphs.js';
 import { depthWithin, ridgePath } from './depth.js';
 import { textBoxes } from './collide.js';
+import { profileCount, profileSection } from './profile.js';
 
 /**
  * Largest type for a water name, in hex sizes: a body only a hex or two deep
@@ -532,16 +533,27 @@ export function placeRiverLabels(
   /** Land as drawn; a mouth does not license a river name in open sea. */
   onLand?: (p: Point) => boolean,
 ): FeatureLabel[] {
+  profileCount('riverLabels.passes');
+  profileCount('riverLabels.obstacles', avoid.length);
   if (onLand) {
+    const endLegacy = profileSection('riverLabels.compatibilityPass');
     const previous = placeRiverLabels(rivers, size, pathFor, face, avoid, widthFor, inWater, profileFor);
-    if (previous.every(label => labelOnSide(label, face, onLand))) return previous;
+    endLegacy();
+    const endValidation = profileSection('riverLabels.surfaceValidation');
+    const valid = previous.every(label => labelOnSide(label, face, onLand));
+    endValidation();
+    if (valid) return previous;
+    profileCount('riverLabels.surfaceFallbacks');
   }
   const out: FeatureLabel[] = [];
   // Every river's line, so a name keeps off the other rivers it might cross.
+  const endCourses = profileSection('riverLabels.courses');
   const lines = new Map<string, Point[]>();
   for (const river of rivers) lines.set(river.id, pathFor?.(river.id) ?? riverPath(river, size));
+  endCourses();
   // Names already placed in this call, which later names keep clear of too.
   const placed: OrientedBox[] = [];
+  const inAvoid = boxPointTest(avoid);
   for (const river of rivers) {
     const text = river.name.trim();
     if (!text) continue;
@@ -555,6 +567,8 @@ export function placeRiverLabels(
     if (raw.length < 2) continue;
     // Lettering follows a rounded copy of the course: the hex-to-hex polyline has
     // hard corners that would throw letters sideways, and a name cannot bend that sharply.
+    const endPreparation = profileSection('riverLabels.preparation');
+    profileCount('riverLabels.coursePreparations');
     const { pts, cum } = smoothCourse(raw, Math.max(2, size * 0.2), idealFont * 0.7);
     const total = cum[cum.length - 1]!;
     const profile = rescaleProfile(profileFor?.(river.id), raw, pts, cum);
@@ -563,6 +577,10 @@ export function placeRiverLabels(
     const nearOwn = nearbyPoints(pts, size);
     const em = glyphAdvances(text, 1, face.tracking, face.weight, face.family, face.italic).width;
     const headings = headingsOf(pts);
+    endPreparation();
+    const inPlaced = boxPointTest(placed);
+    const endSearch = profileSection('riverLabels.candidateSearch');
+    let candidates = 0;
 
     interface Pick {
       font: number;
@@ -603,6 +621,7 @@ export function placeRiverLabels(
           for (let i = 0; i < pts.length; i++) if (cum[i]! >= start && cum[i]! <= start + width) wide = Math.max(wide, profile[i]!);
         }
         for (const side of [1, -1] as const) {
+          candidates++;
           let hits = 0;
           let samples = 0;
           let overWater = false;
@@ -618,7 +637,7 @@ export function placeRiverLabels(
               const y = p.y - Math.cos(angle) * off;
               samples++;
               if (onLand && !onLand({ x, y })) overWater = true;
-              if (avoid.some((box) => insideBox(box, x, y)) || placed.some((box) => insideBox(box, x, y))) hits += 2;
+              if (inAvoid(x, y) || inPlaced(x, y)) hits += 2;
               else if (inWater?.({ x, y })) hits += 2;
               else if (nearOthers(x, y, font * 0.45)) hits += 2;
               // The river's own line coming back round the inside of a bend.
@@ -638,6 +657,9 @@ export function placeRiverLabels(
         break;
       }
     }
+    endSearch();
+    profileCount('riverLabels.candidates', candidates);
+    profileCount('riverLabels.probes', candidates * 27);
     const pick = chosen ?? fallback;
     if (!pick) continue;
     const { font, lift } = pick;

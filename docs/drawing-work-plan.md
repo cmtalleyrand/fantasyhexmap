@@ -30,6 +30,15 @@ the coast or relaxing a test. No new geography/anchor images were produced durin
 
 ## 1. Establish current editing costs, then remove dominant avoidable work
 
+Continuation status: browser execution is resolved and versioned worker/CPU/allocation
+diagnostics are retained. Candidate scoring dominates fresh edits. The original broad
+phase was reverted; subsequent exact rotation, pack-input and symbol-reuse proposals
+pass exact replay but still fail the strict cached-edit performance gate. They remain
+an unaccepted working draft against `4e0db34` plus matched diagnostics. Read the
+[current disposition](drawing-status.md#current-disposition-correctness-passes-performance-acceptance-remains-blocked)
+before another attempt. Preserve all failures; investigate cached redraw tails rather
+than rerunning unchanged code to select a pass. Paint attribution remains open.
+
 Start with `render-worker-study.mjs`, one 50×50 lifetime and eight cumulative unique ownership edits.
 The review attempt was blocked before measurement; resolve the browser execution environment first.
 Record code hash, browser/driver, viewport, profile settings and raw failures. This small run is a

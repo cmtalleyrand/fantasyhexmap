@@ -1,5 +1,9 @@
 # Drawing status and evidence
 
+**Latest working state:** drawing optimizations pass correctness checks but still fail
+the strict performance gate. They remain an unaccepted working draft; see
+[the current disposition](#current-disposition-correctness-passes-performance-acceptance-remains-blocked).
+
 Reviewed 21 October 2026 on `codex/default-coast-comparisons`, against code at
 `12a33d7e8472d193d8c37939941ceeea5ca8ebc8` (merged PR #156), after rebasing the initial
 review of `849f12f` (#148). This consolidation changes
@@ -157,3 +161,265 @@ These checks are recorded separately in that archive, preserving the initial res
 | 15: small-realm association | Open with item 4; review prototype is not production. |
 | 16: cache survival | Existing exact caches survive eligible edits; short worker-heap study exists. Longer/native lifetime evidence remains absent. |
 | 17: predicate/edit costs | Exact lazy edge index already exists; no approximate grid introduced. Worker study exists historically; current feature-name and paint costs need diagnosis. |
+
+## 23 October 2026: editing-cost continuation
+
+The first diagnostic ran on `a903a60` (#157, runtime inherited from #156). Fetching
+main then discovered #158; the implementation and final checks use
+`4e0db34` as their baseline. This is a new version boundary, not validation of
+#158 by the earlier diagnostic. No geography or anchor changes are proposed here.
+
+**Diagnosis.** Installed Chromium 151.0.7922.173 and the Playwright-core driver at
+`/opt/codex/cua_node/lib/node_modules/playwright-core/index.mjs` work with additional
+execution permission. The default missing-driver failure and sandbox `setsockopt`
+failure are retained. One 50×50 worker lifetime with eight cumulative unique edits,
+1400×900 viewport, DPR 1, all names/layers and profiling enabled measured build
+roundtrip median 445.1 ms and viewport paint median 307.7 ms. This is diagnostic,
+not a p95 gate or React input-to-display measurement.
+
+The separate instrumented run on that same pre-#158 source averages 357.79 ms of
+river candidate search versus 10.75 ms preparation per edit. Every edit executes
+52 course preparations and 4,428 candidates / 119,556 point probes, including the
+compatibility and surface-fallback passes. River cache-key serialization averages
+0.28 ms and cache writes 0.26 ms. Compatibility timing contains nested preparation
+and candidate timings: do not add those overlapping sections. The original full
+result cache still hits for range, water and area names during these edits.
+
+**Distinct implementation.** After checking the existing placement cache and
+nearby-river point index, add conservative bounds for realm/city and earlier-river
+letter boxes. A point outside a rectangle's enclosing L1-radius square cannot be
+inside its rotated box. Rounding slack makes this rejection conservative; survivors
+still use the unchanged `insideBox` predicate. Keep box order, candidate order,
+scoring, tie breaks and both surface passes. Earlier-river boxes are snapshotted
+anew before each river, after the previous river has appended its glyph boxes.
+This does not retain previous winners or add a preparation/result cache.
+
+Opt-in profiling now separates river preparation, candidate scoring, surface
+validation and compatibility search, and each name family's cache serialization,
+cloning and placement. The worker harness retains paint/overview profiles, source
+and bundle fingerprints, viewport/driver settings and launch/runtime failures.
+The replay harness accepts an archived `--baseline` for an independent old-code
+reference rather than only comparing two instances of current code.
+
+**Correctness.** All 67 Node test files pass through `node --import tsx --test
+ test/*.test.ts`; `npm test` itself first failed on the sandbox's denied tsx IPC
+socket, before tests ran. Client/server typecheck and production build pass.
+The new rotated-box test exercises edges, rotations and tiny/large coordinate
+scales against the original predicate. The profile test checks unchanged output
+with and without surface fallback. Browser placement replay against archived
+`4e0db34` passes 20 scenes and 320 images with byte-identical scene JSON and zero
+changed pixels, including ownership/name/course/shore/font and map-switch edits.
+Replay timing overlapped validation and is not performance evidence. Full drawing
+area/topology sweeps were not repeated for this collision-only change.
+
+**Failed gate and disposition.** The isolated 40×40 comparison ran after validation
+finished, with five cold builds and 100 samples per steady scenario (first two
+excluded), alternating versions in distinct JavaScript isolates. Values are ms:
+
+| Scenario | Main median / p95 | Candidate median / p95 |
+|---|---:|---:|
+| Cold | 2920.8 / 4019.4 | 2824.0 / 3951.9 |
+| Warm | 26.3 / 49.3 | 26.5 / 46.0 |
+| Ownership | 25.2 / 42.6 | 27.1 / 48.7 |
+| Shore | 66.4 / 129.5 | 63.5 / 114.1 |
+
+Warm median and ownership median/p95 fail the unchanged gate. The conservative
+obstacle optimization and its dedicated test were **reverted**; its exact source
+patch and raw failed measurements are retained. Do not attribute these regressions
+solely to broad-phase checks: repeated ownership states can hit the whole-result
+cache, and this run does not establish a causal allocation/GC explanation. No
+repeat was used to select a favourable result. The final change retains only the
+profiling, diagnostic harness improvements and profiling-transparency regression.
+The 320-image comparison and full suite above describe the rejected candidate;
+post-revert checks are recorded separately. No editing-speed improvement is claimed.
+
+Next: use the retained diagnostic to investigate scoring/allocation on cumulative
+unique ownership edits, while preserving the strict paired gate. Paint path/group
+and compositor allocation attribution, changed-obstacle attribution, land-derived
+anchors, independent layer coverage and broader control fidelity remain unfinished.
+
+**Final diagnostic-only validation.** After reverting the optimization, the three
+focused files (`renderProfile`, `incrementalRender`, `drawingInvestigation`),
+client/server typecheck and production build pass. A fresh isolated eight-edit
+50×50 run on `4e0db34` plus final diagnostics completes successfully, retaining
+both viewport and overview profiles for every frame. River candidate search still
+averages 291.96 ms per edit versus 9.50 ms preparation; build roundtrip median is
+353.3 ms and viewport paint median 308.6 ms. These are a new diagnostic's numbers,
+not evidence of an improvement over the earlier source or a passed performance gate.
+
+Raw reports, failed launches, rejected source patch, final diagnostic patch,
+version fingerprints, exact replay records and validation logs are retained in
+[drawing-editing-diagnostics-records.json.gz](drawing-editing-diagnostics-records.json.gz).
+The uncompressed working outputs are `work/worker-diagnostic-before/`,
+`work/worker-diagnostic-profiled/`, `work/worker-diagnostic-final/`,
+`work/river-replay/` and `work/river-performance/`. No final speedup is claimed;
+the completed part of priority 1 is executable, versioned cost diagnosis.
+
+## 23 October continuation: exact obstacle rotation preparation
+
+**New evidence, not a retry of the rejected broad phase.** An ownership-only V8
+CPU sample (`render-worker-study.mjs --cpu --span 50 --edits 8`) on `4e0db34` plus
+the retained diagnostics attributes about 1814 ms of sampled self time to
+`insideBox` across eight cumulative unique edits. This is the largest named
+JavaScript leaf cost; native bitmap transfer/drawing also remains substantial.
+CPU-sampled times are diagnostic, not benchmark samples. The harness now saves
+`ownership.cpuprofile` and prohibits combining CPU sampling with forced-GC mode.
+
+The new proposal snapshots each ordered obstacle's coordinates/extents and computes
+`cos(-rotation)` and `sin(-rotation)` once per search. Every point still executes
+the original multiply/add/absolute-value comparisons, including inclusive edges.
+There is no bounding-box rejection, epsilon, approximation or persistent cache.
+Avoidance boxes are prepared per pass; earlier river glyph boxes are prepared again
+before each subsequent river. Candidate order, surface fallback and score order
+remain intact. This differs from the discarded enclosing-square broad phase.
+
+**Benchmark control.** Inspection of the prior failed gate's raw records shows
+98/98 retained warm, repeated-ownership and shore samples hit the whole river-label
+result cache in both versions, with zero river searches. Those records cannot
+attribute the regression to point checks. The next comparison uses archived
+`4e0db34` plus the same pre-existing diagnostics in both versions, identified by
+`work/river-scoring/start.patch`, to avoid timing different instrumentation.
+All old scenarios and thresholds remain; the new `unique-ownership` scenario
+makes cumulative edits to distinct owned Land hexes (423 eligible in the pinned
+40×40 fixture) and rejects requests that exceed that supply. Separate heaps,
+alternating order and warm-up exclusions remain unchanged.
+
+**Correctness at this proposal.** All 67 Node test files pass, as do client/server
+typechecking and the production build. The new exact-query regression compares
+tilted edges at small, ordinary and large coordinate scales, verifies inclusive
+corners and checks that a new search sees changed obstacles while an existing
+snapshot stays immutable. Browser placement replay against the instrumented
+pre-change archive passes all 20 scenes / 320 images, with identical scene JSON
+and zero changed pixels. This covers the actual prepared-rotation implementation,
+not just the earlier rejected broad phase. Full geography sweeps were not repeated:
+no coast/land/ownership/anchor geometry changes are made by this proposal.
+
+**Prepared-rotation gate: failed, retained.** Five cold and 100 per steady scenario,
+independent heaps and matched diagnostics produced the following ms. Unique edits
+improve, but cached ownership p95 and shore median/p95 fail; this is not a pass.
+
+| Scenario | Baseline median / p95 | Rotation proposal median / p95 |
+|---|---:|---:|
+| Cold | 2867.4 / 4095.1 | 2714.0 / 3892.1 |
+| Warm | 27.8 / 51.7 | 26.5 / 49.5 |
+| Repeated ownership | 27.1 / 48.4 | 27.0 / 60.6 |
+| Shore | 66.5 / 123.3 | 70.1 / 183.3 |
+| Unique ownership | 122.2 / 200.6 | 80.5 / 166.7 |
+
+## Allocation and invalidation follow-up
+
+A separate 30-run warm/shore diagnostic samples V8 allocations, including collected
+objects, after the first two builds. These estimates are allocation traffic, not
+retained heap or native memory; its timings cannot establish a performance gate.
+Warm sampled traffic is approximately 794/808 MB (baseline/proposal), shore
+1520/1486 MB. `symbolAnchor` and its point walker account for roughly 60 MB of warm
+traffic. They build a complete sampled-point list and a second x-only array just
+to compute horizontal bounds. A streaming implementation preserves all original
+x-coordinate and midpoint arithmetic, including empty/nested drawings, without
+allocating those lists. The independent audit's `samplePoints` stays unchanged.
+
+The shore records also show `ice.packBuilds: 1` on every alternating edit, despite
+`coast.cacheHit: 1`. Pack generation contributes substantial sampled allocations
+through `icePlates` and its coast outline. Reviewing `seaIcePrims` identifies its
+actual dependencies: ordered ice hexes and their irregularities, land-side booleans,
+seed, size/dimensions, colours and texture/organic modes. The old key includes the
+entire base/hex-shape arrays, causing unnecessary invalidation for Land ↔ Coastal
+Land edits that leave those pack inputs unchanged. A proposed exact-input key
+retains the 4-entry / 8 MB estimated budget; it neither grows the cache nor reuses
+the finished water clip. The clip remains fresh for changed shoreline geography.
+
+`drawing-investigation-performance.mjs --diagnostic cpu|allocations` retains
+per-version/per-scenario samples and rejects `--check` in sampled mode. It is a
+diagnostic mode, not a replacement for natural paired timings. First-two-build
+exclusion applies to sampling as well as the ordinary steady-state summaries.
+
+**Connected streaming/key proposal: failed gate, retained.** Its full 68-file suite,
+typecheck/build and 20-scene/320-image exact replay pass. The unchanged paired gate
+still fails: cold 3016.0/4432.3 → 3184.9/4213.3 ms (median/p95, within the cold
+allowance); warm 28.9/53.9 → 30.4/53.3; repeated ownership 25.9/39.9 → 29.2/55.3;
+shore 67.3/139.0 → 36.5/63.7; unique ownership 121.5/171.4 → 81.4/151.2.
+The shore/unique gains do not erase the warm/ownership failures. Source and all
+records remain under `work/river-scoring/connected-performance/`.
+
+**Anchor refinement.** A separate small Node diagnostic over mountain/conifer
+symbols finds the streaming traversal essentially level with the original:
+11.72 versus 11.59 ms median per batch of 2,000 repeated symbol sets, excluding
+the first two batches. This is not a browser or tail-latency gate. Streaming still
+walks the whole drawing a second time, after the audit has sampled it already.
+Replace it with build-local reuse of those exact audit points via a WeakMap keyed
+by the placed drawing. `symbolAnchor` retains its original calculation and accepts
+optional precomputed points. Nothing is cached across redraws; audit sampling,
+point order, anchor arithmetic and the external default call remain unchanged.
+The next gate tests this materially different traversal removal, not another run
+of the failed streaming code.
+
+**Audit-point reuse gate: failed, retained.** Validation passed (68 test files,
+typecheck/build and 320 exact replay images), but the gate still fails. Median/p95
+ms: cold 2892.3/4452.2 → 3173.6/4021.4; warm 26.6/41.7 → 27.9/50.1;
+repeated ownership 24.1/34.6 → 26.8/47.3; shore 64.7/104.0 → 36.2/90.0;
+unique ownership 117.2/185.4 → 77.7/160.3. Cold median is +9.7%, within the
+10% limit, but the warm/ownership regressions remain disqualifying. Raw source,
+metadata and results are in `work/river-scoring/reuse-performance/`.
+
+**Cached-drawing follow-up.** A separate 40-run CPU diagnostic over warm and
+repeated-ownership scenarios finds substantial garbage collection (about 345 ms
+sampled self time across 38 retained warm builds), plus repeated `hash32`, `mix`,
+vegetation drawing and `refit` work. The fitting cache remembers where symbols
+fit but deliberately regenerates all drawing primitives to refresh colours.
+
+The next proposal keeps a single colour-keyed immutable drawing alongside each
+validated fitting. Seed/grid/size/hex/elevation/cover remain in the fitting key;
+the actual ground and ink colours form the additional drawing key. Land probes
+still validate all failed candidates before a fitting can be reused. A changed
+fit regenerates the drawing; changed colours regenerate it without repeating the
+land search. Callers receive fresh placed-object wrappers for hex metadata, while
+label fading wraps scene primitives without mutating the cached drawing.
+
+Drawings and their keys are charged to the existing 10,000-entry / 16 MB estimated
+symbol-fitting budget. There is no additional persistent cache or enlarged budget.
+Only illustrated relief/vegetation uses this path; the marks path retains its
+existing behaviour. Counters distinguish `symbols.drawingHits` and
+`symbols.drawingBuilds`. Tests cover colour/geometry invalidation, exact uncached
+reconstruction and preservation of a previous scene after later edits.
+
+## Current disposition: correctness passes; performance acceptance remains blocked
+
+The bounded-drawing proposal passes all 68 Node test files, client/server typecheck,
+production build, and 20-scene / 320-image exact replay. The final accounting-only
+change also charges the drawing key string to the existing budget; the full suite
+was run after that adjustment. No geography or anchor position changes are intended.
+
+The new independent-heap gate (five cold builds, 100 samples per steady scenario,
+first two steady samples excluded, no concurrent validation or sampling) **fails**:
+
+| Scenario | Instrumented baseline median / p95 | Current draft median / p95 |
+|---|---:|---:|
+| Cold | 2888.6 / 4766.6 | 3074.7 / 4434.0 |
+| Warm | 31.4 / 52.4 | 32.8 / 56.5 |
+| Repeated ownership | 28.7 / 46.4 | 30.6 / 49.1 |
+| Shore | 73.2 / 161.4 | 31.4 / 77.0 |
+| Unique ownership | 134.7 / 191.3 | 84.0 / 143.7 |
+
+All figures are scene-construction milliseconds, not end-to-end app latency.
+Cold median +6.4% is within the allowance; warm and repeated-ownership
+median/p95 regressions are disqualifying. The last run confirms 539 drawing cache
+hits and zero drawing rebuilds per warm sample, so the new reuse is exercised.
+Warm `scene.symbols` median falls 8.05→5.25 ms, but other phases and timing tails
+absorb the saving. Mean total warm construction is approximately 34.94→34.83 ms;
+that does not replace the required median/p95 gate or establish a GC cause.
+
+**Disposition:** retain the source as an unaccepted, unmerged working draft, with
+all failed measurements. Do not describe the drawing work plan or its performance
+gate as complete. Prepared obstacle rotations, exact pack-input keys, build-local
+audit-point reuse and bounded illustrated drawings are reviewable proposals.
+The next investigation should explain the cached redraw distribution (including
+border construction and GC/retained-memory effects) before another connected fix.
+Do not rerun the same code to select favourable timings or loosen the threshold.
+
+All continuation records, CPU/allocation samples, rejected and current patches,
+source fingerprints and validation logs are appended to
+[drawing-editing-diagnostics-records.json.gz](drawing-editing-diagnostics-records.json.gz).
+Working files are under `work/river-scoring/`; `drawing-performance/` identifies
+the latest failed gate, distinct from `performance/`, `connected-performance/`
+and `reuse-performance/`. These finite construction/replay checks do not establish
+full drawing-sweep, long-lived/native-memory or React input-scheduling coverage.

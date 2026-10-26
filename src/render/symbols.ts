@@ -497,8 +497,8 @@ export function keepToLand(
 }
 
 /** Where a symbol stands: the middle of its drawing across, on its base line. */
-export function symbolAnchor(placed: Placed): Point {
-  const points = samplePoints(placed);
+export function symbolAnchor(placed: Placed, sampled?: readonly Point[]): Point {
+  const points = sampled ?? samplePoints(placed);
   if (points.length === 0) return { x: 0, y: placed.y };
   const xs = points.map((p) => p.x);
   return { x: (Math.min(...xs) + Math.max(...xs)) / 2, y: placed.y };

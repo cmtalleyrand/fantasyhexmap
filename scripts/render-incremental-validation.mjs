@@ -8,7 +8,7 @@ const output = resolve(arg('--output', 'work/render-incremental'));
 mkdirSync(output, { recursive: true });
 const bundle = buildSync({ entryPoints: ['scripts/render-incremental-fixture.ts'], bundle: true, write: false,
   format: 'iife', globalName: 'api', loader: { '.woff2': 'dataurl' } }).outputFiles[0].text;
-const referenceBundle = buildSync({ entryPoints: ['scripts/render-incremental-fixture.ts'], bundle: true, write: false,
+const referenceBundle = buildSync({ entryPoints: [resolve(arg('--baseline', '.'), 'scripts/render-incremental-fixture.ts')], bundle: true, write: false,
   format: 'iife', globalName: 'referenceApi', loader: { '.woff2': 'dataurl' } }).outputFiles[0].text;
 const browser = await launchBrowser(), records = [];
 try {
@@ -104,5 +104,5 @@ try {
   }
   await context.close();
 } finally { await browser.close(); }
-writeFileSync(resolve(output, 'results.json'), JSON.stringify({ browser: browser.version(), records }, null, 2));
+writeFileSync(resolve(output, 'results.json'), JSON.stringify({ browser: browser.version(), baseline: resolve(arg('--baseline', '.')), records }, null, 2));
 if (records.some(r => !r.identicalScene || r.images.some(i => i.changedPixels || (i.mode === 'coast' && i.zoom === 'fit' && !i.coastInkPixels)))) throw Error('Incremental geometry or browser pixels changed, or empty coast mask');
