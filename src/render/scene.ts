@@ -59,7 +59,7 @@ import {
   populationColour,
   withAlpha,
 } from './palette.js';
-import { placeAreaLabels, placeRangeLabels, placeRiverLabels, placeWaterLabels } from './featureLabels.js';
+import { clearRiverLabelCache, placeAreaLabels, placeRangeLabels, placeRiverLabels, placeWaterLabels } from './featureLabels.js';
 import { geoEligibility, geoNamesOf, liveHexes } from '../../shared/geoNames.js';
 import type { GeoNameKind } from '../../shared/types.js';
 import {
@@ -394,7 +394,7 @@ function prepareSceneCacheScope(map: MapState, size: number): void {
   if (scope === sceneCacheScope) return;
   sceneCacheScope = scope;
   coastCache.clear(); coastComponents.clear(); coastFits.clear(); glacierMargins.clear(); packIceDrawings.clear(); symbolPlacements.clear(); terrainRevisions.clear();
-  symbolFits = new WeakMap(); clearPlacementCache(); shapeMemo.clear(); islandDrawings.clear();
+  symbolFits = new WeakMap(); clearPlacementCache(); clearRiverLabelCache(); shapeMemo.clear(); islandDrawings.clear();
 }
 
 /** The numerical solve and its stopping tests couple all fitting rings. Its exact
@@ -3212,8 +3212,11 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
     const riverObstacles = [...taken, ...cityBoxes];
     const riverNames = cachedPlacement('riverLabels', [rivers.rivers, size, lettering.river, measureEpoch,
       riverObstacles, tapered ? [...courses] : null, [...meanWidths], [...widthProfiles], lakeShores, symbolLandRevision.id],
+    // Within a search, each river is reused while the inputs that reach it are
+    // unchanged: an edit elsewhere moves realm names without touching most rivers.
     () => placeRiverLabels(rivers.rivers, size, pathFor, lettering.river, riverObstacles,
-      (id) => meanWidths.get(id), inLakeWater, (id) => widthProfiles.get(id), quickLandAt));
+      (id) => meanWidths.get(id), inLakeWater, (id) => widthProfiles.get(id), quickLandAt,
+      JSON.stringify([measureEpoch, lakeShores, symbolLandRevision.id])));
     const namedRivers = new Set(riverNames.map(n => n.text));
     for (const river of rivers.rivers) {
       if (!river.name.trim() || namedRivers.has(river.name.trim())) continue;

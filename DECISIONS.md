@@ -1514,3 +1514,29 @@ whole-map view, 514–557 → 153–195 ms at 1×. Edits every 1.2 s: none super
 three of eight before (worst 4.8 s). Single-edit latency is unchanged (build and paint dominate).
 Edits faster than one build (every 0.4 s) show nothing until they stop, in both versions: every
 new edit discards the build in progress. That needs faster builds, not scheduling alone.
+
+## 71. Reuse each river's name while nothing that can reach it has changed
+
+**Problem.** River names were cached as one family whose key held every realm name and city
+marker. An ownership edit anywhere moves realm names, so every edit re-searched every river: on
+the 50×50 all-layer fixture, about 52 course preparations and 4,400 candidate positions per edit,
+the largest part of an edit's build.
+
+**Chosen.** Inside a family search, each river is reused under its own key: its course, width,
+profile, text, size and face; a snapshot of what the lake and land predicates and measurements
+depend on (measure epoch, lake shores, land revision); and only those obstacles, earlier river
+names and other courses that can reach its probes. Every probe lies within the largest type's
+lift plus half a line of the course's bounding box, and other courses matter only a little farther
+out; anything beyond cannot change a single probe, so the result is identical. Earlier names are
+still pushed in order, so a re-searched river that moves its name re-searches any later river
+that name can reach. Reusing a previous winner without these inputs remains rejected.
+
+**Cost.** A second bounded memo (1,024 entries, about 8 MB estimated, keys charged) and one key
+serialization per river per family miss. The family cache in front of it is unchanged.
+
+**Evidence.** Random obstacle moves, additions and removals equal a fresh search at each of 40
+steps; scene rebuilds after ownership edits equal uncached rebuilds. Production worker study
+(50×50, eight unique ownership edits, two paired runs against the previous commit): worker build
+median 660–675 → 104–107 ms, edit to sharp frame 1017–1033 → 466 ms; 378 river reuses and 38
+searches across the eight edits. Land edits still invalidate every river, because the land and
+lake predicates are keyed globally.

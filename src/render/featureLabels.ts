@@ -14,6 +14,8 @@ import { insideBox, type OrientedBox } from './labels.js';
 import { glyphAdvances, glyphsAlong, glyphsStraight, type Glyph } from './glyphs.js';
 import { depthWithin, ridgePath } from './depth.js';
 import { textBoxes } from './collide.js';
+import { BoundedMemo } from './cache.js';
+import { profileCount } from './profile.js';
 
 /**
  * Largest type for a water name, in hex sizes: a body only a hex or two deep
@@ -516,6 +518,12 @@ function nearbyPoints(points: Point[], cell: number) {
 /**
  * `pathFor` supplies the course as drawn when it is not the hex-centre polyline
  * (a meandering river), so the name sits on the line the reader sees.
+ *
+ * With `context` (a snapshot of everything `inWater`, `onLand` and the face's
+ * measurements depend on), each river's name is reused while every input that
+ * can reach its samples is unchanged: its own course, width and profile, and only
+ * those obstacles, earlier names and other courses near enough to be tested.
+ * Anything farther away cannot change a single probe, so reuse is exact.
  */
 export function placeRiverLabels(
   rivers: River[],
@@ -531,9 +539,10 @@ export function placeRiverLabels(
   profileFor?: (riverId: string) => number[] | undefined,
   /** Land as drawn; a mouth does not license a river name in open sea. */
   onLand?: (p: Point) => boolean,
+  context?: string,
 ): FeatureLabel[] {
   if (onLand) {
-    const previous = placeRiverLabels(rivers, size, pathFor, face, avoid, widthFor, inWater, profileFor);
+    const previous = placeRiverLabels(rivers, size, pathFor, face, avoid, widthFor, inWater, profileFor, undefined, context);
     if (previous.every(label => labelOnSide(label, face, onLand))) return previous;
   }
   const out: FeatureLabel[] = [];
@@ -546,121 +555,193 @@ export function placeRiverLabels(
     const text = river.name.trim();
     if (!text) continue;
     const drawn = widthFor?.(river.id) ?? 0;
-    // Large enough to read against relief and polity colour, and up to a tenth
-    // larger on a wide river; a river too short to carry its name at the floor
-    // size goes unnamed.
-    const idealFont = Math.max(9, size * 0.44) * (1 + 0.1 * Math.min(1, drawn / (size * 0.17)));
-    const minFont = Math.max(7, size * 0.3);
     const raw = lines.get(river.id)!;
-    if (raw.length < 2) continue;
-    // Lettering follows a rounded copy of the course: the hex-to-hex polyline has
-    // hard corners that would throw letters sideways, and a name cannot bend that sharply.
-    const { pts, cum } = smoothCourse(raw, Math.max(2, size * 0.2), idealFont * 0.7);
-    const total = cum[cum.length - 1]!;
-    const profile = rescaleProfile(profileFor?.(river.id), raw, pts, cum);
     const others = rivers.filter((r) => r.id !== river.id).flatMap((r) => lines.get(r.id) ?? []);
-    const nearOthers = nearbyPoints(others, size);
-    const nearOwn = nearbyPoints(pts, size);
-    const em = glyphAdvances(text, 1, face.tracking, face.weight, face.family, face.italic).width;
-    const headings = headingsOf(pts);
-
-    interface Pick {
-      font: number;
-      lift: number;
-      start: number;
-      side: 1 | -1;
-      score: number;
-      turn: number;
-      covered: number;
-    }
-    let chosen: Pick | null = null;
-    let fallback: Pick | null = null;
-    // Largest type first; a smaller size is taken when it reaches a straighter,
-    // clearer stretch. A name that only fits across a sharp bend is shrunk
-    // before it is allowed to bend.
-    for (let font = Math.min(idealFont, (total * 0.95) / em); font >= minFont * 0.999; font *= 0.9) {
-      const width = em * font;
-      if (width > total) continue;
-      // Sit just off the line (in the text's own frame), clear of its bank.
-      const lift = Math.max(font * 0.8, drawn / 2 + font * 0.45);
-      const steps = 40;
-      let best: Pick | null = null;
-      for (let k = 0; k <= steps; k++) {
-        const start = ((total - width) * k) / steps;
-        const turn = turnWithin(pts, cum, headings, start, start + width);
-        const a = pointAt(pts, cum, start);
-        const b = pointAt(pts, cum, start + width);
-        const chord = Math.hypot(b.x - a.x, b.y - a.y) || 1;
-        let deviation = 0;
-        for (let j = 1; j < 6; j++) {
-          const p = pointAt(pts, cum, start + (width * j) / 6);
-          deviation = Math.max(deviation, Math.abs((b.x - a.x) * (a.y - p.y) - (a.x - p.x) * (b.y - a.y)) / chord);
-        }
-        const centreBias = Math.abs(start + width / 2 - total / 2) / total;
-        // The widest the river is under the text: a name goes on the slim stretches.
-        let wide = 0;
-        if (profile) {
-          for (let i = 0; i < pts.length; i++) if (cum[i]! >= start && cum[i]! <= start + width) wide = Math.max(wide, profile[i]!);
-        }
-        for (const side of [1, -1] as const) {
-          let hits = 0;
-          let samples = 0;
-          let overWater = false;
-          for (let j = 0; j <= 8; j++) {
-            const d = start + (width * j) / 8;
-            const p = pointAt(pts, cum, d);
-            const q = pointAt(pts, cum, d + font * 0.3);
-            // The text frame's direction, left to right, and the way its top points.
-            let angle = Math.atan2(q.y - p.y, q.x - p.x);
-            if (Math.cos(angle) < 0) angle += Math.PI;
-            for (const off of [lift * side - font * 0.4, lift * side, lift * side + font * 0.4]) {
-              const x = p.x + Math.sin(angle) * off;
-              const y = p.y - Math.cos(angle) * off;
-              samples++;
-              if (onLand && !onLand({ x, y })) overWater = true;
-              if (avoid.some((box) => insideBox(box, x, y)) || placed.some((box) => insideBox(box, x, y))) hits += 2;
-              else if (inWater?.({ x, y })) hits += 2;
-              else if (nearOthers(x, y, font * 0.45)) hits += 2;
-              // The river's own line coming back round the inside of a bend.
-              else if (nearOwn(x, y, font * 0.6, i => Math.abs(cum[i]! - d) >= font * 2.5)) hits += 2;
-            }
-          }
-          if (overWater) continue;
-          const covered = hits / (2 * samples);
-          const score = (deviation / size) * 0.5 + centreBias * 0.3 + covered * 4 + (wide / size) * 1.5 + Math.max(0, turn - 0.2) * 2.5 + (side === 1 ? 0 : 0.02);
-          if (!best || score < best.score) best = { font, lift, start, side, score, turn, covered };
-        }
-      }
-      if (!best) continue;
-      if (!fallback || best.score + (1 - best.font / idealFont) * 1.2 < fallback.score + (1 - fallback.font / idealFont) * 1.2) fallback = best;
-      if (best.turn <= MAX_NAME_TURN && best.covered < 0.2) {
-        chosen = best;
-        break;
+    const profile = profileFor?.(river.id);
+    const place = (near: OrientedBox[], nearPlaced: OrientedBox[], nearLines: Point[]) =>
+      placeRiver(text, raw, drawn, profile, size, face, near, nearPlaced, nearLines, inWater, onLand);
+    let label: FeatureLabel | null;
+    if (context === undefined || raw.length < 2) label = place(avoid, placed, others);
+    else {
+      // Every probe lies within `reach` of the course (the largest type's lift
+      // plus half a line); other courses matter a little farther out.
+      const idealFont = Math.max(9, size * 0.44) * (1 + 0.1 * Math.min(1, drawn / (size * 0.17)));
+      const reach = Math.max(idealFont * 0.8, drawn / 2 + idealFont * 0.45) + idealFont * 0.4;
+      const area = expand(boundsOfPoints(raw), reach);
+      const lineArea = expand(area, idealFont * 0.45);
+      const near = avoid.filter(box => boxMayReach(box, area));
+      const nearPlaced = placed.filter(box => boxMayReach(box, area));
+      const nearLines = others.filter(p => p.x >= lineArea.left && p.x <= lineArea.right && p.y >= lineArea.top && p.y <= lineArea.bottom);
+      const key = JSON.stringify([onLand ? 1 : 0, context, text, raw, drawn, profile ?? null, size, face, near, nearPlaced, nearLines]);
+      const known = riverMemo.get(key);
+      if (known !== undefined) {
+        profileCount('riverLabels.riverHits');
+        label = structuredClone(known);
+      } else {
+        profileCount('riverLabels.riverSearches');
+        label = place(near, nearPlaced, nearLines);
+        riverMemo.set(key, structuredClone(label), JSON.stringify(label).length * 2);
       }
     }
-    const pick = chosen ?? fallback;
-    if (!pick) continue;
-    const { font, lift } = pick;
-    const width = em * font;
-    const a = pointAt(pts, cum, pick.start);
-    const b = pointAt(pts, cum, pick.start + width);
-    const rotation = upright(Math.atan2(b.y - a.y, b.x - a.x));
-    const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
-    const signed = lift * pick.side;
-    const glyphs = glyphsAlong(text, font, pts, pick.start, { tracking: face.tracking, lift: signed, weight: face.weight, family: face.family, italic: face.italic });
-    const at = { x: mid.x + Math.sin(rotation) * signed, y: mid.y - Math.cos(rotation) * signed };
-    if (onLand && !labelOnSide({text,size:font,rotation,at,glyphs,width},face,onLand)) continue;
-    for (const g of glyphs) placed.push({ cx: g.x, cy: g.y, halfW: font * 0.4, halfH: font * 0.6, rotation: g.rotation });
-    out.push({
-      text,
-      size: font,
-      rotation,
-      at,
-      glyphs,
-      width,
-    });
+    if (!label) continue;
+    for (const g of label.glyphs ?? []) placed.push({ cx: g.x, cy: g.y, halfW: label.size * 0.4, halfH: label.size * 0.6, rotation: g.rotation });
+    out.push(label);
   }
   return out;
+}
+
+/** Per-river names, keyed by every input that can reach their probes (see `placeRiverLabels`). */
+const riverMemo = new BoundedMemo<FeatureLabel | null>(1024, 8_000_000);
+export function clearRiverLabelCache(): void { riverMemo.clear(); }
+
+type Area = { left: number; top: number; right: number; bottom: number };
+function boundsOfPoints(points: Point[]): Area {
+  let left = Infinity, top = Infinity, right = -Infinity, bottom = -Infinity;
+  for (const p of points) {
+    left = Math.min(left, p.x); right = Math.max(right, p.x);
+    top = Math.min(top, p.y); bottom = Math.max(bottom, p.y);
+  }
+  return { left, top, right, bottom };
+}
+function expand(a: Area, by: number): Area {
+  return { left: a.left - by, top: a.top - by, right: a.right + by, bottom: a.bottom + by };
+}
+/**
+ * Whether any point of `area` could lie inside the rotated box. The box lies within
+ * its axis-aligned extent; the generous slack only ever keeps a box, never drops one
+ * `insideBox` could accept.
+ */
+function boxMayReach(box: OrientedBox, area: Area): boolean {
+  const c = Math.abs(Math.cos(box.rotation)), s = Math.abs(Math.sin(box.rotation));
+  const slack = 1e-3 + 1e-9 * (Math.abs(box.cx) + Math.abs(box.cy) + box.halfW + box.halfH);
+  const ex = box.halfW * c + box.halfH * s + slack, ey = box.halfW * s + box.halfH * c + slack;
+  return box.cx + ex >= area.left && box.cx - ex <= area.right && box.cy + ey >= area.top && box.cy - ey <= area.bottom;
+}
+
+/** One river's name against the given obstacles, earlier names and other courses. */
+function placeRiver(
+  text: string,
+  raw: Point[],
+  drawn: number,
+  rawProfile: number[] | undefined,
+  size: number,
+  face: FaceRole,
+  avoid: OrientedBox[],
+  placed: OrientedBox[],
+  others: Point[],
+  inWater?: (p: Point) => boolean,
+  onLand?: (p: Point) => boolean,
+): FeatureLabel | null {
+  // Large enough to read against relief and polity colour, and up to a tenth
+  // larger on a wide river; a river too short to carry its name at the floor
+  // size goes unnamed.
+  const idealFont = Math.max(9, size * 0.44) * (1 + 0.1 * Math.min(1, drawn / (size * 0.17)));
+  const minFont = Math.max(7, size * 0.3);
+  if (raw.length < 2) return null;
+  // Lettering follows a rounded copy of the course: the hex-to-hex polyline has
+  // hard corners that would throw letters sideways, and a name cannot bend that sharply.
+  const { pts, cum } = smoothCourse(raw, Math.max(2, size * 0.2), idealFont * 0.7);
+  const total = cum[cum.length - 1]!;
+  const profile = rescaleProfile(rawProfile, raw, pts, cum);
+  const nearOthers = nearbyPoints(others, size);
+  const nearOwn = nearbyPoints(pts, size);
+  const em = glyphAdvances(text, 1, face.tracking, face.weight, face.family, face.italic).width;
+  const headings = headingsOf(pts);
+
+  interface Pick {
+    font: number;
+    lift: number;
+    start: number;
+    side: 1 | -1;
+    score: number;
+    turn: number;
+    covered: number;
+  }
+  let chosen: Pick | null = null;
+  let fallback: Pick | null = null;
+  // Largest type first; a smaller size is taken when it reaches a straighter,
+  // clearer stretch. A name that only fits across a sharp bend is shrunk
+  // before it is allowed to bend.
+  for (let font = Math.min(idealFont, (total * 0.95) / em); font >= minFont * 0.999; font *= 0.9) {
+    const width = em * font;
+    if (width > total) continue;
+    // Sit just off the line (in the text's own frame), clear of its bank.
+    const lift = Math.max(font * 0.8, drawn / 2 + font * 0.45);
+    const steps = 40;
+    let best: Pick | null = null;
+    for (let k = 0; k <= steps; k++) {
+      const start = ((total - width) * k) / steps;
+      const turn = turnWithin(pts, cum, headings, start, start + width);
+      const a = pointAt(pts, cum, start);
+      const b = pointAt(pts, cum, start + width);
+      const chord = Math.hypot(b.x - a.x, b.y - a.y) || 1;
+      let deviation = 0;
+      for (let j = 1; j < 6; j++) {
+        const p = pointAt(pts, cum, start + (width * j) / 6);
+        deviation = Math.max(deviation, Math.abs((b.x - a.x) * (a.y - p.y) - (a.x - p.x) * (b.y - a.y)) / chord);
+      }
+      const centreBias = Math.abs(start + width / 2 - total / 2) / total;
+      // The widest the river is under the text: a name goes on the slim stretches.
+      let wide = 0;
+      if (profile) {
+        for (let i = 0; i < pts.length; i++) if (cum[i]! >= start && cum[i]! <= start + width) wide = Math.max(wide, profile[i]!);
+      }
+      for (const side of [1, -1] as const) {
+        let hits = 0;
+        let samples = 0;
+        let overWater = false;
+        for (let j = 0; j <= 8; j++) {
+          const d = start + (width * j) / 8;
+          const p = pointAt(pts, cum, d);
+          const q = pointAt(pts, cum, d + font * 0.3);
+          // The text frame's direction, left to right, and the way its top points.
+          let angle = Math.atan2(q.y - p.y, q.x - p.x);
+          if (Math.cos(angle) < 0) angle += Math.PI;
+          for (const off of [lift * side - font * 0.4, lift * side, lift * side + font * 0.4]) {
+            const x = p.x + Math.sin(angle) * off;
+            const y = p.y - Math.cos(angle) * off;
+            samples++;
+            if (onLand && !onLand({ x, y })) overWater = true;
+            if (avoid.some((box) => insideBox(box, x, y)) || placed.some((box) => insideBox(box, x, y))) hits += 2;
+            else if (inWater?.({ x, y })) hits += 2;
+            else if (nearOthers(x, y, font * 0.45)) hits += 2;
+            // The river's own line coming back round the inside of a bend.
+            else if (nearOwn(x, y, font * 0.6, i => Math.abs(cum[i]! - d) >= font * 2.5)) hits += 2;
+          }
+        }
+        if (overWater) continue;
+        const covered = hits / (2 * samples);
+        const score = (deviation / size) * 0.5 + centreBias * 0.3 + covered * 4 + (wide / size) * 1.5 + Math.max(0, turn - 0.2) * 2.5 + (side === 1 ? 0 : 0.02);
+        if (!best || score < best.score) best = { font, lift, start, side, score, turn, covered };
+      }
+    }
+    if (!best) continue;
+    if (!fallback || best.score + (1 - best.font / idealFont) * 1.2 < fallback.score + (1 - fallback.font / idealFont) * 1.2) fallback = best;
+    if (best.turn <= MAX_NAME_TURN && best.covered < 0.2) {
+      chosen = best;
+      break;
+    }
+  }
+  const pick = chosen ?? fallback;
+  if (!pick) return null;
+  const { font, lift } = pick;
+  const width = em * font;
+  const a = pointAt(pts, cum, pick.start);
+  const b = pointAt(pts, cum, pick.start + width);
+  const rotation = upright(Math.atan2(b.y - a.y, b.x - a.x));
+  const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+  const signed = lift * pick.side;
+  const glyphs = glyphsAlong(text, font, pts, pick.start, { tracking: face.tracking, lift: signed, weight: face.weight, family: face.family, italic: face.italic });
+  const at = { x: mid.x + Math.sin(rotation) * signed, y: mid.y - Math.cos(rotation) * signed };
+  if (onLand && !labelOnSide({text,size:font,rotation,at,glyphs,width},face,onLand)) return null;
+  return {
+    text,
+    size: font,
+    rotation,
+    at,
+    glyphs,
+    width,
+  };
 }
 
 export function placeRangeLabels(
