@@ -1553,7 +1553,10 @@ large one. Neither came from the line count itself; both happen on any coast ref
 lines on the populated fixture, labels by less than 0.003. Against `main`, the fixes themselves change
 the picture once: frontiers that end on the coast take a different, stable wander, and the two rivers
 whose bows were set off by rounding (Mocktown 13 and 29) keep their own course instead of being
-smoothed past the icon.
+smoothed past the icon. Their own course has sharp bends (sharpest turn 35° → 62° and 46° → 68°), as
+most rivers on `main` already do (9 of 13 on the populated fixture turn by 58–81° somewhere, none near a
+city); the rounding-triggered smoothing had hidden them on these two. Those bends are a separate
+weakness of the meander, not of this change.
 
 ## 78. A stand-in picture while the coast fits: rejected as a workaround
 
