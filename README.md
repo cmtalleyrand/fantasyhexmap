@@ -13,9 +13,10 @@ It runs in three arrangements from one codebase: locally with a small Express se
 GitHub Pages site where you supply your own key, or as a Pages site pointed at a key-holding proxy.
 See [Deployment](#deployment).
 
-For drawing maintenance, start with the consolidated [status and evidence](docs/drawing-status.md)
-and [work plan](docs/drawing-work-plan.md). They distinguish current source checks from historical
-measurements and record prior approaches to avoid repeating them.
+Open work is in `docs/`: [drawing](docs/drawing-work-plan.md), [tests](docs/test-next-steps.md),
+[simplification](docs/simplification-next-steps.md), [interface](docs/interface-next-steps.md) and
+[automatic coasts](docs/automatic-coasts-next-steps.md). The reasons behind current behaviour are in
+[DECISIONS](DECISIONS.md).
 
 ## Quick start
 

@@ -1,6 +1,6 @@
 # Tests: next steps
 
-Written 27 October 2026 on `ccr-66ffcf46-juu8y2` (PR #160). It is a self-contained brief for an agent
+Written after PR #160. It is a self-contained brief for an agent
 working on tests alone. Each step is a direct change and needs no further investigation before it
 starts. The rest of the simplification plan (scripts, docs, render code) is in
 `docs/simplification-next-steps.md`.
@@ -113,7 +113,7 @@ is 5 percentage points. Four coverage cases at a 90% share draw too little land:
 
 The cause is in coast geometry, not in the tests. A jutting high-share hex starts with too little land.
 The coast fit then stops at the cumulative distortion bound from #158, which
-`test/coastFitDistortion.test.ts` asserts. PR #160 sets out the options. Test work must not change
+`test/coastFitDistortion.test.ts` asserts. `docs/drawing-work-plan.md` §4 sets out the options. Test work must not change
 either the 5-point gate or that bound to make the sweep pass.
 
 ## Suggested order

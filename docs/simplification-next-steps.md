@@ -1,9 +1,7 @@
 # Simplification: next steps
 
-Written 27 October 2026 on `ccr-66ffcf46-juu8y2` (PR #160), from the performance work recorded in
-DECISIONS §70–75. It proposes simplifications; none has been done. The figures below were measured
-on that branch and only explain the order. Each step is a direct change and needs no further
-investigation before it starts.
+Written after PR #160, from the work recorded in DECISIONS §70–75. Each step is a direct change and
+needs no further investigation before it starts. The figures only explain the order.
 
 ## Ground rules
 
@@ -28,78 +26,32 @@ Two facts from §72 matter for any test touching pixels:
 So never require byte equality between paints made with different clip set-ups or different path
 histories.
 
-## 1. Scripts (`scripts/`): one harness, fewer one-off studies
+## 1. Scripts (`scripts/`): one harness
 
-There are 54 files (about 3,600 lines). About 20 of them launch Chromium, and about 16 bundle code with
-esbuild, each repeating the same boilerplate:
+Only the 21 scripts that `package.json`, CI, tests or the drawing plan reach remain; one-off studies
+were deleted (they are in Git at `8bf42c7`). The browser scripts still repeat the same boilerplate:
+bundling an entry, serving it through `serveBuild`, launching the browser, wrapping worker messages
+in promises, and summarising medians and p95s.
 
-- bundling an entry;
-- serving it through `serveBuild`;
-- launching the browser;
-- a promise wrapper around worker messages;
-- median and p95 summaries.
-
-26 scripts are referenced only from docs or not at all. Examples:
-
-- `coast-fit-performance.mjs`;
-- `render-parts34-summary.mjs`;
-- `selection-tools-validation.mjs`;
-- `render-browser-performance.mjs`;
-- `render-all-layers-performance.mjs`;
-- `render-navigation-*`.
-
-Steps:
-
-1. **Extract shared helpers** into `scripts/browser-runtime.mjs` (or a sibling module):
+1. **Extract shared helpers** into `scripts/browser-runtime.mjs`:
    - `bundlePage(exports)` for a stdin bundle of named exports;
    - `workerClient(url)` for build, paint and next-message calls;
    - `pairedRuns(variants, rounds)`, which alternates variants and reports the median and p95;
    - `pixelDiff(a, b)`, giving changed count, max and histogram.
-
-   The temporary scripts written during PR #160 all re-implemented these.
 2. **Allow `executablePath` without flags.** `launchBrowser` needs `--chromium` to find a preinstalled
    browser. Let it read an environment variable (for example `CHROMIUM_PATH`) so managed environments
    with `/opt/pw-browsers/chromium` work by default. This is also step 6 of `docs/test-next-steps.md`;
    do it once, in whichever lands first.
-3. **Fold the latency studies into one CLI with named scenarios.** `render-interaction-study.mjs`
-   (edit-paced, pan-after-edit) and `render-worker-study.mjs` (cold, warm, ownership) both drive the
-   production worker. Merge them, keeping the user-facing measures (time to sharp frame, queue wait)
-   as the primary output.
-4. **Retire finished studies.** For each script referenced only from a dated doc, either delete it
-   (its results are already recorded) or move it to `scripts/archive/` with a one-line note of the
-   doc that cites it. Do not keep two live scripts measuring the same thing.
+3. **No new one-off scripts in the tree.** A study that is not a `package.json` command or a CI check
+   lives under `work/` (not committed); its conclusion goes in DECISIONS.
 
-## 2. Documentation (`docs/`, `DECISIONS.md`): current state versus history
+## 2. Documentation
 
-What `docs/` holds:
-
-| What | Size |
-|---|---|
-| All of `docs/` | 29 MB |
-| 34 JSON/`.gz` raw-record files | 7.2 MB |
-| PNGs | 21 MB |
-| Markdown documents | 22 |
-
-Several of the Markdown documents are overlapping plans for the same topic:
-- `render-performance.md`, `render-performance-plan.md` and `render-performance-implementation.md`;
-- `render-optimization-implementation-plan.md` and `render-optimization-parts-{1-2,3-4}.md`;
-- `coast-performance-plan.md`;
-- `drawing-status.md` and `drawing-work-plan.md`.
-
-`DECISIONS.md` is over 1,500 lines, in chronological order, and some entries are superseded. For
-example, §70 replaces the earlier policy that held a sharp frame's job until its overview was done.
-
-Steps:
-
-1. **Write one current-state document per area** (rendering performance, coast geometry, drawing
-   correctness): what is true now, which checks guard it, and the open problems. Link to the dated
-   documents as history rather than merging them.
-2. **Move raw records out of git:** the `*-results.json`, `*.json.gz` and evidence PNGs that no current
-   doc depends on. Use release assets or a separate artifact branch, and keep a manifest with
-   checksums in `docs/`.
-3. **Annotate superseded decisions.** Mark each superseded DECISIONS entry with
-   "Superseded by §N" on its first line. Optionally split the file into an index of current
-   decisions plus the history.
+Done. `docs/` holds only open work: the drawing, test, simplification, interface and
+automatic-coasts plans. Superseded plans, investigation narratives, raw results and images were
+deleted, and process-only DECISIONS entries were removed; all of it is in Git at `8bf42c7`. Keep it
+that way: update the relevant plan or DECISIONS entry instead of adding a new document, and delete a
+plan's steps once they are done.
 
 ## 3. Tests (`test/`)
 
@@ -172,7 +124,7 @@ Then delete Classic's code paths, its tests, and its cases in the drawing sweeps
 | 1 | `docs/test-next-steps.md` (separate agent) | CI coverage and cycle time for every later step; independent of the rest |
 | 2 | §1 steps 1–2 (shared harness) | Every remaining performance or pixel investigation reuses it |
 | 3 | §4.3, then §4.2 | Small, contained changes to code that recent work touched |
-| 4 | §2 | Documentation consolidation, so agents read one current state |
+| 4 | §4.4, §4.5 | Glyph loop; Classic retirement (with test step 7) |
 | 5 | §4.1 | The scene-builder split, in phase-sized PRs, each with cached/uncached equality and the pixel checks |
 
 Done means: the ground-rule checks pass unchanged, and each step's PR states which of those checks

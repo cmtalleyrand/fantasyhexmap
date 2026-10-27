@@ -1,13 +1,8 @@
 # Design decisions
 
-Current drawing implementation status, versioned evidence and next work are consolidated in
-[drawing-status](docs/drawing-status.md) and [drawing-work-plan](docs/drawing-work-plan.md)
-(initially reviewed at `849f12f`, rebased and updated through `12a33d7` / PR #156, 21 October 2026).
-Measurements below belong to their recorded versions;
-in particular §§67–69 performance figures precede the rebase onto `fd8d2f6` and do not measure
-the merged PR #148 head. Historical decisions remain here to explain the implementation.
-
-A record of the choices made while building this, and why. These were decisions taken by the AI
+A record of the choices made while building this, and why. Open drawing work is in
+[docs/drawing-work-plan.md](docs/drawing-work-plan.md). Entries describe current behaviour; measurements
+belong to the commit they were taken on. These were decisions taken by the AI
 that wrote the code, not requirements handed down in the brief: where the brief was specific this
 document does not restate it, and where the brief left a choice open, this is what was chosen and
 what the alternative would have cost. Several are reversible; a few would be painful to change
@@ -1160,8 +1155,7 @@ They now take shore ground and are painted before lakes and islands. The corresp
 including intermediate points along long strokes; wholly inland hexes retain the existing fast answer.
 
 **Cost.** Outline queries have more work than ellipse queries; path reuse and bounds rejection avoid
-repeating island construction. Measurement and remaining scope are in
-[`docs/drawing-status.md`](docs/drawing-status.md). The test-only pixel masks add no app work.
+repeating island construction. The test-only pixel masks add no app work.
 
 ## 53. Gentle rivers retract only wander that introduces a sharp kink
 
@@ -1231,39 +1225,7 @@ placement predicate to determine pixel colours.
 **Limit.** These checks cover the repaired cases; they are not yet an independent raster check for every
 one of the seven drawing principles. Borders, ripples, sea ice, complete city-marker footprints, ownership
 proportions and edit-locality still need dedicated finished-picture checks. This work does not claim those
-requirements complete. Commands, evidence, performance and one status per hypothesis are recorded in the
-investigation report.
-
-## 57. Reuse the immutable coast outline within each redraw
-
-**Problem.** The first longer comparison had improved warm medians but a warm p95 about 8% above main.
-Several groups independently rebuilt the same `drawnLand` path within one scene, including the new glacier
-clip. That duplicated arrays and defeated the painter's compiled-path sharing.
-
-**Chosen.** Construct the painted sea-coast outline at most once per scene build and share the immutable
-path between all its clips. It is the same geometry, not a lower-resolution or approximate substitute.
-Three populated all-layer scene comparisons against the pre-reuse change are byte-identical.
-
-**Cost.** One build-local accessor and one retained path reference; no new long-lived cache or invalidation
-policy. Final timings, including p95, are in the investigation report. The benchmark now rejects steady-state
-median or p95 regressions and cold costs over 10% on either measure.
-
-## 58. Install the drawing checks' browser dependencies in the checkout
-
-**Problem.** The package-level drawing checks imported an undeclared `playwright-core` and assumed
-`/usr/bin/chromium`. They only ran in the investigation's managed environment, not a normal checkout.
-
-**Chosen.** Pin Playwright as a development dependency, including its lockfile entries. The shared
-browser launcher uses Playwright's matching Chromium by default. `npm run test:browser:install`
-installs it; Linux users can append `-- --with-deps` for system libraries. Keep explicit driver/browser
-overrides for managed environments. Document setup in the README and run both drawing commands in CI
-after installing Chromium, retaining their evidence even on failure.
-
-**Cost and validation.** Development-only package and browser downloads; no app bundle or redraw cost.
-Both drawing commands pass with the installed checkout driver and an explicit system-Chromium override.
-The managed environment blocks `cdn.playwright.dev` with HTTP 403, so the standard browser download
-could not be verified here. PR #146's Drawing tests CI run (39327929544) passed the documented
-default setup and both package commands without either override.
+requirements complete.
 
 ## 59. Reuse exact ice drawings and validated symbol fits
 
@@ -1281,8 +1243,7 @@ limit, accounting for the extra references. Pack weights use four times serializ
 glacier weights count path commands, slivers and chain edges. These are estimates, not measured heap
 bounds. Failing-before tests check repeated work and compare edited scenes with uncached reconstruction.
 The historical pre-rebase 100-run comparison against `6786d4a` passed every unchanged performance gate: warm/ownership/shore
-medians improve about 32/31/26%, and cold median costs 0.7%. See `docs/drawing-status.md` for raw evidence,
-earlier failed configurations, output comparisons and measurement limits.
+medians improve about 32/31/26%, and cold median costs 0.7%.
 
 ## 60. Treat enclosed seas as holes in the mainland
 
@@ -1299,8 +1260,7 @@ outline. No owner's data, intended dimensions or correctly drawn island styling 
 **Validation and cost.** Two failing-before topology/extent tests pass. An independent painted-pixel sweep
 checks mainland, enclosed water and nested land-island hex centres across 200 seeds and three styles:
 400/600 baseline cases fail and none fail after correction. Existing 200 island-seed and 150 ordinary-coast
-area checks remain unchanged. Added work is a source-chain signed-area sum. Images and timings are in
-the follow-up report. This removes a misrendering; it is not an unapproved style change.
+area checks remain unchanged. Added work is a source-chain signed-area sum. This removes a misrendering; it is not an unapproved style change.
 
 ## 61. Remove fold-back loops in open coasts as well as closed ones
 
@@ -1316,9 +1276,7 @@ relaxed movement guards were retained.
 
 **Continuation validation/cost.** The single pinned Parchment fixture paints 4.635% versus 5% requested.
 The full unchanged 150-case raster area gate passes after the connected repair in §62; 600 enclosed-sea
-and 200 island checks also pass. Open chains incur a bounded crossing-index scan, measured with the
-then-current implementation against its recorded main as indexed in `docs/drawing-status.md`. The earlier
-publication deliberately left this cost unverified; its old results are retained as historical evidence.
+and 200 island checks also pass. Open chains incur a bounded crossing-index scan.
 
 ## 62. Finish an unsmoothed coast only when it misses the share gate
 
@@ -1335,39 +1293,6 @@ not an approved coastline style; no owner data or tolerances change.
 reuse exact coast geometry. Two numerical regressions independently sample final land plus ink; the
 full 150-case raster sweep reaches a maximum error of 0.789 percentage points. Roughness, narrow tips,
 ink and accurate area can compete; no crossing/passage guard is loosened to force exact convergence.
-Current matched construction costs and their limits are recorded in the follow-up report.
-
-## 63. Control Canvas path history in exact geometry replay
-
-**Problem.** Scene JSON matches, but two export pixels differ by one channel level. The two-case
-`canvas-replay-history.mjs` control also produces three changed pixels when the identical scene object
-is drawn with two independent painters whose Path2D WeakMaps have different histories. Fresh scene
-clones on both sides give zero differences. The underlying Chromium detail is not established.
-
-**Chosen.** Give export inputs the same fresh-clone treatment already used by worker replay. Clone
-both once before the matrix, retaining values and aliases but preventing cross-case compiled-path
-identity from differing between the cached and uncached constructions. Keep scene JSON and RGBA
-assertions exact. This corrects a test-control defect; production painting is unchanged.
-
-**Limits/cost.** Test-only cloning and a two-fixture diagnostic; no app-time overhead. This checks
-cached geometry with controlled painter histories, not arbitrary browser Path2D lifetime determinism.
-
-## 64. Retain the current failed performance gate rather than replace it with historical timings
-
-**Evidence.** The isolated 100-run comparison of runtime `f67ca94` against current main `1179712`
-passes correctness, cold-cost and median checks, but warm p95 rises 169.1→209.8 ms (+24.1%) and
-ownership p95 185.0→187.2 ms (+1.2%). Cold median adds 2.6%; shore p95 improves 22.0%.
-
-**Disposition.** Publish the repaired correctness work and exact evidence on the existing draft PR;
-keep tail latency as a merge blocker. Do not loosen thresholds or repeat full benchmarks to select a
-favourable sample. Profiles locate spikes, but no GC/scheduling/cache cause is proved. The run measures
-scene construction on the populated 40×40 fixture, not end-to-end latency, unique edits or worker heap.
-
-**Small-fixture cost.** Separately measured 50-run uncached geography-only constructions (48 retained)
-show Parchment median 27.0→24.1 ms, Classic 3.1→4.0 ms. The Classic extra candidate adds 0.9 ms but
-29.0% relative cold cost; p95 adds 1.2 ms (+27.9%). This exceeds 10% on that small fixture and remains
-unapproved. The populated-map cold result cannot be used to hide it. The diagnostic asserts that base
-geography is visible and a coastline was actually built; an initial empty-base setup was discarded.
 
 ## 65. Use one land colour by default and continue retiring Classic
 
@@ -1375,9 +1300,9 @@ geography is visible and a coastline was actually built; an initial empty-base s
 now use `land: 'uniform'`; an explicit coastal-band override remains a supported choice. Land shares,
 coast geometry and saved owner data are unchanged.
 
-Classic's unsmoothed hex-based coast exposes abrupt cut joins at low shares. It remains a legacy
-compatibility path; new users already start in Parchment. Continue retiring its picker/fallback and
-legacy preference paths with a deliberate migration, rather than further Classic-specific styling.
+Classic's unsmoothed hex-based coast exposes abrupt cut joins at low shares. New users already start
+in Parchment. The owner does not need Classic's look kept: retire it outright, mapping saved Classic
+choices to the default preset (`docs/simplification-next-steps.md` §4.5).
 Do not silently restyle saved choices or disable its correctness checks. See the owner-review note
 in `docs/drawing-work-plan.md`.
 
@@ -1404,46 +1329,7 @@ when a crossing is detected. Install that extension before fitting so every laye
 No owner data, solve rounds, crossing guards, area threshold or 50% symbol floor changes.
 
 **Evidence/cost.** The guarded gridded render matches the reviewed proposal and paints 4.6726%
-for 5% requested. All 150 coast-area, 200 island and 600 enclosed-sea cases pass. The connected
-100-run current-main benchmark passes the existing performance gate; see the continuation report.
-
-## 68. Reuse completed island drawings within a shared bounded budget
-
-Scalar scale reuse still repeated final island layout and path construction on warm redraws.
-Retain those exact results by the existing complete land-input revision and hex. Scale searches
-and drawings share one LRU limit: 10,000 entries / 4 MB estimated accounting. Within-build mainland
-distance functions are also shared across layout attempts. Cache-off reconstruction remains exact;
-city placement sorts a copy rather than mutating retained island order.
-
-The isolated comparison against main `1179712` improves warm p95 205.9→81.2 ms, ownership
-190.1→88.0 ms and shore 249.7→159.8 ms. Cold median improves 2.5%; cold p95 adds 3.5%, below 10%.
-The earlier failed run remains published. CPU/GC diagnostics establish repeated work and long
-collections, but not exclusive causality for that earlier p95 result. Accounting estimates are
-not measured retained heap, and the populated-map result does not erase Classic's disclosed
-tiny-fixture cold cost. See `docs/drawing-status.md` for scope and worker evidence.
-
-## 69. Retain exact coast paint geometry and compare performance in independent heaps
-
-**Follow-up evidence.** After newer main `6f3d5c7` merged, the shared-page comparison failed shore
-p95 (249.6→278.2 ms), despite improved warm/ownership and shore medians. Keep that result. Marked
-GC traces show both versions' builds collecting a heap shared by both renderer bundles, so the
-tail cannot be attributed exclusively to the version whose timer was running.
-
-**Geometry reuse.** `426e903` already shared an outline within each redraw; it did not retain that
-outline, water clip or donor-ground points for the next redraw. Retain those exact derivatives
-with the traced coast and charge them to its existing 20 MB estimated budget. Colours and ownership
-remain fresh. The targeted shared-heap shore run passes (p95 260.7→206.5 ms), all 497 Node tests,
-typecheck and build pass, and all 59 replay scenes equal the already pixel-validated implementation.
-
-**Measurement control.** Separate the comparison's browser contexts and assert distinct JavaScript
-isolate IDs; retain accumulated profiles in Node. Keep the timed construction boundary, alternating
-order, scenarios, warm-up exclusions and every threshold. This removes cross-version GC attribution,
-not production GC cost. Retain all intermediate measurements and their method/version metadata.
-
-Final runtime `be084b1` against main `6f3d5c7`, 100 warm/edit samples and five cold builds: warm p95
-199.3→80.1 ms, ownership 205.9→77.1, shore 269.2→157.7; cold median +0.8%, p95 −2.4%. The gate
-passes. Separate 50×50 production-worker and retained-heap evidence, including remaining costs,
-is recorded in the connected report. Do not claim all investigation items or all latency are solved.
+for 5% requested. All 150 coast-area, 200 island and 600 enclosed-sea cases pass.
 
 ## Shared sea and lake coast geometry; land in shore-adjacent Sea hexes
 
@@ -1473,20 +1359,15 @@ matching sea/lake policies through scene construction as well as through the geo
 Standalone SVGs were rendered with librsvg for visual inspection. The subsequent Chromium
 checks passed: all 18 Canvas/SVG coastal-paint cases, 21 finished-picture fixtures, 150 area
 cases, 200 island cases, 600 enclosed-water cases and 400 river seeds, with unchanged thresholds.
-Commands, browser results and benchmark details are in `docs/shared-shorelines.md`. Dense maps containing many small lakes
+Dense maps containing many small lakes
 have higher cold-build cost from fitting all shore shares together; exact cached redraws reuse
 those results. This change does not claim to solve that remaining performance cost.
 
 
-### Lake outline correction after rebasing onto a903a60
-
-Shared area fitting bounds cumulative distortion as well as each individual
-step, preventing repeated fitting from stretching small details into spikes.
-Upstream local lake-passage controls remain, applied to a stable shared-engine
-shore and incorporated into the final common geometry. Concentrated water holes
-remain water even when their hex centre lies outside them. Earlier browser
-results apply to the pre-rebase revision; see docs/shared-shorelines.md for
-current validation scope.
+**Cumulative distortion.** Area fitting bounds total distortion from the pre-fit outline (at most 2×
+stretch, a turn of about 50°) as well as each step, so repeated fitting cannot stretch small details
+into spikes (`test/coastFitDistortion.test.ts`). Local lake-passage controls apply to the shared shore.
+Concentrated water holes remain water even when their hex centre lies outside them.
 
 ## 70. The whole-map overview never holds up an edit or a view
 

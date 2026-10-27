@@ -43,7 +43,7 @@ try {
       const cachedWorker = structuredClone(cached), fullWorker = structuredClone(full);
       // Export inputs need an equal Path2D history too. Chromium can rasterize a
       // previously stroked Path2D a channel level differently from a fresh one,
-      // even for the same scene object (see docs/drawing-status.md). Cloning both
+      // even for the same scene object. Cloning both
       // inputs preserves their values and aliases, but prevents earlier cases'
       // painter memo entries from favouring the incremental side. Pixel and scene
       // comparisons remain exact; production painting is unchanged.

@@ -1,12 +1,8 @@
 # Next steps: automatic coasts and base terrain families
 
-Status: planned follow-up; intentionally excluded from the prompt and island-control PR.
-
-## Delivery sequence
-
-1. Review and merge the first PR: source fidelity, bounded contours, climate inference, independent checking in copied prompts, and limited island configuration.
-2. Stop at that PR checkpoint. Before starting this follow-up, fetch main and rebase the follow-up branch onto the main branch containing the first PR. Do not merge or close the first PR automatically.
-3. Implement the changes below and open a separate PR against main. Include migration and visual evidence.
+Status: planned, not started. Its prerequisite, PR #156 (source fidelity, bounded contours, climate
+inference and limited island configuration), is merged. Implement this as one PR against `main`,
+with migration and before/after images.
 
 ## User-facing model
 
@@ -70,4 +66,4 @@ Do not add a requirement for an API key, live app measurements or a pre-generati
 - Default and per-hex overrides agree across drawing, areas, city coast facts, prompt context and PNG/SVG/JSON export.
 - Existing saves, legacy pasted replies, new API replies and new compact/full single/multi-layer chat replies converge on the same state.
 - Undo/redo and growth preserve both canonical terrain and manual coast overrides without duplicate history entries.
-- Regression fixtures show a mainland coast, lake island, multi-hex island, coastal glacier, adjacent island-bearing hexes, and narrow lake/sea passages. Include before/after images in the second PR.
+- Regression fixtures show a mainland coast, lake island, multi-hex island, coastal glacier, adjacent island-bearing hexes, and narrow lake/sea passages. Include before/after images.
