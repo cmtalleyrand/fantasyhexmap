@@ -105,8 +105,10 @@ function copyOverview(canvas: OffscreenCanvas, scene: Scene, frame: Frame, densi
   const overview = new OffscreenCanvas(Math.max(1, Math.floor(scene.width * density)), Math.max(1, Math.floor(scene.height * density)));
   const context = overview.getContext('2d');
   if (!context) return null;
-  context.drawImage(canvas, view.x * dpr, view.y * dpr, scene.width * density, scene.height * density,
-    0, 0, scene.width * density, scene.height * density);
+  // The whole map as the sharp frame shows it, scaled down when the overview's density is capped.
+  const shown = view.scale * dpr;
+  context.drawImage(canvas, view.x * dpr, view.y * dpr, scene.width * shown, scene.height * shown,
+    0, 0, overview.width, overview.height);
   return { bitmap: overview.transferToImageBitmap(), width: scene.width, height: scene.height };
 }
 
