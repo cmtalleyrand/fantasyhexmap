@@ -1,7 +1,7 @@
 # Drawing work plan
 
-Use [drawing-status.md](drawing-status.md) for implementation state and evidence. This plan is ordered by the owner's current priorities. It proposes work; it does not
-claim that the fixes or new measurements below have been performed.
+Open drawing work, in the owner's priority order. The reasons behind current behaviour are in
+[DECISIONS](../DECISIONS.md). This plan proposes work; nothing below has been done.
 
 Preserve #149's lake-strait path, #154/#155's concentration fixes and comparison controls, and #156's
 generated island/import behaviour. Editing latency was addressed in #160; the retained
@@ -111,7 +111,17 @@ Show the reproducer and visible correction; expand coverage only after the conne
 
 ## 4. Broaden control fidelity and answer specific worker uncertainties
 
-Keep the ordinary-coast painted-area gate (5 percentage points, the owner's tolerance). The existing 200-island sweep checks
+Keep the ordinary-coast painted-area gate (5 percentage points, the owner's tolerance).
+
+Start with the red check. `npm run test:drawing-sweeps` fails on four coverage cases at a 90% share:
+`coverage-8` draws 77.3–77.4% and `coverage-2` 81.4% under Parchment and Atlas. On `coverage-8` the
+hex juts into the sea on three sides. The global share passes in `scene.ts` aim it at 0.98, but the
+traced coast starts with about 0.40 land. `fitCoastAreas` then gains about 12 points a round until the
+cumulative distortion bound (DECISIONS, shared sea and lake coast geometry) blocks it at 0.77. The
+owner must choose between: fixing the starting shape so a jutting high-share hex starts near its
+target (recommended; both rules then hold); scaling the cumulative bound to the remaining shortfall
+(re-specifying `test/coastFitDistortion.test.ts`); or accepting the four reported shortfalls as known
+exceptions in the sweep. Do not change the gate or the bound without that choice. The existing 200-island sweep checks
 symbol probes, not a broad island area distribution; the 600 enclosed-sea sweep checks topology at
 centres, not lake/sea area fidelity. Neither completes this task.
 
@@ -146,11 +156,8 @@ totals derive from data shares, including split ownership, strait banks and hier
 colours from labels/relief; account explicitly for ink and partial pixels. Do not change ownership or
 legend totals merely to conceal a drawing mismatch.
 
-Extend the worker study only for a stated uncertainty: a longer lifetime for cache-growth/eviction,
-a real React input path for input-to-display scheduling, or process/native/Canvas instrumentation
-for memory outside V8. Existing `render-app-build-responsiveness.mjs` and app-performance runners
-are starting points. Forced-GC memory runs stay separate from natural timing samples. Keep raw
-records under `work/` (not committed) and do not infer cache allocation sizes from configured accounting budgets.
+Other open items: omission reports associate results by name text, so features with duplicate names
+need identity-based reporting (DECISIONS §54); small-realm association remains open with item 2.
 
 ## Prior attempts to check before any fix
 
@@ -164,32 +171,20 @@ records under `work/` (not committed) and do not infer cache allocation sizes fr
 | Shared-page benchmark / uncontrolled Path2D histories | Produced attribution or replay-control confounds. Keep separate version heaps and equal painter histories; never loosen the gate or pixel equality. |
 | Coast donor grouping by child count | PR #152 found dense compound paths bypassed the fast compositor. Preserve explicit compositor intent; profile actual paint before changing it. |
 
-## Reproduction and completion record
-
-From the repository root, normal setup is `npm ci` then `npm run test:browser:install` (Linux system
-dependencies: append `-- --with-deps`). Browser scripts accept `--chromium` and `--driver`. This
-review found `/usr/bin/chromium` and `/opt/codex/cua_node/lib/node_modules/playwright-core/index.mjs`,
-but sandbox launch failed; overrides alone do not resolve that execution restriction.
+## Commands
 
 ```sh
-# Focused source checks; choose files relevant to the proposed change.
-node --import tsx --test test/drawingInvestigation.test.ts test/incrementalRender.test.ts test/labelPlacement.test.ts test/realmBoundary.test.ts test/coastPaint.test.ts
-# Edit and pan latency through the production worker.
-npm run perf:interaction
-# Pinned current/proposal label inspection; add full-grid Canvas evidence as described above.
-node scripts/drawing-investigation.mjs --only realm-illustrated --output work/realm-current --check
+npm ci && npm run test:browser:install      # Linux system libraries: append -- --with-deps
+npm test && npm run typecheck && npm run build
+npm run test:drawing-pixels                 # finished-picture checks, 400-river sweep
+npm run test:drawing-sweeps                 # 200 islands, 600 enclosed seas, 150 area cases
+npm run perf:interaction                    # edit and pan latency through the production worker
+npm run perf:opening                        # opening latency
+# Realm-name proposal on the pinned fixture.
 node scripts/drawing-investigation.mjs --only realm-illustrated --proposal labels --output work/realm-proposal --check
-# Focused unchanged area gate.
-node scripts/drawing-investigation-extended.mjs --only coverage --preset parchment --seed coverage-2 --share 5 --check
 ```
 
-After a connected implementation is stable, run relevant browser checks, `npm test`, typecheck/build,
-the full drawing sweeps and exact incremental replay as appropriate; then run performance separately.
-Use an archived explicit baseline with dependencies linked for comparisons; fetch main before
-choosing a baseline. `drawing-investigation-performance.mjs` verifies distinct isolate IDs.
-
-Update these two documents instead of creating another overlapping handoff. For every attempted fix,
-record the hypothesis, prior work checked, what is distinct, exact source/baseline versions, pinned
-fixture, renderer images, raw measurement path under `work/`, correctness/cost result, and retained or reverted
-disposition. Keep failed measurements. Say which checks were not run and why; a historical green run
-does not validate a later head. Prioritise visible corrections and editing performance over test volume.
+Browser scripts accept `--chromium <path>` for a preinstalled browser (for example
+`/opt/pw-browsers/chromium`). Keep raw output under `work/` (not committed). Record each attempted fix
+in DECISIONS: the hypothesis, what is distinct from prior attempts, baseline commit, fixture, images,
+result and whether it was kept. Say which checks were not run.
