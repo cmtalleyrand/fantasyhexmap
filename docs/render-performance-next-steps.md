@@ -2,7 +2,15 @@
 
 Written 27 October 2026. PR #160 left three options for cutting what a person waits for; this brief
 compares them, gives a pilot measurement for each of the first two, and sets the order of work.
-Nothing here has been implemented.
+
+**Status.** Options 1 and 2 are implemented, and option 3 stays rejected. What remains is the last
+section, the fit's own cost.
+- **Option 1:** DECISIONS §78. The stand-in skips the global share passes as well: keeping them
+  delayed the exact picture by 1.5–2 s.
+- **Option 2:** DECISIONS §77. It needed a fix to how frontiers meet the coast first.
+- **Picture checks:** the scripts now judge pictures by visible change (§76).
+
+The rest of this brief is the plan as written.
 
 ## Quality criterion
 
@@ -119,6 +127,6 @@ three options addresses.
 
 | Order | Step | Reason |
 |---|---|---|
-| 1 | Option 1 with the global passes kept | The only option that materially shortens the visible wait |
-| 2 | Option 2 at 64 lines | One constant and existing checks; independent of option 1, so a separate PR that can land at any time |
+| 1 | Option 1 (done, without the global passes; §78) | The only option that materially shortens the visible wait |
+| 2 | Option 2 at 64 lines (done; §77) | One constant and existing checks, plus the frontier fix it exposed |
 | 3 | The fit's own cost (solver, global passes, coverage setup) | What still bounds the exact picture |
