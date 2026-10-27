@@ -1,8 +1,9 @@
 import { drawScene } from './canvas.js';
 import { loadLettering } from './fontFiles.js';
 import { MAP_COLOURS } from './palette.js';
+import type { MapState } from '../../shared/types.js';
 import type { PaintReply, PaintRequest } from './paintProtocol.js';
-import { buildStaticScene, type Scene } from './scene.js';
+import { buildStaticScene, exactCoastReady, type Scene } from './scene.js';
 import { SceneInputs } from './sceneInputs.js';
 import { beginRenderProfile, endRenderProfile, profileCount, profileTime, type RenderProfile } from './profile.js';
 
@@ -10,11 +11,13 @@ const host = globalThis as unknown as {
   onmessage: (event: MessageEvent<PaintRequest>) => void;
   postMessage: (reply: PaintReply, transfer: Transferable[]) => void;
 };
-type Entry = { version: number; scene: Scene; fonts: Promise<void>; overview: boolean; overviewRunning?: boolean };
+type Entry = { version: number; scene: Scene; fonts: Promise<void>; overview: boolean; overviewRunning?: boolean; standIn?: boolean };
 let current: Entry | null = null;
 /** Overview resolution and the rows rasterized between yields. */
 const OVERVIEW_PIXELS = 4_000_000, OVERVIEW_BAND_PIXELS = 1_000_000;
 const inputs = new SceneInputs();
+/** The map of the latest build, reused by an exact build after its stand-in. */
+let retained: { version: number; map: MapState } | null = null;
 
 host.onmessage = async ({ data }) => {
   if (data.type === 'scene') {
@@ -26,11 +29,14 @@ host.onmessage = async ({ data }) => {
       const start = performance.now();
       await loadLettering(data.options.style?.knobs.lettering ?? 'classic');
       if (data.profile) beginRenderProfile();
-      const map = profileTime('worker.retain', () => inputs.retain(data.map));
-      const scene = buildStaticScene(map, data.options);
-      current = { version: data.version, scene, fonts: Promise.resolve(), overview: false };
+      const map = retained?.version === data.version ? retained.map : profileTime('worker.retain', () => inputs.retain(data.map));
+      retained = { version: data.version, map };
+      // Without a fitted coast, show a quick stand-in first; the painter asks for the exact scene next.
+      const standIn = data.allowStandIn === true && !exactCoastReady(map, data.options);
+      const scene = buildStaticScene(map, standIn ? { ...data.options, standIn } : data.options);
+      current = { version: data.version, scene, fonts: Promise.resolve(), overview: false, ...(standIn ? { standIn } : {}) };
       const { prims: _prims, ...metadata } = scene;
-      host.postMessage({ version: data.version, id: data.id, metadata, timings: { buildMs: performance.now() - start },
+      host.postMessage({ version: data.version, id: data.id, metadata, ...(standIn ? { standIn } : {}), timings: { buildMs: performance.now() - start },
         ...(data.profile ? { profile: endRenderProfile() } : {}) }, []);
     } catch (error) {
       if (data.profile) endRenderProfile();
@@ -74,9 +80,10 @@ host.onmessage = async ({ data }) => {
     if (copied) {
       entry.overview = true;
       host.postMessage({ version: data.version, id: data.id, overview: copied, timings: { overviewMs: 0 } }, [copied.bitmap]);
-    } else if (!entry.overview && !entry.overviewRunning) {
+    } else if (!entry.overview && !entry.overviewRunning && !entry.standIn) {
       // The overview yields between bands, so a later edit or view is never
-      // queued behind a whole-map rasterization. A newer scene abandons it.
+      // queued behind a whole-map rasterization. A newer scene abandons it, and a
+      // stand-in has none: its exact scene is built next.
       entry.overviewRunning = true;
       void paintOverview(entry, data.version, data.id, density, data.profile === true)
         .finally(() => { entry.overviewRunning = false; });
