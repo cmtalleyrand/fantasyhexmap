@@ -1506,3 +1506,29 @@ but two paired production-worker runs showed no reliable gain (paint medians 236
 240 → 218 ms; edit to sharp frame 366/367 → 383/381 ms), presumably because unchanged band
 outlines are already shared and cached across edits (§74). It also moved inner band edges by up
 to 32 levels at 1×, so it was not adopted.
+
+## 76. Pictures are held to no visible change, not byte identity
+
+**Chosen.** The owner's criterion for pictures is no visible change. `scripts/visible-change.mjs`
+measures it: each changed pixel is compared with the colour range its 3×3 neighbourhood spans in the
+other image, both ways, so edge antialiasing, first-draw raster variation and moves of up to a pixel
+fall below it. A change is visible when more than 0.01% of pixels differ by more than 32 levels on
+that measure, or more than 1% by more than 8. `render-coast-validation.mjs` and
+`render-incremental-validation.mjs` now fail on visible change instead of any changed pixel. Scene
+equality stays required where it is a correctness rule (cached against uncached builds);
+`render-coast-validation.mjs` requires equal scenes only with `--exact-scene`.
+
+## 77. Fit coasts with 64 measuring lines per hex
+
+**Chosen.** `fitCoastAreas` measures each hex with 64 scanlines (`FIT_COVERAGE_LINES`), not 128. The
+scene's reported land shares are measured at 96 lines, as before.
+
+**Effect.** Pilot (Node, cold, geography only, 40×40 `populated`): build 8.2 → 7.3 s, `fit.measure`
+2.3–2.6 → 1.7 s, with the same 8 solver rounds and about 887 iterations. Most of the remaining
+measuring cost is per-call setup, so fewer lines save little more (32 lines: 1.3 s). The fitted coast
+moves by at most 0.0068 hex sizes; land shares change by at most 0.19 points.
+
+**Pictures.** `render-coast-validation.mjs` against the 128-line parent: all coast-only images and
+every gallery fixture show no visible change. The all-layer `populated` map does: a few terrain
+symbols (hill marks, trees) move within their hexes, because symbol placement depends on the exact
+coast. Accepting that is the owner's decision.
