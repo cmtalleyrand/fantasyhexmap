@@ -171,14 +171,18 @@ it has 200 or more children or is marked `composite`. Measurements (§74, §75):
   15 ms against 151 ms clipped directly.
 - **Border groups:** the layer is harmful, making them slower in every arrangement tried.
 
-The child count is only a proxy. Make compositing an explicit flag set by the scene builder, and drop
-the child-count rule from `canvas.ts`. Set the flag on the groups that cross the threshold today:
-- the coastline-clipped land and fill groups in `scene.ts`, all of which use `drawnCoastLand()` as
-  their clip and have hundreds to thousands of children;
-- the rivers group, which is already marked `composite`.
+The child count is only a proxy, and it applies to every clipped group the painter meets. Move the
+decision into the scene builder and drop the child-count rule from `canvas.ts`:
+- **Fill groups:** where the builder creates the large coastline-clipped land and fill groups (the
+  `drawnCoastLand()` groups wrapping `ground`, `rimLand` and the per-hex fills), set
+  `composite: children.length >= 200`. This is the same rule, applied only where it matters, so
+  output is unchanged.
+- **Rivers:** keep `composite: true` on the rivers group, as today.
+- **Everything else:** no flag, including the border groups' land clip (`onLand`) and the glacier
+  group. They have fewer than 200 children, so they don't composite today either.
 
-Leave it off everywhere else, including border groups. Done like this, the change paints exactly what
-is painted today. It removes a heuristic that silently changes cost whenever a group's child count
+Done like this, the change paints exactly what is painted today. A later change can then tune
+compositing per group deliberately, instead of through a count that silently changes cost whenever it
 crosses 200.
 
 **4.4 Glyph drawing** (`canvas.ts`). Glyph-by-glyph text builds a new prim object, by spread, for every
