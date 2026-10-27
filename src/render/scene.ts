@@ -2599,7 +2599,7 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
     const wander = (a: Point, b: Point): Array<{ from: Point; to: Point }> => {
       const start = traced?.geometry.anchors.get(coastKey(a)) ?? a;
       const end = traced?.geometry.anchors.get(coastKey(b)) ?? b;
-      return raggedEdge(start, end, knobs.borders, seed, size).map((q, k, all) => ({ from: k === 0 ? start : all[k - 1]!, to: q }));
+      return raggedEdge(start, end, knobs.borders, seed, size, [a, b]).map((q, k, all) => ({ from: k === 0 ? start : all[k - 1]!, to: q }));
     };
     for (let row = 0; row < rows; row++) {
       for (let col = 0; col < cols; col++) {
