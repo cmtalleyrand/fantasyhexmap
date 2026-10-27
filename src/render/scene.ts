@@ -2,6 +2,7 @@ import { coastPaintGeometry, type CoastPaintGeometry } from './coastPaintGeometr
 import { IslandDrawingCache, type DrawnIsle as Isle } from './islandDrawingCache.js';
 import { BoundedMemo, renderCachesEnabled, withRenderCaches } from './cache.js';
 import { cachedPlacement, clearPlacementCache } from './placementCache.js';
+import { clearSharedPaths, shareUnchangedPaths } from './sharedPaths.js';
 import { profileCount, profileTime, profilePhases } from './profile.js';
 /**
  * The scene model.
@@ -394,7 +395,7 @@ function prepareSceneCacheScope(map: MapState, size: number): void {
   if (scope === sceneCacheScope) return;
   sceneCacheScope = scope;
   coastCache.clear(); coastComponents.clear(); coastFits.clear(); glacierMargins.clear(); packIceDrawings.clear(); symbolPlacements.clear(); terrainRevisions.clear();
-  symbolFits = new WeakMap(); clearPlacementCache(); clearRiverLabelCache(); shapeMemo.clear(); islandDrawings.clear();
+  symbolFits = new WeakMap(); clearPlacementCache(); clearRiverLabelCache(); clearSharedPaths(); shapeMemo.clear(); islandDrawings.clear();
 }
 
 /** The numerical solve and its stopping tests couple all fitting rings. Its exact
@@ -972,7 +973,9 @@ export function decorationPrims(map: MapState, opts: SceneOptions): Prim[] {
 export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
   return withRenderCaches(opts.cache !== 'off', () => profileTime('scene.total', () => {
     prepareSceneCacheScope(map, opts.size);
-    return buildStaticSceneInner(map, opts);
+    const scene = buildStaticSceneInner(map, opts);
+    if (renderCachesEnabled()) profileTime('scene.sharePaths', () => shareUnchangedPaths(scene.prims));
+    return scene;
   }));
 }
 function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {

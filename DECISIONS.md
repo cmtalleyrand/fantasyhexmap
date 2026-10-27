@@ -1590,3 +1590,28 @@ edges. Enlarged side-by-side images show no visible difference. The drawing pixe
 
 **Effect.** Production worker study, two paired runs: sharp-frame paint median 471/414 → 366/306 ms,
 edit to sharp frame 583/549 → 499/433 ms. SVG output gains the same single band stroke.
+
+## 74. Hand unchanged outlines back to the painter as the same arrays
+
+**Problem.** The painter caches compiled `Path2D`s and bounds by array identity. Each build created
+new arrays for outlines whose content had not changed (realm bands and grounds of untouched realms,
+the rivers' water clip, concatenated lake and page clips), so after every edit the first paint
+recompiled them: on the 50×50 fixture first paints of an edited scene ran about 60–70 ms slower than
+repeat paints of the same scene.
+
+**Chosen.** After a cached build, each path or clip of at least 64 commands is looked up among the
+previous scene's by a short key (length and three sampled commands) and replaced by the earlier
+array only if every command is equal, number for number. Scene content is therefore unchanged; a
+scene built with caches off is not touched. Only the previous scene's arrays are kept; a map change
+clears them.
+
+**Evidence.** Uncached and cached scenes still compare equal after an edit. After a ten-edit chain
+the painted pixels equal the previous code's exactly. Production worker study, two paired runs
+against the previous commit: paint median 308/346 → 238/291 ms, edit to sharp frame 466/533 →
+383/434 ms; build time unchanged within noise.
+
+**Rejected on measurement.** Batching consecutive same-style fills into one path did not help:
+the clipped groups' children already draw onto a composited layer, and drawing merged shapes
+straight through a complex clip instead was ten times slower (151 against 15 ms for the
+8,583-child land group). Batching on the layer gained nothing with cached paths and cost about
+250 ms more on a fresh scene. Compositing every clipped group was also slower.
