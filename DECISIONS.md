@@ -1532,3 +1532,31 @@ moves by at most 0.0068 hex sizes; land shares change by at most 0.19 points.
 every gallery fixture show no visible change. The all-layer `populated` map does: a few terrain
 symbols (hill marks, trees) move within their hexes, because symbol placement depends on the exact
 coast. Accepting that is the owner's decision.
+
+## 78. Show a stand-in while the exact coast is fitted
+
+**Problem.** Opening a map, and any edit that refits the coast (a land edit, a preset with another
+coastline width), showed nothing new until the coast fit finished: on the 50×50 all-layer fixture
+about 8.4–9.1 s to open and 6.9–7.7 s after a land edit, through the production worker.
+
+**Chosen.** When a build's exact coast is not already cached (`exactCoastReady`), the worker first
+builds a stand-in (`SceneOptions.standIn`): the coast is traced and roughened but neither the global
+share passes nor the fit run. The painter paints it, then asks for the exact scene and paints the last
+view again. The stand-in's metadata is not reported, so "Rendering map…", compromises, measurements
+and exports wait for the exact scene. A stand-in coast is cached under its own key and not kept, so
+the exact scene equals an uncached build (`test/standIn.test.ts`). It has no banded overview. The
+global passes are skipped as well because the exact build repeats them: keeping them made the first
+picture about a second later and the exact one about 1.5–2 s later.
+
+**Effect.** `npm run perf:interaction`, two runs each alternating with `main`, 50×50 fixture:
+| | `main` | stand-in, first picture | stand-in, exact picture |
+|---|---:|---:|---:|
+| Opening | 8.4–9.1 s | 2.6–2.9 s | 8.9–9.7 s |
+| Land edit | 6.9–7.7 s | 1.5–2.1 s | 7.5–8.6 s |
+
+Ownership edits and pans are unchanged. The exact picture arrives about 0.5–0.9 s later, the cost of
+building and painting the stand-in.
+
+**Quality.** The finished picture is the exact scene, as before. The stand-in's land shares are off by
+about 10 points on average (up to about 33) on the pilot fixture, so coasts change shape when the
+exact picture replaces it; realms, borders, labels, rivers and cities are the same.
