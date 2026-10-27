@@ -6,9 +6,6 @@
  *     [--interval 400] [--zoom fit|1|2] [--output work/interaction-study]
  *
  * Scenarios, each in a fresh worker after one cold build:
- *   cold         the first build: time to the first frame (a stand-in while the coast
- *                is fitted, DECISIONS §78) and to the exact frame.
- *   land-edit    a mainland hex turned to sea, refitting the coast: first and exact frame.
  *   edit-paced   unique ownership edits issued every --interval ms; time from the
  *                edit to its sharp frame (or to the frame that superseded it).
  *   pan-after-edit   one edit, then a pan 50 ms after its sharp frame; time from
@@ -47,9 +44,9 @@ try {
     const wait = ms => new Promise(r => setTimeout(r, ms));
     const session = async () => {
       const map = api.fixture('interaction-study', span), options = api.options();
-      let onPainted = () => {}, onOverview = () => {}, metadata = null, builtScene = null;
+      let onPainted = () => {}, onOverview = () => {}, metadata = null;
       const painter = new api.ScenePainter({
-        built: (scene, m) => { metadata = m; builtScene = scene; },
+        built: (_scene, m) => { metadata = m; },
         painted: (scene, frame, bitmap) => { bitmap.close(); onPainted(scene, frame); },
         overview: (scene, image) => { image.bitmap.close(); onOverview(scene); },
         failed: () => { throw Error('worker failed'); },
@@ -64,26 +61,12 @@ try {
         setTimeout(() => painter.paint({ view: frameView(), size, dpr }), 0);
       });
       const fitView = () => view;
-      // The first frame, and the first after the exact scene's metadata (later still
-      // when a stand-in is painted first).
-      const showExact = (target, frameView) => new Promise(done => {
-        const scene = { width: 0, height: 0, background: '#fff', prims: [] };
-        const start = performance.now();
-        let first = null;
-        onPainted = s => {
-          if (s !== scene) return;
-          first ??= performance.now() - start;
-          if (builtScene === scene) done({ first, exact: performance.now() - start });
-        };
-        painter.setMap(target, options, scene);
-        setTimeout(() => painter.paint({ view: frameView(), size, dpr }), 0);
-      });
       // First build fixes the scene size, from which the requested zoom follows.
       const built = new Promise(r => { onOverview = r; });
       view = { x: 0, y: 0, scale: 0.5 };
-      const cold = await showExact(map, fitView);
+      const cold = await show(map, fitView);
       await built;
-      return { map, options, painter, cold, size: () => metadata, setView: v => { view = v; }, show, showExact, fitView,
+      return { map, options, painter, cold, size: () => metadata, setView: v => { view = v; }, show, fitView,
         setPainted: f => { onPainted = f; }, setOverview: f => { onOverview = f; } };
     };
     const zoomView = (width, height) => {
@@ -104,7 +87,6 @@ try {
 
     { // edit-paced
       const s = await session();
-      records.push({ scenario: 'cold', ms: s.cold.first, exactMs: s.cold.exact });
       const { width, height } = s.size();
       s.setView(zoomView(width, height));
       await s.show(s.map, s.fitView); // settle at the requested zoom
@@ -156,33 +138,12 @@ try {
       }
       s.painter.dispose();
     }
-    { // land-edit
-      const s = await session();
-      records.push({ scenario: 'cold', ms: s.cold.first, exactMs: s.cold.exact });
-      const { width, height } = s.size();
-      s.setView(zoomView(width, height));
-      await s.show(s.map, s.fitView);
-      await wait(1500);
-      const base = s.map.layers.base.data;
-      const shore = base.flatMap((v, i) => v === 'Land' && (base[i - 1] === 'Sea' || base[i + 1] === 'Sea') ? [i] : []);
-      let map = s.map;
-      for (let k = 0; k < Math.min(edits, 3, shore.length); k++) {
-        const data = [...map.layers.base.data];
-        data[shore[k]] = 'Sea';
-        map = { ...map, layers: { ...map.layers, base: { ...map.layers.base, data } } };
-        const { first, exact } = await s.showExact(map, s.fitView);
-        records.push({ scenario: 'land-edit', edit: k, ms: first, exactMs: exact });
-        await wait(interval);
-      }
-      s.painter.dispose();
-    }
     return records;
   }, settings);
   const summary = {};
-  const stats = values => { values.sort((a, b) => a - b); return { n: values.length, median: values[Math.floor(values.length / 2)], max: values.at(-1) }; };
-  for (const scenario of ['cold', 'land-edit', 'edit-paced', 'pan-after-edit']) {
-    const rows = result.filter(r => r.scenario === scenario);
-    summary[scenario] = { ...stats(rows.map(r => r.ms)), ...(rows[0]?.exactMs !== undefined ? { exact: stats(rows.map(r => r.exactMs)) } : {}) };
+  for (const scenario of ['edit-paced', 'pan-after-edit']) {
+    const values = result.filter(r => r.scenario === scenario).map(r => r.ms).sort((a, b) => a - b);
+    summary[scenario] = { n: values.length, median: values[Math.floor(values.length / 2)], max: values.at(-1) };
   }
   const report = { settings, source: root, browser: browser.version(), summary, records: result };
   writeFileSync(resolve(output, 'results.json'), JSON.stringify(report, null, 2));

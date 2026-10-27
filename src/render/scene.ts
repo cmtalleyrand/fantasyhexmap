@@ -282,9 +282,6 @@ export interface SceneOptions {
   transparentBackground?: boolean;
   /** Diagnostic reference: bypass persistent coast and placement caches. */
   cache?: 'off';
-  /** A quick stand-in for the exact picture: the coast is drawn before it is fitted to each
-   * hex's land share, and shown while the exact scene builds (DECISIONS §78). */
-  standIn?: boolean;
 }
 
 export function defaultVisibility(): VisibleLayers {
@@ -433,29 +430,6 @@ const COAST_AMPLITUDE: Record<Irregularity, number> = { Smooth: 0, Wavy: 0.06, R
 /** Content snapshots also make shape edits safe across worker cloning and undo. */
 function shapesSignature(shapes: Record<string, HexShape> | undefined): string { return JSON.stringify(shapes) ?? ''; }
 
-function tracedCoastKey(base: ReadonlyArray<BaseGeo | null>, cols: number, rows: number, size: number, smooth: boolean, inkReach: number,
-  seed: string, defaultIrregularity: Irregularity | undefined, defaultLakeIrregularity: Irregularity | undefined,
-  shapes: Record<string, HexShape> | undefined, dimensions: HexDimensions): string {
-  return JSON.stringify([base, cols, rows, size, smooth, inkReach, seed, defaultIrregularity, defaultLakeIrregularity, shapesSignature(shapes), dimensions]);
-}
-
-/** Half the coastline's stroke width: what its ink adds outside the land, which counts as land (0 with no coastline). */
-function coastInkReach(opts: SceneOptions): number {
-  const { palette, knobs } = opts.style ?? CLASSIC_STYLE;
-  return knobs.coast === 'none' ? 0 : Math.max(0.8, opts.size * palette.coastWidth * knobs.lineWeight) / 2;
-}
-
-/** Whether a build would find its exact coast already fitted, so that no stand-in is needed. */
-export function exactCoastReady(map: MapState, opts: SceneOptions): boolean {
-  if (!opts.visible.base || !map.layers.base.data) return true;
-  const { knobs } = opts.style ?? CLASSIC_STYLE;
-  return withRenderCaches(opts.cache !== 'off', () => {
-    prepareSceneCacheScope(map, opts.size);
-    return coastCache.get(tracedCoastKey(map.layers.base.data!, map.cols, map.rows, opts.size, knobs.coast === 'smooth', coastInkReach(opts),
-      map.id, map.defaultIrregularity, map.defaultLakeIrregularity, map.hexShapes, normaliseHexDimensions(map.hexDimensions))) !== undefined;
-  });
-}
-
 function cachedCoast(
   base: ReadonlyArray<BaseGeo | null>,
   cols: number,
@@ -469,12 +443,9 @@ function cachedCoast(
   /** Half the coastline's stroke width: what its ink adds outside the land, which counts as land (0 with no coastline). */
   inkReach: number,
   defaultLakeIrregularity: Irregularity | undefined,
-  /** False for a stand-in: no fit to land shares, and nothing cached (see `SceneOptions.standIn`). */
-  fit = true,
 ): TracedCoast {
-  const key = tracedCoastKey(base, cols, rows, size, smooth, inkReach, seed, defaultIrregularity, defaultLakeIrregularity, shapes, dimensions)
-    + (fit ? '' : ':stand-in');
-  const hit = fit ? coastCache.get(key) : undefined;
+  const key = JSON.stringify([base, cols, rows, size, smooth, inkReach, seed, defaultIrregularity, defaultLakeIrregularity, shapesSignature(shapes), dimensions]);
+  const hit = coastCache.get(key);
   if (hit) { profileCount('coast.cacheHit'); return hit; }
   profileCount('coast.cacheMiss');
   const coastPhase = profilePhases('coast');
@@ -656,8 +627,7 @@ function cachedCoast(
   coastPhase('globalPasses');
   // Unsmooth styles have no coupled fit to finish a residual left by the cuts.
   // Permit one more measured candidate only when the existing area gate is missed.
-  // A stand-in skips the passes: the exact build that follows repeats them.
-  const passes = !fit ? 0 : smooth ? 3 : 4;
+  const passes = smooth ? 3 : 4;
   for (let pass = 0; pass < passes && shaped && (smooth || inkReach > 0); pass++) {
     profileCount('coast.globalPasses');
     const outlines = pathPolylines(drawnLand(geometry, page.width, page.height, size), 8);
@@ -748,7 +718,7 @@ function cachedCoast(
     aimed.set(i, { ...target, share: selected.share });
   }
   coastPhase('coupledFit');
-  if (fit) geometry = profileTime('coast.fit', () => cachedCoastFit(geometry, new Map([...targets].flatMap(([i, target]) =>
+  geometry = profileTime('coast.fit', () => cachedCoastFit(geometry, new Map([...targets].flatMap(([i, target]) =>
     base[i] === 'Land' || (target.width !== undefined && !target.fit) ? []
       : [[i, { share: wanted.get(i)!, width: target.width }] as const])), cols, rows, size, page, inkReach,
     [...targets].filter(([, target]) => target.width !== undefined).map(([i]) => i),
@@ -819,7 +789,7 @@ function cachedCoast(
     const backgroundBase = [...base];
     for (const i of passages) backgroundBase[i] = 'Lake';
     const background = cachedCoast(backgroundBase, cols, rows, size, smooth, shapes,
-      defaultIrregularity, dimensions, seed, inkReach, defaultLakeIrregularity, fit);
+      defaultIrregularity, dimensions, seed, inkReach, defaultLakeIrregularity);
     const backgroundIndex = background.lakes.findIndex(cells => cells.includes(passages[0]!));
     const path = lakeShoreFields(background.lakePaths[backgroundIndex] ?? lakePaths[k]!, specs, size);
     const paths = pathPolylines(path, 12).map(ring => reverseCoastPath([
@@ -841,7 +811,7 @@ function cachedCoast(
   const localShares = new Map([...targets].flatMap(([i]) =>
     lakePassageHexes.has(i) && base[i] === 'Lake' && shapes?.[String(i)]?.land !== undefined
       ? [[i, { share: wanted.get(i)! }] as const] : []));
-  if (fit && localShares.size) {
+  if (localShares.size) {
     geometry = fitCoastAreas(geometry, localShares, cols, rows, size, page, inkReach,
       [...targets].filter(([, target]) => target.width !== undefined).map(([i]) => i));
     for (let k = 0; k < lakes.length; k++) {
@@ -861,7 +831,7 @@ function cachedCoast(
   }
   const paint = coastPaintGeometry(geometry, page.width, page.height, size);
   const entry = { key, paint, geometry, coverage, lakes, lakeIslands, surface, lakePaths, chainLakes, onLand: landTest(surface, shaped?.land ?? new Map(), size) };
-  if (fit) coastCache.set(key, entry, geometry.paths.reduce((n, path) => n + path.length * 192, 0)
+  coastCache.set(key, entry, geometry.paths.reduce((n, path) => n + path.length * 192, 0)
     + lakePaths.reduce((n, path) => n + path.length * 48, 0)
     + (geometry.toLand.length + geometry.toWater.length) * 256 + base.length * 128 + paint.estimatedBytes);
   coastPhase();
@@ -1035,9 +1005,10 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
   const population = opts.visible.population ? layers.population.data : null;
   const maxPop = population ? Math.max(1, ...population.map((v) => v ?? 0)) : 1;
 
-  const inkReachOf = coastInkReach(opts);
+  // Half the coastline's stroke width: what its ink adds outside the land, which counts as land (0 with no coastline).
+  const inkReachOf = knobs.coast === 'none' ? 0 : Math.max(0.8, size * palette.coastWidth * knobs.lineWeight) / 2;
   phase('coast');
-  const traced = base ? cachedCoast(base, cols, rows, size, knobs.coast === 'smooth', map.hexShapes, map.defaultIrregularity, normaliseHexDimensions(map.hexDimensions), seed, inkReachOf, map.defaultLakeIrregularity, opts.standIn !== true) : null;
+  const traced = base ? cachedCoast(base, cols, rows, size, knobs.coast === 'smooth', map.hexShapes, map.defaultIrregularity, normaliseHexDimensions(map.hexDimensions), seed, inkReachOf, map.defaultLakeIrregularity) : null;
   // Exact clips and donor geometry survive redraws with their traced coast.
   const drawnCoastLand = (): PathCmd[] => traced?.paint.land ?? [];
   phase('landAndFills');

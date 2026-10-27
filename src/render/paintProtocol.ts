@@ -11,8 +11,7 @@ export interface PaintView {
 }
 
 export type PaintRequest =
-  /** With `allowStandIn`, a build whose exact coast is not yet fitted first returns a stand-in (`standIn` in the reply). */
-  | { type: 'build'; version: number; id: number; map: MapState; options: SceneOptions; allowStandIn?: boolean; profile?: boolean }
+  | { type: 'build'; version: number; id: number; map: MapState; options: SceneOptions; profile?: boolean }
   | { type: 'scene'; version: number; scene: Scene; lettering: LetteringId; profile?: boolean }
   | ({ type: 'paint'; version: number; id: number; profile?: boolean } & PaintView);
 
@@ -24,8 +23,6 @@ export interface PaintReply {
   overview?: { bitmap: ImageBitmap; width: number; height: number };
   error?: string;
   metadata?: Omit<Scene, 'prims'>;
-  /** The scene built is a stand-in; the exact scene must still be requested. */
-  standIn?: boolean;
   timings?: { buildMs?: number; paintMs?: number; overviewMs?: number };
   profile?: RenderProfile;
 }

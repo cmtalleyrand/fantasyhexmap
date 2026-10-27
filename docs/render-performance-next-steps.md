@@ -3,12 +3,16 @@
 Written 27 October 2026. PR #160 left three options for cutting what a person waits for; this brief
 compares them, gives a pilot measurement for each of the first two, and sets the order of work.
 
-**Status.** Options 1 and 2 are implemented, and option 3 stays rejected. What remains is the last
-section, the fit's own cost.
-- **Option 1:** DECISIONS §78. The stand-in skips the global share passes as well: keeping them
-  delayed the exact picture by 1.5–2 s.
-- **Option 2:** DECISIONS §77. It needed a fix to how frontiers meet the coast first.
+**Status.**
+- **Option 1: rejected and removed** (DECISIONS §78). The owner regards a stand-in picture as an
+  undesirable workaround: it shows a wrong picture instead of making the real one faster. It was built
+  and measured, then removed. Do not propose it again.
+- **Option 2: implemented** (DECISIONS §77). It needed fixes to how frontiers meet the coast and how
+  rivers bow round city icons first.
+- **Option 3:** stays rejected.
 - **Picture checks:** the scripts now judge pictures by visible change (§76).
+
+What remains is the last section, the fit's own cost.
 
 The rest of this brief is the plan as written.
 
@@ -48,7 +52,7 @@ At every line count the solver needed the same number of rounds and iterations, 
 add rounds. Measuring cost does not scale with the line count: at 32 lines it is still 1.3 s, so most
 of it is per-call setup in `areaCoverage`, not the scanlines.
 
-## Option 1: stand-in picture while the exact coast fits (do first)
+## Option 1: stand-in picture while the exact coast fits (rejected; see Status)
 
 Show a picture built without the coast fit, then replace it with the exact picture. On the pilot this
 brings the first picture from about 8.2 s to about 2.6 s. The finished picture is the same as today's.
@@ -116,17 +120,16 @@ The patch was never committed, so retrying means rewriting it. The relaxed crite
 change this conclusion: the cost is the map-spanning prims (coast clips, sea bands, ripples, realm
 bands) that every local change reaches, not the exactness work.
 
-## What remains after both
+## What remains
 
-Even with options 1 and 2, the exact opening still costs about 7 s on the pilot. The solver (about
-2.8 s), the global passes (about 1.15 s) and the fixed setup of each coverage measurement (about
-1.3 s) are untouched. Making the exact picture itself fast means work on those, which none of the
-three options addresses.
+With option 2 the exact opening still costs about 7 s on the pilot. The solver (about 2.8 s), the
+global passes (about 1.15 s) and the fixed setup of each coverage measurement (about 1.3 s) are
+untouched, and they are the only route to a faster first picture now that a stand-in is ruled out.
 
 ## Suggested order
 
 | Order | Step | Reason |
 |---|---|---|
-| 1 | Option 1 (done, without the global passes; §78) | The only option that materially shortens the visible wait |
-| 2 | Option 2 at 64 lines (done; §77) | One constant and existing checks, plus the frontier fix it exposed |
-| 3 | The fit's own cost (solver, global passes, coverage setup) | What still bounds the exact picture |
+| — | Option 1 | Rejected by the owner as a workaround (§78) |
+| 1 | Option 2 at 64 lines (done; §77) | One constant and existing checks, plus the fixes it exposed |
+| 2 | The fit's own cost (solver, global passes, coverage setup) | What still bounds the picture |

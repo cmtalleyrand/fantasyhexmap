@@ -1555,30 +1555,17 @@ the picture once: frontiers that end on the coast take a different, stable wande
 whose bows were set off by rounding (Mocktown 13 and 29) keep their own course instead of being
 smoothed past the icon.
 
-## 78. Show a stand-in while the exact coast is fitted
+## 78. A stand-in picture while the coast fits: rejected as a workaround
 
-**Problem.** Opening a map, and any edit that refits the coast (a land edit, a preset with another
-coastline width), showed nothing new until the coast fit finished: on the 50×50 all-layer fixture
-about 8.4–9.1 s to open and 6.9–7.7 s after a land edit, through the production worker.
+**Tried.** While a build's exact coast was not yet cached, the worker first built and painted a
+stand-in (the coast traced and roughened, without the global share passes or the fit), then built and
+painted the exact scene. Through the production worker on the 50×50 fixture the first picture came
+after 2.6–2.9 s instead of 8.4–9.1 s on opening and 1.5–2.1 s instead of 6.9–7.7 s after a land edit;
+the exact picture came 0.5–0.9 s later than before. The stand-in's land shares were off by about 10
+points on average (up to about 33), so coasts visibly changed shape when the exact picture replaced it.
 
-**Chosen.** When a build's exact coast is not already cached (`exactCoastReady`), the worker first
-builds a stand-in (`SceneOptions.standIn`): the coast is traced and roughened but neither the global
-share passes nor the fit run. The painter paints it, then asks for the exact scene and paints the last
-view again. The stand-in's metadata is not reported, so "Rendering map…", compromises, measurements
-and exports wait for the exact scene. A stand-in coast is cached under its own key and not kept, so
-the exact scene equals an uncached build (`test/standIn.test.ts`). It has no banded overview. The
-global passes are skipped as well because the exact build repeats them: keeping them made the first
-picture about a second later and the exact one about 1.5–2 s later.
-
-**Effect.** `npm run perf:interaction`, two runs each alternating with `main`, 50×50 fixture:
-| | `main` | stand-in, first picture | stand-in, exact picture |
-|---|---:|---:|---:|
-| Opening | 8.4–9.1 s | 2.6–2.9 s | 8.9–9.7 s |
-| Land edit | 6.9–7.7 s | 1.5–2.1 s | 7.5–8.6 s |
-
-Ownership edits and pans are unchanged. The exact picture arrives about 0.5–0.9 s later, the cost of
-building and painting the stand-in.
-
-**Quality.** The finished picture is the exact scene, as before. The stand-in's land shares are off by
-about 10 points on average (up to about 33) on the pilot fixture, so coasts change shape when the
-exact picture replaces it; realms, borders, labels, rivers and cities are the same.
+**Rejected.** The owner regards it as an undesirable workaround: it hides the cost of the coast fit
+behind a wrong picture instead of reducing it, and makes the exact picture later. It was built and
+removed (see the history of this entry's PR). Making opening and coast edits fast means making the fit
+itself cheaper (the solver, the global share passes and each measurement's fixed setup), not showing
+something else while it runs.
