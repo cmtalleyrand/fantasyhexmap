@@ -1,8 +1,9 @@
 # Simplification: next steps
 
 Written 27 October 2026 on `ccr-66ffcf46-juu8y2` (PR #160), from the performance work recorded in
-DECISIONS §70–75. It proposes simplifications; none has been done. Every figure below was measured
-on that branch. Re-measure before acting on any of them, because later work may change them.
+DECISIONS §70–75. It proposes simplifications; none has been done. The figures below were measured
+on that branch and only explain the order. Each step is a direct change and needs no further
+investigation before it starts.
 
 ## Ground rules
 
@@ -170,9 +171,15 @@ it has 200 or more children or is marked `composite`. Measurements (§74, §75):
   15 ms against 151 ms clipped directly.
 - **Border groups:** the layer is harmful, making them slower in every arrangement tried.
 
-The child count is only a proxy. Make compositing an explicit flag set by the scene builder for the
-groups that need it (large-area fills under the coastline clip, rivers). That removes a heuristic
-which silently changes cost whenever a group's child count crosses 200.
+The child count is only a proxy. Make compositing an explicit flag set by the scene builder, and drop
+the child-count rule from `canvas.ts`. Set the flag on the groups that cross the threshold today:
+- the coastline-clipped land and fill groups in `scene.ts`, all of which use `drawnCoastLand()` as
+  their clip and have hundreds to thousands of children;
+- the rivers group, which is already marked `composite`.
+
+Leave it off everywhere else, including border groups. Done like this, the change paints exactly what
+is painted today. It removes a heuristic that silently changes cost whenever a group's child count
+crosses 200.
 
 **4.4 Glyph drawing** (`canvas.ts`). Glyph-by-glyph text builds a new prim object, by spread, for every
 glyph and pass, then re-parses the CSS font for each one. Draw glyphs in a loop that sets the font
@@ -193,7 +200,5 @@ choices have a migration.
 | 4 | §2 | Documentation consolidation, so agents read one current state |
 | 5 | §4.1 | The scene-builder split, in phase-sized PRs, each with cached/uncached equality and the pixel checks |
 
-Done means:
-- Test wall-clock time is recorded before and after each step.
-- Line counts are recorded for code steps.
-- Each step's PR states which behaviour checks guard it.
+Done means: the ground-rule checks pass unchanged, and each step's PR states which of those checks
+guard it.
