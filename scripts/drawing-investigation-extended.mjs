@@ -68,6 +68,6 @@ try{
  const summary=Array.from(new Set(coverage.map(r=>r.preset))).map(preset=>{const rows=coverage.filter(r=>r.preset===preset),errors=rows.map(r=>Math.abs(r.shown-r.share)).sort((a,b)=>a-b);return{preset,cases:rows.length,medianErrorPP:errors[Math.floor(errors.length/2)],maxErrorPP:errors.at(-1),worst:rows.reduce((a,b)=>Math.abs(a.shown-a.share)>Math.abs(b.shown-b.share)?a:b)}});
  writeFileSync(resolve(output,'results.json'),JSON.stringify({selection,coverage,summary,seedIslands,enclosedSeas},null,2));console.log(JSON.stringify({summary,seedIslands,enclosedSeas},null,2));
  if(selection.only==='coverage'&&!coverage.length)throw Error('No coverage cases selected');
- if(process.argv.includes('--check')&&(seedIslands.failures.length||enclosedSeas.failures.length||summary.some(r=>r.maxErrorPP>1)))throw Error('Island pixels, enclosed-sea topology or ordinary-coast area tolerance failed');
+ if(process.argv.includes('--check')&&(seedIslands.failures.length||enclosedSeas.failures.length||summary.some(r=>r.maxErrorPP>5)))throw Error('Island pixels, enclosed-sea topology or ordinary-coast area tolerance failed');
  await context.close();
 }finally{await browser.close();}

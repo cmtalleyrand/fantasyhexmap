@@ -191,8 +191,9 @@ once per prim. This is behaviour-neutral, and the code gets shorter.
 
 **4.5 Retiring the Classic preset.** This is already planned in `docs/drawing-work-plan.md`. It is
 still the fallback in `styles.ts` (`PRESET_ORDER`, default choice, resolver fallbacks, legacy
-normalisation). Retiring it deletes code paths and their tests, once saved maps with explicit Classic
-choices have a migration.
+normalisation). The owner does not need Classic's look preserved. So retire it outright: make the
+default preset the fallback, and have legacy normalisation map saved Classic choices to that default.
+Then delete Classic's code paths, its tests, and its cases in the drawing sweeps.
 
 ## Suggested order
 
