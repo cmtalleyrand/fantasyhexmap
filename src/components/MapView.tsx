@@ -321,8 +321,10 @@ export default function MapView(props: MapViewProps) {
         ctx.fillStyle = MAP_COLOURS.background;
         ctx.fillRect(0, 0, size.width, size.height);
         ctx.drawImage(image.bitmap, view.x, view.y, image.width * view.scale, image.height * view.scale);
+        // The current map's sharp frame wins over an overview still being
+        // replaced in the background after an edit.
         const sharp = detail.current;
-        if (sharp?.scene === image.scene) {
+        if (sharp && (sharp.scene === scene || sharp.scene === image.scene)) {
           const ratio = view.scale / sharp.view.scale;
           ctx.save();
           ctx.beginPath();

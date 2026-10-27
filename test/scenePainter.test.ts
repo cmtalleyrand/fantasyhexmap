@@ -111,22 +111,46 @@ test('construction keeps only the latest pending map and waits before painting',
   assert.equal(paint.view.x, 30);
 });
 
-test('an early sharp bitmap does not release the job before the overview', () => {
+test('a sharp bitmap releases its job; the overview follows without blocking later work', () => {
   const f = fixture();
   f.painter.setScene(f.scene, 'classic');
   f.painter.paint(f.view(0));
   const first = f.messages.at(-1)!;
   if (first.type !== 'paint') throw new Error('missing paint');
-  f.reply({ version: first.version, id: first.id, bitmap: {} as ImageBitmap, complete: false });
+  f.reply({ version: first.version, id: first.id, bitmap: {} as ImageBitmap });
   assert.deepEqual(f.painted, [0]);
   f.painter.paint(f.view(20));
-  assert.equal(f.messages.filter(m => m.type === 'paint').length, 1);
+  assert.equal(f.messages.filter(m => m.type === 'paint').length, 2, 'navigation must not wait for the overview');
   f.reply({ version: first.version, id: first.id, overview: { bitmap: {} as ImageBitmap, width: 100, height: 100 } });
-  assert.equal(f.messages.filter(m => m.type === 'paint').length, 2);
+  assert.deepEqual(f.overviews, [f.scene], 'a released job\'s overview still belongs to the current map');
+  assert.equal(f.messages.filter(m => m.type === 'paint').length, 2, 'an overview reply does not release the pending sharp job');
+  const second = f.messages.at(-1)!;
+  if (second.type !== 'paint') throw new Error('missing second paint');
+  f.reply({ version: second.version, id: second.id, bitmap: {} as ImageBitmap });
+  assert.deepEqual(f.painted, [0, 20]);
   f.painter.dispose();
   let closed = 0;
   f.reply({ version: first.version, id: first.id, bitmap: { close: () => closed++ } as ImageBitmap });
   assert.equal(closed, 1);
+});
+
+test('an overview finishing after an edit is released, not shown', async () => {
+  const { createMapState } = await import('../shared/layers.ts');
+  const { defaultVisibility } = await import('../src/render/scene.ts');
+  const f = fixture();
+  const map = createMapState('overview', 4, 4);
+  const opts = { size: 26, visible: defaultVisibility(), labels: true };
+  f.painter.setScene(f.scene, 'classic');
+  f.painter.paint(f.view(0));
+  const paint = f.messages.at(-1)!;
+  if (paint.type !== 'paint') throw new Error('missing paint');
+  f.reply({ version: paint.version, id: paint.id, bitmap: {} as ImageBitmap });
+  f.painter.setMap(map, opts, { ...f.scene });
+  assert.equal(f.messages.at(-1)!.type, 'build', 'an edit is sent while the old overview is still painting');
+  let closed = 0;
+  f.reply({ version: paint.version, id: paint.id, overview: { bitmap: { close: () => closed++ } as ImageBitmap, width: 100, height: 100 } });
+  assert.equal(closed, 1);
+  assert.deepEqual(f.overviews, []);
 });
 
 test('profiling is opt-in and follows unified construction into viewport painting', async () => {

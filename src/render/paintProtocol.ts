@@ -19,11 +19,10 @@ export interface PaintReply {
   version: number;
   id: number;
   bitmap?: ImageBitmap;
+  /** Sent separately, after the sharp frame, once the whole map is rasterized. */
   overview?: { bitmap: ImageBitmap; width: number; height: number };
   error?: string;
   metadata?: Omit<Scene, 'prims'>;
-  /** A sharp first frame can arrive before its whole-map overview. */
-  complete?: boolean;
   timings?: { buildMs?: number; paintMs?: number; overviewMs?: number };
   profile?: RenderProfile;
 }

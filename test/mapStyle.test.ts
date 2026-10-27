@@ -1042,9 +1042,11 @@ test('a lake is treated as sea by realms: its shore carries the band and no real
     if (polityStyle === 'wash') {
       // The band strokes the drawn shore, inside a mask that cuts the lake out.
       const masks = flatPrims(prims).filter((p): p is Extract<Prim, { kind: 'group' }> => p.kind === 'group' && p.clipRule === 'evenodd' && JSON.stringify(p.clip).includes(JSON.stringify(body[0])));
-      const bandMask = masks.find(mask => flatPrims(mask.prims).some(p => p.kind === 'path' && p.stroke && /170,\s*51,\s*51|#aa3333/i.test(p.stroke)));
+      // The wash band (0.6 hex sizes either side) is drawn in the realm colour composed on even ground.
+      const isBand = (p: Prim) => p.kind === 'path' && !!p.stroke && !!p.round && p.strokeWidth === 20 * 0.6 * 2;
+      const bandMask = masks.find(mask => flatPrims(mask.prims).some(isBand));
       assert.ok(bandMask, 'realm band is clipped against the final lake shore');
-      const stroke = flatPrims(bandMask.prims).find((p) => p.kind === 'path' && p.stroke && /170,\s*51,\s*51|#aa3333/i.test(p.stroke)) as Extract<Prim, { kind: 'path' }>;
+      const stroke = flatPrims(bandMask.prims).find(isBand) as Extract<Prim, { kind: 'path' }>;
       assert.ok(JSON.stringify(stroke.d).includes(JSON.stringify(body[0])), 'the band follows the lake shore');
       assert.ok(JSON.stringify(bandMask.clip).includes(JSON.stringify(body[0])), 'the lake is cut out of the band');
     }
@@ -1732,4 +1734,29 @@ test('realm borders are cut to the drawn land, the frontier and the dashed part 
   const clipped = flatPrims(prims).filter((p) => p.kind === 'path' && p.stroke === style.palette.frontier);
   assert.ok(clipped.some((p) => p.kind === 'path' && !p.dash), 'the frontier is drawn');
   assert.ok(clipped.some((p) => p.kind === 'path' && p.dash), 'the part line is drawn');
+});
+
+test('a see-through realm band is one opaque stroke of its colour on even ground, unless ice lies under it', async () => {
+  const { mix } = await import('../src/render/scene.ts');
+  const cols = 6, rows = 4;
+  const map = createMapState('Band composition', cols, rows);
+  const base: BaseGeo[] = Array(cols * rows).fill('Land');
+  map.layers.base.data = base;
+  map.layers.polities.data = { polities: [{ id: 'r', name: 'Realm', colour: '#aa3333' }, { id: 'q', name: 'Other', colour: '#3366aa' }],
+    owner: base.map((_, i) => (i % cols < 3 ? 'r' : 'q')) };
+  const visible = defaultVisibility();
+  visible.polities = true;
+  const style = resolveStyle({ preset: 'parchment', overrides: { polityStyle: 'wash' } });
+  const bands = (m: MapState) => flatPrims(buildScene(m, { size: 20, visible, labels: false, style }).prims)
+    .filter((p): p is Extract<Prim, { kind: 'path' }> => p.kind === 'path' && !!p.round && p.strokeWidth === 20 * 0.6 * 2)
+    .map(p => p.stroke!);
+  // With a glacier hex in one realm, that band keeps its even ground and see-through colour, leaving the ice its shade.
+  const icy = structuredClone(map);
+  icy.layers.base.data![cols + 1] = 'Glacier';
+  const withIce = bands(icy);
+  assert.ok(withIce.includes('rgba(170, 51, 51, 0.55)'), 'see-through band over the realm with ice');
+  const ground = withIce.find(s => /^#[0-9a-f]{6}$/i.test(s) && s !== mix(s, '#3366aa', 0.55) && withIce.includes(mix(s, '#3366aa', 0.55)));
+  assert.ok(ground, 'the even ground under the icy realm, and the other realm composed on it');
+  // Without ice, each band is a single opaque stroke of its colour composed on that ground.
+  assert.deepEqual(bands(map).sort(), [mix(ground!, '#aa3333', 0.55), mix(ground!, '#3366aa', 0.55)].sort());
 });

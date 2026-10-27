@@ -1487,3 +1487,141 @@ shore and incorporated into the final common geometry. Concentrated water holes
 remain water even when their hex centre lies outside them. Earlier browser
 results apply to the pre-rebase revision; see docs/shared-shorelines.md for
 current validation scope.
+
+## 70. The whole-map overview never holds up an edit or a view
+
+**Problem.** A new map's first sharp frame kept its worker job open until the whole-map overview
+was also rasterized (about 240 ms at a whole-map view, about 600 ms zoomed in at the 4-megapixel
+cap). The painter keeps one job in flight, so an edit or a pan made meanwhile waited behind it.
+
+**Chosen.** The sharp frame releases its job. The overview follows in the background, in bands of
+about one megapixel, each rasterized on its own canvas and composited, with a yield before each
+band so a newer build or view runs first; a newer map abandons it. When the sharp frame already
+contains the whole map, the overview is copied from it rather than painted again. The overview
+is a navigation stand-in, replaced by a sharp frame once a view settles, so its pixels are not
+held to exact equality: banding changes about 0.03% of overview pixels at band edges, and the
+copy differs by resampling (mean 2.8/255 on the fixture), being taken from the sharp frame itself.
+The sharp frame of the current map is drawn over an overview that is still being replaced.
+
+**Cost.** Banding adds about a third to total overview work (measured 595 → 792 ms at 4 MP in
+four bands), spent only when nothing else is waiting; the longest uninterrupted stretch falls
+from about 595 to about 225 ms.
+
+**Evidence.** `scripts/render-interaction-study.mjs` drives the production worker and painter
+policy (headless software raster, 50×50 all-layer fixture, eight unique ownership edits, two runs
+each against `4e0db34`). A pan 50 ms after an edit's frame: median 430–438 → 250–254 ms at a
+whole-map view, 514–557 → 153–195 ms at 1×. Edits every 1.2 s: none superseded, against up to
+three of eight before (worst 4.8 s). Single-edit latency is unchanged (build and paint dominate).
+Edits faster than one build (every 0.4 s) show nothing until they stop, in both versions: every
+new edit discards the build in progress. That needs faster builds, not scheduling alone.
+
+## 71. Reuse each river's name while nothing that can reach it has changed
+
+**Problem.** River names were cached as one family whose key held every realm name and city
+marker. An ownership edit anywhere moves realm names, so every edit re-searched every river: on
+the 50×50 all-layer fixture, about 52 course preparations and 4,400 candidate positions per edit,
+the largest part of an edit's build.
+
+**Chosen.** Inside a family search, each river is reused under its own key: its course, width,
+profile, text, size and face; a snapshot of what the lake and land predicates and measurements
+depend on (measure epoch, lake shores, land revision); and only those obstacles, earlier river
+names and other courses that can reach its probes. Every probe lies within the largest type's
+lift plus half a line of the course's bounding box, and other courses matter only a little farther
+out; anything beyond cannot change a single probe, so the result is identical. Earlier names are
+still pushed in order, so a re-searched river that moves its name re-searches any later river
+that name can reach. Reusing a previous winner without these inputs remains rejected.
+
+**Cost.** A second bounded memo (1,024 entries, about 8 MB estimated, keys charged) and one key
+serialization per river per family miss. The family cache in front of it is unchanged.
+
+**Evidence.** Random obstacle moves, additions and removals equal a fresh search at each of 40
+steps; scene rebuilds after ownership edits equal uncached rebuilds. Production worker study
+(50×50, eight unique ownership edits, two paired runs against the previous commit): worker build
+median 660–675 → 104–107 ms, edit to sharp frame 1017–1033 → 466 ms; 378 river reuses and 38
+searches across the eight edits. Land edits still invalidate every river, because the land and
+lake predicates are keyed globally.
+
+## 72. Repainting only changed regions: evaluated, not adopted
+
+**Tried.** After an edit at an unchanged view, diff the old and new scenes (64-bit content
+hashes, an order-preserving list diff, refinement to changed group children, clip subpaths and
+path subpaths, measured text extents) and repaint only the changed device tiles. The patch and its
+browser check are kept outside the repository; this records what they showed.
+
+**Chromium's 2D canvas is not bit-stable, so exactness constrains the method.** Measured in headless
+software raster: a path rasterizes slightly differently on its first use than on later uses of the
+same `Path2D` (tens of bytes, ±1–2); repainting a used canvas differs from a fresh one; and any clip,
+even one rectangle, changes antialiasing inside it (up to ±69 at edge pixels), and still by ±2–4
+with a 128-pixel margin. Repainting under a clip therefore cannot reproduce a full repaint. A fresh
+full-size frame that skips prims reaching no dirty tile, keeping the full frame's clips, and copying
+only those tiles does: every byte then equals a full repaint (first-use or later-use value) for all
+ownership, terrain, elevation, vegetation, city and name edits on the 50×50 fixture at three views.
+Four small edge-fixture cases (up to ±7 near islands) were left unexplained.
+
+**Why it was not adopted.** Prims that span the map (coast clips, sea bands, ripples, realm border
+bands) reach every dirty tile, so the skipped work is small: on the 50×50 fixture at a whole-map
+view a partial frame cost about 190–250 ms (diff 40–55 ms after hashing optimizations, plus the culled
+frame) against 280–330 ms for a full one, and it was slower than a full frame at 1× and 2×. At most
+about a fifth of one edit's wait, only when zoomed out, for a diff engine, persistent canvases and
+an extra verification harness. The remaining paint cost is the fixed cost of those map-spanning
+prims; reducing it changes antialiasing at edge pixels (the clip effect above), so it needs an
+explicit tolerance decision rather than a byte-equality gate.
+
+## 73. Paint realm bands once and composite rivers through the water clip
+
+**Problem.** Paint is now most of an edit's wait, and two map-spanning items dominated it. A
+see-through realm band was stroked twice along its whole outline: once in the even land colour,
+once in the translucent realm colour on top. Rivers were each clipped against the full page-less-
+water outline (about 15,000 commands), costing about 33 ms against 3.5 ms unclipped.
+
+**Chosen.** Where a realm has no glacier under its band, the band is one opaque stroke of its
+colour already composed on that even ground (`mix(land, colour, alpha)`); a realm with ice keeps
+the two strokes, so ice keeps its own shade under a see-through band. Rivers are drawn as one
+composited layer and cut by the water outline once (the existing composite path).
+
+**Quality.** Owner's criterion: no visible change, judged against the renderer's own variation
+rather than byte equality (Chromium's raster already varies between repaints; see §72). On the
+50×50 fixture, against the previous commit through the production worker: at a whole-map view
+31,165 of 1,260,000 pixels change, 22,543 of them by one level, 278 by 16–21 and none by more; at
+1× 62,277 change, 57,507 by one level and none by more than 22. The larger ones are single
+antialiased pixels on band inner edges, where the band meets ground of another shade, and on river
+edges. Enlarged side-by-side images show no visible difference. The drawing pixel checks
+(`test:drawing-pixels`) pass, including the 400-river sweep.
+
+**Effect.** Production worker study, two paired runs: sharp-frame paint median 471/414 → 366/306 ms,
+edit to sharp frame 583/549 → 499/433 ms. SVG output gains the same single band stroke.
+
+## 74. Hand unchanged outlines back to the painter as the same arrays
+
+**Problem.** The painter caches compiled `Path2D`s and bounds by array identity. Each build created
+new arrays for outlines whose content had not changed (realm bands and grounds of untouched realms,
+the rivers' water clip, concatenated lake and page clips), so after every edit the first paint
+recompiled them: on the 50×50 fixture first paints of an edited scene ran about 60–70 ms slower than
+repeat paints of the same scene.
+
+**Chosen.** After a cached build, each path or clip of at least 64 commands is looked up among the
+previous scene's by a short key (length and three sampled commands) and replaced by the earlier
+array only if every command is equal, number for number. Scene content is therefore unchanged; a
+scene built with caches off is not touched. Only the previous scene's arrays are kept; a map change
+clears them.
+
+**Evidence.** Uncached and cached scenes still compare equal after an edit. After a ten-edit chain
+the painted pixels equal the previous code's exactly. Production worker study, two paired runs
+against the previous commit: paint median 308/346 → 238/291 ms, edit to sharp frame 466/533 →
+383/434 ms; build time unchanged within noise.
+
+**Rejected on measurement.** Batching consecutive same-style fills into one path did not help:
+the clipped groups' children already draw onto a composited layer, and drawing merged shapes
+straight through a complex clip instead was ten times slower (151 against 15 ms for the
+8,583-child land group). Batching on the layer gained nothing with cached paths and cost about
+250 ms more on a fresh scene. Compositing every clipped group was also slower.
+
+## 75. Border-band paint: alternatives measured and rejected
+
+Composited layers for realm border groups (outermost, innermost or every clip) made the 50×50
+whole-map paint slower: 281–348 against 246 ms. Thinning the band line's near-collinear points
+(Douglas–Peucker at 0.006 hex sizes; 69,769 → 24,398 commands) cut that in-page paint to 198 ms,
+but two paired production-worker runs showed no reliable gain (paint medians 236 → 237 and
+240 → 218 ms; edit to sharp frame 366/367 → 383/381 ms), presumably because unchanged band
+outlines are already shared and cached across edits (§74). It also moved inner band edges by up
+to 32 levels at 1×, so it was not adopted.

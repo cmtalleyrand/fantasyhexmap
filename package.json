@@ -19,7 +19,8 @@
     "perf:construction": "tsx scripts/render-construction-profile.ts",
     "perf:opening": "node scripts/render-opening-performance.mjs",
     "perf:coast": "node scripts/render-coast-validation.mjs",
-    "perf:incremental": "node scripts/render-incremental-validation.mjs"
+    "perf:incremental": "node scripts/render-incremental-validation.mjs",
+    "perf:interaction": "node scripts/render-interaction-study.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.124.0",

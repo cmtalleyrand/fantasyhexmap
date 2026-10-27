@@ -2,6 +2,7 @@ import { coastPaintGeometry, type CoastPaintGeometry } from './coastPaintGeometr
 import { IslandDrawingCache, type DrawnIsle as Isle } from './islandDrawingCache.js';
 import { BoundedMemo, renderCachesEnabled, withRenderCaches } from './cache.js';
 import { cachedPlacement, clearPlacementCache } from './placementCache.js';
+import { clearSharedPaths, shareUnchangedPaths } from './sharedPaths.js';
 import { profileCount, profileTime, profilePhases } from './profile.js';
 /**
  * The scene model.
@@ -59,7 +60,7 @@ import {
   populationColour,
   withAlpha,
 } from './palette.js';
-import { placeAreaLabels, placeRangeLabels, placeRiverLabels, placeWaterLabels } from './featureLabels.js';
+import { clearRiverLabelCache, placeAreaLabels, placeRangeLabels, placeRiverLabels, placeWaterLabels } from './featureLabels.js';
 import { geoEligibility, geoNamesOf, liveHexes } from '../../shared/geoNames.js';
 import type { GeoNameKind } from '../../shared/types.js';
 import {
@@ -394,7 +395,7 @@ function prepareSceneCacheScope(map: MapState, size: number): void {
   if (scope === sceneCacheScope) return;
   sceneCacheScope = scope;
   coastCache.clear(); coastComponents.clear(); coastFits.clear(); glacierMargins.clear(); packIceDrawings.clear(); symbolPlacements.clear(); terrainRevisions.clear();
-  symbolFits = new WeakMap(); clearPlacementCache(); shapeMemo.clear(); islandDrawings.clear();
+  symbolFits = new WeakMap(); clearPlacementCache(); clearRiverLabelCache(); clearSharedPaths(); shapeMemo.clear(); islandDrawings.clear();
 }
 
 /** The numerical solve and its stopping tests couple all fitting rings. Its exact
@@ -972,7 +973,9 @@ export function decorationPrims(map: MapState, opts: SceneOptions): Prim[] {
 export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
   return withRenderCaches(opts.cache !== 'off', () => profileTime('scene.total', () => {
     prepareSceneCacheScope(map, opts.size);
-    return buildStaticSceneInner(map, opts);
+    const scene = buildStaticSceneInner(map, opts);
+    if (renderCachesEnabled()) profileTime('scene.sharePaths', () => shareUnchangedPaths(scene.prims));
+    return scene;
   }));
 }
 function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
@@ -2679,25 +2682,31 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
       ];
       const shores = [...(shoreLakes.get(owner) ?? [])].flatMap((k) => lakeShores[k] ?? []);
       const colour = polityColour.get(owner) ?? '#888888';
+      const hexes = regions.get(owner) ?? [];
+      const evenGround = baseColour('Land');
+      // Without ice under it, the band on its even ground is one opaque colour:
+      // stroking that once draws the same band without stroking the outline twice.
+      const solid = band.alpha < 1 && !hexes.some(i => base?.[i] === 'Glacier')
+        && /^#[0-9a-f]{6}$/i.test(colour) && /^#[0-9a-f]{6}$/i.test(evenGround) ? mix(evenGround, colour, band.alpha) : null;
       prims.push({
         kind: 'group',
-        clip: ground(owner, regions.get(owner) ?? []),
+        clip: ground(owner, hexes),
         prims: keepInRealm(owner, onLand([
             // A see-through band shows the ground, which differs from hex to hex
             // (coastal land is darker), so it would change shade at every hex
             // edge it crosses: it lies on one even ground instead. Ice keeps its own.
-            ...(band.alpha < 1
+            ...(band.alpha < 1 && !solid
               ? [{
                   kind: 'group' as const,
                   clip: ground(owner, (regions.get(owner) ?? []).some(i => base?.[i] === 'Glacier')
                     ? (regions.get(owner) ?? []).filter(i => base?.[i] !== 'Glacier') : regions.get(owner) ?? []),
-                  prims: [{ kind: 'path' as const, d: [...loops, ...shores], stroke: baseColour('Land'), strokeWidth: band.width * 2, round: true }],
+                  prims: [{ kind: 'path' as const, d: [...loops, ...shores], stroke: evenGround, strokeWidth: band.width * 2, round: true }],
                 }]
               : []),
             {
               kind: 'path',
               d: [...loops, ...shores],
-              stroke: band.alpha < 1 ? withAlpha(colour, band.alpha) : colour,
+              stroke: solid ?? (band.alpha < 1 ? withAlpha(colour, band.alpha) : colour),
               strokeWidth: band.width * 2,
               round: true,
             },
@@ -2971,7 +2980,9 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
   if (seaWater.length + lakeOutlines.length === 0) prims.push(...riverList);
   else if (riverList.length > 0) {
     const page: PathCmd[] = [['M', -size, -size], ['L', width + size, -size], ['L', width + size, height + size], ['L', -size, height + size], ['Z']];
-    prims.push({ kind: 'group', clip: [...page, ...seaWater, ...lakeOutlines], clipRule: 'evenodd', prims: riverList });
+    // Composited: the rivers are drawn once, then cut by the water outline once,
+    // rather than every river stroke being clipped against it separately.
+    prims.push({ kind: 'group', clip: [...page, ...seaWater, ...lakeOutlines], clipRule: 'evenodd', composite: true, prims: riverList });
   }
 
   if (rivers && opts.highlightRiver) {
@@ -3212,8 +3223,11 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
     const riverObstacles = [...taken, ...cityBoxes];
     const riverNames = cachedPlacement('riverLabels', [rivers.rivers, size, lettering.river, measureEpoch,
       riverObstacles, tapered ? [...courses] : null, [...meanWidths], [...widthProfiles], lakeShores, symbolLandRevision.id],
+    // Within a search, each river is reused while the inputs that reach it are
+    // unchanged: an edit elsewhere moves realm names without touching most rivers.
     () => placeRiverLabels(rivers.rivers, size, pathFor, lettering.river, riverObstacles,
-      (id) => meanWidths.get(id), inLakeWater, (id) => widthProfiles.get(id), quickLandAt));
+      (id) => meanWidths.get(id), inLakeWater, (id) => widthProfiles.get(id), quickLandAt,
+      JSON.stringify([measureEpoch, lakeShores, symbolLandRevision.id])));
     const namedRivers = new Set(riverNames.map(n => n.text));
     for (const river of rivers.rivers) {
       if (!river.name.trim() || namedRivers.has(river.name.trim())) continue;
