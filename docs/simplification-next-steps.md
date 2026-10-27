@@ -59,7 +59,8 @@ Steps:
    The temporary scripts written during PR #160 all re-implemented these.
 2. **Allow `executablePath` without flags.** `launchBrowser` needs `--chromium` to find a preinstalled
    browser. Let it read an environment variable (for example `CHROMIUM_PATH`) so managed environments
-   with `/opt/pw-browsers/chromium` work by default.
+   with `/opt/pw-browsers/chromium` work by default. This is also step 6 of `docs/test-next-steps.md`;
+   do it once, in whichever lands first.
 3. **Fold the latency studies into one CLI with named scenarios.** `render-interaction-study.mjs`
    (edit-paced, pan-after-edit) and `render-worker-study.mjs` (cold, warm, ownership) both drive the
    production worker. Merge them, keeping the user-facing measures (time to sharp frame, queue wait)
@@ -100,42 +101,11 @@ Steps:
    "Superseded by §N" on its first line. Optionally split the file into an index of current
    decisions plus the history.
 
-## 3. Tests (`test/`): a fast tier, and fewer structure-coupled assertions
+## 3. Tests (`test/`)
 
-There are 71 files (about 10,500 lines). Time is concentrated in a few places (measured per file):
-
-| File | Time | Where it goes |
-|---|---:|---|
-| `lakeStraitRendering.test.ts` | 71 s | sixteen "representative lake strait" cases at 1.8–4.2 s each, and one continuity check at 6.1 s |
-| `incrementalRender.test.ts` | 19 s | 17.5 s in one test: rebuilds after merges, splits, settings… equal uncached rebuilds |
-| `riverLabelReuse.test.ts` (added in PR #160) | 14 s | 11.2 s in the scene-level ownership test on a 24×24 fixture |
-
-Coupling to scene structure:
-
-- **14 test files** find prims by kind, colour or nesting. For example, `mapStyle.test.ts`
-  (1,762 lines, 75 tests) found the realm band by its `rgba(170, 51, 51, …)` stroke. §73 broke that
-  without any change in behaviour, and the test was rewritten to find the band by stroke width.
-- **126 calls** build a scene directly, and the "cached build equals uncached build" comparison is
-  hand-written in several files.
-
-Steps:
-
-1. **Split a fast tier.** Keep one representative case per lake-strait width in the Node suite. Move
-   the full parameter sweep into the existing browser sweep (`npm run test:drawing-sweeps`), or behind
-   an opt-in tag that CI runs separately. Do the same for the long incremental test: one case per kind
-   of edit in the fast tier, and the full chain behind the tag.
-2. **Shrink the slow test from PR #160.** In `riverLabelReuse.test.ts`, the scene-level test can use a
-   12×12 fixture with two rivers and keep its assertions. The random-obstacle test already covers the
-   exactness of the reuse.
-3. **Share the cached-versus-uncached pattern.** Add one helper, for example
-   `assertRebuildsMatchUncached(map, options, edits)`, and use it wherever that comparison is written
-   by hand.
-4. **Query by meaning, not appearance.**
-   - **Tag prims by role:** tests that need a specific layer (realm band, river clip group, coast fill)
-     should find it through a stable role tag on the prim, like the existing `LabelTag` for lettering.
-     Matching colours or nesting depth breaks whenever paint is optimized.
-   - **Check results geometrically:** where a test checks a picture property, prefer a land or water
-     predicate, or a coverage measurement, over the presence of a particular prim.
+Moved to `docs/test-next-steps.md`, a self-contained brief for an agent working on tests alone. It
+covers running the Node suite in CI (no workflow does today), a fast tier, a shared equality helper,
+role tags in place of colour and structure queries, and clearer sweep failures.
 
 ## 4. Render code
 
@@ -199,7 +169,7 @@ Then delete Classic's code paths, its tests, and its cases in the drawing sweeps
 
 | Order | Area | Reason |
 |---|---|---|
-| 1 | §3 steps 1–2 (fast test tier) | Cheapest, and immediately reduces every later agent's cycle time |
+| 1 | `docs/test-next-steps.md` (separate agent) | CI coverage and cycle time for every later step; independent of the rest |
 | 2 | §1 steps 1–2 (shared harness) | Every remaining performance or pixel investigation reuses it |
 | 3 | §4.3, then §4.2 | Small, contained changes to code that recent work touched |
 | 4 | §2 | Documentation consolidation, so agents read one current state |
