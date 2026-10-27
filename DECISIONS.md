@@ -1566,3 +1566,27 @@ about a fifth of one edit's wait, only when zoomed out, for a diff engine, persi
 an extra verification harness. The remaining paint cost is the fixed cost of those map-spanning
 prims; reducing it changes antialiasing at edge pixels (the clip effect above), so it needs an
 explicit tolerance decision rather than a byte-equality gate.
+
+## 73. Paint realm bands once and composite rivers through the water clip
+
+**Problem.** Paint is now most of an edit's wait, and two map-spanning items dominated it. A
+see-through realm band was stroked twice along its whole outline: once in the even land colour,
+once in the translucent realm colour on top. Rivers were each clipped against the full page-less-
+water outline (about 15,000 commands), costing about 33 ms against 3.5 ms unclipped.
+
+**Chosen.** Where a realm has no glacier under its band, the band is one opaque stroke of its
+colour already composed on that even ground (`mix(land, colour, alpha)`); a realm with ice keeps
+the two strokes, so ice keeps its own shade under a see-through band. Rivers are drawn as one
+composited layer and cut by the water outline once (the existing composite path).
+
+**Quality.** Owner's criterion: no visible change, judged against the renderer's own variation
+rather than byte equality (Chromium's raster already varies between repaints; see §72). On the
+50×50 fixture, against the previous commit through the production worker: at a whole-map view
+31,165 of 1,260,000 pixels change, 22,543 of them by one level, 278 by 16–21 and none by more; at
+1× 62,277 change, 57,507 by one level and none by more than 22. The larger ones are single
+antialiased pixels on band inner edges, where the band meets ground of another shade, and on river
+edges. Enlarged side-by-side images show no visible difference. The drawing pixel checks
+(`test:drawing-pixels`) pass, including the 400-river sweep.
+
+**Effect.** Production worker study, two paired runs: sharp-frame paint median 471/414 → 366/306 ms,
+edit to sharp frame 583/549 → 499/433 ms. SVG output gains the same single band stroke.

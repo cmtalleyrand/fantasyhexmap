@@ -2679,25 +2679,31 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
       ];
       const shores = [...(shoreLakes.get(owner) ?? [])].flatMap((k) => lakeShores[k] ?? []);
       const colour = polityColour.get(owner) ?? '#888888';
+      const hexes = regions.get(owner) ?? [];
+      const evenGround = baseColour('Land');
+      // Without ice under it, the band on its even ground is one opaque colour:
+      // stroking that once draws the same band without stroking the outline twice.
+      const solid = band.alpha < 1 && !hexes.some(i => base?.[i] === 'Glacier')
+        && /^#[0-9a-f]{6}$/i.test(colour) && /^#[0-9a-f]{6}$/i.test(evenGround) ? mix(evenGround, colour, band.alpha) : null;
       prims.push({
         kind: 'group',
-        clip: ground(owner, regions.get(owner) ?? []),
+        clip: ground(owner, hexes),
         prims: keepInRealm(owner, onLand([
             // A see-through band shows the ground, which differs from hex to hex
             // (coastal land is darker), so it would change shade at every hex
             // edge it crosses: it lies on one even ground instead. Ice keeps its own.
-            ...(band.alpha < 1
+            ...(band.alpha < 1 && !solid
               ? [{
                   kind: 'group' as const,
                   clip: ground(owner, (regions.get(owner) ?? []).some(i => base?.[i] === 'Glacier')
                     ? (regions.get(owner) ?? []).filter(i => base?.[i] !== 'Glacier') : regions.get(owner) ?? []),
-                  prims: [{ kind: 'path' as const, d: [...loops, ...shores], stroke: baseColour('Land'), strokeWidth: band.width * 2, round: true }],
+                  prims: [{ kind: 'path' as const, d: [...loops, ...shores], stroke: evenGround, strokeWidth: band.width * 2, round: true }],
                 }]
               : []),
             {
               kind: 'path',
               d: [...loops, ...shores],
-              stroke: band.alpha < 1 ? withAlpha(colour, band.alpha) : colour,
+              stroke: solid ?? (band.alpha < 1 ? withAlpha(colour, band.alpha) : colour),
               strokeWidth: band.width * 2,
               round: true,
             },
@@ -2971,7 +2977,9 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
   if (seaWater.length + lakeOutlines.length === 0) prims.push(...riverList);
   else if (riverList.length > 0) {
     const page: PathCmd[] = [['M', -size, -size], ['L', width + size, -size], ['L', width + size, height + size], ['L', -size, height + size], ['Z']];
-    prims.push({ kind: 'group', clip: [...page, ...seaWater, ...lakeOutlines], clipRule: 'evenodd', prims: riverList });
+    // Composited: the rivers are drawn once, then cut by the water outline once,
+    // rather than every river stroke being clipped against it separately.
+    prims.push({ kind: 'group', clip: [...page, ...seaWater, ...lakeOutlines], clipRule: 'evenodd', composite: true, prims: riverList });
   }
 
   if (rivers && opts.highlightRiver) {
