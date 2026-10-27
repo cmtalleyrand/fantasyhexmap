@@ -53,3 +53,18 @@ test('a frontier ending on the coast keeps its wander when the coast moves sligh
   // Without moved ends the corners are the ends, as before.
   assert.deepEqual(raggedEdge(a, b, 'ragged', 'seed', 26), raggedEdge(a, b, 'ragged', 'seed', 26, [a, b]));
 });
+
+test('a frontier\'s wander dies away at an end moved onto the coast', () => {
+  const [a, b] = hexEdgePoints(4, 3, 1, 26);
+  const anchored = { x: b.x - (b.x - a.x) * 0.3, y: b.y - (b.y - a.y) * 0.3 };
+  for (const seed of ['s1', 's2', 's3', 's4']) {
+    const line = raggedEdge(a, anchored, 'wild', seed, 26, [a, b]);
+    const dx = anchored.x - a.x, dy = anchored.y - a.y, len = Math.hypot(dx, dy);
+    for (const p of line.slice(0, -1)) {
+      const t = ((p.x - a.x) * dx + (p.y - a.y) * dy) / (len * len);
+      const off = Math.abs((p.x - a.x) * dy - (p.y - a.y) * dx) / len;
+      const c = Math.max(0, Math.min(1, (1 - t) / 0.5));
+      assert.ok(off <= 0.19 * 26 * c * c * (3 - 2 * c) + 1e-9, `${seed}: ${off.toFixed(2)} from the line at ${t.toFixed(2)} along`);
+    }
+  }
+});

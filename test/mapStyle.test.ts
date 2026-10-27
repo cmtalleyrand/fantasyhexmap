@@ -1760,3 +1760,28 @@ test('a see-through realm band is one opaque stroke of its colour on even ground
   // Without ice, each band is a single opaque stroke of its colour composed on that ground.
   assert.deepEqual(bands(map).sort(), [mix(ground!, '#aa3333', 0.55), mix(ground!, '#3366aa', 0.55)].sort());
 });
+
+test('a city icon set against the bank bows the river only where it really reaches the icon', () => {
+  const size = 20, reach = 4;
+  const segs = [0, 1, 2, 3, 4, 5, 6].map((col) => ({ col, row: 2, entryEdge: col === 0 ? null : 3, exitEdge: 0, navigable: false }));
+  const river = { id: 'c', name: 'City', terminus: 'OffMap' as const, segments: segs };
+  let untouched = 0;
+  for (const seed of ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h']) {
+    const plain = riverCourse(river, size, seed)!;
+    for (const k of [12, 20, 28]) {
+      for (const side of [1, -1]) {
+        const at = { x: plain.centreline[k]!.x + 3 * side, y: plain.centreline[k]!.y - 4 * side };
+        const withCity = riverCourse(river, size, seed,
+          { cities: [{ at, radius: 4, id: 'city', icon: { reach, straddle: false, setIn: 1, press: 0 } }] })!;
+        const m = withCity.icons[0]!.at;
+        // How far the plain course comes inside the icon's clearance, past the sample it was set against.
+        const inside = Math.max(...plain.centreline.map((p, i) => reach + plain.widths[i]! / 2 - Math.hypot(p.x - m.x, p.y - m.y)));
+        if (inside > 1e-3) continue;
+        untouched++;
+        const shift = Math.max(...withCity.centreline.map((p, i) => Math.hypot(p.x - plain.centreline[i]!.x, p.y - plain.centreline[i]!.y)));
+        assert.ok(shift < 1e-9, `seed ${seed}, sample ${k}: the river moved ${shift} for an icon that only touches it`);
+      }
+    }
+  }
+  assert.ok(untouched >= 8, `only ${untouched} cases where the icon just touches the river`);
+});

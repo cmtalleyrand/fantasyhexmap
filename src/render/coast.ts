@@ -323,8 +323,11 @@ const BORDER_IRREGULARITY = {
  * walking it, so both neighbours draw the same line along a shared edge.
  * `corners` are the grid corners of the edge when an end has been moved onto the
  * coast: they fix the wandering instead, so it does not change when the coast
- * moves slightly (DECISIONS §77).
+ * moves slightly, and the wandering dies away towards a moved end so the border
+ * meets the coast cleanly rather than running along it (DECISIONS §77).
  */
+const smooth = (x: number) => { const c = Math.max(0, Math.min(1, x)); return c * c * (3 - 2 * c); };
+
 export function raggedEdge(a: Point, b: Point, level: keyof typeof BORDER_IRREGULARITY, seed: string, size: number,
   corners: [Point, Point] = [a, b]): Point[] {
   const { points, reach } = BORDER_IRREGULARITY[level];
@@ -332,13 +335,16 @@ export function raggedEdge(a: Point, b: Point, level: keyof typeof BORDER_IRREGU
   const forward = key(corners[0]) <= key(corners[1]);
   const [p, q] = forward ? [a, b] : [b, a];
   const id = forward ? `${key(corners[0])}|${key(corners[1])}` : `${key(corners[1])}|${key(corners[0])}`;
+  const [pc, qc] = forward ? corners : [corners[1], corners[0]];
+  const onCoast = [key(p) !== key(pc), key(q) !== key(qc)];
   const dx = q.x - p.x;
   const dy = q.y - p.y;
   const len = Math.hypot(dx, dy) || 1;
   const out: Point[] = [];
   for (let k = 1; k <= points; k++) {
     const t = (k + signed(seed, 'border-t', id, k) * 0.25) / (points + 1);
-    const off = signed(seed, 'border', id, k) * reach * size;
+    const fade = (onCoast[0] ? smooth(t / 0.5) : 1) * (onCoast[1] ? smooth((1 - t) / 0.5) : 1);
+    const off = signed(seed, 'border', id, k) * reach * size * fade;
     out.push({ x: p.x + dx * t - (dy / len) * off, y: p.y + dy * t + (dx / len) * off });
   }
   if (!forward) out.reverse();

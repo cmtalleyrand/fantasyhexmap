@@ -758,11 +758,13 @@ export function riverCourse(river: River, size: number, seed: string, ends: Cour
     const m = { x: line[k]!.x + nx * side * setIn, y: line[k]!.y + ny * side * setIn };
     icons.push({ id: city.id, at: m });
     const clear = (i: number) => city.icon!.reach * (1 - (city.icon!.press ?? PRESS)) + widths[i]! / 2;
+    // The icon is set so its edge touches the bank at the nearest sample, so that sample lies on the clearance
+    // to within rounding: only a real intrusion bows the river (DECISIONS §77).
     const push = (i: number) => {
       const p = line[i]!;
       const d = Math.hypot(p.x - m.x, p.y - m.y);
       const need = clear(i);
-      if (d >= need) return false;
+      if (d >= need - size * 1e-6) return false;
       const u = d < 1e-6 ? { x: -nx * side, y: -ny * side } : { x: (p.x - m.x) / d, y: (p.y - m.y) / d };
       line[i] = { x: m.x + u.x * need, y: m.y + u.y * need };
       return true;
