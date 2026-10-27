@@ -1540,8 +1540,8 @@ large one. Neither came from the line count itself; both happen on any coast ref
   passes the hex corner, and its wander was seeded by that point's exact coordinates. Any refit moved
   the point by a hair and redrew the whole wander, up to 5 units at the frontier and colour spilling
   into the neighbouring hex. On `main`, changing one hex's land share moved frontier points 5 hexes
-  away. The wander is now seeded by the edge's grid corners, which never move, and dies away towards
-  an end on the coast, so the frontier meets the shore instead of running along it.
+  away. The wander is now seeded by the edge's grid corners, which never move. (Fading the wander out
+  towards the coast was tried and dropped: it drew straight borders, which the owner rejected.)
 - **Rivers past cities.** A city icon beside a river is set so its edge just touches the bank at the
   nearest river sample, so that sample lies on the icon's clearance to within rounding. Whether the
   river was then smoothed into a bow round the icon (and the smoothing reaches about 16 samples either
@@ -1551,9 +1551,9 @@ large one. Neither came from the line count itself; both happen on any coast ref
 
 **Pictures.** With both fixes, no drawn element moves by more than a quarter of a unit between 128 and 64
 lines on the populated fixture, labels by less than 0.003. Against `main`, the fixes themselves change
-the picture once: frontiers that end on the coast take a different, stable wander, and the two rivers
+the picture once: frontiers that end on the coast take a different, stable wander (see also §79), and the two rivers
 whose bows were set off by rounding (Mocktown 13 and 29) keep their own course instead of being
-smoothed past the icon. Their own course has sharp bends (sharpest turn 35° → 62° and 46° → 68°), as
+smoothed past the icon; the owner prefers them so. Their own course has sharp bends (sharpest turn 35° → 62° and 46° → 68°), as
 most rivers on `main` already do (9 of 13 on the populated fixture turn by 58–81° somewhere, none near a
 city); the rounding-triggered smoothing had hidden them on these two. Those bends are a separate
 weakness of the meander, not of this change.
@@ -1572,3 +1572,25 @@ behind a wrong picture instead of reducing it, and makes the exact picture later
 removed (see the history of this entry's PR). Making opening and coast edits fast means making the fit
 itself cheaper (the solver, the global share passes and each measurement's fixed setup), not showing
 something else while it runs.
+
+## 79. A thin coastal strip of a mainland-with-islands hex is drawn as the realm it lies along
+
+**Problem.** A mainland-with-islands hex keeps land in the sectors facing land. Where that land faces
+another realm's hex and the coast has cut it down to a strip along their shared edge, the strip took its
+own hex's realm colour and the frontier ran along the edge beside the coast: it read as an enclave of
+one realm inside the other. On `main` this showed or not by chance (the frontier's random wander
+sometimes bulged over the strip); with a stable wander (§77) it showed at hex 87 of the populated
+fixture, a yellow wedge in pink.
+
+**Chosen (owner's decision).** Such a strip is drawn as the realm it lies along: the border between
+the two hexes runs through the split hex's centre instead of along their edge, so the realm across
+takes the strip and the frontier meets the coast where the split hex's own land begins. Ownership in the
+map data is unchanged; only the drawing of the strip is. It applies only where under a quarter of the
+sector (centre to edge) is drawn land: on the populated fixture the strips cover 0.5–11% of their
+sector and the mainland sectors facing another realm 100%, so the threshold sits well clear of both and
+a coast refit does not flip it. Realm grounds, bands and the frontier share the one border, so they
+stay consistent.
+
+**Effect.** On the populated fixture it applies at hexes 87, 282, 392 (three edges) and 917; hex 794,
+whose land facing realm A is a whole sector, is unchanged.
+

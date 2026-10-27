@@ -2572,6 +2572,42 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
       const end = traced?.geometry.anchors.get(coastKey(b)) ?? b;
       return raggedEdge(start, end, knobs.borders, seed, size, [a, b]).map((q, k, all) => ({ from: k === 0 ? start : all[k - 1]!, to: q }));
     };
+    /**
+     * The land of a mainland-with-islands hex facing another realm's land, where it is only a
+     * thin strip of its sector (under a quarter of it drawn as land), is drawn as that realm's:
+     * otherwise it reads as an enclave in it. The border between them then runs through the split
+     * hex's centre instead of along their shared edge, so it reaches the coast where the split
+     * hex's own land begins (DECISIONS §79). Strips cover about a tenth of their sector or less, a
+     * mainland sector nearly all of it, so the threshold sits well clear of both.
+     */
+    const centreCrossings = new Map<number, Point | null>();
+    const throughCentre = (i: number, e: number, j: number): Point | null => {
+      const splitI = base?.[i] === 'Mainland and islands', splitJ = base?.[j] === 'Mainland and islands';
+      if (splitI === splitJ) return null;
+      const [s, t, edge] = splitI ? [i, j, e] : [j, i, (e + 3) % 6];
+      const known = centreCrossings.get(s * 6 + edge);
+      if (known !== undefined) return known;
+      const mine = polities.owner[s], theirs = polities.owner[t];
+      let crossing: Point | null = null;
+      if (mine && theirs && topLevel.get(mine) !== topLevel.get(theirs) && terrain && traced
+        && pieceSurface(terrain, s, 6 + edge) === 'land') {
+        const c = hexCenter(s % cols, Math.floor(s / cols), size);
+        const [a, b] = hexEdgePoints(s % cols, Math.floor(s / cols), edge, size);
+        let samples = 0, dry = 0;
+        for (let u = 0.025; u < 1; u += 0.05) for (let v = 0.025; u + v < 1; v += 0.05) {
+          samples++;
+          if (traced.onLand({ x: c.x + (a.x - c.x) * u + (b.x - c.x) * v, y: c.y + (a.y - c.y) * u + (b.y - c.y) * v })) dry++;
+        }
+        if (dry < samples / 4) crossing = c;
+      }
+      centreCrossings.set(s * 6 + edge, crossing);
+      return crossing;
+    };
+    /** The pieces of the border between hex `i` and its neighbour `j` across edge `e`, from `a` to `b`. */
+    const border = (i: number, e: number, j: number, a: Point, b: Point): Array<{ from: Point; to: Point }> => {
+      const centre = throughCentre(i, e, j);
+      return centre ? [...wander(a, centre), ...wander(centre, b)] : wander(a, b);
+    };
     for (let row = 0; row < rows; row++) {
       for (let col = 0; col < cols; col++) {
         const i = hexIndex(cols, col, row);
@@ -2611,7 +2647,7 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
           const landAcross = inside && across === 'land' && !isIsland(j);
           if (landAcross) wanders.add(i * 6 + e);
           const pieces = landAcross
-            ? wander(a, b).map((piece) => ({ ...piece, land: i, water: j }))
+            ? border(i, e, j, a, b).map((piece) => ({ ...piece, land: i, water: j }))
             : [{ from: a, to: b, land: i, water: j }];
           append(bands, owner, pieces);
           // A frontier between realms on land, drawn from one side only.
@@ -2626,7 +2662,7 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
       const j = n.row * cols + n.col;
       const shared = wanders.has(i * 6 + e) || (inBounds(cols, rows, n.col, n.row) && wanders.has(j * 6 + (e + 3) % 6));
       if (shared) {
-        const line = wander(a, b);
+        const line = border(i, e, j, a, b);
         return [line[0]!.from, ...line.map(p => p.to)];
       }
       return [traced?.geometry.anchors.get(coastKey(a)) ?? a, traced?.geometry.anchors.get(coastKey(b)) ?? b];

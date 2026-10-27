@@ -54,17 +54,21 @@ test('a frontier ending on the coast keeps its wander when the coast moves sligh
   assert.deepEqual(raggedEdge(a, b, 'ragged', 'seed', 26), raggedEdge(a, b, 'ragged', 'seed', 26, [a, b]));
 });
 
-test('a frontier\'s wander dies away at an end moved onto the coast', () => {
-  const [a, b] = hexEdgePoints(4, 3, 1, 26);
-  const anchored = { x: b.x - (b.x - a.x) * 0.3, y: b.y - (b.y - a.y) * 0.3 };
-  for (const seed of ['s1', 's2', 's3', 's4']) {
-    const line = raggedEdge(a, anchored, 'wild', seed, 26, [a, b]);
-    const dx = anchored.x - a.x, dy = anchored.y - a.y, len = Math.hypot(dx, dy);
-    for (const p of line.slice(0, -1)) {
-      const t = ((p.x - a.x) * dx + (p.y - a.y) * dy) / (len * len);
-      const off = Math.abs((p.x - a.x) * dy - (p.y - a.y) * dx) / len;
-      const c = Math.max(0, Math.min(1, (1 - t) / 0.5));
-      assert.ok(off <= 0.19 * 26 * c * c * (3 - 2 * c) + 1e-9, `${seed}: ${off.toFixed(2)} from the line at ${t.toFixed(2)} along`);
-    }
-  }
+
+test('a thin coastal strip of a mainland-with-islands hex is drawn as the realm it lies along', async () => {
+  const { buildStaticScene } = await import('../src/render/scene.ts');
+  const { fixture, options } = await import('../scripts/render-profile-input.ts');
+  const opts = options(), scene = buildStaticScene(fixture('populated'), opts);
+  const vertices: Array<[number, number]> = [];
+  const walk = (prims: typeof scene.prims): void => prims.forEach(p => p.kind === 'group' ? walk(p.prims)
+    : p.kind === 'path' && p.stroke === opts.style!.palette.frontier ? p.d.forEach(c => { if (c.length === 3) vertices.push([c[1], c[2]]); }) : undefined);
+  walk(scene.prims);
+  const passes = (hex: number) => {
+    const c = hexCenter(hex % 40, Math.floor(hex / 40), opts.size);
+    return vertices.some(([x, y]) => Math.hypot(x - c.x, y - c.y) < 1e-6);
+  };
+  // Hex 87's land facing realm J's hex 46 is a strip along the coast: the border runs through its centre.
+  assert.ok(passes(87));
+  // Hex 794's land facing realm A is most of its sector: the border keeps to the hex edges.
+  assert.ok(!passes(794));
 });
