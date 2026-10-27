@@ -1,4 +1,4 @@
-/** Browser geometry and interaction regression checks; see docs/render-performance.md. */
+/** Browser geometry and interaction regression checks; see docs/render-performance.md at 8bf42c7. */
 import {execFileSync} from 'node:child_process';
 import {createHash} from 'node:crypto';
 import {mkdirSync,readFileSync,writeFileSync,symlinkSync} from 'node:fs';

@@ -1473,7 +1473,7 @@ matching sea/lake policies through scene construction as well as through the geo
 Standalone SVGs were rendered with librsvg for visual inspection. The subsequent Chromium
 checks passed: all 18 Canvas/SVG coastal-paint cases, 21 finished-picture fixtures, 150 area
 cases, 200 island cases, 600 enclosed-water cases and 400 river seeds, with unchanged thresholds.
-Commands, browser results and benchmark details are in `docs/shared-shorelines.md`. Dense maps containing many small lakes
+Commands, browser results and benchmark details are in `docs/shared-shorelines.md` at `8bf42c7`. Dense maps containing many small lakes
 have higher cold-build cost from fitting all shore shares together; exact cached redraws reuse
 those results. This change does not claim to solve that remaining performance cost.
 
@@ -1485,7 +1485,7 @@ step, preventing repeated fitting from stretching small details into spikes.
 Upstream local lake-passage controls remain, applied to a stable shared-engine
 shore and incorporated into the final common geometry. Concentrated water holes
 remain water even when their hex centre lies outside them. Earlier browser
-results apply to the pre-rebase revision; see docs/shared-shorelines.md for
+results apply to the pre-rebase revision; see docs/shared-shorelines.md at `8bf42c7` for
 current validation scope.
 
 ## 70. The whole-map overview never holds up an edit or a view

@@ -42,7 +42,6 @@ esbuild, each repeating the same boilerplate:
 26 scripts are referenced only from docs or not at all. Examples:
 
 - `coast-fit-performance.mjs`;
-- `render-parts34-summary.mjs`;
 - `selection-tools-validation.mjs`;
 - `render-browser-performance.mjs`;
 - `render-all-layers-performance.mjs`;
@@ -69,37 +68,22 @@ Steps:
    (its results are already recorded) or move it to `scripts/archive/` with a one-line note of the
    doc that cites it. Do not keep two live scripts measuring the same thing.
 
-## 2. Documentation (`docs/`, `DECISIONS.md`): current state versus history
+## 2. Documentation (`docs/`, `DECISIONS.md`)
 
-What `docs/` holds:
+Done after PR #160. `docs/` went from 29 MB to about 120 KB. The superseded plans, investigation
+narratives, raw result files and images were deleted. They remain in Git at `8bf42c7`. What is left:
 
-| What | Size |
-|---|---|
-| All of `docs/` | 29 MB |
-| 34 JSON/`.gz` raw-record files | 7.2 MB |
-| PNGs | 21 MB |
-| Markdown documents | 22 |
+- **Current state and plans:** `drawing-status.md`, `drawing-work-plan.md`,
+  `automatic-coasts-next-steps.md`, this document and `test-next-steps.md`.
+- **Interface:** `REVIEW-AND-PLAN.md` (phase 4 open) and `UX-BASELINE.md`.
 
-Several of the Markdown documents are overlapping plans for the same topic:
-- `render-performance.md`, `render-performance-plan.md` and `render-performance-implementation.md`;
-- `render-optimization-implementation-plan.md` and `render-optimization-parts-{1-2,3-4}.md`;
-- `coast-performance-plan.md`;
-- `drawing-status.md` and `drawing-work-plan.md`.
+Two things remain:
 
-`DECISIONS.md` is over 1,500 lines, in chronological order, and some entries are superseded. For
-example, §70 replaces the earlier policy that held a sharp frame's job until its overview was done.
-
-Steps:
-
-1. **Write one current-state document per area** (rendering performance, coast geometry, drawing
-   correctness): what is true now, which checks guard it, and the open problems. Link to the dated
-   documents as history rather than merging them.
-2. **Move raw records out of git:** the `*-results.json`, `*.json.gz` and evidence PNGs that no current
-   doc depends on. Use release assets or a separate artifact branch, and keep a manifest with
-   checksums in `docs/`.
-3. **Annotate superseded decisions.** Mark each superseded DECISIONS entry with
-   "Superseded by §N" on its first line. Optionally split the file into an index of current
-   decisions plus the history.
+- **Mark superseded decisions.** `DECISIONS.md` is over 1,500 lines, in chronological order, and some
+  entries are superseded. For example, §70 replaces the earlier policy that held a sharp frame's job
+  until its overview was done. Add "Superseded by §N" to the first line of each superseded entry.
+- **Keep raw records out of git.** Studies write raw records to `work/` (not committed). Record
+  conclusions in DECISIONS, not as new files in `docs/`.
 
 ## 3. Tests (`test/`)
 
@@ -172,7 +156,7 @@ Then delete Classic's code paths, its tests, and its cases in the drawing sweeps
 | 1 | `docs/test-next-steps.md` (separate agent) | CI coverage and cycle time for every later step; independent of the rest |
 | 2 | §1 steps 1–2 (shared harness) | Every remaining performance or pixel investigation reuses it |
 | 3 | §4.3, then §4.2 | Small, contained changes to code that recent work touched |
-| 4 | §2 | Documentation consolidation, so agents read one current state |
+| 4 | §2 | Mark superseded decisions |
 | 5 | §4.1 | The scene-builder split, in phase-sized PRs, each with cached/uncached equality and the pixel checks |
 
 Done means: the ground-rule checks pass unchanged, and each step's PR states which of those checks
