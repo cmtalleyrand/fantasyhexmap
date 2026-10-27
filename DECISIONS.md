@@ -1615,3 +1615,13 @@ the clipped groups' children already draw onto a composited layer, and drawing m
 straight through a complex clip instead was ten times slower (151 against 15 ms for the
 8,583-child land group). Batching on the layer gained nothing with cached paths and cost about
 250 ms more on a fresh scene. Compositing every clipped group was also slower.
+
+## 75. Border-band paint: alternatives measured and rejected
+
+Composited layers for realm border groups (outermost, innermost or every clip) made the 50×50
+whole-map paint slower: 281–348 against 246 ms. Thinning the band line's near-collinear points
+(Douglas–Peucker at 0.006 hex sizes; 69,769 → 24,398 commands) cut that in-page paint to 198 ms,
+but two paired production-worker runs showed no reliable gain (paint medians 236 → 237 and
+240 → 218 ms; edit to sharp frame 366/367 → 383/381 ms), presumably because unchanged band
+outlines are already shared and cached across edits (§74). It also moved inner band edges by up
+to 32 levels at 1×, so it was not adopted.
