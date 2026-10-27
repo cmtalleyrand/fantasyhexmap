@@ -1518,7 +1518,12 @@ that measure, or more than 1% by more than 8. `render-coast-validation.mjs` and
 equality stays required where it is a correctness rule (cached against uncached builds);
 `render-coast-validation.mjs` requires equal scenes only with `--exact-scene`.
 
-## 77. Fit coasts with 64 measuring lines per hex
+**It is a screen, not a verdict.** A difference it passes can still matter: the river reshaped round
+Mocktown 27 (§77) passed it. When a change moves any drawn element by more than the geometry the change
+itself moves, find out why before accepting it; it is usually a discontinuity in the drawing, and the
+fix belongs there.
+
+## 77. Fit coasts with 64 measuring lines per hex, and keep rivers and frontiers stable when the coast moves
 
 **Chosen.** `fitCoastAreas` measures each hex with 64 scanlines (`FIT_COVERAGE_LINES`), not 128. The
 scene's reported land shares are measured at 96 lines, as before.
@@ -1528,10 +1533,27 @@ scene's reported land shares are measured at 96 lines, as before.
 measuring cost is per-call setup, so fewer lines save little more (32 lines: 1.3 s). The fitted coast
 moves by at most 0.0068 hex sizes; land shares change by at most 0.19 points.
 
-**Pictures.** `render-coast-validation.mjs` against the 128-line parent: all coast-only images and
-every gallery fixture show no visible change. The all-layer `populated` map does: a few terrain
-symbols (hill marks, trees) move within their hexes, because symbol placement depends on the exact
-coast. Accepting that is the owner's decision.
+**What it exposed.** The first comparison against 128 lines showed visible changes far larger than the
+coast's own movement, in two places where the drawing turned an imperceptible coast change into a
+large one. Neither came from the line count itself; both happen on any coast refit (an edit, a preset).
+- **Frontiers.** A border between realms that ends on the coast starts from the point where the coast
+  passes the hex corner, and its wander was seeded by that point's exact coordinates. Any refit moved
+  the point by a hair and redrew the whole wander, up to 5 units at the frontier and colour spilling
+  into the neighbouring hex. On `main`, changing one hex's land share moved frontier points 5 hexes
+  away. The wander is now seeded by the edge's grid corners, which never move, and dies away towards
+  an end on the coast, so the frontier meets the shore instead of running along it.
+- **Rivers past cities.** A city icon beside a river is set so its edge just touches the bank at the
+  nearest river sample, so that sample lies on the icon's clearance to within rounding. Whether the
+  river was then smoothed into a bow round the icon (and the smoothing reaches about 16 samples either
+  side) was decided by that rounding: on the populated fixture two of three such rivers bowed and one
+  did not, and a refit could flip it (2.7 units along the whole river, the icon then hugging the bank).
+  Only an intrusion deeper than a millionth of a hex now bows the river.
+
+**Pictures.** With both fixes, no drawn element moves by more than a quarter of a unit between 128 and 64
+lines on the populated fixture, labels by less than 0.003. Against `main`, the fixes themselves change
+the picture once: frontiers that end on the coast take a different, stable wander, and the two rivers
+whose bows were set off by rounding (Mocktown 13 and 29) keep their own course instead of being
+smoothed past the icon.
 
 ## 78. Show a stand-in while the exact coast is fitted
 
