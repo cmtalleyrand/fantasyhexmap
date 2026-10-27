@@ -1540,3 +1540,29 @@ steps; scene rebuilds after ownership edits equal uncached rebuilds. Production 
 median 660–675 → 104–107 ms, edit to sharp frame 1017–1033 → 466 ms; 378 river reuses and 38
 searches across the eight edits. Land edits still invalidate every river, because the land and
 lake predicates are keyed globally.
+
+## 72. Repainting only changed regions: evaluated, not adopted
+
+**Tried.** After an edit at an unchanged view, diff the old and new scenes (64-bit content
+hashes, an order-preserving list diff, refinement to changed group children, clip subpaths and
+path subpaths, measured text extents) and repaint only the changed device tiles. The patch and its
+browser check are kept outside the repository; this records what they showed.
+
+**Chromium's 2D canvas is not bit-stable, so exactness constrains the method.** Measured in headless
+software raster: a path rasterizes slightly differently on its first use than on later uses of the
+same `Path2D` (tens of bytes, ±1–2); repainting a used canvas differs from a fresh one; and any clip,
+even one rectangle, changes antialiasing inside it (up to ±69 at edge pixels), and still by ±2–4
+with a 128-pixel margin. Repainting under a clip therefore cannot reproduce a full repaint. A fresh
+full-size frame that skips prims reaching no dirty tile, keeping the full frame's clips, and copying
+only those tiles does: every byte then equals a full repaint (first-use or later-use value) for all
+ownership, terrain, elevation, vegetation, city and name edits on the 50×50 fixture at three views.
+Four small edge-fixture cases (up to ±7 near islands) were left unexplained.
+
+**Why it was not adopted.** Prims that span the map (coast clips, sea bands, ripples, realm border
+bands) reach every dirty tile, so the skipped work is small: on the 50×50 fixture at a whole-map
+view a partial frame cost about 190–250 ms (diff 40–55 ms after hashing optimizations, plus the culled
+frame) against 280–330 ms for a full one, and it was slower than a full frame at 1× and 2×. At most
+about a fifth of one edit's wait, only when zoomed out, for a diff engine, persistent canvases and
+an extra verification harness. The remaining paint cost is the fixed cost of those map-spanning
+prims; reducing it changes antialiasing at edge pixels (the clip effect above), so it needs an
+explicit tolerance decision rather than a byte-equality gate.
