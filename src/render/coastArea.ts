@@ -300,7 +300,10 @@ export function fitCoastAreas(geometry: CoastGeometry, targets: ReadonlyMap<numb
     // they bend, by conjugate gradients on the normal equations: the smallest smooth
     // correction that brings every hex to its share.
     phase('solve');
-    const matrixRows = [...matrix].map(([g, row]) => ({ g, indices: Int32Array.from(row.keys()), values: Float64Array.from(row.values()) }));
+    // Match the acceptance error: incidental hexes have a quarter of a target's
+    // squared-error weight, so both their matrix row and right-hand side are halved.
+    const matrixRows = [...matrix].map(([g, row]) => ({ g, indices: Int32Array.from(row.keys()),
+      values: Float64Array.from(row.values(), v => v * (targets.has(hexes[g]!) ? 1 : 0.5)) }));
     const forward = new Float64Array(hexes.length), transpose = new Float64Array(unknowns);
     const times = (x: Float64Array) => {
       forward.fill(0);
@@ -333,7 +336,7 @@ export function fitCoastAreas(geometry: CoastGeometry, targets: ReadonlyMap<numb
       bends.push([a, b, d]);
       diagonal[a] = diagonal[a]! + mu; diagonal[b] = diagonal[b]! + 4 * mu; diagonal[d] = diagonal[d]! + mu;
     }
-    const rhs = Float64Array.from(timesT(Float64Array.from(hexes, h => short.get(h)!)));
+    const rhs = Float64Array.from(timesT(Float64Array.from(hexes, h => short.get(h)! * (targets.has(h) ? 1 : 0.5))));
     const x = new Float64Array(unknowns);
     const r = Float64Array.from(rhs), dir = Float64Array.from(r, (v, j) => v / diagonal[j]!);
     let rz = r.reduce((sum, v, j) => sum + v * dir[j]!, 0);
