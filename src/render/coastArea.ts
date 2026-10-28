@@ -186,15 +186,23 @@ export function fitCoastAreas(geometry: CoastGeometry, targets: ReadonlyMap<numb
   });
   const initial = profileTime('fit.measure', () => measureAll(current, touched));
   const want = new Map([...touched].map(h => [h, targets.get(h)?.share ?? initial.get(h)!]));
-  const error = (m: Map<number, number>) => [...targets.keys()].reduce((s, h) => s + (want.get(h)! - m.get(h)!) ** 2, 0)
-    + [...touched].filter(h => !targets.has(h)).reduce((s, h) => s + 0.25 * (want.get(h)! - m.get(h)!) ** 2, 0);
+  // A share within the tolerance is as good as exact, so a hex is only pulled back to the
+  // near edge of its band (kept a little inside it, for the detail added later), and a hex
+  // inside its band is left alone: the coast moves no more than the shares need.
+  const band = LAND_SHARE_TOLERANCE * 0.4;
+  const outside = (h: number, m: Map<number, number>) => {
+    const miss = want.get(h)! - m.get(h)!;
+    return Math.sign(miss) * Math.max(0, Math.abs(miss) - band);
+  };
+  const error = (m: Map<number, number>) => [...targets.keys()].reduce((s, h) => s + outside(h, m) ** 2, 0)
+    + [...touched].filter(h => !targets.has(h)).reduce((s, h) => s + 0.25 * outside(h, m) ** 2, 0);
   let shown = initial;
   // Bound the total deformation, not just each accepted step.
   const referenceRings = current;
   for (let round = 0; round < rounds; round++) {
     phase('field');
     profileCount('fit.rounds');
-    const short = new Map([...touched].map(h => [h, (want.get(h)! - shown.get(h)!) * hexArea]));
+    const short = new Map([...touched].map(h => [h, outside(h, shown) * hexArea]));
     if (Math.max(...[...targets.keys()].map(h => Math.abs(short.get(h)!))) <= LAND_SHARE_TOLERANCE * hexArea) break;
     // Every point's direction to the sea (each ring's orientation found by probing which
     // side is land), averaged over a short stretch so the roughening's small teeth do not
