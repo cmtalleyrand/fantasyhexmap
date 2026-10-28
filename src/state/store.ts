@@ -50,6 +50,7 @@ import type {
   GeoNameKind,
   Polity,
   River,
+  RiverNavigability,
   TokenUsage,
   MapHistorySnapshot,
 } from '../../shared/types.js';
@@ -125,7 +126,7 @@ export type Action =
   | { type: 'removeRiver'; id: string }
   /** Replace several rivers by one built from them (see `mergeRivers`): one undo entry. */
   | { type: 'mergeRivers'; river: River; absorbed: string[] }
-  | { type: 'setRiverNavigability'; indices: number[]; navigable: boolean; downstream: boolean }
+  | { type: 'setRiverNavigability'; indices: number[]; navigable?: boolean; navigability?: RiverNavigability; downstream: boolean }
   | { type: 'unnameMountainRangeHexes'; id: string; indices: number[] }
   /** Put Mountains and Highland hexes in the range `id`, creating it if it does not exist. */
   | { type: 'nameMountainRange'; id: string; name: string; indices: number[] }
@@ -1141,10 +1142,11 @@ function reduceMap(map: MapState, action: Action): MapState {
     case 'setRiverNavigability': {
       const layer = map.layers.rivers;
       if (!layer.data) return map;
+      const navValue: RiverNavigability = action.navigability ?? (action.navigable ? 'navigable' : 'non-navigable');
       const rivers = setRiverNavigability(
         layer.data.rivers,
         new Set(action.indices),
-        action.navigable,
+        navValue,
         action.downstream,
         map.cols,
       );
@@ -1155,7 +1157,7 @@ function reduceMap(map: MapState, action: Action): MapState {
           withLayer(map, 'rivers', commit(layer, { data: { rivers } })),
           manualEntry(
             'rivers',
-            `Marked part of ${touched.join(', ')} ${action.navigable ? 'navigable' : 'not navigable'} by hand.`,
+            `Marked part of ${touched.join(', ')} ${navValue} by hand.`,
           ),
         ),
       );

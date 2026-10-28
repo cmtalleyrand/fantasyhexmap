@@ -1,7 +1,15 @@
 import { useEffect, useMemo, useState } from 'react';
 import { hexIndex, indexToOffset } from '../../shared/hex.js';
 import { buildRiverFromPath } from '../../shared/validate.js';
-import { buildBranch, mergeRivers, removeRiverSegment, reverseRiver, riverLabel } from '../../shared/riverEdit.js';
+import {
+  buildBranch,
+  mergeRivers,
+  removeRiverSegment,
+  reverseRiver,
+  riverLabel,
+  setRiverTributary,
+  setRiverDistributary,
+} from '../../shared/riverEdit.js';
 import {
   branchesOf,
   formatLength,
@@ -12,7 +20,12 @@ import {
   type RiverMeasurement,
 } from '../../shared/riverLength.js';
 import { normaliseHexDimensions } from '../../shared/surfaceArea.js';
-import type { MapState, River } from '../../shared/types.js';
+import {
+  segmentNavigability,
+  type MapState,
+  type River,
+  type RiverNavigability,
+} from '../../shared/types.js';
 import type { Action } from '../state/store.js';
 import type { RiverNotice, RiverTool, RiverToolKind } from '../state/riverTools.js';
 import CommitInput from './CommitInput.js';
@@ -48,19 +61,29 @@ const TOOLS: { id: ToolButton; label: string; hint: string }[] = [
   {
     id: 'extend',
     label: 'Add hexes',
-    hint: "Click a destination hex to extend the nearer end of the active river. Click a lake upstream to move its source there, or another river to join it.",
+    hint: 'Click a destination hex to extend the nearer end of the active river. Click a lake upstream to move its source there, or another river to join it.',
   },
   {
     id: 'navigability',
     label: 'Navigability',
-    hint: 'Drag along rivers to mark the hexes you cross. One stroke is one undo step.',
+    hint: 'Drag along rivers to mark hexes as non-navigable, navigable, or estuarine. Stretches taper smoothly between categories.',
   },
   {
     id: 'draw',
     label: 'Draw new',
-    hint: 'Click hexes from source to mouth; hexes that do not touch are joined by a straight run. Start on a Lake to have the river flow out of it. End on the Sea or Lake it empties into, on another river it flows into, or on a border hex. A river can link lakes: start on one and end on another, or click on through a lake.',
+    hint: 'Click hexes from source to mouth; hexes that do not touch are joined by a straight run. Start on a Lake to have the river flow out of it. A river can also flow on through a lake.',
   },
 ];
+
+/** Compact accessible info bubble icon ("i" thingy) */
+function InfoBubble({ text }: { text: string }) {
+  return (
+    <details className="info-bubble">
+      <summary title={text} aria-label="Help">i</summary>
+      <div className="info-bubble-popup">{text}</div>
+    </details>
+  );
+}
 
 function terminusText(river: River, rivers: River[] = []): string {
   const end = (() => {
@@ -82,18 +105,28 @@ function terminusText(river: River, rivers: River[] = []): string {
   return river.fromLake ? `rises in a lake and ${end}` : end;
 }
 
-/** Top-level rivers in data order, each followed by its branches. */
+/** Top-level rivers in tree order, followed by distributaries and tributaries. */
 function inTreeOrder(rivers: River[]): { river: River; depth: number }[] {
   const out: { river: River; depth: number }[] = [];
   const placed = new Set<string>();
+
   const visit = (river: River, depth: number) => {
     if (placed.has(river.id)) return;
     placed.add(river.id);
     out.push({ river, depth });
-    for (const child of rivers.filter((r) => r.branchOf === river.id)) visit(child, depth + 1);
+    // Children include distributaries (branchOf) and tributaries (joins)
+    for (const child of rivers.filter((r) => r.branchOf === river.id || r.joins === river.id)) {
+      visit(child, depth + 1);
+    }
   };
-  for (const river of rivers) if (!river.branchOf || !rivers.some((r) => r.id === river.branchOf)) visit(river, 0);
-  for (const river of rivers) visit(river, 0); // anything left in a branch cycle
+
+  for (const river of rivers) {
+    const isChild =
+      (river.branchOf && rivers.some((r) => r.id === river.branchOf)) ||
+      (river.joins && rivers.some((r) => r.id === river.joins));
+    if (!isChild) visit(river, 0);
+  }
+  for (const river of rivers) visit(river, 0); // cycles
   return out;
 }
 
@@ -108,10 +141,16 @@ export default function RiverEditor(props: RiverEditorProps) {
   const active: ToolButton = draft !== null ? 'draw' : tool.kind;
   const selected = rivers.find((r) => r.id === tool.selectedId) ?? null;
 
-  const lengths = useMemo(() => new Map(rivers.map((r) => [r.id, props.riverMeasurements?.[r.id]?.length ?? riverLength(r, dims)])), [rivers, dims, props.riverMeasurements]);
+  const lengths = useMemo(
+    () => new Map(rivers.map((r) => [r.id, props.riverMeasurements?.[r.id]?.length ?? riverLength(r, dims)])),
+    [rivers, dims, props.riverMeasurements],
+  );
   const total = useMemo(() => [...lengths.values()].reduce((a, b) => a + b, 0), [lengths]);
 
-  const select = (id: string | null) => { setRiverTool({ ...tool, kind: 'select', selectedId: id }); props.setSelection(new Set()); };
+  const select = (id: string | null) => {
+    setRiverTool({ ...tool, kind: 'select', selectedId: id });
+    props.setSelection(new Set());
+  };
 
   const endDraft = () => {
     props.setRiverDraft(null);
@@ -129,6 +168,8 @@ export default function RiverEditor(props: RiverEditorProps) {
     setRiverTool({ ...tool, kind: id });
   };
 
+  const currentToolDef = TOOLS.find((t) => t.id === active);
+
   return (
     <div className="stack">
       <div className="segmented river-tools" role="toolbar" aria-label="River tools">
@@ -144,7 +185,10 @@ export default function RiverEditor(props: RiverEditorProps) {
           </button>
         ))}
       </div>
-      <details className="geo-help"><summary>How to use {TOOLS.find(t => t.id === active)?.label.toLowerCase()}</summary><p>{TOOLS.find(t => t.id === active)?.hint}</p></details>
+      <div className="row" style={{ alignItems: 'center', fontSize: 11, color: 'var(--ink-dim)', margin: '2px 0 6px' }}>
+        <span>{currentToolDef?.label}</span>
+        <InfoBubble text={currentToolDef?.hint ?? ''} />
+      </div>
 
       {notice && (
         <div className={`notice ${notice.kind === 'error' ? 'error' : 'info'}`} role="status">
@@ -160,30 +204,41 @@ export default function RiverEditor(props: RiverEditorProps) {
       )}
 
       {draft === null && tool.kind === 'navigability' && (
-        <div className="stack">
-          <div className="row">
-            <button
-              className={`tiny ${tool.paintNavigable ? 'primary' : ''}`}
-              aria-pressed={tool.paintNavigable}
-              onClick={() => setRiverTool({ ...tool, paintNavigable: true })}
-            >
-              paint navigable
-            </button>
-            <button
-              className={`tiny ${!tool.paintNavigable ? 'primary' : ''}`}
-              aria-pressed={!tool.paintNavigable}
-              onClick={() => setRiverTool({ ...tool, paintNavigable: false })}
-            >
-              paint not navigable
-            </button>
+        <div className="stack" style={{ gap: 6, padding: '8px 10px', background: 'var(--panel-2)', borderRadius: 6 }}>
+          <div className="row" style={{ alignItems: 'center' }}>
+            <label style={{ margin: 0, textTransform: 'none', fontSize: 11 }}>Brush:</label>
+            <div className="row" style={{ gap: 4, flex: 1 }}>
+              <button
+                className={`tiny ${tool.paintNavigability === 'non-navigable' ? 'primary' : ''}`}
+                aria-pressed={tool.paintNavigability === 'non-navigable'}
+                onClick={() => setRiverTool({ ...tool, paintNavigable: false, paintNavigability: 'non-navigable' })}
+              >
+                non-navigable
+              </button>
+              <button
+                className={`tiny ${tool.paintNavigability === 'navigable' ? 'primary' : ''}`}
+                aria-pressed={tool.paintNavigability === 'navigable'}
+                onClick={() => setRiverTool({ ...tool, paintNavigable: true, paintNavigability: 'navigable' })}
+              >
+                navigable
+              </button>
+              <button
+                className={`tiny ${tool.paintNavigability === 'estuarine' ? 'primary' : ''}`}
+                aria-pressed={tool.paintNavigability === 'estuarine'}
+                onClick={() => setRiverTool({ ...tool, paintNavigable: true, paintNavigability: 'estuarine' })}
+              >
+                estuarine
+              </button>
+            </div>
           </div>
-          <label className="check">
+          <label className="check" style={{ fontSize: 11, margin: 0 }}>
             <input
               type="checkbox"
               checked={tool.downstream}
               onChange={(e) => setRiverTool({ ...tool, downstream: e.target.checked })}
             />
-            also everything downstream of each hex I touch
+            also downstream to mouth
+            <InfoBubble text="When ticked, each hex you touch also marks all hexes downstream from it to the river mouth." />
           </label>
         </div>
       )}
@@ -245,7 +300,12 @@ function DraftCard(
     } else {
       const warnings: string[] = [];
       const river = buildRiverFromPath(
-        { name: `New river ${rivers.length + 1}`, path, navigable: path.map(() => false) },
+        {
+          name: `New river ${rivers.length + 1}`,
+          path,
+          navigable: path.map(() => false),
+          navigability: path.map(() => 'non-navigable' as RiverNavigability),
+        },
         id,
         base,
         map.layers.elevation.data,
@@ -266,8 +326,6 @@ function DraftCard(
     props.setSelection(new Set());
   };
 
-  // Enter finishes, Escape cancels, Backspace takes back the last point -
-  // unless the keys are going to a text field.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement | null;
@@ -280,7 +338,6 @@ function DraftCard(
         endDraft();
       } else if (e.key === 'Backspace') {
         e.preventDefault();
-        // A branch keeps its fork hex.
         if (draft.length > (parent ? 1 : 0)) props.undoRiverDraftClick();
       }
     };
@@ -294,7 +351,7 @@ function DraftCard(
       <div className="hint" style={{ marginTop: 4 }}>
         {draft.length === 0
           ? 'Click the hex where it rises.'
-          : `${draft.length} hex${draft.length === 1 ? '' : 'es'}${draft.length > 1 ? `, ${formatLength(soFar, props.unit, props.rounding)}` : ''} so far: ${path
+          : `${draft.length} hex${draft.length === 1 ? '' : 'es'}${draft.length > 1 ? `, ${formatLength(soFar, props.unit, props.rounding)}` : ''}: ${path
               .map((p) => `${p.col},${p.row}`)
               .join(' → ')}`}
       </div>
@@ -336,11 +393,26 @@ function SelectedRiver(
     : -1;
   const branches = branchesOf(river, rivers);
   const parent = river.branchOf ? rivers.find((r) => r.id === river.branchOf) ?? null : null;
-  const navigable = river.segments.filter((s) => s.navigable).length;
+  const host = river.joins ? rivers.find((r) => r.id === river.joins) ?? null : null;
+
+  const nonNavCount = river.segments.filter((s) => segmentNavigability(s) === 'non-navigable').length;
+  const navCount = river.segments.filter((s) => segmentNavigability(s) === 'navigable').length;
+  const estuarineCount = river.segments.filter((s) => segmentNavigability(s) === 'estuarine').length;
+
   const pickedSegment = pickedIndex < 0 ? null : river.segments[pickedIndex]!;
 
-  const setAllNavigable = (value: boolean) =>
-    dispatch({ type: 'updateRiver', river: { ...river, segments: river.segments.map((s) => ({ ...s, navigable: value })) } });
+  const setAllNavigability = (val: RiverNavigability) =>
+    dispatch({
+      type: 'updateRiver',
+      river: {
+        ...river,
+        segments: river.segments.map((s) => ({
+          ...s,
+          navigable: val !== 'non-navigable',
+          navigability: val,
+        })),
+      },
+    });
 
   const setPickedReach = (side: 'min' | 'max', value: ReachPercent) => {
     if (!pickedSegment) return;
@@ -398,17 +470,80 @@ function SelectedRiver(
         value={river.name}
         onCommit={(name) => dispatch({ type: 'updateRiver', river: { ...river, name } })}
       />
+
       <div className="river-facts">
         <span className="river-length">{formatLength(props.length, props.unit, props.rounding)}</span>
         <span className="hint">
           {river.segments.length} hex{river.segments.length === 1 ? '' : 'es'} · {terminusText(river, rivers)} ·{' '}
-          {navigable === 0 ? 'not navigable' : navigable === river.segments.length ? 'navigable throughout' : `${navigable} hexes navigable`}
+          {navCount > 0 && `${navCount} nav`}
+          {estuarineCount > 0 && `${navCount > 0 ? ', ' : ''}${estuarineCount} estuarine`}
+          {nonNavCount > 0 && `${navCount > 0 || estuarineCount > 0 ? ', ' : ''}${nonNavCount} non-nav`}
         </span>
       </div>
-      <details className="geo-help"><summary>Source and mouth</summary><p>
-        {river.fromLake ? 'It flows out of a lake. ' : 'To have it flow out of a lake, drag its first hex onto the lake, or use Extend and click the lake. '}
-        To have it flow into another river, use Add hexes and click a hex of that river.
-      </p></details>
+
+      {/* Tributary and Distributary Assignment */}
+      <div className="river-rel-group">
+        <div className="river-rel-row">
+          <label>
+            Tributary of
+            <InfoBubble text="A tributary flows into another river at its mouth. Select a river to join it, or None for an independent outlet." />
+          </label>
+          <select
+            value={river.joins ?? ''}
+            onChange={(e) => {
+              if (!base) return;
+              const target = e.target.value ? e.target.value : null;
+              const res = setRiverTributary(river, target, base, map.layers.elevation.data, map.cols, map.rows, rivers);
+              if ('error' in res) {
+                setNotice({ kind: 'error', text: res.error });
+              } else {
+                setNotice(null);
+                dispatch({ type: 'updateRiver', river: res.river });
+              }
+            }}
+          >
+            <option value="">None (reaches coast / lake / map edge)</option>
+            {rivers
+              .filter((r) => r.id !== river.id)
+              .map((r) => (
+                <option key={r.id} value={r.id}>
+                  {riverLabel(r, rivers)}
+                </option>
+              ))}
+          </select>
+        </div>
+
+        <div className="river-rel-row">
+          <label>
+            Distributary of
+            <InfoBubble text="A distributary branches from a parent river at its source (e.g. river delta). Select a parent river, or None for an independent source." />
+          </label>
+          <select
+            value={river.branchOf ?? ''}
+            onChange={(e) => {
+              if (!base) return;
+              const target = e.target.value ? e.target.value : null;
+              const res = setRiverDistributary(river, target, base, map.layers.elevation.data, map.cols, map.rows, rivers);
+              if ('error' in res) {
+                setNotice({ kind: 'error', text: res.error });
+              } else {
+                setNotice(null);
+                dispatch({ type: 'updateRiver', river: res.river });
+              }
+            }}
+          >
+            <option value="">None (independent source)</option>
+            {rivers
+              .filter((r) => r.id !== river.id)
+              .map((r) => (
+                <option key={r.id} value={r.id}>
+                  {riverLabel(r, rivers)}
+                </option>
+              ))}
+          </select>
+        </div>
+      </div>
+
       {branches.length > 0 && (
         <div className="hint">
           With its {branches.length} branch{branches.length === 1 ? '' : 'es'}:{' '}
@@ -417,24 +552,37 @@ function SelectedRiver(
       )}
       {parent && (
         <div className="hint">
-          A branch of{' '}
+          ↳ Distributary branching from{' '}
           <button className="linkish" onClick={() => props.onSelect(parent.id)}>
             {riverLabel(parent, rivers)}
           </button>
-          .
+        </div>
+      )}
+      {host && (
+        <div className="hint">
+          ⤶ Tributary emptying into{' '}
+          <button className="linkish" onClick={() => props.onSelect(host.id)}>
+            {riverLabel(host, rivers)}
+          </button>
         </div>
       )}
 
       <div className="geo-actions">
-        <button onClick={() => props.setSelection(new Set(river.segments.map(s => hexIndex(map.cols, s.col, s.row))))}>Select course hexes</button>
+        <button onClick={() => props.setSelection(new Set(river.segments.map((s) => hexIndex(map.cols, s.col, s.row))))}>
+          Select course hexes
+        </button>
         <button onClick={() => props.onSelect(null)}>Done editing</button>
       </div>
+
       <div className="row" style={{ flexWrap: 'wrap', gap: 6 }}>
-        <button className="tiny" disabled={navigable === river.segments.length} onClick={() => setAllNavigable(true)}>
+        <button className="tiny" onClick={() => setAllNavigability('non-navigable')}>
+          all non-nav
+        </button>
+        <button className="tiny" onClick={() => setAllNavigability('navigable')}>
           all navigable
         </button>
-        <button className="tiny" disabled={navigable === 0} onClick={() => setAllNavigable(false)}>
-          none navigable
+        <button className="tiny" onClick={() => setAllNavigability('estuarine')}>
+          all estuarine
         </button>
         <button className="tiny" disabled={river.segments.length < 2} onClick={reverse} title="Swap source and mouth">
           reverse flow
@@ -453,28 +601,56 @@ function SelectedRiver(
 
       {pickedSegment && pickedOffset ? (
         <div className="river-hex-editor stack">
-          <div className="row river-hex-heading">
-            <b>Selected hex {pickedOffset.col},{pickedOffset.row}</b>
+          <div className="row river-hex-heading" style={{ alignItems: 'center' }}>
+            <b>Hex {pickedOffset.col},{pickedOffset.row}</b>
             <span className="hint">in {pickedSegment.entryEdge ?? '–'} → out {pickedSegment.exitEdge ?? '–'}</span>
+            <span className="grow" />
+            <span className={`nav-badge-pill nav-badge-${segmentNavigability(pickedSegment)}`}>
+              {segmentNavigability(pickedSegment)}
+            </span>
           </div>
-          <div className="river-reach-fields">
-            <label>
-              Course stays at least
+
+          <div className="row" style={{ alignItems: 'center', gap: 4 }}>
+            <label style={{ margin: 0, fontSize: 11 }}>Hex status:</label>
+            {(['non-navigable', 'navigable', 'estuarine'] as const).map((kind) => {
+              const cur = segmentNavigability(pickedSegment);
+              return (
+                <button
+                  key={kind}
+                  className={`tiny ${cur === kind ? 'primary' : ''}`}
+                  aria-pressed={cur === kind}
+                  onClick={() => {
+                    const segments = river.segments.slice();
+                    segments[pickedIndex] = {
+                      ...pickedSegment,
+                      navigable: kind !== 'non-navigable',
+                      navigability: kind,
+                    };
+                    dispatch({ type: 'updateRiver', river: { ...river, segments } });
+                  }}
+                >
+                  {kind}
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="river-reach-fields" style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <label style={{ margin: 0 }}>
+              Min reach
               <ReachSelect value={pickedSegment.reach?.min ?? null} onChange={(value) => setPickedReach('min', value)} />
             </label>
-            <label>
-              Course comes within
+            <label style={{ margin: 0 }}>
+              Max reach
               <ReachSelect value={pickedSegment.reach?.max ?? null} onChange={(value) => setPickedReach('max', value)} />
             </label>
+            <InfoBubble text="Distance guides the river course from the centre toward the hex edge before meanders are added." />
           </div>
-          <p className="hint" style={{ margin: 0 }}>
-            Distance guides the underlying course from the centre toward the edge of this hex. The selected map
-            style still adds its own river wander; source and mouth hexes keep their endpoint positions.
-          </p>
-          <div className="row" style={{ flexWrap: 'wrap', gap: 6 }}>
+
+          <div className="row" style={{ flexWrap: 'wrap', gap: 6, marginTop: 4 }}>
             <button
               className="tiny"
-              title="Start a distributary that leaves this river here. Use it more than once for a delta that splits three or more ways."
+              title="Start a distributary that leaves this river here."
               onClick={() => {
                 setNotice(null);
                 props.setRiverDraftParent(river.id);
@@ -484,13 +660,13 @@ function SelectedRiver(
               branch from here
             </button>
             <button className="tiny danger" onClick={removePicked}>
-              Remove hex {pickedOffset.col},{pickedOffset.row} from river
+              Remove hex
             </button>
           </div>
         </div>
       ) : (
         <p className="hint" style={{ margin: 0 }}>
-          Click one of its hexes on the map to adjust its course, branch from it, or remove it.
+          Click one of its hexes on the map to adjust reach, change navigability, or branch.
         </p>
       )}
 
@@ -503,7 +679,9 @@ function SelectedRiver(
           map={map}
           dispatch={dispatch}
           pickedIndex={pickedIndex}
-          onPick={(index) => props.setSelection(new Set([hexIndex(map.cols, river.segments[index]!.col, river.segments[index]!.row)]))}
+          onPick={(index) =>
+            props.setSelection(new Set([hexIndex(map.cols, river.segments[index]!.col, river.segments[index]!.row)]))
+          }
         />
       )}
     </div>
@@ -511,34 +689,65 @@ function SelectedRiver(
 }
 
 function ReachSelect({ value, onChange }: { value: number | null; onChange: (value: ReachPercent) => void }) {
-  const percent: ReachPercent = value === null ? 'any' : Math.round(value * 100) as ReachPercent;
+  const percent: ReachPercent = value === null ? 'any' : (Math.round(value * 100) as ReachPercent);
   return (
-    <select value={percent} onChange={(e) => onChange(e.target.value === 'any' ? 'any' : Number(e.target.value) as ReachPercent)}>
+    <select value={percent} onChange={(e) => onChange(e.target.value === 'any' ? 'any' : (Number(e.target.value) as ReachPercent))}>
       {REACH_OPTIONS.map((option) => (
-        <option key={option} value={option}>{option === 'any' ? 'Anywhere' : `${option}% from centre`}</option>
+        <option key={option} value={option}>
+          {option === 'any' ? 'Anywhere' : `${option}%`}
+        </option>
       ))}
     </select>
   );
 }
 
-function SegmentList({ river, map, dispatch, pickedIndex, onPick }: {
+function SegmentList({
+  river,
+  map,
+  dispatch,
+  pickedIndex,
+  onPick,
+}: {
   river: River;
   map: MapState;
   dispatch: (a: Action) => void;
   pickedIndex: number;
   onPick: (index: number) => void;
 }) {
-  return <div className="segment-list">
-    {river.segments.map((s, i) => <div key={`${s.col},${s.row},${i}`} className={`segment-row ${pickedIndex === i ? 'selected' : ''}`}>
-      <button aria-pressed={pickedIndex === i} onClick={() => onPick(i)}>Select hex {s.col},{s.row}</button>
-      <label className="check"><input type="checkbox" checked={s.navigable} onChange={e => {
-        const segments = river.segments.slice();
-        segments[i] = { ...s, navigable: e.target.checked };
-        dispatch({ type: 'updateRiver', river: { ...river, segments } });
-      }} />Navigable</label>
-      <span className="hint">Entry edge: {s.entryEdge ?? 'source'} · Exit edge: {s.exitEdge ?? 'mouth'}{map.layers.elevation.data?.[hexIndex(map.cols, s.col, s.row)] ? ` · ${map.layers.elevation.data[hexIndex(map.cols, s.col, s.row)]}` : ''}</span>
-    </div>)}
-  </div>;
+  return (
+    <div className="segment-list">
+      {river.segments.map((s, i) => {
+        const cur = segmentNavigability(s);
+        return (
+          <div key={`${s.col},${s.row},${i}`} className={`segment-row ${pickedIndex === i ? 'selected' : ''}`}>
+            <button aria-pressed={pickedIndex === i} onClick={() => onPick(i)}>
+              Hex {s.col},{s.row}
+            </button>
+            <select
+              value={cur}
+              style={{ width: 'auto', padding: '2px 4px', fontSize: 11 }}
+              onChange={(e) => {
+                const val = e.target.value as RiverNavigability;
+                const segments = river.segments.slice();
+                segments[i] = { ...s, navigable: val !== 'non-navigable', navigability: val };
+                dispatch({ type: 'updateRiver', river: { ...river, segments } });
+              }}
+            >
+              <option value="non-navigable">non-navigable</option>
+              <option value="navigable">navigable</option>
+              <option value="estuarine">estuarine</option>
+            </select>
+            <span className="hint">
+              {s.entryEdge ?? 'source'} → {s.exitEdge ?? 'mouth'}
+              {map.layers.elevation.data?.[hexIndex(map.cols, s.col, s.row)]
+                ? ` · ${map.layers.elevation.data[hexIndex(map.cols, s.col, s.row)]}`
+                : ''}
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
 }
 
 /* ---------------------------------------------------------------- the list */
@@ -559,7 +768,7 @@ function RiverList(
   const [keepId, setKeepId] = useState<string>('');
   const tree = useMemo(() => inTreeOrder(rivers), [rivers]);
   const tickedRivers = ticked.map((id) => rivers.find((r) => r.id === id)).filter((r): r is River => Boolean(r));
-  // Default to keeping the name of the longest piece, which is usually the main river.
+
   const keep =
     tickedRivers.find((r) => r.id === keepId) ??
     [...tickedRivers].sort((a, b) => (props.lengths.get(b.id) ?? 0) - (props.lengths.get(a.id) ?? 0))[0] ??
@@ -571,7 +780,15 @@ function RiverList(
   const join = () => {
     const base = map.layers.base.data;
     if (!base || !keep || tickedRivers.length < 2) return;
-    const result = mergeRivers(tickedRivers, keep.id, base, map.layers.elevation.data, map.cols, map.rows, rivers.filter((r) => !tickedRivers.includes(r)));
+    const result = mergeRivers(
+      tickedRivers,
+      keep.id,
+      base,
+      map.layers.elevation.data,
+      map.cols,
+      map.rows,
+      rivers.filter((r) => !tickedRivers.includes(r)),
+    );
     if ('error' in result) {
       setNotice({ kind: 'error', text: result.error });
       return;
@@ -619,9 +836,8 @@ function RiverList(
       {joining && (
         <div className="notice info stack">
           <span>
-            Tick the sections to join, in any order. They are chained end to source, nearest ends first;
-            ends that do not touch are joined across land by a straight run. Reverse a section first if it
-            runs the wrong way.
+            Tick the sections to join, in any order. Nearest ends are connected across land.
+            <InfoBubble text="Chained end to source, nearest ends first. Reverse a section first if it runs the wrong way." />
           </span>
           {tickedRivers.length >= 2 && keep && (
             <>
@@ -643,7 +859,12 @@ function RiverList(
         </div>
       )}
 
-      {joining && <div className="geo-selection-summary"><b>{tickedRivers.length} rivers chosen to join</b><span>Hex selection is separate from this list.</span></div>}
+      {joining && (
+        <div className="geo-selection-summary">
+          <b>{tickedRivers.length} rivers chosen to join</b>
+        </div>
+      )}
+
       <div className="list river-list">
         {tree.map(({ river, depth }) => {
           const isSelected = props.riverTool.selectedId === river.id;
@@ -675,8 +896,11 @@ function RiverList(
                 />
               )}
               <span className="entity-heading river-title">
-                {depth > 0 && <span className="hint">↳ </span>}
-                {river.name.trim() ? river.name : <i>{riverLabel(river, rivers)}</i>}
+                {river.branchOf && <span className="river-badge-distributary">↳ branch</span>}
+                {river.joins && <span className="river-badge-tributary">⤶ tributary</span>}
+                <span style={{ marginLeft: river.branchOf || river.joins ? 4 : 0 }}>
+                  {river.name.trim() ? river.name : <i>{riverLabel(river, rivers)}</i>}
+                </span>
               </span>
               {isSelected && <span className="geo-badge">Active</span>}
               <span className="hint">{formatLength(props.lengths.get(river.id) ?? 0, props.unit, props.rounding)}</span>

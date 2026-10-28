@@ -9,6 +9,8 @@
  * Drawing a new river is not a tool kind: it is the river draft in App, which
  * takes over the pointer while it exists.
  */
+import type { RiverNavigability } from '../../shared/types.js';
+
 export type RiverToolKind = 'select' | 'extend' | 'navigability';
 
 export interface RiverTool {
@@ -17,6 +19,7 @@ export interface RiverTool {
   selectedId: string | null;
   /** What the navigability brush paints. */
   paintNavigable: boolean;
+  paintNavigability: RiverNavigability;
   /** Paint from the touched hex all the way to the river's mouth. */
   downstream: boolean;
 }
@@ -25,6 +28,7 @@ export const DEFAULT_RIVER_TOOL: RiverTool = {
   kind: 'select',
   selectedId: null,
   paintNavigable: true,
+  paintNavigability: 'navigable',
   downstream: false,
 };
 

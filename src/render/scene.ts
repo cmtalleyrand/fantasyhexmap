@@ -2,7 +2,6 @@ import { coastPaintGeometry, type CoastPaintGeometry } from './coastPaintGeometr
 import { IslandDrawingCache, type DrawnIsle as Isle } from './islandDrawingCache.js';
 import { BoundedMemo, renderCachesEnabled, withRenderCaches } from './cache.js';
 import { cachedPlacement, clearPlacementCache } from './placementCache.js';
-import { clearSharedPaths, shareUnchangedPaths } from './sharedPaths.js';
 import { profileCount, profileTime, profilePhases } from './profile.js';
 /**
  * The scene model.
@@ -50,6 +49,8 @@ import {
   type PolitiesData,
   type River,
   type RiverSegment,
+  segmentNavigability,
+  type RiverNavigability,
   type Vegetation,
 } from '../../shared/types.js';
 import {
@@ -60,7 +61,7 @@ import {
   populationColour,
   withAlpha,
 } from './palette.js';
-import { clearRiverLabelCache, placeAreaLabels, placeRangeLabels, placeRiverLabels, placeWaterLabels } from './featureLabels.js';
+import { placeAreaLabels, placeRangeLabels, placeRiverLabels, placeWaterLabels } from './featureLabels.js';
 import { geoEligibility, geoNamesOf, liveHexes } from '../../shared/geoNames.js';
 import type { GeoNameKind } from '../../shared/types.js';
 import {
@@ -227,18 +228,6 @@ export interface SymbolTrace {
 }
 /** The symbols each scene drew, kept beside it like its land test, for the audit to check against the land. */
 const symbolTraces = new WeakMap<object, SymbolTrace[]>();
-
-/** Each realm's area as drawn (its ground, before it is cut to the land), kept beside each scene for the audit. */
-const realmAreas = new WeakMap<object, RealmAreas>();
-
-/**
- * Each realm's region (by polity id) and its coastal fills, and the land no realm owns, as `scene` drew
- * them: a realm colours its region, and its fills only where no other region (or unowned land) lies.
- */
-export interface RealmAreas { regions: Map<string, PathCmd[]>; fills: Map<string, PathCmd[]>; unowned: PathCmd[] }
-export function realmAreasOf(scene: Scene): RealmAreas | undefined {
-  return realmAreas.get(scene);
-}
 
 /** The symbols `scene` drew on the land, where it recorded them. */
 export function symbolsOf(scene: Scene): SymbolTrace[] | undefined {
@@ -407,7 +396,7 @@ function prepareSceneCacheScope(map: MapState, size: number): void {
   if (scope === sceneCacheScope) return;
   sceneCacheScope = scope;
   coastCache.clear(); coastComponents.clear(); coastFits.clear(); glacierMargins.clear(); packIceDrawings.clear(); symbolPlacements.clear(); terrainRevisions.clear();
-  symbolFits = new WeakMap(); clearPlacementCache(); clearRiverLabelCache(); clearSharedPaths(); shapeMemo.clear(); islandDrawings.clear();
+  symbolFits = new WeakMap(); clearPlacementCache(); shapeMemo.clear(); islandDrawings.clear();
 }
 
 /** The numerical solve and its stopping tests couple all fitting rings. Its exact
@@ -985,9 +974,7 @@ export function decorationPrims(map: MapState, opts: SceneOptions): Prim[] {
 export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
   return withRenderCaches(opts.cache !== 'off', () => profileTime('scene.total', () => {
     prepareSceneCacheScope(map, opts.size);
-    const scene = buildStaticSceneInner(map, opts);
-    if (renderCachesEnabled()) profileTime('scene.sharePaths', () => shareUnchangedPaths(scene.prims));
-    return scene;
+    return buildStaticSceneInner(map, opts);
   }));
 }
 function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
@@ -1049,7 +1036,6 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
   }
   /** Every symbol drawn on the land, for the audit (see `symbolsOf`). */
   const traces: SymbolTrace[] = [];
-  let realmArea: RealmAreas | null = null;
   const trace = (hex: number, placed: Placed[]) => {
     for (const p of placed) traces.push({ hex, points: samplePoints(p) });
   };
@@ -2754,7 +2740,6 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
       bounds: boundsOf({ kind: 'path', d }), inverse: [...pageRect, ...d] }));
     const supplements = new Map([...extraLand].map(([owner, d]) => [owner, alike(d)]));
     const fullGround = new Map([...rawRegions].map(([owner, d]) => [owner, [...d, ...supplements.get(owner) ?? []]]));
-    realmArea = { regions: rawRegions, fills: supplements, unowned: blockerPaths.find(([owner]) => owner === '')?.[1] ?? [] };
     const ground = (owner: string, hexes: number[]): PathCmd[] => hexes === regions.get(owner)
       ? fullGround.get(owner) ?? [] : [...realmGround(hexes), ...supplements.get(owner) ?? []];
     const keepInRealm = (owner: string, inner: Prim[]): Prim[] => {
@@ -2778,31 +2763,25 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
       ];
       const shores = [...(shoreLakes.get(owner) ?? [])].flatMap((k) => lakeShores[k] ?? []);
       const colour = polityColour.get(owner) ?? '#888888';
-      const hexes = regions.get(owner) ?? [];
-      const evenGround = baseColour('Land');
-      // Without ice under it, the band on its even ground is one opaque colour:
-      // stroking that once draws the same band without stroking the outline twice.
-      const solid = band.alpha < 1 && !hexes.some(i => base?.[i] === 'Glacier')
-        && /^#[0-9a-f]{6}$/i.test(colour) && /^#[0-9a-f]{6}$/i.test(evenGround) ? mix(evenGround, colour, band.alpha) : null;
       prims.push({
         kind: 'group',
-        clip: ground(owner, hexes),
+        clip: ground(owner, regions.get(owner) ?? []),
         prims: keepInRealm(owner, onLand([
             // A see-through band shows the ground, which differs from hex to hex
             // (coastal land is darker), so it would change shade at every hex
             // edge it crosses: it lies on one even ground instead. Ice keeps its own.
-            ...(band.alpha < 1 && !solid
+            ...(band.alpha < 1
               ? [{
                   kind: 'group' as const,
                   clip: ground(owner, (regions.get(owner) ?? []).some(i => base?.[i] === 'Glacier')
                     ? (regions.get(owner) ?? []).filter(i => base?.[i] !== 'Glacier') : regions.get(owner) ?? []),
-                  prims: [{ kind: 'path' as const, d: [...loops, ...shores], stroke: evenGround, strokeWidth: band.width * 2, round: true }],
+                  prims: [{ kind: 'path' as const, d: [...loops, ...shores], stroke: baseColour('Land'), strokeWidth: band.width * 2, round: true }],
                 }]
               : []),
             {
               kind: 'path',
               d: [...loops, ...shores],
-              stroke: solid ?? (band.alpha < 1 ? withAlpha(colour, band.alpha) : colour),
+              stroke: band.alpha < 1 ? withAlpha(colour, band.alpha) : colour,
               strokeWidth: band.width * 2,
               round: true,
             },
@@ -2989,20 +2968,32 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
         for (const points of course.bank) riverPrims(river).push({ kind: 'polyline', points, stroke: palette.riverBank, strokeWidth: Math.max(1, size * 0.04), round: true });
       }
       for (const { river, course } of drawn) {
-        riverPrims(river).push({ kind: 'path', d: course.outline, fill: palette.river, stroke: palette.river, strokeWidth: Math.max(0.3, size * 0.01), round: true });
+        if (course.sections && course.sections.length > 0) {
+          for (const sec of course.sections) {
+            const fill = sec.navigability === 'estuarine'
+              ? palette.riverEstuarine
+              : sec.navigability === 'non-navigable'
+                ? palette.riverNonNavigable
+                : palette.river;
+            riverPrims(river).push({ kind: 'path', d: sec.outline, fill, stroke: fill, strokeWidth: Math.max(0.3, size * 0.01), round: true });
+          }
+        } else {
+          riverPrims(river).push({ kind: 'path', d: course.outline, fill: palette.river, stroke: palette.river, strokeWidth: Math.max(0.3, size * 0.01), round: true });
+        }
       }
     }
     for (const river of tapered ? [] : rivers.rivers) {
       // One polyline per run of same-navigability segments, so the change in
       // weight along a river is visible rather than averaged away.
       let run: Point[] = [];
-      let runNavigable: boolean | null = null;
-      const runs: Array<{ points: Point[]; navigable: boolean }> = [];
+      let runNav: RiverNavigability | null = null;
+      const runs: Array<{ points: Point[]; navigability: RiverNavigability }> = [];
       const flush = () => {
-        if (run.length > 1) runs.push({ points: run, navigable: Boolean(runNavigable) });
+        if (run.length > 1) runs.push({ points: run, navigability: runNav ?? 'non-navigable' });
         run = [];
       };
       for (const seg of river.segments) {
+        const segNav = segmentNavigability(seg);
         const centre = hexCenter(seg.col, seg.row, size);
         const points: Point[] = [];
         if (seg.entryEdge !== null) {
@@ -3012,10 +3003,10 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
         if (seg.exitEdge !== null) {
           points.push(hexEdgeMidpoint(seg.col, seg.row, seg.exitEdge, size));
         }
-        if (runNavigable === null) runNavigable = seg.navigable;
-        if (seg.navigable !== runNavigable) {
+        if (runNav === null) runNav = segNav;
+        if (segNav !== runNav) {
           flush();
-          runNavigable = seg.navigable;
+          runNav = segNav;
           if (seg.entryEdge !== null) {
             run.push(hexEdgeMidpoint(seg.col, seg.row, seg.entryEdge, size));
           }
@@ -3057,11 +3048,21 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
         const sampled = pathPolylines(d, 16)[0] ?? [];
         // Runs share a boundary point, including when navigability changes.
         measuredLine.push(...sampled);
+        const stroke = r.navigability === 'estuarine'
+          ? palette.riverEstuarine
+          : r.navigability === 'navigable'
+            ? palette.river
+            : palette.riverNonNavigable;
+        const strokeWidth = r.navigability === 'estuarine'
+          ? Math.max(3.0, size * 0.255)
+          : r.navigability === 'navigable'
+            ? Math.max(2.5, size * 0.2125)
+            : Math.max(1.25, size * 0.1125);
         riverPrims(river).push({
           kind: 'polyline',
           points: r.points,
-          stroke: r.navigable ? palette.river : palette.riverNonNavigable,
-          strokeWidth: r.navigable ? Math.max(2.5, size * 0.2125) : Math.max(1.25, size * 0.1125),
+          stroke,
+          strokeWidth,
           round: true,
           smooth: true,
         });
@@ -3076,9 +3077,7 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
   if (seaWater.length + lakeOutlines.length === 0) prims.push(...riverList);
   else if (riverList.length > 0) {
     const page: PathCmd[] = [['M', -size, -size], ['L', width + size, -size], ['L', width + size, height + size], ['L', -size, height + size], ['Z']];
-    // Composited: the rivers are drawn once, then cut by the water outline once,
-    // rather than every river stroke being clipped against it separately.
-    prims.push({ kind: 'group', clip: [...page, ...seaWater, ...lakeOutlines], clipRule: 'evenodd', composite: true, prims: riverList });
+    prims.push({ kind: 'group', clip: [...page, ...seaWater, ...lakeOutlines], clipRule: 'evenodd', prims: riverList });
   }
 
   if (rivers && opts.highlightRiver) {
@@ -3319,11 +3318,8 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
     const riverObstacles = [...taken, ...cityBoxes];
     const riverNames = cachedPlacement('riverLabels', [rivers.rivers, size, lettering.river, measureEpoch,
       riverObstacles, tapered ? [...courses] : null, [...meanWidths], [...widthProfiles], lakeShores, symbolLandRevision.id],
-    // Within a search, each river is reused while the inputs that reach it are
-    // unchanged: an edit elsewhere moves realm names without touching most rivers.
     () => placeRiverLabels(rivers.rivers, size, pathFor, lettering.river, riverObstacles,
-      (id) => meanWidths.get(id), inLakeWater, (id) => widthProfiles.get(id), quickLandAt,
-      JSON.stringify([measureEpoch, lakeShores, symbolLandRevision.id])));
+      (id) => meanWidths.get(id), inLakeWater, (id) => widthProfiles.get(id), quickLandAt));
     const namedRivers = new Set(riverNames.map(n => n.text));
     for (const river of rivers.rivers) {
       if (!river.name.trim() || namedRivers.has(river.name.trim())) continue;
@@ -3503,7 +3499,6 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
   profileCount('scene.primitives', prims.length);
   landTests.set(scene, landAt);
   symbolTraces.set(scene, traces);
-  if (realmArea) realmAreas.set(scene, realmArea);
   return scene;
 }
 

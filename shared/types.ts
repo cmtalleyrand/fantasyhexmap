@@ -405,6 +405,9 @@ export function vegetationGroupOf(v: Vegetation): VegetationGroup {
   return 'Ungrazed';
 }
 
+export type RiverNavigability = 'non-navigable' | 'navigable' | 'estuarine';
+export const RIVER_NAVIGABILITY_VALUES: RiverNavigability[] = ['non-navigable', 'navigable', 'estuarine'];
+
 /** One hex-traversal of a river: it enters through `entryEdge` and leaves through `exitEdge`. */
 export interface RiverSegment {
   col: number;
@@ -414,8 +417,14 @@ export interface RiverSegment {
   /** Edge the water leaves through. null only if the river is malformed / truncated. */
   exitEdge: number | null;
   navigable: boolean;
+  navigability?: RiverNavigability;
   /** Optional bounds on the course's closest approach to this hex's centre, measured from 0 (centre) to 1 (edge). */
   reach?: { min: number | null; max: number | null };
+}
+
+export function segmentNavigability(segment: RiverSegment): RiverNavigability {
+  if (segment.navigability) return segment.navigability;
+  return segment.navigable ? 'navigable' : 'non-navigable';
 }
 
 export interface River {

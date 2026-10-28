@@ -36,11 +36,16 @@
  */
 
 import { canonicalEdgeId, hexCenter, hexEdgePoints, pixelToOffset, type Point } from '../../shared/hex.js';
-import type { River } from '../../shared/types.js';
+import { type River, type RiverNavigability, segmentNavigability } from '../../shared/types.js';
 import type { RiverWander } from './styles.js';
 import type { PathCmd } from './prims.js';
 import { signed } from './seed.js';
 import { PRESS, SET_IN } from './riverCity.js';
+
+export interface RiverCourseSection {
+  outline: PathCmd[];
+  navigability: RiverNavigability;
+}
 
 export interface RiverCourse {
   /** Dense points along the centre of the river, source to mouth. */
@@ -48,6 +53,8 @@ export interface RiverCourse {
   /** Width of the river at each centreline point. */
   widths: number[];
   outline: PathCmd[];
+  /** Slices of the river outline by navigability status for multi-tone rendering. */
+  sections?: RiverCourseSection[];
   /** Where each icon of a city standing on this river is drawn: set into the bank, with the river bowed round it. */
   icons: Array<{ id: string; at: Point }>;
   /** The edge of the river, open at its mouth (and where it leaves a lake or a fork), to be stroked in the bank colour. */
@@ -90,8 +97,23 @@ const NORMAL_WIDTH = 0.045;
 const TRIBUTARY_WIDENS = 0.05;
 /** What distance from the source adds, at most, to the longest river: a fraction of the normal width. */
 const LENGTH_WIDENS = 0.2;
-/** What navigable water adds, as a fraction of the normal width. */
-const NAVIGABLE_WIDENS = 0.1;
+
+/**
+ * Visual width adjustments for navigability:
+ * - non-navigable: 15% thinner than baseline (-0.15)
+ * - navigable: 5% thicker than previous navigable (1.15 vs 1.10 baseline)
+ * - estuarine: 20% thicker again than navigable (1.38 baseline, +0.38)
+ */
+export function navigabilityWidens(nav: RiverNavigability): number {
+  switch (nav) {
+    case 'non-navigable':
+      return -0.15;
+    case 'navigable':
+      return 0.15;
+    case 'estuarine':
+      return 0.38;
+  }
+}
 /** How wide a river is as it leaves its source hex, as a fraction of the normal width. */
 const SOURCE_EXIT_WIDTH = 0.5;
 /** Distance from a hex centre to the middle of an edge, in hex sizes. */
@@ -123,6 +145,7 @@ interface Control {
   p: Point;
   /** Navigability of the span that ends at this point. */
   navigable: boolean;
+  navigability: RiverNavigability;
   /** Hex that the span ending at this point must traverse. */
   spanHex?: string;
   /** Set where the point is a crossing that may slide along its edge. */
@@ -174,31 +197,32 @@ export interface CourseEnds {
 function controls(river: River, size: number, seed: string, ends: CourseEnds): Control[] {
   const level = WANDER[ends.wander ?? 'normal'];
   const out: Control[] = [];
-  const push = (p: Point, navigable: boolean, slide?: Slide, spanHex?: string) => {
+  const push = (p: Point, navigable: boolean, navigability: RiverNavigability, slide?: Slide, spanHex?: string) => {
     const last = out[out.length - 1];
     if (last && Math.hypot(last.p.x - p.x, last.p.y - p.y) < size * 0.02) return;
-    out.push({ p, navigable, slide, spanHex });
+    out.push({ p, navigable, navigability, slide, spanHex });
   };
-  const cross = (col: number, row: number, edge: number, navigable: boolean, spanHex?: string) => {
+  const cross = (col: number, row: number, edge: number, navigable: boolean, navigability: RiverNavigability, spanHex?: string) => {
     const slide = edgeSlide(col, row, edge, size, seed, level.slide);
-    push(along(slide), navigable, slide, spanHex);
+    push(along(slide), navigable, navigability, slide, spanHex);
   };
-  if (ends.before && river.segments[0]) push(ends.before, river.segments[0].navigable);
+  if (ends.before && river.segments[0]) push(ends.before, river.segments[0].navigable, segmentNavigability(river.segments[0]));
   river.segments.forEach((s, k) => {
     const key = `${s.col},${s.row}`;
-    if (s.entryEdge !== null) cross(s.col, s.row, s.entryEdge, s.navigable);
+    const nav = segmentNavigability(s);
+    if (s.entryEdge !== null) cross(s.col, s.row, s.entryEdge, s.navigable, nav);
     else if (k === 0) {
-      if (ends.start) push(ends.start, s.navigable);
+      if (ends.start) push(ends.start, s.navigable, nav);
       else {
         // A spring: near, but not exactly at, the hex centre.
         const c = hexCenter(s.col, s.row, size);
         push({
           x: c.x + signed(seed, 'source', s.col, s.row, 'x') * size * 0.15,
           y: c.y + signed(seed, 'source', s.col, s.row, 'y') * size * 0.15,
-        }, s.navigable);
+        }, s.navigable, nav);
       }
     }
-    if (s.exitEdge !== null) cross(s.col, s.row, s.exitEdge, s.navigable, key);
+    if (s.exitEdge !== null) cross(s.col, s.row, s.exitEdge, s.navigable, nav, key);
     else if (k === river.segments.length - 1) {
       // A tributary meets its host at an acute angle, leaning downstream: a point
       // a little upstream of the join, between the way the tributary was heading
@@ -210,13 +234,13 @@ function controls(river: River, size: number, seed: string, ends: CourseEnds): C
         const t = ends.joinTangent;
         const dir = { x: JOIN_FLOW * t.x + (1 - JOIN_FLOW) * (u.x / ul), y: JOIN_FLOW * t.y + (1 - JOIN_FLOW) * (u.y / ul) };
         const dl = Math.hypot(dir.x, dir.y) || 1;
-        push({ x: ends.end.x - (dir.x / dl) * size * JOIN_RUN, y: ends.end.y - (dir.y / dl) * size * JOIN_RUN }, s.navigable, undefined, key);
+        push({ x: ends.end.x - (dir.x / dl) * size * JOIN_RUN, y: ends.end.y - (dir.y / dl) * size * JOIN_RUN }, s.navigable, nav, undefined, key);
       }
-      push(ends.end ?? hexCenter(s.col, s.row, size), s.navigable, undefined, key);
+      push(ends.end ?? hexCenter(s.col, s.row, size), s.navigable, nav, undefined, key);
     }
   });
   const last = river.segments.at(-1);
-  if (ends.beyond && last) push(ends.beyond, last.navigable);
+  if (ends.beyond && last) push(ends.beyond, last.navigable, segmentNavigability(last));
   return out;
 }
 
@@ -375,6 +399,7 @@ export function riverCourse(river: River, size: number, seed: string, ends: Cour
 
   let centreline: Point[] = [pts[0]!];
   let navigable: boolean[] = [ctrl[0]!.navigable];
+  let navigabilities: RiverNavigability[] = [ctrl[0]!.navigability];
   let spanHexes: Array<string | undefined> = [undefined];
   for (let i = 0; i < n - 1; i++) {
     const curve = catmullRom(ext[i]!, ext[i + 1]!, ext[i + 2]!, ext[i + 3]!, SAMPLES_PER_SPAN);
@@ -410,6 +435,7 @@ export function riverCourse(river: River, size: number, seed: string, ends: Cour
       }
       centreline.push(p);
       navigable.push(ctrl[i + 1]!.navigable);
+      navigabilities.push(ctrl[i + 1]!.navigability);
       spanHexes.push(j < curve.length - 1 ? ctrl[i + 1]!.spanHex : undefined);
     }
   }
@@ -446,6 +472,7 @@ export function riverCourse(river: River, size: number, seed: string, ends: Cour
       const head = from > 0 ? [shore(centreline[from - 1]!, centreline[from]!)] : [];
       let tail: Point[] = [];
       let tailNavigable: boolean[] = [];
+      let tailNavigabilities: RiverNavigability[] = [];
       if (to < centreline.length - 1) {
         // The river runs on a little way into the lake, so its mouth is not a cut across the shore.
         const edge = shore(centreline[to + 1]!, centreline[to]!);
@@ -454,12 +481,18 @@ export function riverCourse(river: River, size: number, seed: string, ends: Cour
           tail.push(centreline[k]!);
         }
         tailNavigable = tail.map(() => navigable[to]!);
+        tailNavigabilities = tail.map(() => navigabilities[to]!);
       }
       centreline = [...head, ...centreline.slice(from, to + 1), ...tail];
       navigable = [
         ...(head.length ? [navigable[from]!] : []),
         ...navigable.slice(from, to + 1),
         ...tailNavigable,
+      ];
+      navigabilities = [
+        ...(head.length ? [navigabilities[from]!] : []),
+        ...navigabilities.slice(from, to + 1),
+        ...tailNavigabilities,
       ];
       spanHexes = [
         ...(head.length ? [undefined] : []),
@@ -491,6 +524,7 @@ export function riverCourse(river: River, size: number, seed: string, ends: Cour
       if (last < centreline.length - 1) {
         centreline = [...centreline.slice(0, last + 1), bisect(centreline[last]!, centreline[last + 1]!)];
         navigable = [...navigable.slice(0, last + 1), navigable[last]!];
+        navigabilities = [...navigabilities.slice(0, last + 1), navigabilities[last]!];
         spanHexes = [...spanHexes.slice(0, last + 1), undefined];
       } else {
         // Carry on along the last heading to the shore (a coast that bulges past the hex's edge).
@@ -503,6 +537,7 @@ export function riverCourse(river: River, size: number, seed: string, ends: Cour
           if (!dry(q)) {
             centreline = [...centreline, bisect(from, q)];
             navigable = [...navigable, navigable[last]!];
+            navigabilities = [...navigabilities, navigabilities[last]!];
             spanHexes = [...spanHexes, undefined];
             break;
           }
@@ -543,6 +578,7 @@ export function riverCourse(river: River, size: number, seed: string, ends: Cour
     if (rises && k > 0 && arc(0, k) < reach && centreline.length - k >= 4) {
       centreline = centreline.slice(k);
       navigable = navigable.slice(k);
+      navigabilities = navigabilities.slice(k);
       spanHexes = spanHexes.slice(k);
       break;
     }
@@ -554,6 +590,7 @@ export function riverCourse(river: River, size: number, seed: string, ends: Cour
     if (runsOut && k < centreline.length - 1 && k >= 3 && arc(k, centreline.length - 1) < reach) {
       centreline = centreline.slice(0, k + 1);
       navigable = navigable.slice(0, k + 1);
+      navigabilities = navigabilities.slice(0, k + 1);
       spanHexes = spanHexes.slice(0, k + 1);
       break;
     }
@@ -591,10 +628,10 @@ export function riverCourse(river: River, size: number, seed: string, ends: Cour
     for (let i = k; i < added.length; i++) added[i]! += smoothstep((cum[i]! - cum[k]!) / size);
   }
   // Width as a multiple of the normal: a tributary adds a twentieth where it joins, distance from the source
-  // up to a fifth (the longest river on the map reaches it), and navigable water a tenth.
+  // up to a fifth (the longest river on the map reaches it), and navigability (non-navigable -15%, navigable +15%, estuarine +38%).
   const longest = Math.max(ends.longest ?? 0, total + head, size);
   const target = centreline.map((_, i) =>
-    1 + LENGTH_WIDENS * Math.min(1, (cum[i]! + head) / longest) + TRIBUTARY_WIDENS * added[i]! + (navigable[i] ? NAVIGABLE_WIDENS : 0),
+    1 + LENGTH_WIDENS * Math.min(1, (cum[i]! + head) / longest) + TRIBUTARY_WIDENS * added[i]! + navigabilityWidens(navigabilities[i]!),
   );
   // Ease the change into navigable water, and past a confluence, over a couple of hexes.
   const reach = Math.round(SAMPLES_PER_SPAN * 1.25);
@@ -758,13 +795,11 @@ export function riverCourse(river: River, size: number, seed: string, ends: Cour
     const m = { x: line[k]!.x + nx * side * setIn, y: line[k]!.y + ny * side * setIn };
     icons.push({ id: city.id, at: m });
     const clear = (i: number) => city.icon!.reach * (1 - (city.icon!.press ?? PRESS)) + widths[i]! / 2;
-    // The icon is set so its edge touches the bank at the nearest sample, so that sample lies on the clearance
-    // to within rounding: only a real intrusion bows the river (DECISIONS §77).
     const push = (i: number) => {
       const p = line[i]!;
       const d = Math.hypot(p.x - m.x, p.y - m.y);
       const need = clear(i);
-      if (d >= need - size * 1e-6) return false;
+      if (d >= need) return false;
       const u = d < 1e-6 ? { x: -nx * side, y: -ny * side } : { x: (p.x - m.x) / d, y: (p.y - m.y) / d };
       line[i] = { x: m.x + u.x * need, y: m.y + u.y * need };
       return true;
@@ -823,11 +858,40 @@ export function riverCourse(river: River, size: number, seed: string, ends: Cour
   for (let i = right.length - 1; i >= 0; i--) outline.push(['L', right[i]!.x, right[i]!.y]);
   for (const p of [...startCap].reverse()) outline.push(['L', p.x, p.y]);
   outline.push(['Z']);
+
+  // Outline sections partitioned by navigability so each status can be filled with its own tone.
+  const sections: RiverCourseSection[] = [];
+  let runStart = 0;
+  for (let i = 0; i < line.length; i++) {
+    const isEnd = i === line.length - 1;
+    const curNav = navigabilities[i]!;
+    const nextNav = isEnd ? null : navigabilities[i + 1]!;
+    if (isEnd || curNav !== nextNav) {
+      const runEnd = i;
+      const secOutline: PathCmd[] = [];
+      for (let k = runStart; k <= runEnd; k++) {
+        secOutline.push([k === runStart ? 'M' : 'L', left[k]!.x, left[k]!.y]);
+      }
+      if (runEnd === last) {
+        for (const p of endCap) secOutline.push(['L', p.x, p.y]);
+      }
+      for (let k = runEnd; k >= runStart; k--) {
+        secOutline.push(['L', right[k]!.x, right[k]!.y]);
+      }
+      if (runStart === 0) {
+        for (const p of [...startCap].reverse()) secOutline.push(['L', p.x, p.y]);
+      }
+      secOutline.push(['Z']);
+      sections.push({ outline: secOutline, navigability: curNav });
+      runStart = i; // Share edge slice so there is no gap
+    }
+  }
+
   // The bank runs up the left side, round the spring, and down the right,
   // and is left open at the mouth so it does not close the river off from the water.
   // A river that comes out of a lake is open at its start too.
   const bank = river.branchOf || ends.before ? [left, right] : [[...left].reverse().concat(startCap, right)];
-  return { centreline: line, widths, outline, bank, icons };
+  return { centreline: line, widths, outline, sections, bank, icons };
 }
 
 /**

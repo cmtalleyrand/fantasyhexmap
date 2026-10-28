@@ -100,6 +100,7 @@ export interface StylePalette {
   gridWidth: number;
   river: string;
   riverNonNavigable: string;
+  riverEstuarine: string;
   /** The darker edge a tapered river is drawn with. */
   riverBank: string;
   riverLabel: string;
@@ -162,6 +163,7 @@ const CLASSIC: PresetInfo = {
     gridWidth: 0.03,
     river: MAP_COLOURS.river,
     riverNonNavigable: MAP_COLOURS.riverNonNavigable,
+    riverEstuarine: MAP_COLOURS.riverEstuarine,
     riverBank: MAP_COLOURS.riverBank,
     riverLabel: MAP_COLOURS.riverLabel,
     grain: '#000000',
@@ -223,6 +225,7 @@ const PARCHMENT: PresetInfo = {
     gridWidth: 0.025,
     river: '#3f7488',
     riverNonNavigable: '#4c8193',
+    riverEstuarine: '#325d6e',
     riverBank: '#2c5363',
     riverLabel: '#2c4b58',
     grain: '#5c4426',
@@ -299,6 +302,7 @@ const ATLAS: PresetInfo = {
     gridWidth: 0.025,
     river: '#4f8fb5',
     riverNonNavigable: '#6aa3c4',
+    riverEstuarine: '#3b7496',
     riverBank: '#38688a',
     riverLabel: '#2e5f80',
     grain: '#000000',
@@ -359,7 +363,8 @@ const NIGHT: PresetInfo = {
     grid: 'rgba(160, 200, 220, 0.12)',
     gridWidth: 0.025,
     river: '#5fb4e0',
-    riverNonNavigable: '#4a9ccc',
+    riverNonNavigable: '#78c4ea',
+    riverEstuarine: '#3b98c4',
     riverBank: '#2f7fae',
     riverLabel: '#bfe6ff',
     grain: '#000000',

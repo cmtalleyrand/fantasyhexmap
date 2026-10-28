@@ -10,15 +10,52 @@ import {
   riverLabel,
   removeRiverSegment,
   setRiverNavigability,
+  setRiverTributary,
+  setRiverDistributary,
 } from '../shared/riverEdit.ts';
 import { buildRiverFromPath } from '../shared/validate.ts';
 import { reducer } from '../src/state/store.ts';
 import type { BaseData, River } from '../shared/types.ts';
+import { riverCourses } from '../src/render/rivers.ts';
 
 const COLS = 8;
 const ROWS = 5;
 // Land everywhere except a sea column on the right edge.
 const base: BaseData = Array.from({ length: COLS * ROWS }, (_, i) => (i % COLS === COLS - 1 ? 'Sea' : 'Land'));
+
+for (const outlet of ['Sea', 'Lake', 'OffMap'] as const) {
+  test(`assigning a river already on its host replaces its ${outlet} outlet with a rendered confluence`, () => {
+    const outletBase = base.map((v, i) => outlet === 'OffMap' ? 'Land' : i % COLS === COLS - 1 ? outlet : v) as BaseData;
+    const col = outlet === 'OffMap' ? COLS - 1 : 6;
+    const build = (id: string, path: Array<{ col: number; row: number }>) => {
+      const r = buildRiverFromPath({ name: id, path }, id, outletBase, null, COLS, ROWS, []);
+      assert.ok(r);
+      return r;
+    };
+    const tributary = build('tributary', hexLine({ col: col - 2, row: 2 }, { col, row: 2 }));
+    const host = build('host', [{ col, row: 1 }, { col, row: 2 }, { col, row: 3 }]);
+    const oldLast = tributary.segments.at(-1)!;
+    assert.equal(tributary.terminus, outlet);
+    assert.notEqual(oldLast.exitEdge, null);
+    oldLast.navigability = 'estuarine';
+    oldLast.navigable = true;
+    oldLast.reach = { min: 0.1, max: 0.4 };
+    const before = structuredClone(tributary);
+
+    const result = setRiverTributary(tributary, host.id, outletBase, null, COLS, ROWS, [host]);
+    assert.ok(!('error' in result));
+    assert.equal(result.river.joins, host.id);
+    assert.equal(result.river.terminus, 'River');
+    assert.deepEqual(result.river.segments, before.segments.map((s, i) =>
+      i === before.segments.length - 1 ? { ...s, exitEdge: null } : s));
+    assert.deepEqual(tributary, before, 'assignment does not mutate the original river');
+
+    const courses = riverCourses([result.river, host], 26, 'host-assignment');
+    const mouth = courses.get(tributary.id)!.centreline.at(-1)!;
+    assert.ok(courses.get(host.id)!.centreline.some(p => Math.hypot(p.x - mouth.x, p.y - mouth.y) < 1e-6),
+      'the tributary mouth ends on the rendered host course');
+  });
+}
 
 function river(path: [number, number][], navigable: boolean[]): River {
   const r = buildRiverFromPath(
@@ -197,3 +234,78 @@ test('an unnamed branch keeps its blank name through edits and is described by i
   const plain = buildRiverFromPath({ name: ' ', path: [{ col: 1, row: 2 }, { col: 2, row: 2 }] }, 'x', base, null, COLS, ROWS, []);
   assert.equal(plain?.name, 'Unnamed river', 'only distributaries may go unnamed');
 });
+
+test('3-way navigability supports non-navigable, navigable, and estuarine', () => {
+  const r = river([[1, 2], [2, 2], [3, 2], [4, 2]], [false, false, false, false]);
+  const hexes = new Set([2 * COLS + 2]);
+
+  const est = setRiverNavigability([r], hexes, 'estuarine', false, COLS);
+  assert.equal(est[0]!.segments[1]!.navigability, 'estuarine');
+  assert.equal(est[0]!.segments[1]!.navigable, true);
+  assert.equal(est[0]!.segments[0]!.navigability, 'non-navigable');
+
+  const nav = setRiverNavigability([r], hexes, 'navigable', false, COLS);
+  assert.equal(nav[0]!.segments[1]!.navigability, 'navigable');
+  assert.equal(nav[0]!.segments[1]!.navigable, true);
+
+  const nonNav = setRiverNavigability(nav, hexes, 'non-navigable', false, COLS);
+  assert.equal(nonNav[0]!.segments[1]!.navigability, 'non-navigable');
+  assert.equal(nonNav[0]!.segments[1]!.navigable, false);
+});
+
+test('rivers can traverse lake hexes without losing identity or disconnecting', () => {
+  // Base with lake at col 3, row 2
+  const lakeBase: BaseData = base.slice();
+  lakeBase[2 * COLS + 3] = 'Lake';
+
+  const fullPath = hexLine({ col: 1, row: 2 }, { col: 7, row: 2 });
+  const r = buildRiverFromPath(
+    { name: 'Through Lake', path: fullPath },
+    'r_lake',
+    lakeBase,
+    null,
+    COLS,
+    ROWS,
+    [],
+  );
+  assert.ok(r);
+  assert.equal(r.name, 'Through Lake');
+  assert.equal(r.terminus, 'Sea');
+  // Middle lake segment exists
+  assert.ok(r.segments.some((s) => s.col === 3 && s.row === 2));
+  assertConnected(r);
+
+  // Moving segment into lake is allowed
+  const moveResult = moveRiverSegment(r, 1, { col: 3, row: 2 }, lakeBase, null, COLS, ROWS);
+  assert.ok(!('error' in moveResult));
+  assertConnected(moveResult.river);
+});
+
+test('tributary and distributary relationships can be defined', () => {
+  const main = river([[1, 2], [2, 2], [3, 2], [4, 2], [7, 2]], [true, true, true, true, false]);
+  const otherBuilt = river([[1, 0], [2, 0], [3, 0]], [false, false, false]);
+  const other: River = { ...otherBuilt, id: 'r2', name: 'Other River' };
+
+  // Connect other as tributary to main
+  const tribResult = setRiverTributary(other, main.id, base, null, COLS, ROWS, [main]);
+  assert.ok(!('error' in tribResult));
+  assert.equal(tribResult.river.joins, main.id);
+  assert.equal(tribResult.river.terminus, 'River');
+
+  // Disconnect tributary
+  const untribResult = setRiverTributary(tribResult.river, null, base, null, COLS, ROWS, [main]);
+  assert.ok(!('error' in untribResult));
+  assert.equal(untribResult.river.joins, undefined);
+
+  // Distributary assignment
+  const distResult = setRiverDistributary(other, main.id, base, null, COLS, ROWS, [main]);
+  assert.ok(!('error' in distResult));
+  assert.equal(distResult.river.branchOf, main.id);
+
+  // Detach distributary
+  const undistResult = setRiverDistributary(distResult.river, null, base, null, COLS, ROWS, [main]);
+  assert.ok(!('error' in undistResult));
+  assert.equal(undistResult.river.branchOf, undefined);
+});
+
+
