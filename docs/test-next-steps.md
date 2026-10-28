@@ -80,12 +80,10 @@ rivers on so small a map, so none would be reused), 11.6 s down to about 2.5 s. 
 In `riverLabelReuse.test.ts`, the scene-level test can use a 12×12 fixture with two rivers and keep its
 assertions. The random-obstacle test in the same file already covers the exactness of the reuse.
 
-### 4. One helper for cached-versus-uncached equality — started
+### 4. One helper for cached-versus-uncached equality
 
-`assertCachedBuildsMatch(cases, build?)` in `test/helpers/scene.ts` builds each case with caches on,
-then off, and names the case and the first differing path (`firstDifference`) on failure. The
-incremental chain uses it; the other hand-written comparisons remain to be moved onto it.
-The original brief:
+`assertCachedBuildsMatch(cases)` in `test/helpers/scene.ts` is shared by the fast and slow incremental
+tests only; nothing else has been moved onto it. The original brief:
 
 Add `assertRebuildsMatchUncached(map, options, edits)` to a shared test helper module. It applies
 each edit, builds with caches on, builds the same state with `cache: 'off'`, and compares the two
@@ -153,6 +151,6 @@ now caught by CI; check `git diff <its base> <its result>` for unrelated deletio
 | 1 | 1 (Node suite in CI) | Done |
 | 2 | 2, 3 (fast tier) | Done |
 | 3 | 6 (sweep reporting) | Done |
-| 4 | 4 (equality helper) | Started: helper exists; move the remaining hand-written comparisons onto it |
+| 4 | 4 (equality helper) | Removes duplication before the larger rewrite |
 | 5 | 5 (role tags) | The largest step; touches 14 files |
 | 6 | 7 | Only once Classic is retired |
