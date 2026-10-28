@@ -71,15 +71,14 @@ export function untangle(ring: Point[], closed: boolean): { ring: Point[]; joins
 }
 
 /**
- * Fit every hex's share at once on the final outline. Each hex has one amount, an even
- * offset of its stretch of coast along the coast's own normal (positive pushes it out
- * to sea, adding land): the coast keeps its shape and grows or shrinks in place, rather
- * than being slid towards one side or swollen about a point. The amounts blend only
- * near hex edges, so the coast moves continuously from one hex to the next. To first
- * order a hex's area changes by its offset times its length of coast, with a little
- * traded across its edges, so the amounts that bring every hex to its share solve one
- * small, nearly diagonal linear system. The outline is then measured exactly and the
- * system solved again for what remains.
+ * Fit every hex's share at once on the final outline. The coast moves along its own
+ * normal (positive pushes it out to sea, adding land) by a smooth field along each coast:
+ * control points every half hex of coast by distance, unrelated to where hex edges fall,
+ * eased between by a cubic B-spline. The coast keeps its shape and is not cut into even
+ * blocks hex by hex. To first order a hex's area changes by the field integrated along
+ * its coast, so the smallest smooth field that brings every hex to its share solves one
+ * sparse least-squares system; the outline is then measured exactly and the system solved
+ * again for what remains.
  *
  * `targets` are the hexes with a share to reach; every other hex the coast runs through
  * keeps the land it had. Each point moves at most a third of the way to the nearest
@@ -159,7 +158,6 @@ export function fitCoastAreas(geometry: CoastGeometry, targets: ReadonlyMap<numb
       return ring;
     }).filter(ring => ring.length > 1);
   };
-  const weights = (p: Point) => hexWeights(p, cols, rows, size, centres);
   const measureAll = (rs: Point[][], hexes: Iterable<number>) => {
     profileCount('fit.measurements');
     const coverage = areaCoverage(landRings(rs),
@@ -174,16 +172,6 @@ export function fitCoastAreas(geometry: CoastGeometry, targets: ReadonlyMap<numb
   for (const h of targets.keys()) touched.add(h);
   const hexes = [...touched];
   const index = new Map(hexes.map((h, i) => [h, i]));
-  // Neighbouring hexes, whose amounts are kept near each other: a coast pulled out in
-  // one and back in the next is drawn into a kink at the edge between them.
-  const pairs: Array<[number, number]> = [];
-  hexes.forEach((h, i) => {
-    const hc = h % cols, hr = Math.floor(h / cols);
-    for (let r = Math.max(0, hr - 1); r <= Math.min(rows - 1, hr + 1); r++) for (let c = Math.max(0, hc - 1); c <= Math.min(cols - 1, hc + 1); c++) {
-      const j = index.get(r * cols + c);
-      if (j !== undefined && j > i && Math.hypot(centreOf(h).x - centreOf(r * cols + c).x, centreOf(h).y - centreOf(r * cols + c).y) < size * 1.9) pairs.push([i, j]);
-    }
-  });
   const initial = profileTime('fit.measure', () => measureAll(current, touched));
   const want = new Map([...touched].map(h => [h, targets.get(h)?.share ?? initial.get(h)!]));
   // A share within the tolerance is as good as exact, so a hex is only pulled back to the
@@ -207,12 +195,12 @@ export function fitCoastAreas(geometry: CoastGeometry, targets: ReadonlyMap<numb
     if (Math.max(...[...targets.keys()].map(h => Math.abs(short.get(h)!))) <= 0.002 * hexArea) break;
     // Every point's direction to the sea (each ring's orientation found by probing which
     // side is land), averaged over a short stretch so the roughening's small teeth do not
-    // turn it; its weights; how far it may move; and the length of coast it stands for.
+    // turn it; how far it may move; and the length of coast it stands for.
     const land = evenOddTest(landRings(current), size / 8);
     const chains: CoastChain[] = current.map((ring, k) => ({ closed: closed[k]!, points: ring,
       edges: ring.slice(0, -1).map((p, j) => ({ from: p, to: ring[j + 1]!, land: -1, water: -1 })) }));
     const clearance = coastClearance(chains, size);
-    type Sample = { n: Point; weights: Array<[number, number]>; reach: number; length: number };
+    type Sample = { n: Point; reach: number; length: number };
     const samples: Sample[][] = current.map((ring, k) => {
       const count = ring.length;
       if (count < 3) return [];
@@ -256,7 +244,7 @@ export function fitCoastAreas(geometry: CoastGeometry, targets: ReadonlyMap<numb
         arc += before;
         const ends = closed[k] ? 1 : Math.min(1, arc / size, (total - arc) / size);
         if (j % 4 === 0 || j === count - 1) rooms.set(j, clearance(p, chains[k]!, arc));
-        out.push({ n: { x: nx / nl, y: ny / nl }, weights: weights(p), reach: ends * passageFade(p), length: (before + after) / 2 });
+        out.push({ n: { x: nx / nl, y: ny / nl }, reach: ends * passageFade(p), length: (before + after) / 2 });
       }
       // The clearance, found at every fourth point, eased between them; then lowered where
       // needed so it changes by at most half the length of coast it changes over, so a
@@ -273,8 +261,32 @@ export function fitCoastAreas(geometry: CoastGeometry, targets: ReadonlyMap<numb
       out.forEach((s, j) => { s.reach = reach[j]!; });
       return out;
     });
-    // Rows of M (area change of hex g per unit offset of each hex), by the length of
-    // coast each point stands for in the hex it lies in.
+    // The correction is a smooth field along each coast, not one amount per hex: control
+    // points every half hex of coast by distance, unrelated to where hex edges fall, eased
+    // between by a cubic B-spline. Each point's place on its coast picks its four controls.
+    const spacing = size * 0.5;
+    const controls: Array<{ base: number; count: number; closed: boolean }> = [];
+    let unknowns = 0;
+    const support = current.map((ring, k) => {
+      const count = ring.length;
+      if (count < 3) { controls.push({ base: unknowns, count: 0, closed: closed[k]! }); return []; }
+      const arcs = [0];
+      for (let j = 1; j < count; j++) arcs.push(arcs[j - 1]! + Math.hypot(ring[j]!.x - ring[j - 1]!.x, ring[j]!.y - ring[j - 1]!.y));
+      const total = arcs[count - 1]! || 1;
+      const m = closed[k] ? Math.max(4, Math.round(total / spacing)) : Math.max(4, Math.round(total / spacing) + 3);
+      controls.push({ base: unknowns, count: m, closed: closed[k]! });
+      const base = unknowns;
+      unknowns += m;
+      return arcs.map(a => {
+        // Uniform cubic B-spline: an open coast's controls run one past each end.
+        const t = closed[k] ? (a / total) * m : (a / total) * (m - 3);
+        const cell = Math.min(Math.floor(t), closed[k] ? m - 1 : m - 4), u = t - cell;
+        const w = [(1 - u) ** 3 / 6, (3 * u ** 3 - 6 * u * u + 4) / 6, (-3 * u ** 3 + 3 * u * u + 3 * u + 1) / 6, u ** 3 / 6];
+        return w.map((weight, q): [number, number] => [base + (closed[k] ? (cell + q - 1 + m) % m : cell + q), weight]);
+      });
+    });
+    // Rows of M (area change of hex g per unit of each control), by the length of coast
+    // each point stands for in the hex it lies in.
     const matrix = new Map<number, Map<number, number>>();
     current.forEach((ring, k) => samples[k]!.forEach((s, j) => {
       if (!s.reach || (closed[k] && j === ring.length - 1)) return;
@@ -282,18 +294,14 @@ export function fitCoastAreas(geometry: CoastGeometry, targets: ReadonlyMap<numb
       if (g === undefined) return;
       let row = matrix.get(g);
       if (!row) { row = new Map(); matrix.set(g, row); }
-      for (const [h, w] of s.weights) {
-        const i = index.get(h);
-        if (i !== undefined) row.set(i, (row.get(i) ?? 0) + w * s.length);
-      }
+      for (const [i, w] of support[k]![j]!) row.set(i, (row.get(i) ?? 0) + w * s.length);
     }));
-    // Least squares with a small penalty on the amounts, by conjugate gradients on the
-    // normal equations. Almost every row is its own hex's length of coast, so a few
-    // iterations settle it.
+    // Least squares with a small penalty on the controls and a larger one on how sharply
+    // they bend, by conjugate gradients on the normal equations: the smallest smooth
+    // correction that brings every hex to its share.
     phase('solve');
     const matrixRows = [...matrix].map(([g, row]) => ({ g, indices: Int32Array.from(row.keys()), values: Float64Array.from(row.values()) }));
-    const unknowns = hexes.length;
-    const forward = new Float64Array(unknowns), transpose = new Float64Array(unknowns);
+    const forward = new Float64Array(hexes.length), transpose = new Float64Array(unknowns);
     const times = (x: Float64Array) => {
       forward.fill(0);
       for (const { g, indices, values } of matrixRows) {
@@ -310,19 +318,23 @@ export function fitCoastAreas(geometry: CoastGeometry, targets: ReadonlyMap<numb
       }
       return transpose;
     };
-    const lambda = (size * 0.15) ** 2, mu = (size * 0.15) ** 2;
+    const lambda = (size * 0.05) ** 2, mu = (size * 0.25) ** 2;
+    const bend = (x: Float64Array, out: Float64Array) => {
+      for (const { base, count, closed: loop } of controls) for (let c = loop ? 0 : 1; c < (loop ? count : count - 1); c++) {
+        const a = base + (c - 1 + count) % count, b = base + c, d = base + (c + 1) % count;
+        const second = mu * (x[a]! - 2 * x[b]! + x[d]!);
+        out[a] = out[a]! + second; out[b] = out[b]! - 2 * second; out[d] = out[d]! + second;
+      }
+    };
     const rhs = Float64Array.from(timesT(Float64Array.from(hexes, h => short.get(h)!)));
     const x = new Float64Array(unknowns);
     const r = Float64Array.from(rhs), dir = Float64Array.from(r);
     let rr = r.reduce((sum, v) => sum + v * v, 0);
-    for (let iteration = 0; iteration < 60 && rr > 1e-12; iteration++) {
+    for (let iteration = 0; iteration < 80 && rr > 1e-12; iteration++) {
       profileCount('fit.solverIterations');
       const q = timesT(times(dir));
       for (let j = 0; j < unknowns; j++) q[j] = q[j]! + lambda * dir[j]!;
-      for (const [i, j] of pairs) {
-        const delta = mu * (dir[i]! - dir[j]!);
-        q[i] = q[i]! + delta; q[j] = q[j]! - delta;
-      }
+      bend(dir, q);
       const alpha = rr / (dir.reduce((sum, v, j) => sum + v * q[j]!, 0) || 1);
       for (let j = 0; j < unknowns; j++) { x[j] = x[j]! + alpha * dir[j]!; r[j] = r[j]! - alpha * q[j]!; }
       const next = r.reduce((sum, v) => sum + v * v, 0);
@@ -330,10 +342,10 @@ export function fitCoastAreas(geometry: CoastGeometry, targets: ReadonlyMap<numb
       for (let j = 0; j < unknowns; j++) dir[j] = r[j]! + (next / rr) * dir[j]!;
       rr = next;
     }
-    // No round moves a hex's coast by more than a quarter of a hex.
+    // No round moves the coast by more than a quarter of a hex.
     for (let i = 0; i < unknowns; i++) x[i] = Math.max(-size * 0.25, Math.min(size * 0.25, x[i]!));
-    // Each hex's share of its amount; a spot the step would kink or make cross another
-    // coast halves the amounts of the hexes moving it, and only theirs, until it is clean.
+    // Each control's share of its amount; a spot the step would kink or make cross another
+    // coast halves the controls moving it, and only those, until it is clean.
     const factor = new Float64Array(unknowns).fill(1);
     const moveBy = () => current.map((ring, k) => {
       if (ring.length < 3) return ring;
@@ -341,10 +353,7 @@ export function fitCoastAreas(geometry: CoastGeometry, targets: ReadonlyMap<numb
         const s = samples[k]![j]!;
         if (!s.reach) return p;
         let d = 0;
-        for (const [h, w] of s.weights) {
-          const i = index.get(h);
-          if (i !== undefined) d += w * x[i]! * factor[i]!;
-        }
+        for (const [i, w] of support[k]![j]!) d += w * x[i]! * factor[i]!;
         d = Math.max(-s.reach, Math.min(s.reach, d));
         return { x: p.x + s.n.x * d, y: p.y + s.n.y * d };
       });
@@ -360,9 +369,7 @@ export function fitCoastAreas(geometry: CoastGeometry, targets: ReadonlyMap<numb
       const faults = [...distorts(referenceRings, trial, size * 0.2), ...distorts(current, trial, size * 0.2),
         ...newCrossings(current, trial, closed, size)];
       if (!faults.length) { next = trial; break; }
-      const hit = new Set<number>();
-      for (const p of faults) for (const [h] of weights(p)) { const i = index.get(h); if (i !== undefined) hit.add(i); }
-      for (const i of hit) factor[i] = attempt < 4 ? factor[i]! * 0.5 : 0;
+      for (const [k, j] of faults) for (const [i] of support[k]?.[j] ?? []) factor[i] = attempt < 4 ? factor[i]! * 0.5 : 0;
     }
     if (!next) break;
     phase('measureAndAccept');
@@ -381,13 +388,13 @@ export function fitCoastAreas(geometry: CoastGeometry, targets: ReadonlyMap<numb
 }
 
 /**
- * Where moving `before` to `after` stretches a stretch of coast to more than twice its
+ * Where (ring, point) moving `before` to `after` stretches a stretch of coast to more than twice its
  * length or turns it by more than about 50 degrees: what a field too steep for the
  * detail it carries does, drawing a small cape out into a spike. Stretches are at least
  * `span` long, so the roughening's smallest teeth, which any movement turns, do not count.
  */
-function distorts(before: Point[][], after: Point[][], span: number): Point[] {
-  const faults: Point[] = [];
+function distorts(before: Point[][], after: Point[][], span: number): Array<[number, number]> {
+  const faults: Array<[number, number]> = [];
   for (let k = 0; k < before.length; k++) {
     const a = before[k]!, b = after[k]!;
     let e = 0, arc = 0;
@@ -399,19 +406,19 @@ function distorts(before: Point[][], after: Point[][], span: number): Point[] {
       const lu = Math.hypot(ux, uy), lv = Math.hypot(vx, vy);
       arc -= Math.hypot(a[j + 1]!.x - a[j]!.x, a[j + 1]!.y - a[j]!.y) + (j + 2 < a.length ? Math.hypot(a[j + 2]!.x - a[j + 1]!.x, a[j + 2]!.y - a[j + 1]!.y) : 0);
       if (lu < span * 0.25) continue;
-      if (lv > lu * 2 || (ux * vx + uy * vy) < lu * lv * 0.64) faults.push(a[j]!, a[e]!);
+      if (lv > lu * 2 || (ux * vx + uy * vy) < lu * lv * 0.64) faults.push([k, j], [k, e]);
     }
   }
   return faults;
 }
 
 /**
- * Where moving `before` to `after` makes a segment cross another that it did not cross
+ * Where (ring, point) moving `before` to `after` makes a segment cross another that it did not cross
  * before (adjacent segments of one ring aside). Crossings the outline already had, where
  * chains meet, are not the step's doing.
  */
-function newCrossings(before: Point[][], after: Point[][], closed: boolean[], size: number): Point[] {
-  const faults: Point[] = [];
+function newCrossings(before: Point[][], after: Point[][], closed: boolean[], size: number): Array<[number, number]> {
+  const faults: Array<[number, number]> = [];
   const cell = size / 2;
   const grid = new Map<string, Array<[number, number]>>();
   const cross = (a: Point, b: Point, c: Point) => (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
@@ -436,7 +443,7 @@ function newCrossings(before: Point[][], after: Point[][], closed: boolean[], si
         for (const [m, i] of list) {
           if (m === k && (Math.abs(i - j) <= 1 || (closed[k] && Math.abs(i - j) >= ring.length - 2))) continue;
           if (!mine && !moved(m, i)) continue;
-          if (crosses(after, k, j, m, i) && !crosses(before, k, j, m, i)) faults.push(before[k]![j]!, before[m]![i]!);
+          if (crosses(after, k, j, m, i) && !crosses(before, k, j, m, i)) faults.push([k, j], [m, i]);
         }
         list.push([k, j]);
         grid.set(key, list);
