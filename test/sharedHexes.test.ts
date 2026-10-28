@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { scenePaths } from './helpers/scene.ts';
 import { createMapState } from './seededMap.ts';
 import { holdersOf } from '../shared/polityShares.ts';
 import { politySurfaceAreas, normaliseHexDimensions } from '../shared/surfaceArea.ts';
@@ -123,11 +124,9 @@ test('a shared hex has an internal border with the outline polity style', () => 
     labels: false,
     style: resolveStyle({ preset: 'night', overrides: {} }),
   });
-  const paths = scene.prims.flatMap(function flatten(prim): typeof scene.prims {
-    return prim.kind === 'group' ? prim.prims.flatMap(flatten) : [prim];
-  });
+  const paths = scenePaths(scene.prims);
   assert.ok(
-    paths.some((p) => p.kind === 'path' && p.d.length === 2 && p.stroke === resolveStyle({ preset: 'night', overrides: {} }).palette.frontier),
+    paths.some((p) => p.d.length === 2 && p.stroke === resolveStyle({ preset: 'night', overrides: {} }).palette.frontier),
     'expected an internal border through the shared hex',
   );
 });

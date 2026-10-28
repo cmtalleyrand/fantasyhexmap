@@ -30,6 +30,9 @@ jobs:
       - name: Typecheck (client and server)
         run: npm run typecheck
 
+      - name: Node tests
+        run: npm test
+
       - name: Build
         env:
           # Serves the site from https://<owner>.github.io/<repo>/

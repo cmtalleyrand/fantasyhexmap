@@ -8,7 +8,7 @@ import { buildScene, defaultVisibility } from '../src/render/scene.ts';
 import { resolveStyle } from '../src/render/styles.ts';
 import { pathPolylines } from '../src/render/ice.ts';
 import type { BaseGeo, MapState } from '../shared/types.ts';
-import type { Prim } from '../src/render/prims.ts';
+import { scenePaths } from './helpers/scene.ts';
 const size = 30, cols = 7, centre = 24, area = 1.5 * Math.sqrt(3) * size * size;
 function layout(mask: number) {
   const base: BaseGeo[] = Array(49).fill('Sea');
@@ -98,14 +98,9 @@ function renderedCoverage(map: MapState) {
   const scene = buildScene(map, { size, visible: defaultVisibility(), labels: false, style });
   const ground = scene.prims.find(p => p.kind === 'group' && p.clip);
   assert.ok(ground?.kind === 'group' && ground.clip, 'final land silhouette clips ground');
-  const strokes: Array<{ d: ReturnType<typeof pathPolylines>; reach: number }> = [];
-  const gather = (prims: Prim[]) => {
-    for (const p of prims) {
-      if (p.kind === 'group') gather(p.prims);
-      if (p.kind === 'path' && p.stroke === style.palette.coast) strokes.push({ d: pathPolylines(p.d, 8), reach: (p.strokeWidth ?? 0) / 2 });
-    }
-  };
-  gather(scene.prims);
+  const strokes = scenePaths(scene.prims)
+    .filter(p => p.stroke === style.palette.coast)
+    .map(p => ({ d: pathPolylines(p.d, 8), reach: (p.strokeWidth ?? 0) / 2 }));
   assert.equal(strokes.flatMap(s => s.d).length, 2, 'two connected mainland shores, no detached banks or islands');
   const measure = areaCoverage(pathPolylines(ground.clip, 8), { evenOdd: true,
     stroke: { rings: strokes.flatMap(s => s.d), reach: strokes[0]?.reach ?? 0 } });

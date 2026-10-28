@@ -9,7 +9,7 @@
     "dev:server": "tsx watch server/index.ts",
     "dev:web": "vite",
     "build": "tsc -b tsconfig.json && vite build",
-    "test": "tsx --test test/*.test.ts",
+    "test": "node --import tsx --test test/*.test.ts",
     "test:browser:install": "playwright install chromium",
     "test:drawing-pixels": "node scripts/drawing-investigation.mjs --check",
     "test:drawing-sweeps": "node scripts/drawing-investigation-extended.mjs --check",
