@@ -10,6 +10,8 @@ import {
   riverLabel,
   removeRiverSegment,
   setRiverNavigability,
+  setRiverTributary,
+  setRiverDistributary,
 } from '../shared/riverEdit.ts';
 import { buildRiverFromPath } from '../shared/validate.ts';
 import { reducer } from '../src/state/store.ts';
@@ -197,3 +199,77 @@ test('an unnamed branch keeps its blank name through edits and is described by i
   const plain = buildRiverFromPath({ name: ' ', path: [{ col: 1, row: 2 }, { col: 2, row: 2 }] }, 'x', base, null, COLS, ROWS, []);
   assert.equal(plain?.name, 'Unnamed river', 'only distributaries may go unnamed');
 });
+
+test('3-way navigability supports non-navigable, navigable, and estuarine', () => {
+  const r = river([[1, 2], [2, 2], [3, 2], [4, 2]], [false, false, false, false]);
+  const hexes = new Set([2 * COLS + 2]);
+
+  const est = setRiverNavigability([r], hexes, 'estuarine', false, COLS);
+  assert.equal(est[0]!.segments[1]!.navigability, 'estuarine');
+  assert.equal(est[0]!.segments[1]!.navigable, true);
+  assert.equal(est[0]!.segments[0]!.navigability, 'non-navigable');
+
+  const nav = setRiverNavigability([r], hexes, 'navigable', false, COLS);
+  assert.equal(nav[0]!.segments[1]!.navigability, 'navigable');
+  assert.equal(nav[0]!.segments[1]!.navigable, true);
+
+  const nonNav = setRiverNavigability(nav, hexes, 'non-navigable', false, COLS);
+  assert.equal(nonNav[0]!.segments[1]!.navigability, 'non-navigable');
+  assert.equal(nonNav[0]!.segments[1]!.navigable, false);
+});
+
+test('rivers can traverse lake hexes without losing identity or disconnecting', () => {
+  // Base with lake at col 3, row 2
+  const lakeBase: BaseData = base.slice();
+  lakeBase[2 * COLS + 3] = 'Lake';
+
+  const fullPath = hexLine({ col: 1, row: 2 }, { col: 7, row: 2 });
+  const r = buildRiverFromPath(
+    { name: 'Through Lake', path: fullPath },
+    'r_lake',
+    lakeBase,
+    null,
+    COLS,
+    ROWS,
+    [],
+  );
+  assert.ok(r);
+  assert.equal(r.name, 'Through Lake');
+  assert.equal(r.terminus, 'Sea');
+  // Middle lake segment exists
+  assert.ok(r.segments.some((s) => s.col === 3 && s.row === 2));
+  assertConnected(r);
+
+  // Moving segment into lake is allowed
+  const moveResult = moveRiverSegment(r, 1, { col: 3, row: 2 }, lakeBase, null, COLS, ROWS);
+  assert.ok(!('error' in moveResult));
+  assertConnected(moveResult.river);
+});
+
+test('tributary and distributary relationships can be defined', () => {
+  const main = river([[1, 2], [2, 2], [3, 2], [4, 2], [7, 2]], [true, true, true, true, false]);
+  const otherBuilt = river([[1, 0], [2, 0], [3, 0]], [false, false, false]);
+  const other: River = { ...otherBuilt, id: 'r2', name: 'Other River' };
+
+  // Connect other as tributary to main
+  const tribResult = setRiverTributary(other, main.id, base, null, COLS, ROWS, [main]);
+  assert.ok(!('error' in tribResult));
+  assert.equal(tribResult.river.joins, main.id);
+  assert.equal(tribResult.river.terminus, 'River');
+
+  // Disconnect tributary
+  const untribResult = setRiverTributary(tribResult.river, null, base, null, COLS, ROWS, [main]);
+  assert.ok(!('error' in untribResult));
+  assert.equal(untribResult.river.joins, undefined);
+
+  // Distributary assignment
+  const distResult = setRiverDistributary(other, main.id, base, null, COLS, ROWS, [main]);
+  assert.ok(!('error' in distResult));
+  assert.equal(distResult.river.branchOf, main.id);
+
+  // Detach distributary
+  const undistResult = setRiverDistributary(distResult.river, null, base, null, COLS, ROWS, [main]);
+  assert.ok(!('error' in undistResult));
+  assert.equal(undistResult.river.branchOf, undefined);
+});
+

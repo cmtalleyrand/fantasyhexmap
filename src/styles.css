@@ -538,3 +538,110 @@ button.eye:hover:not(:disabled) { border-color: var(--line); }
 .selection-card { border-color: #8f7638; }
 .selection-card > .hint:first-child { color: #ffcc55; font-size: 12px; }
 .sharing-summary { font-size: 12px; color: var(--ink); overflow-wrap: anywhere; }
+
+/* Info bubble ("i" thingies) for compact contextual help */
+.info-bubble {
+  display: inline-block;
+  vertical-align: middle;
+  position: relative;
+  margin-left: 6px;
+}
+.info-bubble summary {
+  list-style: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 700;
+  font-style: italic;
+  font-family: Georgia, serif;
+  cursor: pointer;
+  line-height: 1;
+  user-select: none;
+  transition: all 0.15s ease;
+}
+.info-bubble summary::-webkit-details-marker {
+  display: none;
+}
+.info-bubble summary:hover {
+  border-color: var(--accent-2);
+  background: rgba(127,178,229,0.18);
+}
+.info-bubble[open] summary {
+  border-color: var(--accent);
+  background: rgba(127,178,229,0.25);
+  box-shadow: 0 0 6px rgba(127,178,229,0.4);
+}
+.info-bubble .info-bubble-popup {
+  position: absolute;
+  top: calc(100% + 5px);
+  left: -20px;
+  z-index: 40;
+  width: 250px;
+  padding: 8px 11px;
+  border-radius: 7px;
+  border: 1px solid var(--line);
+  background: #141b22;
+  color: var(--ink);
+  font-size: 11px;
+  line-height: 1.45;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+  text-transform: none;
+  letter-spacing: normal;
+  font-weight: normal;
+}
+
+/* River tributary & distributary UI */
+.river-rel-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px 10px;
+  background: #10161d;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  margin: 6px 0;
+}
+.river-rel-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.river-rel-row label {
+  margin: 0;
+  white-space: nowrap;
+  min-width: 90px;
+}
+.river-badge-distributary {
+  background: rgba(64, 210, 225, 0.15);
+  color: #40d2e1;
+  border: 1px solid rgba(64, 210, 225, 0.35);
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-size: 10px;
+  margin-left: 6px;
+}
+.river-badge-tributary {
+  background: rgba(127, 178, 229, 0.15);
+  color: #7fb2e5;
+  border: 1px solid rgba(127, 178, 229, 0.35);
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-size: 10px;
+  margin-left: 6px;
+}
+.nav-badge-pill {
+  font-size: 10px;
+  padding: 1px 4px;
+  border-radius: 3px;
+  text-transform: capitalize;
+}
+.nav-badge-non-navigable { color: var(--ink-faint); background: rgba(255,255,255,0.06); }
+.nav-badge-navigable { color: #8be5ee; background: rgba(64,210,225,0.12); }
+.nav-badge-estuarine { color: #5eafe6; background: rgba(43,115,168,0.22); }

@@ -624,11 +624,12 @@ export default function App() {
       dispatch({
         type: 'setRiverNavigability',
         indices,
-        navigable: riverTool.paintNavigable,
+        navigable: riverTool.paintNavigability !== 'non-navigable',
+        navigability: riverTool.paintNavigability,
         downstream: riverTool.downstream,
       });
     },
-    [riverTool.paintNavigable, riverTool.downstream],
+    [riverTool.paintNavigability, riverTool.downstream],
   );
 
   const onCityMove = useCallback(

@@ -30,6 +30,7 @@ import type {
   PolitiesData,
   PopulationData,
   River,
+  RiverNavigability,
   RiverSegment,
   Vegetation,
   VegetationData,
@@ -256,6 +257,7 @@ export interface RiverPathInput {
   name: string;
   path: { col: number; row: number }[];
   navigable?: boolean[];
+  navigability?: RiverNavigability[];
   /** The id of the river this one should flow into, when its path ends on that river. */
   joins?: string;
   /** A distributary may go without a name; any other river is called "Unnamed river" if it has none. */
@@ -370,13 +372,15 @@ export function buildRiverFromPath(
         }
       }
     }
-    const navigable = input.navigable?.[i + lead] ?? false;
+    const navigability = input.navigability?.[i + lead] ?? (input.navigable?.[i + lead] ? 'navigable' : 'non-navigable');
+    const navigable = navigability !== 'non-navigable';
     segments.push({
       col: hex.col,
       row: hex.row,
       entryEdge: entryEdge === -1 ? null : entryEdge,
       exitEdge: exitEdge === -1 ? null : exitEdge,
       navigable,
+      navigability,
     });
   }
 

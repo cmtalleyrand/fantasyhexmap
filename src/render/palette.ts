@@ -92,6 +92,7 @@ export const MAP_COLOURS = {
   river: '#3f8fd0',
   coastMark: '#9fe0ff',
   riverNonNavigable: '#5aa6de',
+  riverEstuarine: '#2b73a8',
   /** The darker edge of a tapered river. */
   riverBank: '#2c6a9c',
   elevationContour: 'rgba(37,30,22,0.72)',
