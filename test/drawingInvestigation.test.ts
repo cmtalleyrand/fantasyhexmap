@@ -4,7 +4,7 @@ import { nearestOn } from '../src/render/footprint.ts';
 import { hexCenter, pixelToOffset } from '../shared/hex.ts';
 import { beginRenderProfile, endRenderProfile } from '../src/render/profile.ts';
 import { windingRiver, riverMetrics, cases, buildScene, landTestOf } from '../scripts/drawing-investigation-fixtures.ts';
-import { riverCourse, landBySide } from '../src/render/rivers.ts';
+import { riverCourse } from '../src/render/rivers.ts';
 import { evenOddTest } from '../src/render/coast.ts';
 import { pathPolylines } from '../src/render/ice.ts';
 import type { Prim } from '../src/render/prims.ts';
@@ -21,13 +21,6 @@ test('gentle rivers stay in their hexes and below 60 degrees across 400 pinned s
     assert.equal(metrics.outside, 0, `s${n}: left own hexes`);
     assert.ok(metrics.maxTurn < 60, `s${n}: ${metrics.maxTurn} degrees at ${metrics.turnAt}`);
   }
-});
-
-test('nearest-segment side misclassifies a point beyond a sharp spit tip', () => {
-  const ring = [{ x: 0, y: 0 }, { x: 20, y: 10 }, { x: 0, y: 20 }];
-  const parity = evenOddTest([ring], 2), point = { x: 20.11, y: 10.09 };
-  assert.equal(parity(point), false);
-  assert.equal(landBySide([[...ring, ring[0]!]], 100, parity)(point), true);
 });
 
 test('island land queries agree with the finished irregular island paths', () => {

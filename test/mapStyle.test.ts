@@ -1561,18 +1561,8 @@ test('a river into the sea ends at the coast as drawn, wherever that is', () => 
   for (const cmd of course.outline) if (cmd[0] === 'L' || cmd[0] === 'M') assert.ok((cmd[1] as number) < shoreAt + size * 0.05);
 });
 
-test('the side of the coast line a point falls on says whether it is land', async () => {
-  const { landBySide } = await import('../src/render/rivers.ts');
-  // A coast running down the page with the land to its right as it travels (the left of the screen).
-  const land = landBySide([[{ x: 100, y: 0 }, { x: 100, y: 200 }]], 30, () => true);
-  assert.equal(land({ x: 90, y: 100 }), true);
-  assert.equal(land({ x: 110, y: 100 }), false);
-  // Away from every line it defers to the hexes.
-  assert.equal(land({ x: 500, y: 100 }), true);
-});
-
-test('the river bows round the icon of a city on its bank, and the icon is pressed against the bowed bank', async () => {
-  const { pressPoint, pressIcon, PRESS, SET_IN } = await import('../src/render/riverCity.ts');
+test('the river bows round the icon of a city on its bank', async () => {
+  const { PRESS, SET_IN } = await import('../src/render/riverCity.ts');
   const size = 40;
   const map = islandMap();
   const river = map.layers.rivers.data!.rivers[0]!;
@@ -1592,23 +1582,6 @@ test('the river bows round the icon of a city on its bank, and the icon is press
   // The icon is set into the bank, not on the river.
   assert.ok(Math.hypot(m.x - at.x, m.y - at.y) < size, 'the icon stays in its hex');
 
-  // Pressing: a point in the water goes to the bank, and a disc pressed against a bend follows it.
-  const bend = Array.from({ length: 41 }, (_, i) => ({ x: i * 2, y: i < 20 ? 40 : 40 + (i - 20) * 1.6 }));
-  const widths = bend.map(() => 4);
-  const reachOf = { line: bend, widths };
-  const wet = pressPoint(reachOf, { x: 30, y: 41 }, 0.5);
-  assert.ok(Math.abs(wet.y - 40) >= 2.5 - 1e-6, 'a point in the river is slid onto its bank');
-  assert.deepEqual(pressPoint(reachOf, { x: 30, y: 20 }, 0.5), { x: 30, y: 20 }, 'a point on land is not moved');
-  const disc = pressIcon([{ kind: 'circle', c: { x: 40, y: 44 }, r: 12, fill: '#000', stroke: '#fff', strokeWidth: 1 }], reachOf, 0.5, 1);
-  assert.equal(disc[0]!.kind, 'polygon', 'a circle becomes a polygon so that it can bend');
-  const pts = (disc[0] as { points: Array<{ x: number; y: number }> }).points;
-  const dist = (p: { x: number; y: number }) => Math.min(...bend.map((q) => Math.hypot(q.x - p.x, q.y - p.y)));
-  assert.ok(pts.every((p) => dist(p) >= 2.5 - 0.7), 'no part of the icon lies in the water');
-  assert.ok(pts.filter((p) => dist(p) < 3.5).length >= 4, 'part of its edge lies along the bank');
-  // The icon of a city that straddles the river stands on it, and is parted: halves on both banks.
-  const split = pressIcon([{ kind: 'circle', c: { x: 40, y: 40 }, r: 12, fill: '#000' }], reachOf, 0.5, 1)[0] as { points: Array<{ x: number; y: number }> };
-  assert.ok(split.points.some((p) => p.y < 40 - 2) && split.points.some((p) => p.y > 40 + 2), 'a metropolis is parted along the river');
-  assert.ok(split.points.every((p) => Math.abs(p.y - 40) >= 2.5 - 1e-6 || Math.abs(p.x - 40) > 11), 'and none of it lies in the water');
   const straddled = riverCourse(river, size, 'seed', { cities: cities(true) })!;
   assert.deepEqual(straddled.centreline.slice(0, 3), bare.centreline.slice(0, 3), 'a river is not bowed for a city that straddles it');
   assert.equal(SET_IN > 0 && SET_IN < 1, true);

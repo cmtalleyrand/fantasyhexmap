@@ -113,50 +113,58 @@ throws naming the failed groups (`Drawing sweep failed: coverage`). `launchBrows
   preinstalled Chromium only with `--chromium <path>`. Also read an environment variable such as
   `CHROMIUM_PATH`, so managed environments with `/opt/pw-browsers/chromium` work without flags.
 
-### 7. Drop Classic's cases when Classic is retired
+### 7. Retire the Classic preset, with its tests and sweep cases
 
-The owner does not need the Classic preset's look preserved (`docs/simplification-next-steps.md`
-§4.5). When it is retired, delete its cases from the sweeps (`['classic','parchment','atlas']` in the
-coverage loop) and from the Node tests, together with tests of Classic-only fallbacks. Keep the
-legacy-normalisation test, changed to expect saved Classic choices to load as the default preset.
+The owner wants Classic retired outright; its look need not be preserved. Parchment
+(`NEW_USER_STYLE_CHOICE`) becomes the only fallback. One PR, in this order:
 
-## Known red check
+1. **Fallbacks in `src/render/styles.ts`.** Remove `'classic'` from `StylePresetId`, the `CLASSIC`
+   preset object, `PRESETS.classic` and `PRESET_ORDER`. Set `DEFAULT_STYLE_CHOICE` to
+   `{ preset: 'parchment', overrides: {} }` (it can then be merged with `NEW_USER_STYLE_CHOICE`).
+   `resolveStyle` and `parseStyleChoice` fall back to Parchment instead of Classic. Rename
+   `CLASSIC_STYLE` to `DEFAULT_STYLE` at its uses (`scene.ts`, `export.ts`, `legend.ts`).
+2. **Saved maps and prefs.** `parseStyleChoice` already maps an unknown preset to the fallback, so a
+   saved `preset: 'classic'` loads as Parchment, keeping its overrides. `src/api/settings.ts` (the
+   version 4 migration) writes `preset: 'classic'`; make it write the default preset. Keep, or add,
+   one test: a saved Classic choice with an override loads as Parchment with that override.
+3. **Sweeps.** In `scripts/drawing-investigation-extended.mjs`, drop `'classic'` from the `--preset`
+   check and from both loops (coverage and enclosed seas). In `scripts/drawing-investigation-fixtures.ts`,
+   drop `'classic'` from `options()` and change the `['classic', 20, 'coverage-1']` case to another
+   preset. Seed names stay, so the known red cases keep their names.
+4. **Tests.** About 25 tests name Classic (`grep -rni classic test`): most in `mapStyle.test.ts`, with
+   others in `scenePainter`, `sceneBuilder`, `mapPresentation`, `riverSinuosity`, `drawingInvestigation`,
+   `citySites`, `baseGeography` and `incrementalRender`. Delete tests that exist only to check Classic's
+   look; point the rest at Parchment.
+5. **The style-less default.** Many tests call `buildScene` without a `style`, so they draw Classic
+   today and will draw Parchment. Run `npm test` and fix only what the change of default breaks. A
+   failure that checks a Classic-only colour or stroke is deleted, not rewritten.
 
-`npm run test:drawing-sweeps` fails on `main` and on PR #160 for one reason. The land-share tolerance
-is 5 percentage points. Four coverage cases at a 90% share draw too little land:
+**Not part of this step.** The word "classic" also names three knob values that other presets offer
+as options: `rivers: 'classic'` (untapered "Even strokes" rivers), `lettering: 'classic'` (Palatino) and
+`cityMarkers: 'classic'` ("Dots and rings"). Retiring the preset leaves them in place. Removing any
+of them is a separate decision for the owner, with its own saved-value migration. Note it in the PR;
+do not do it.
 
-- `coverage-8`: 77.3–77.4% under parchment and atlas;
-- `coverage-2`: 81.4% under parchment and atlas.
+**Checks.** `npm test`, `npm run test:slow`, `npm run typecheck`, `npm run build`,
+`npm run test:drawing-pixels`, `npm run test:drawing-sweeps`. The sweeps must give the same verdict:
+only the known `coverage-2` and `coverage-8` cases over tolerance (under Parchment and Atlas).
 
-The cause is in coast geometry, not in the tests. A jutting high-share hex starts with too little land.
-The coast fit then stops at the cumulative distortion bound from #158, which
-`test/coastFitDistortion.test.ts` asserts. `docs/drawing-work-plan.md` §4 sets out the options. Test work must not change
-either the 5-point gate or that bound to make the sweep pass.
+### 8. Delete tests that do not earn their place — first pass done
 
-### 8. Delete tests that do not earn their place
+A test stays only if it fails when the app does something wrong that a user or a saved map would
+notice. Done: `landBySide` and `pressIcon` (no callers), with their tests, and the helpers only
+`pressIcon` used; `sceneHelpers.test.ts`; the "Opus 4.8" row test in `models.test.ts`; the river
+prompt wording test, and wording and constant checks in `promptAlignment.test.ts`. That is 211 lines,
+5 tests (572 to 567) and 3 dead functions.
 
-Many of the 574 fast tests would not catch a bug a user could see. Before steps 4 and 5 (which rewrite
-tests), delete those, so the rewrite touches fewer files. A test stays only if it fails when the app
-does something wrong that a user or a saved map would notice. Delete, with the code they keep alive:
+Left for later, since each needs reading through a large file test by test:
 
-- **Tests of code nothing else uses.** `landBySide` (`src/render/rivers.ts`) has no caller; its only
-  test (`drawingInvestigation.test.ts`, "nearest-segment side misclassifies…") shows that it is wrong.
-  `pressIcon` (`src/render/riverCity.ts`) is "unused by the renderers, for its tests" (DECISIONS).
-  Delete each function with its tests.
-- **Tests of test helpers.** `sceneHelpers.test.ts` tests a six-line helper that every test using it
-  already exercises.
-- **Tests that restate a table.** Tests that pin one row of a configuration table (`models.test.ts`:
-  "Opus 4.8 is asked to think…") fail only when the table is edited on purpose. Keep the rules
-  (an effort the model does not accept is stepped down; an unknown model gets the default request), not
-  one test per model.
-- **Tests that match prompt wording.** `promptAlignment.test.ts` and similar files `assert.match` on
-  phrases of the prompt (`/Do not infer another scale/`). Keep checks that a value reaches the prompt;
-  drop checks of its wording.
-- **Duplicates across files.** `mapStyle.test.ts` (76 tests, 1,800 lines) has become a catch-all,
-  mostly about rivers, which `riverEditing.test.ts`, `riverJoinLength.test.ts` and
-  `riverSinuosity.test.ts` also cover. Move what is unique to the river files; delete the overlap.
-
-Report the count deleted, and the `npm test` time before and after, in the PR.
+- **Prompt wording elsewhere.** `layerResponseHandling.test.ts` and `webchatStyles.test.ts` have
+  `assert.match` checks on text; keep the ones that check a value arrives, drop wording.
+- **`mapStyle.test.ts`.** 76 tests in 1,800 lines, mostly rivers, overlapping `riverEditing`,
+  `riverJoinLength` and `riverSinuosity`. Move what is unique to those files and delete the overlap.
+  Do this after step 7, which deletes many of its Classic tests.
+- **`hexShapes.test.ts`.** 44 tests in 1,000 lines; not yet reviewed.
 
 ## A red suite on main, and how it was fixed
 
@@ -176,7 +184,8 @@ now caught by CI; check `git diff <its base> <its result>` for unrelated deletio
 | 1 | 1 (Node suite in CI) | Done |
 | 2 | 2, 3 (fast tier) | Done |
 | 3 | 6 (sweep reporting) | Done |
-| 4 | 8 (delete tests that do not earn their place) | Fewer tests for steps 4 and 5 to rewrite |
-| 5 | 4 (equality helper) | Removes duplication before the larger rewrite |
-| 6 | 5 (role tags) | The largest step; fewer than 14 files once step 8 is done |
-| 7 | 7 | Only once Classic is retired |
+| 4 | 8, first pass | Done |
+| 5 | 7 (retire Classic) | The owner wants it; deletes many tests before the rewrites |
+| 6 | 8, rest (`mapStyle.test.ts` and prompt-wording files) | Smaller after step 7 |
+| 7 | 4 (equality helper) | Removes duplication before the larger rewrite |
+| 8 | 5 (role tags) | The largest step; fewer files once 7 and 8 are done |

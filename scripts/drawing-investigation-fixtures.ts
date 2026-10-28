@@ -9,7 +9,7 @@ export { drawScene } from '../src/render/canvas.ts';
 export { sceneToSvg } from '../src/render/svg.ts';
 export { auditScene } from '../src/render/audit.ts';
 export { textPrims, textBoxes } from '../src/render/collide.ts';
-export { riverCourse, landBySide } from '../src/render/rivers.ts';
+export { riverCourse } from '../src/render/rivers.ts';
 export { pathPolylines } from '../src/render/ice.ts';
 export { beginRenderProfile, endRenderProfile } from '../src/render/profile.ts';
 export function windingRiver(): River {
