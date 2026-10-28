@@ -8,7 +8,7 @@ import { resolveStyle } from '../src/render/styles.ts';
 import { hexCenter, hexCorners, neighbourOf, inBounds, type Point } from '../shared/hex.ts';
 import { createMapState } from './seededMap.ts';
 import type { BaseGeo, Irregularity } from '../shared/types.ts';
-import type { Prim } from '../src/render/prims.ts';
+import { scenePaths } from './helpers/scene.ts';
 
 const W = 9, H = 8, size = 30, hexArea = 1.5 * Math.sqrt(3) * size * size;
 const id = (c: number, r: number) => r * W + c;
@@ -39,14 +39,9 @@ function coastRings(base: BaseGeo[], irregularity: Irregularity, shapes: Record<
   map.defaultIrregularity = irregularity;
   map.hexShapes = shapes as typeof map.hexShapes;
   const scene = buildScene(map, { size, visible: defaultVisibility(), labels: false, style });
-  const rings: Point[][] = [];
-  const gather = (prims: Prim[]) => {
-    for (const p of prims) {
-      if (p.kind === 'group') gather(p.prims);
-      if (p.kind === 'path' && p.stroke === style.palette.coast) rings.push(...pathPolylines(p.d, 8));
-    }
-  };
-  gather(scene.prims);
+  const rings = scenePaths(scene.prims)
+    .filter(p => p.stroke === style.palette.coast)
+    .flatMap(p => pathPolylines(p.d, 8));
   return rings.filter(r => r.length > 2 && Math.hypot(r[0]!.x - r.at(-1)!.x, r[0]!.y - r.at(-1)!.y) < 1e-6)
     .map(r => r.reduce((sum, p, k) => { const q = r[(k + 1) % r.length]!; return sum + p.x * q.y - q.x * p.y; }, 0) / 2 / hexArea);
 }
@@ -128,9 +123,9 @@ test('islands off a smoothed mainland keep their share, kept clear of the coast 
   map.islandSpecs = { [m]: { large: 0, small: 2 } };
   const smoothStyle = resolveStyle({ preset: 'parchment', overrides: { coast: 'smooth' } });
   const scene = buildScene(map, { size, visible: defaultVisibility(), labels: false, style: smoothStyle });
-  const paths: Point[][] = [];
-  const collect = (prims: Prim[]) => prims.forEach(p => p.kind === 'group' ? collect(p.prims) : p.kind === 'path' && p.stroke === smoothStyle.palette.coast ? paths.push(...pathPolylines(p.d, 12)) : undefined);
-  collect(scene.prims);
+  const paths = scenePaths(scene.prims)
+    .filter(p => p.stroke === smoothStyle.palette.coast)
+    .flatMap(p => pathPolylines(p.d, 12));
   // The islands: the small closed outlines in the hex.
   const centre = hexCenter(3, 3, size);
   const areaOf = (r: Point[]) => Math.abs(r.reduce((s, p, k) => { const q = r[(k + 1) % r.length]!; return s + p.x * q.y - q.x * p.y; }, 0)) / 2 / hexArea;

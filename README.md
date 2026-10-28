@@ -64,6 +64,22 @@ request is retried once without it.
 Other scripts: `npm run typecheck` (client and server), `npm run build` (production client bundle),
 `npm run dev:server` / `npm run dev:web` to run one half on its own.
 
+### Tests
+
+Run `npm test` for the Node suite; no browser, API key or app server is needed.
+It uses Node's test runner with the `tsx` loader, and runs in CI before the build.
+For a focused run, pass a file and optional name filter directly to Node:
+
+```bash
+node --import tsx --test test/lakeConcentration.test.ts
+node --import tsx --test --test-name-pattern="side 2" test/lakeConcentration.test.ts
+```
+
+Rendering tests use `test/seededMap.ts` for repeatable map seeds. The
+`test/helpers/scene.ts` helper collects paths through nested groups in paint order;
+it inspects geometry, without applying clips or transforms. Keep pixel assertions
+in the browser drawing checks below.
+
 ### Drawing tests
 
 The drawing checks use the pinned Playwright development dependency and its matching Chromium.
