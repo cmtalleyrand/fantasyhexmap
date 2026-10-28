@@ -33,6 +33,9 @@ jobs:
       - name: Node tests
         run: npm test
 
+      - name: Node tests (slow tier)
+        run: npm run test:slow
+
       - name: Build
         env:
           # Serves the site from https://<owner>.github.io/<repo>/

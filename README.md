@@ -68,6 +68,8 @@ Other scripts: `npm run typecheck` (client and server), `npm run build` (product
 
 Run `npm test` for the Node suite; no browser, API key or app server is needed.
 It uses Node's test runner with the `tsx` loader, and runs in CI before the build.
+`npm run test:slow` runs the slow tier in `test/slow/`: the remaining lake strait cases and
+the whole chain of incremental edits, of which `npm test` keeps one case per kind. CI runs both.
 For a focused run, pass a file and optional name filter directly to Node:
 
 ```bash

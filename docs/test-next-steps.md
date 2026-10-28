@@ -23,12 +23,13 @@ The test tiers:
 
 | Tier | Command | Runs in CI |
 |---|---|---|
-| Node suite: 71 files, about 10,500 lines, 562 tests | `npm test` (`tsx --test test/*.test.ts`) | No |
+| Node suite, fast tier: 574 tests, about 52 s on 4 cores | `npm test` (`test/*.test.ts`) | Yes (`deploy.yml`) |
+| Node suite, slow tier: 13 tests, about 37 s | `npm run test:slow` (`test/slow/*.test.ts`) | Yes (`deploy.yml`) |
 | Browser pixel checks, including the 400-river sweep | `npm run test:drawing-pixels` | Yes (`drawing-tests.yml`) |
 | Browser sweeps: 200 islands, 600 enclosed seas, 150 area cases | `npm run test:drawing-sweeps` | Yes (`drawing-tests.yml`) |
 | Typecheck and build | `npm run typecheck`, `npm run build` | Yes (`deploy.yml`) |
 
-The slowest Node files, measured per file:
+The slowest Node files before the split (steps 2 and 3), measured per file:
 
 | File | Time | Where it goes |
 |---|---:|---|
@@ -47,15 +48,21 @@ How tests are coupled to the scene's structure:
 
 ## Steps
 
-### 1. Run the Node suite in CI
+### 1. Run the Node suite in CI — done
 
-No workflow runs `npm test`. The 562 Node tests, including every cached-versus-uncached equality
+Done in PR #166. Before it, no workflow ran `npm test`. The 562 Node tests, including every cached-versus-uncached equality
 test and the coast distortion test, only run when someone runs them locally.
 
 Add an `npm test` step to the `build` job in `deploy.yml`, after typecheck, or add a separate job.
 Do this first: every later step relies on CI to catch a moved or broken test.
 
-### 2. Split a fast tier
+### 2. Split a fast tier — done
+
+`npm test` went from 82 s to 52 s wall time on 4 cores. The lake strait file keeps cases 4, 8, 12 and
+14 (one per width, each also setting a junction side, land share or roughness); the other twelve run in
+`test/slow/lakeStraitCases.test.ts`. `incrementalRender.test.ts` keeps every kind of edit on the Ragged
+coast galleries; `test/slow/incrementalChain.test.ts` replays the whole chain, Fractured included.
+The original brief:
 
 - **Lake straits.** Keep one representative case per strait width in the default `npm test`. Move
   the full parameter set behind an opt-in tier. Either use a separate glob, such as
@@ -65,12 +72,20 @@ Do this first: every later step relies on CI to catch a moved or broken test.
   split, settings, …) in the fast tier, and move the full chain of edits to the slow tier.
 - **Report the gain.** State the before/after wall time of `npm test` in the PR.
 
-### 3. Shrink the slow test from PR #160
+### 3. Shrink the slow test from PR #160 — done
+
+It uses a 12×12 fixture with two named rivers and six ownership edits (the first four reach both
+rivers on so small a map, so none would be reused), 11.6 s down to about 2.5 s. The original brief:
 
 In `riverLabelReuse.test.ts`, the scene-level test can use a 12×12 fixture with two rivers and keep its
 assertions. The random-obstacle test in the same file already covers the exactness of the reuse.
 
-### 4. One helper for cached-versus-uncached equality
+### 4. One helper for cached-versus-uncached equality — started
+
+`assertCachedBuildsMatch(cases, build?)` in `test/helpers/scene.ts` builds each case with caches on,
+then off, and names the case and the first differing path (`firstDifference`) on failure. The
+incremental chain uses it; the other hand-written comparisons remain to be moved onto it.
+The original brief:
 
 Add `assertRebuildsMatchUncached(map, options, edits)` to a shared test helper module. It applies
 each edit, builds with caches on, builds the same state with `cache: 'off'`, and compares the two
@@ -116,12 +131,23 @@ The coast fit then stops at the cumulative distortion bound from #158, which
 `test/coastFitDistortion.test.ts` asserts. `docs/drawing-work-plan.md` §4 sets out the options. Test work must not change
 either the 5-point gate or that bound to make the sweep pass.
 
+## A red suite on main, and how it was fixed
+
+After PR #166 put the Node suite in CI, `main` failed 7 tests. The cause was not in the tests: the
+river navigability commit (8ce06a5) had been written on copies of `featureLabels.ts`, `scene.ts`
+and `rivers.ts` from 34e4498, and so undid the later work in them (per-river name reuse, the opaque
+see-through realm band, composited rivers, shared paths, realm areas, the city-bow tolerance). That
+work was re-applied onto the navigability changes. Four tests were updated, at their old tolerances,
+to that commit's deliberate changes: river widths by navigability (−15% / +15%), fills by
+navigability, and a middle hex dragged onto a lake. A change written on a stale copy of a file is
+now caught by CI; check `git diff <its base> <its result>` for unrelated deletions before merging.
+
 ## Suggested order
 
 | Order | Step | Reason |
 |---|---|---|
-| 1 | 1 (Node suite in CI) | Without it, nothing below is checked in CI |
-| 2 | 2, 3 (fast tier) | Cuts every later cycle |
+| 1 | 1 (Node suite in CI) | Done |
+| 2 | 2, 3 (fast tier) | Done |
 | 3 | 6 (sweep reporting) | Small; makes the known red check readable |
 | 4 | 4 (equality helper) | Removes duplication before the larger rewrite |
 | 5 | 5 (role tags) | The largest step; touches 14 files |
