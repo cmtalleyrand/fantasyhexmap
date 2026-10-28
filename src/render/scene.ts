@@ -123,7 +123,7 @@ import { signed, unit } from './seed.js';
 import { descendantsOf } from '../../shared/polityTree.js';
 import { ELEVATION_RANK, floeFringe, glacierEdges, glacierFlow, glacierMarginPrims, glacierShading, glacierShelf, iceSeam, nearHexes, pathPolylines, seaIcePrims } from './ice.js';
 import { areaCoverage, coveredArea, nearestOn, lakeStraitFrame, shapeCoast, type ShapeMemo, type ShapeTarget } from './footprint.js';
-import { LAND_SHARE_TOLERANCE, channelShareSet, channelWidthFraction, drawnLandFraction, landFraction, normaliseHexDimensions } from '../../shared/surfaceArea.js';
+import { LAND_SHARE_TOLERANCE, withShoreSlack, channelShareSet, channelWidthFraction, drawnLandFraction, landFraction, normaliseHexDimensions } from '../../shared/surfaceArea.js';
 import { isShoreLand } from '../../shared/derive.js';
 import { fitCoastAreas } from './coastArea.js';
 import { coastPaintPatches, coastPaintPaths } from './coastPaint.js';
@@ -486,9 +486,13 @@ function cachedCoast(
   const hexAreaOf = 1.5 * Math.sqrt(3) * size * size;
   // Land meeting sea or lake is drawn at the coastal share: the shore is derived, not a type.
   const shore = base.map((_, i) => isShoreLand(base, cols, i));
-  const ownShare = (i: number): number | null => base[i] === 'Lake' || base[i] === 'Sea'
-    ? landFraction(base[i], undefined, dimensions, shapes?.[String(i)])
-    : drawnLandFraction(base[i], dimensions, shapes?.[String(i)], shore[i]);
+  // Each side of a shore keeps a little room for the other (`withShoreSlack`).
+  const ownShare = (i: number): number | null => {
+    const own = base[i] === 'Lake' || base[i] === 'Sea'
+      ? landFraction(base[i], undefined, dimensions, shapes?.[String(i)])
+      : drawnLandFraction(base[i], dimensions, shapes?.[String(i)], shore[i]);
+    return own === null ? null : withShoreSlack(base, cols, i, own, dimensions, shapes);
+  };
   for (let i = 0; i < base.length; i++) {
     const shape = hexShapeFor(base[i], shapes?.[String(i)], defaultIrregularity);
     const own = ownShare(i);
@@ -561,7 +565,7 @@ function cachedCoast(
       const shape = shapes?.[String(i)];
       return base[i] !== 'Land' || shape?.land !== undefined || (shape?.concentration ?? 0) > 0;
     })) continue;
-    const area = cells.reduce((sum, i) => sum + landFraction(base[i], undefined, dimensions, shapes?.[String(i)], shore[i]) * hexAreaOf, 0);
+    const area = cells.reduce((sum, i) => sum + withShoreSlack(base, cols, i, landFraction(base[i], undefined, dimensions, shapes?.[String(i)], shore[i]), dimensions, shapes) * hexAreaOf, 0);
     for (const i of cells) { aggregateArea.set(i, area); targets.delete(i); }
   }
   const passageFrames = [...targets].flatMap(([i, target]) => {

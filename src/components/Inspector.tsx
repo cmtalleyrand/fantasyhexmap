@@ -762,6 +762,7 @@ function HexShapePanel(props: SubProps) {
             {landHexes.some((i) => base![i] === 'Land')
               ? ' Land is cut back from the edges it shares with sea or lake; inland Land is always whole.'
               : ''}
+            {' Each side of a shore keeps a little room for the other: land beside sea or lake with no land is drawn at most 95% land, and sea or lake beside whole land at least 5%.'}
             {landHexes.some((i) => base![i] === 'Lake')
               ? ' In a lake hex this is land drawn in from the edges it shares with land (the lake keeps the rest); 0% leaves the lake as it is.'
               : ''}

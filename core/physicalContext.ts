@@ -30,6 +30,7 @@ export function physicalContext(ctx: PromptContext): string {
     'Island land is the sum of its large/small island percentages, plus mainland where applicable, capped at 100%.',
     'Without an explicit land percentage, Isthmus land fraction = min(1, 2/sqrt(3) * channel-width fraction);',
     'Strait land fraction = 1 minus that value. Land-bearing Lake/Strait hexes still have no land-only layer values.',
+    'Shore slack: a Sea or Lake hex beside a Land or Glacier hex at 100% has at least 5% land, and a Land or Glacier hex beside a Sea or Lake hex at 0% has at most 95% land. The measured grid below includes this.',
   ];
   if (ctx.base) {
     const fractions = ctx.base.map((_, i) => landFractionAt(ctx.base!, i, dims, ctx.islandSpecs, ctx.hexShapes, ctx.cols));

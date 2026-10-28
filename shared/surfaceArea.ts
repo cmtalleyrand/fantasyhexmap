@@ -150,7 +150,49 @@ export function landFractionAt(
     if (!shore) return 0;
   }
   const shore = cols !== undefined && isShoreLand(base, cols, index);
-  return landFraction(base[index], specs?.[String(index)], dimensions, shapes?.[String(index)], shore);
+  const own = landFraction(base[index], specs?.[String(index)], dimensions, shapes?.[String(index)], shore);
+  return cols === undefined ? own : withShoreSlack(base, cols, index, own, dimensions, shapes);
+}
+
+/**
+ * How much of a hex either side of a shore always keeps for the other: water beside land that is
+ * whole has at least this much land, and land beside water that has none at most one minus it.
+ * A roughened coast wanders either side of the hex edge it follows, so a whole land hex beside
+ * landless water asks for a shoreline that cannot exist; this leaves it room on both sides.
+ */
+export const SHORE_SLACK = 0.05;
+
+/** Whole hexes a shore runs between: land that can be cut back, and water that can grow land. */
+const SHORE_LAND: ReadonlySet<BaseGeo> = new Set(['Land', 'Glacier']);
+const SHORE_WATER: ReadonlySet<BaseGeo> = new Set(['Sea', 'Lake']);
+
+/**
+ * `share`, the land share hex `index` has of its own, held to the shore slack (`SHORE_SLACK`): a Sea
+ * or Lake hex beside a whole Land or Glacier hex has at least that much land, and a Land or Glacier
+ * hex beside a landless Sea or Lake hex at most one minus it. Each side judges its neighbour by the
+ * neighbour's own share, so the two rules never feed one another.
+ */
+export function withShoreSlack(
+  base: ReadonlyArray<BaseGeo | null | undefined>, cols: number, index: number, share: number,
+  dimensions: HexDimensions, shapes?: Record<string, HexShape>,
+): number {
+  const value = base[index];
+  const land = value !== null && value !== undefined && SHORE_LAND.has(value);
+  const water = value !== null && value !== undefined && SHORE_WATER.has(value);
+  if (!land && !water) return share;
+  const rows = Math.floor(base.length / cols);
+  let floor = 0, ceiling = 1;
+  for (let e = 0; e < 6; e++) {
+    const n = neighbourOf(index % cols, Math.floor(index / cols), e);
+    if (!inBounds(cols, rows, n.col, n.row)) continue;
+    const j = n.row * cols + n.col, v = base[j];
+    if (!v) continue;
+    // The neighbour's own share: Land beside this water is on a shore by definition.
+    const theirs = () => landFraction(v, undefined, dimensions, shapes?.[String(j)], v === 'Land');
+    if (water && SHORE_LAND.has(v) && theirs() >= 1) floor = SHORE_SLACK;
+    if (land && SHORE_WATER.has(v) && theirs() <= 0) ceiling = 1 - SHORE_SLACK;
+  }
+  return Math.min(ceiling, Math.max(floor, share));
 }
 
 /**
