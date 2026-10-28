@@ -113,7 +113,7 @@ import { riverCourses, type RiverCourse } from './rivers.js';
 import { measureRiverCourse, type RiverMeasurement } from '../../shared/riverLength.js';
 import { lakeShoreFields } from './lakeShoreField.js';
 import { citySite, lakeEdgesOf, resolvedSite } from './sites.js';
-import { FIT_SCALES, escarpment, escarpmentWithinLand, hillshade, keepToLand, refit, samplePoints, type Fitted, reliefSymbols, symbolAnchor, vegetationSymbols, type Placed } from './symbols.js';
+import { FIT_SCALES, smoothPlateauRims, plateauRimVertex, escarpment, escarpmentWithinLand, hillshade, keepToLand, refit, samplePoints, type Fitted, reliefSymbols, symbolAnchor, vegetationSymbols, type Placed } from './symbols.js';
 import { ownersAtDepth, polityDepths, polityDisplayColours, toned } from './hierarchy.js';
 import { topLevelOf } from '../../shared/polityTree.js';
 import { cityStateSeats } from '../../shared/cityState.js';
@@ -2848,6 +2848,7 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
   if (relief === 'illustrated' && base) {
     const vegetation = opts.visible.vegetation ? layers.vegetation.data : null;
     const placed: Placed[] = [];
+    const scarps: Array<{ hex: number; a: Point; b: Point; centre: Point; colours: { ground: string; ink: string }; rand: (k: number) => number; rim: [Point, Point] }> = [];
     // A symbol stands on the land as drawn, not on the hex it belongs to: a hex cut back to a
     // small land share keeps its peaks on that land, and an island's or a strait's bank's
     // relief stands on the island or the bank.
@@ -2888,16 +2889,36 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
           const there = elevationData?.[j] ?? null;
           if (there === 'Plateau' || there === 'Highland' || there === 'Mountains') continue;
           const [a, b] = hexEdgePoints(col, row, e, size);
-          const scarp = escarpment(a, b, centre, size, colours, (k) => rand(600 + e * 20 + k));
-          // An escarpment runs along a border with land; where reshaping has put water there, it is left out.
-          if (settled[i] === 1 || escarpmentWithinLand(scarp, dry, inkReachOf + size * 0.015)) {
-            placed.push(scarp);
-            trace(i, [scarp]);
-          }
+          // At a corner, both incident escarpments use the same plateau centres,
+          // including a plateau across another edge of this hex.
+          const rimVertex = (vertex: Point): Point => {
+            const centres = [centre];
+            for (let side = 0; side < 6; side++) {
+              const h = neighbourOf(col, row, side);
+              if (!inBounds(cols, rows, h.col, h.row)) continue;
+              const index = hexIndex(cols, h.col, h.row);
+              if (elevationData?.[index] !== 'Plateau' || isWater(index) || inLakeBody.has(index)) continue;
+              const c = hexCenter(h.col, h.row, size);
+              if (Math.abs(Math.hypot(c.x - vertex.x, c.y - vertex.y) - size) < size * 1e-6) centres.push(c);
+            }
+            return plateauRimVertex(vertex, centres, size);
+          };
+          scarps.push({ hex: i, a, b, centre, colours, rand: (k) => rand(600 + e * 20 + k), rim: [rimVertex(a), rimVertex(b)] });
         }
       }
       for (let k = firstOfHex; k < placed.length; k++) placed[k]!.hex = i;
     }
+    const smoothRims = smoothPlateauRims(scarps.map(s => s.rim), { size, seed: unit(seed, 'plateau-contour') });
+    scarps.forEach((s, k) => {
+      const scarp = escarpment(s.a, s.b, s.centre, size, s.colours, s.rand, smoothRims[k]!);
+      // Smoothing can cross a neighbouring cell; check the whole curved cliff
+      // against the drawn shore, even when its owning cell is entirely land.
+      if (escarpmentWithinLand(scarp, dry, inkReachOf + size * 0.015)) {
+        scarp.hex = s.hex;
+        placed.push(scarp);
+        trace(s.hex, [scarp]);
+      }
+    });
     placed.sort((a, b) => a.y - b.y);
     for (const p of placed) {
       if (p.hex !== undefined) reliefRuns.push({ hex: p.hex, at: symbolAnchor(p), from: prims.length, to: prims.length + p.prims.length });
