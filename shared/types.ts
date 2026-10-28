@@ -485,6 +485,11 @@ export interface GeoName {
   kind: GeoNameKind;
   /** Do not draw this particular name, independently of the global name display settings. */
   hidden?: boolean;
+  /**
+   * Place this name before realm names, and have realm, river and city names keep clear of it;
+   * a name that is not prioritised is left out where it would cover one that is.
+   */
+  priority?: boolean;
   /** Flat hex indices (`row * cols + col`). */
   hexes: number[];
 }
@@ -562,6 +567,30 @@ export interface Polity {
    * (the capital, else the largest city in its land) instead of a realm name.
    */
   cityState?: boolean;
+  /** Do not draw this realm's name on the map (its territory and legend entry are unchanged). */
+  labelHidden?: boolean;
+  /**
+   * Name this realm before the others at its level, whatever its size and the minimum size for
+   * names, and leave out a geographical name that is not prioritised where it would cover it.
+   */
+  labelPriority?: boolean;
+}
+
+/** How one name is drawn: as usual, not at all, or ahead of the names it would compete with. */
+export type LabelDisplay = 'normal' | 'hidden' | 'priority';
+
+export const LABEL_DISPLAY_TEXT: Record<LabelDisplay, string> = {
+  normal: 'Shown',
+  priority: 'Prioritised',
+  hidden: 'Hidden',
+};
+
+export function geoNameDisplay(name: Pick<GeoName, 'hidden' | 'priority'>): LabelDisplay {
+  return name.hidden ? 'hidden' : name.priority ? 'priority' : 'normal';
+}
+
+export function polityLabelDisplay(polity: Pick<Polity, 'labelHidden' | 'labelPriority'>): LabelDisplay {
+  return polity.labelHidden ? 'hidden' : polity.labelPriority ? 'priority' : 'normal';
 }
 
 /** Per-hex flat arrays are indexed `row * cols + col`. */

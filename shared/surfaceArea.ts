@@ -7,6 +7,8 @@ import {
   islandSpecFor,
   type BaseData,
   type BaseGeo,
+  type GeoNameKind,
+  type MapState,
   type HexShape,
   type IslandSpec,
   type HexDimensions,
@@ -15,6 +17,7 @@ import {
 import { straitSharers } from './straits.js';
 import { neighbourOf, inBounds } from './hex.js';
 import { isShoreLand } from './derive.js';
+import { geoEligibility, geoNamesOf, liveHexes } from './geoNames.js';
 
 /**
  * How far (as a share of a hex, 0 to 1) the land a hex is drawn with may stray from its land share
@@ -365,6 +368,43 @@ export function landLayerSurfaceStatistics(
     stat.area += hexArea * landFractionAt(base, index, dimensions, specs, shapes, cols);
   }
   return [...stats.values()].filter((stat) => stat.hexCount > 0);
+}
+
+export interface GeoNameArea {
+  id: string;
+  name: string;
+  kind: GeoNameKind;
+  /** Hexes of the name that its kind may still hold on the current base geography. */
+  hexCount: number;
+  /** Water area for a sea or lake, land area for a land feature or island, in square `unit`s. */
+  area: number;
+}
+
+/**
+ * The surface area of every named sea, lake, land feature and island, in the order they are kept.
+ * A sea or lake measures the water of its hexes and a land feature or island their land, each hex
+ * weighted by its land share as drawn (`landFractionAt`). Hexes its kind can no longer hold are
+ * left out, as they are on the map. Hidden names are measured like the rest.
+ */
+export function geoNameSurfaceAreas(
+  map: Pick<MapState, 'geoNames' | 'waterNames' | 'layers' | 'cols' | 'rows' | 'hexDimensions' | 'islandSpecs' | 'hexShapes'>,
+): GeoNameArea[] {
+  const base = map.layers.base.data;
+  if (!base) return [];
+  const dimensions = normaliseHexDimensions(map.hexDimensions);
+  const hexArea = dimensions.width * dimensions.height * 0.75;
+  const eligible = new Map<GeoNameKind, (index: number) => boolean>();
+  return geoNamesOf(map).map((n) => {
+    if (!eligible.has(n.kind)) eligible.set(n.kind, geoEligibility(n.kind, base, map.cols, map.rows));
+    const hexes = liveHexes(n, eligible.get(n.kind)!);
+    const water = n.kind === 'sea' || n.kind === 'lake';
+    let area = 0;
+    for (const index of hexes) {
+      const land = landFractionAt(base, index, dimensions, map.islandSpecs, map.hexShapes, map.cols);
+      area += hexArea * (water ? 1 - land : land);
+    }
+    return { id: n.id, name: n.name, kind: n.kind, hexCount: hexes.length, area };
+  });
 }
 
 /** Which single measurement of a regular pointy-top hex the user supplies. */

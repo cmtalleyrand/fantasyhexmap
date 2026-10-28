@@ -439,9 +439,21 @@ known, it also gives a rough cost; the change history keeps the same figures.
 - **Legend.** Either image export can append a legend panel to the right of the map. It describes
   what is actually painted: a hidden layer, or a fill layer outranked by a more derived one, is not
   listed. Options: include or leave out each layer's section, list only the values that occur on
-  the map (or every value a layer can take), show polity land areas, list each river with its
-  length, and head the legend with the map's name. Long legends continue in further columns. The panel is built from the same scene
+  the map (or every value a layer can take), show polity land areas, list each named sea, lake,
+  land feature and island with its surface area, list each river with its length, and head the
+  legend with the map's name. Long legends continue in further columns. The panel is built from the same scene
   primitives as the map, so PNG and SVG legends are identical.
+- **Named feature areas** (export panel, CSV). One row per named sea, lake, land feature and island
+  from the base geography: its kind, its hexes, its area in square units of the configured hex size
+  (water area for seas and lakes, land area for land features and islands, each hex weighted by its
+  land share as drawn) and how its label is displayed. Hidden names are measured too.
+- **Label display.** Every named geographical feature and every polity has its own label setting:
+  Shown (the default, placed as before), Prioritised or Hidden. A prioritised geographical name is
+  placed before realm names, which move off it, and river and city names keep clear of it; a
+  prioritised realm is named first among the realms at its level and whatever the minimum size for
+  realm names. A geographical name that is not prioritised is left out where it would cover a
+  prioritised name, and the drawing notes say so. Hiding a realm's name leaves its territory, colour
+  and legend entry as they are.
 - **Map furniture.** Image export can add a frame (a double rule just inside the page edge, with a parchment margin band
   between it and the map), the map's name as a title, a scale bar and a compass rose. The scale bar is derived from the
   configured width of one hex (rounded down to 1, 2, 2.5 or 5 times a power of ten). Each piece is searched for in open sea,

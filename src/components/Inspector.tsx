@@ -12,6 +12,7 @@ import type { DrawingCompromise } from '../render/scene.js';
 import { groupCompromises } from '../render/compromises.js';
 import AreaEditControls from './AreaEditControls.js';
 import GeoNamesEditor from './GeoNamesEditor.js';
+import LabelDisplaySelect from './LabelDisplaySelect.js';
 import { LAYER_META, missingRequirements, stalenessOf } from '../../shared/layers.js';
 import {
   BASE_GEO_VALUES,
@@ -47,6 +48,7 @@ import {
   type Polity,
   type Irregularity,
   type VegetationGroup,
+  polityLabelDisplay,
 } from '../../shared/types.js';
 import { planMultiLayerEdit } from '../../shared/multiEdit.js';
 import { canSplit, passLabel, type PassSelection } from '../../core/rosters.js';
@@ -1373,6 +1375,12 @@ function PolityEditor(props: SubProps) {
                     />{' '}
                     City-state
                   </label>
+                  <LabelDisplaySelect
+                    className="grow"
+                    of={p.name}
+                    value={polityLabelDisplay(p)}
+                    onChange={(display) => dispatch({ type: 'setPolityLabelDisplay', id: p.id, display })}
+                  />
                 </div>
                 </details>
                 <div className="geo-actions">

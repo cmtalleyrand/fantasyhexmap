@@ -75,7 +75,8 @@ export interface LabelInput {
   rows: number;
   size: number;
   owner: (string | null)[];
-  polities: { id: string; name: string; shortName?: string }[];
+  /** `labelPriority`: named before the others, and named however small (see `Polity.labelPriority`). */
+  polities: { id: string; name: string; shortName?: string; labelPriority?: boolean }[];
   /** Markers and names already on the map that a polity name should not cover. */
   obstacles: LabelObstacle[];
   /** Defaults to {@link DEFAULT_POLITY_NAME_MIN}. */
@@ -278,8 +279,10 @@ export function placePolityLabels(input: LabelInput): PolityLabel[] {
     return input.land && !input.land({ x, y }) ? 'other' : 'own';
   };
 
+  // Prioritised realms first, so the others make room for them; within each group, largest first.
   const ordered = [...polities].sort(
-    (a, b) => (hexesByPolity.get(b.id)?.length ?? 0) - (hexesByPolity.get(a.id)?.length ?? 0),
+    (a, b) => Number(Boolean(b.labelPriority)) - Number(Boolean(a.labelPriority))
+      || (hexesByPolity.get(b.id)?.length ?? 0) - (hexesByPolity.get(a.id)?.length ?? 0),
   );
 
   const placed: PolityLabel[] = [];
@@ -291,7 +294,10 @@ export function placePolityLabels(input: LabelInput): PolityLabel[] {
     // the user's call. In auto mode a small polity is named only when a clean
     // placement exists (see `small` below), so nothing is forced into a hex.
     const small = owned.length < AUTO_CLEAN_FIT_BELOW;
-    if (minHexes !== 'auto' && owned.length < minHexes) continue;
+    if (owned.length === 0) continue;
+    if (minHexes !== 'auto' && owned.length < minHexes && !polity.labelPriority) continue;
+    // In auto mode a small realm is named only where its name fits cleanly, unless it is prioritised.
+    const cleanOnly = minHexes === 'auto' && small && !polity.labelPriority;
 
     const centres = owned.map((i) => hexCenter(i % cols, Math.floor(i / cols), size));
     const mean = centres.reduce((sum, c) => ({ x: sum.x + c.x, y: sum.y + c.y }), { x: 0, y: 0 });
@@ -527,7 +533,7 @@ export function placePolityLabels(input: LabelInput): PolityLabel[] {
       () => attempt(blockers, GOOD_COVERAGE, small ? Math.max(snug, idealSize * SMALL_ON_LAND) : snug),
       () => (small ? beside() : null),
       () => (small ? attempt(blockers, GOOD_COVERAGE, snug) : null),
-      ...(minHexes === 'auto' && small
+      ...(cleanOnly
         ? []
         : [
             () => attempt(names, GOOD_COVERAGE, snug),
@@ -545,7 +551,7 @@ export function placePolityLabels(input: LabelInput): PolityLabel[] {
     const realmName = polity.shortName?.trim() || polity.name;
     if (!found) {
       // A small realm in auto mode is named only where its name fits cleanly, by design.
-      if (!(minHexes === 'auto' && small)) {
+      if (!cleanOnly) {
         input.notes?.push({
           polityId: polity.id,
           what: `${realmName} is not named on the map`,

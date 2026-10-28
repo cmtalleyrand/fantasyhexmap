@@ -1,10 +1,12 @@
 import { hexCount } from './selectionText.js';
 import { useMemo, useState } from 'react';
 import { GEO_KIND_LABEL, GEO_NAME_KINDS, geoEligibility, geoNamesOf, liveHexes } from '../../shared/geoNames.js';
-import type { GeoNameKind, MapState } from '../../shared/types.js';
+import { formatArea, geoNameSurfaceAreas, normaliseHexDimensions } from '../../shared/surfaceArea.js';
+import { geoNameDisplay, type GeoNameKind, type MapState } from '../../shared/types.js';
 import type { Action } from '../state/store.js';
 import AreaEditControls from './AreaEditControls.js';
 import CommitInput from './CommitInput.js';
+import LabelDisplaySelect from './LabelDisplaySelect.js';
 
 export default function GeoNamesEditor(props: {
   map: MapState;
@@ -26,6 +28,8 @@ export default function GeoNamesEditor(props: {
     [base, kind, map.cols, map.rows],
   );
   const names = useMemo(() => geoNamesOf(map).filter((n) => n.kind === kind), [map, kind]);
+  const areas = useMemo(() => new Map(geoNameSurfaceAreas(map).map((a) => [a.id, a.area])), [map]);
+  const dimensions = normaliseHexDimensions(map.hexDimensions);
   const picked = selected.filter(eligible);
   const label = GEO_KIND_LABEL[kind];
   const choose = (id: string) => props.setPaintId(id);
@@ -76,7 +80,7 @@ export default function GeoNamesEditor(props: {
           return (
             <article key={n.id} className={`geo-card ${isActive ? 'active' : ''}`} aria-label={n.name}>
               <button className="geo-title" aria-pressed={isActive} onClick={() => choose(n.id)}>{n.name}</button>
-              <div className="geo-area">{isActive && <span className="area-key" />}Current area: <b>{hexCount(live.length)}</b>{isActive && <span className="geo-badge">Active</span>}</div>
+              <div className="geo-area">{isActive && <span className="area-key" />}Current area: <b>{hexCount(live.length)}</b> · {formatArea(areas.get(n.id) ?? 0, dimensions.unit, dimensions.areaRounding)} of {kind === 'sea' || kind === 'lake' ? 'water' : 'land'}{isActive && <span className="geo-badge">Active</span>}</div>
               {live.length < n.hexes.length && <details className="geo-help geo-excluded">
                 <summary>{n.hexes.length - live.length} assigned hex{n.hexes.length - live.length === 1 ? '' : 'es'} excluded</summary>
                 <p>{n.hexes.length} assigned in total. Excluded hexes no longer match this feature’s terrain and are not part of its displayed area.</p>
@@ -93,8 +97,8 @@ export default function GeoNamesEditor(props: {
               <div className="geo-actions">
                 <button onClick={() => { choose(n.id); props.setSelection(new Set(live)); }}>Select area</button>
                 {!isActive && <button onClick={() => choose(n.id)}>Edit area</button>}
-                <label className="check"><input type="checkbox" checked={!n.hidden}
-                  onChange={(e) => dispatch({ type: 'setGeoNameHidden', id: n.id, hidden: !e.target.checked })} />Show label</label>
+                <LabelDisplaySelect of={n.name} value={geoNameDisplay(n)}
+                  onChange={(display) => dispatch({ type: 'setGeoNameDisplay', id: n.id, display })} />
                 {isActive && <button onClick={() => props.setPaintId(null)}>Done editing</button>}
                 {isActive && <button className="danger" onClick={() => { dispatch({ type: 'removeGeo', id: n.id }); props.setPaintId(null); }}>Delete feature</button>}
               </div>

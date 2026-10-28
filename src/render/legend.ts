@@ -29,7 +29,8 @@ import { buildStaticScene, mix, thematicLayer, withLandOf, type CitySymbol, type
 import { LAYER_META } from '../../shared/layers.js';
 import { formatLength, riverLength, type RiverMeasurement } from '../../shared/riverLength.js';
 import { riverLabel } from '../../shared/riverEdit.js';
-import { formatArea, normaliseHexDimensions, politySurfaceAreas } from '../../shared/surfaceArea.js';
+import { formatArea, geoNameSurfaceAreas, normaliseHexDimensions, politySurfaceAreas } from '../../shared/surfaceArea.js';
+import { GEO_KIND_LABEL } from '../../shared/geoNames.js';
 import { isShoreLand } from '../../shared/derive.js';
 import {
   BASE_GEO_VALUES,
@@ -53,6 +54,8 @@ export interface LegendOptions {
   polityAreas: boolean;
   /** List every river with its length under the river symbols. */
   riverLengths: boolean;
+  /** List every named sea, lake, land feature and island with its surface area, after the base geography. */
+  featureAreas?: boolean;
   /** Head the legend with the map's name. */
   title: boolean;
 }
@@ -62,6 +65,7 @@ export const DEFAULT_LEGEND_OPTIONS: LegendOptions = {
   onlyUsed: true,
   polityAreas: false,
   riverLengths: false,
+  featureAreas: false,
   title: true,
 };
 
@@ -304,6 +308,15 @@ export function legendSections(
     }
 
     if (entries.length > 0) sections.push({ id, title, entries });
+    if (id === 'base' && options.featureAreas) {
+      const dimensions = normaliseHexDimensions(map.hexDimensions);
+      const colour = { sea: palette.sea, lake: palette.lake, land: palette.land, island: palette.land } as const;
+      const named = geoNameSurfaceAreas(map).map((f): LegendEntry => ({
+        swatch: { kind: 'fill', colour: colour[f.kind] },
+        label: `${f.name} (${GEO_KIND_LABEL[f.kind].singular.toLowerCase()}) - ${formatArea(f.area, dimensions.unit, dimensions.areaRounding)}`,
+      }));
+      if (named.length > 0) sections.push({ id, title: 'Named places', entries: named });
+    }
   }
   return sections;
 }

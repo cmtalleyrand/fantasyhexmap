@@ -380,6 +380,8 @@ export function decodeLayer(
           (ctx.instruction ? existing?.polities?.['ABCDEFGHIJKLMNOPQRSTUVWXYZ'.indexOf(p.key)] : undefined);
         const polity: Polity = {
           ...(before?.cityState !== undefined ? { cityState: before.cityState } : {}),
+          ...(before?.labelHidden ? { labelHidden: true } : {}),
+          ...(before?.labelPriority ? { labelPriority: true } : {}),
           ...(before?.autoShade !== undefined && before.colour === normaliseColour(p.colour, i) ? { autoShade: before.autoShade } : {}),
           ...(ctx.instruction && p.parent === undefined && before?.parentId ? { parentId: before.parentId } : {}),
           id: before?.id ?? stableId('pol', p.name, i),
