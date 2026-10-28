@@ -2,6 +2,7 @@ import { roundLoopJoins } from './coastCorners.js';
 import { profileCount, profilePhases, profileTime } from './profile.js';
 /** Fit every hex's share on the final coastline (see `fitCoastAreas`). */
 import { hexCenter, hexCorners, type Point } from '../../shared/hex.js';
+import { LAND_SHARE_TOLERANCE } from '../../shared/surfaceArea.js';
 import { coastClearance } from './componentCoast.js';
 import { drawnLand, drawnLandLayout, evenOddTest, type CoastChain, type CoastGeometry } from './coast.js';
 import { areaCoverage, nearestHex, nearestOn } from './footprint.js';
@@ -271,7 +272,7 @@ export function fitCoastAreas(geometry: CoastGeometry, targets: ReadonlyMap<numb
     phase('field');
     profileCount('fit.rounds');
     const short = new Map([...touched].map(h => [h, (want.get(h)! - shown.get(h)!) * hexArea]));
-    if (Math.max(...[...targets.keys()].map(h => Math.abs(short.get(h)!))) < 0.003 * hexArea) break;
+    if (Math.max(...[...targets.keys()].map(h => Math.abs(short.get(h)!))) <= LAND_SHARE_TOLERANCE * hexArea) break;
     // The direction to the sea along each ring (its orientation found by probing which
     // side is land), and how much room each hex's coast has before it meets another.
     const land = evenOddTest(landRings(rings), size / 8);

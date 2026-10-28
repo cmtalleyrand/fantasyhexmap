@@ -54,7 +54,7 @@ test('one global undo restores every layer changed by one geography edit', () =>
 });
 
 test('land-only layers clear for every land form, and each clear is undoable', () => {
-  for (const land of ['Land', 'Coastal Land', 'Islands', 'Mainland and islands', 'Isthmus'] as const) {
+  for (const land of ['Land', 'Islands', 'Mainland and islands', 'Isthmus'] as const) {
     const map = strip();
     map.layers.base.data = [land, land, land, land, land];
     const next = setBase(map, [2], 'Sea');
@@ -102,7 +102,7 @@ test('water turned to land is filled from the surrounding land', () => {
   map.layers.population.data = [5, 5, null, 5, 5];
   map.layers.polities.data!.owner = ['p', 'p', null, 'p', 'p'];
 
-  const next = setBase(map, [2], 'Coastal Land');
+  const next = setBase(map, [2], 'Land');
   assert.equal(next.layers.climate.data?.[2], 'Cfb');
   assert.equal(next.layers.vegetation.data?.[2], 'Prairie');
   assert.equal(next.layers.population.data?.[2], 0);

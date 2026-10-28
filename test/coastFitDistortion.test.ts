@@ -8,7 +8,7 @@ import type { BaseGeo } from '../shared/types.ts';
 
 test('repeated coast fitting cannot compound a small feature into a spike', () => {
   const size = 26, cols = 11, rows = 9;
-  const base: BaseGeo[] = Array(cols * rows).fill('Coastal Land');
+  const base: BaseGeo[] = Array(cols * rows).fill('Land');
   for (const i of [25, 26, 36, 37, 48, 60, 61, 71, 72]) base[i] = 'Lake';
   const geometry = coastGeometryOf(coastEdges(base, cols, rows, size), true,
     { size, amplitude: () => .12, noise: () => .4 });

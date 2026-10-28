@@ -13,10 +13,10 @@
  *    layer is already flagged stale by the upstream change.
  */
 
-import { recomputeCityFacts, canHoldSettlement } from '../../shared/derive.js';
+import { recomputeCityFacts, canHoldSettlement, isShoreLand } from '../../shared/derive.js';
 import { CHANNEL_WIDTH_VALUES, hasChannelWidth, hasLandConcentration, hasLandShare, isIslandType, isShapedType, islandSpecFor, type ChannelWidth, type HexShape, type IslandSpec, type Irregularity } from '../../shared/types.js';
 import { mergeGeneratedIslandSettings } from '../../shared/generatedIslands.js';
-import { migrateLegacyIslands } from '../../shared/islandMigration.js';
+import { migrateMap } from '../../shared/islandMigration.js';
 import { GEO_KIND_LABEL, geoEligibility, geoNamesOf, mergeGeneratedNames, withMigratedGeoNames } from '../../shared/geoNames.js';
 import { withValidParents } from '../../shared/polityTree.js';
 import { applyAutoShade } from '../../shared/polityShade.js';
@@ -667,7 +667,7 @@ function propagateBaseEdit(
 /**
  * The app's state: no map until one is loaded or created, then the map. Every
  * load, the first included, goes through the reducer so older saves are
- * migrated (see `migrateLegacyIslands`).
+ * migrated (see `migrateMap`).
  */
 export function appReducer(state: MapState | null, action: Action | { type: 'reset' }): MapState | null {
   if (action.type === 'reset') return null;
@@ -720,7 +720,7 @@ export function reducer(map: MapState, action: Action): MapState {
 function reduceMap(map: MapState, action: Action): MapState {
   switch (action.type) {
     case 'load':
-      return migrateLegacyIslands(action.map);
+      return migrateMap(action.map);
 
     case 'setMeta':
       return {
@@ -1364,7 +1364,7 @@ function reduceMap(map: MapState, action: Action): MapState {
       let changed = 0;
       for (const i of action.indices) {
         const value = base[i];
-        if (!isShapedType(value) && !hasLandShare(value)) continue;
+        if ((!isShapedType(value) && !hasLandShare(value)) || (value === 'Land' && !isShoreLand(base, map.cols, i))) continue;
         const key = String(i);
         const before = JSON.stringify(shapes[key] ?? null);
         const kept = shapes[key]?.type === value ? shapes[key]! : undefined;

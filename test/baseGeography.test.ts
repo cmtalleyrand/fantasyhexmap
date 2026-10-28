@@ -5,15 +5,49 @@ import { decodeBase, encodeBase } from '../shared/codec.js';
 import { isLandLike } from '../shared/derive.js';
 import type { BaseGeo } from '../shared/types.js';
 
-test('Coastal Land round-trips through the base-grid codec as land-like terrain', () => {
-  const base: BaseGeo[] = ['Land', 'Coastal Land', 'Sea', 'Lake', 'Glacier', 'Sea Ice', 'Islands', 'Mainland and islands', 'Isthmus', 'Strait'];
+test('every base type round-trips through the base-grid codec, and the retired Coastal Land code reads as Land', () => {
+  const base: BaseGeo[] = ['Land', 'Sea', 'Lake', 'Glacier', 'Sea Ice', 'Islands', 'Mainland and islands', 'Isthmus', 'Strait'];
 
-  const encoded = encodeBase(base, 10, 1);
-  const decoded = decodeBase(encoded, 10, 1);
+  const encoded = encodeBase(base, 9, 1);
+  assert.deepEqual(encoded, ['tmlgfikns']);
+  assert.deepEqual(decodeBase(encoded, 9, 1), { data: base, warnings: [] });
+  assert.deepEqual(decodeBase(['tcm'], 3, 1), { data: ['Land', 'Land', 'Sea'], warnings: [] });
+  assert.equal(isLandLike('Land'), true);
+});
 
-  assert.deepEqual(encoded, ['tcmlgfikns']);
-  assert.deepEqual(decoded, { data: base, warnings: [] });
-  assert.equal(isLandLike(decoded.data[1]), true);
+test('Land is shore land exactly where it shares an edge with sea, lake, sea ice or an island-sea hex', async () => {
+  const { isShoreLand } = await import('../shared/derive.js');
+  const { landFractionAt } = await import('../shared/surfaceArea.js');
+  const { DEFAULT_HEX_DIMENSIONS } = await import('../shared/types.js');
+  for (const water of ['Sea', 'Lake', 'Sea Ice', 'Islands'] as const) {
+    const base: BaseGeo[] = ['Land', 'Land', 'Land', water];
+    assert.deepEqual(base.map((_, i) => isShoreLand(base, 4, i)), [false, false, true, false], water);
+    assert.equal(landFractionAt(base, 1, DEFAULT_HEX_DIMENSIONS, undefined, undefined, 4), 1, `inland beside ${water}`);
+    assert.equal(landFractionAt(base, 2, DEFAULT_HEX_DIMENSIONS, undefined, undefined, 4), DEFAULT_HEX_DIMENSIONS.coastalLandPercent / 100, `shore beside ${water}`);
+  }
+  for (const other of ['Glacier', 'Isthmus', 'Strait', 'Mainland and islands'] as const) {
+    assert.equal(isShoreLand(['Land', other], 2, 0), false, `beside ${other}`);
+  }
+  // Settings on a Land hex apply only while it meets water.
+  const shapes = { '0': { type: 'Land' as const, land: 40 } };
+  assert.equal(landFractionAt(['Land', 'Sea'], 0, DEFAULT_HEX_DIMENSIONS, undefined, shapes, 2), 0.4);
+  assert.equal(landFractionAt(['Land', 'Land'], 0, DEFAULT_HEX_DIMENSIONS, undefined, shapes, 2), 1);
+});
+
+test('maps saved with Coastal Land load it as Land, with its settings and undo history', async () => {
+  const { createMapState } = await import('./seededMap.ts');
+  const { migrateMap } = await import('../shared/islandMigration.js');
+  const map = createMapState('Old coast', 3, 1);
+  const old = ['Land', 'Coastal Land', 'Sea'] as unknown as BaseGeo[];
+  map.layers.base.data = old;
+  map.hexShapes = { '1': { type: 'Coastal Land' as BaseGeo, land: 60, irregular: 'Wavy' } };
+  map.history = { past: [{ ...map, layers: { ...map.layers, base: { ...map.layers.base, data: [...old] } } }], future: [] };
+  const migrated = migrateMap(map);
+  assert.deepEqual(migrated.layers.base.data, ['Land', 'Land', 'Sea']);
+  assert.deepEqual(migrated.hexShapes, { '1': { type: 'Land', land: 60, irregular: 'Wavy' } });
+  assert.deepEqual(migrated.history!.past[0]!.layers.base.data, ['Land', 'Land', 'Sea']);
+  assert.deepEqual(migrated.history!.past[0]!.hexShapes, { '1': { type: 'Land', land: 60, irregular: 'Wavy' } });
+  assert.equal(migrateMap(migrated), migrated, 'a current map is left alone');
 });
 
 test('Glacier is land and Sea Ice is water', async () => {

@@ -324,7 +324,7 @@ function namingRules(ctx: PromptContext): string {
   return section('NAMING PLACES - "names"', [
     'Alongside the grid, return "names": one entry per named place, each with a kind, a name and "spans" - the hexes it',
     'covers as runs along rows (row, from column, to column, inclusive). Use as few runs as the shape needs.',
-    '- sea: a sea, ocean, gulf, bay or strait. Covers Sea, Sea Ice, Strait and Islands hexes. Coastal land is not included.',
+    '- sea: a sea, ocean, gulf, bay or strait. Covers Sea, Sea Ice, Strait and Islands hexes. Land on the shore is not included.',
     '- lake: a lake. Covers Lake hexes.',
     '- island: an island or archipelago. Covers Islands hexes and the land hexes of a landmass that water surrounds on',
     '  every side and that does not reach the map edge.',
@@ -364,8 +364,7 @@ function basePrompt(ctx: PromptContext): BuiltPrompt {
     section('THE LEGEND', [
       BASE_LEGEND,
       '',
-      'Land   - ordinary dry land.',
-      'Coastal Land - predominantly dry land on the coast; use for every mainland or large-island coastal land hex, including where the shoreline follows a hex edge.',
+      'Land   - dry land, inland or on the coast. Where Land meets Sea, Lake or Sea Ice, the map draws its shore automatically.',
       'Sea    - open salt water, connected (directly or through other Sea hexes) to the edge of the map.',
       'Lake   - fresh water fully enclosed by land; a lake never touches a Sea hex.',
       'Glacier - land buried under permanent ice: an ice sheet, ice cap or mountain glacier. It is land, so it gets',
@@ -373,8 +372,8 @@ function basePrompt(ctx: PromptContext): BuiltPrompt {
       '         glacial conditions.',
       'Sea Ice - sea frozen over: pack ice or an ice shelf on salt water. It is water, so it gets no land values.',
       'Islands - a water hex holding islands too small to need their own Land hexes: one or two large islands, or a',
-      '         scatter of islets (an archipelago, skerries). A large island spanning several hexes is Land hexes',
-      '         in the interior, with Coastal Land around the shore, not this.',
+      '         scatter of islets (an archipelago, skerries). A large island spanning several hexes is Land',
+      '         hexes, shore included, not this.',
       'Mainland and islands - a hex that is part mainland coast and part sea, with islands just off the shore.',
       'Isthmus - a narrow neck of land joining two land masses, with water on both sides (sea or lake).',
       'Strait - a narrow channel of water joining two seas or lakes, with land on both sides.',
@@ -384,10 +383,9 @@ function basePrompt(ctx: PromptContext): BuiltPrompt {
     '',
     section('GEOGRAPHIC SENSE', [
       '- Coastlines are continuous and irregular: bays, peninsulas, headlands. Not a rectangle of land in a rectangle of sea.',
-      '- Assign ordinary dry-land shore hexes a coastal base geography: Coastal Land for mainland and large-island shores,',
-      '  Mainland and islands for a mainland shore with offshore islands, or Islands for small islands and archipelagos.',
-      '  This includes land hexes sharing an edge with Sea, Lake or Sea Ice and shores at the map edge where the surrounding ring is water.',
-      '  Never leave an ordinary shore hex as Land, even when the shoreline follows a hex edge. Retain Glacier or Isthmus where required; keep inland dry hexes as Land.',
+      '- Ordinary dry-land shore hexes, on the mainland and on large islands, are Land: there is no separate coastal type,',
+      '  and the shore is drawn wherever Land meets water. Use Mainland and islands for a mainland shore with offshore islands,',
+      '  Islands for small islands and archipelagos, and Glacier or Isthmus where required.',
       '- Seas connect to the map edge. An enclosed body of water surrounded by land is a Lake, however large.',
       '- Lakes sit inland, usually in lowlands or between highlands, and are small - one to a few hexes - unless the brief makes one larger.',
       '- Place ice only where the supplied climate or glacial conditions support it: Glacier on land and Sea Ice on water. Map edges alone do not imply polar conditions.',
@@ -470,7 +468,7 @@ function elevationPrompt(ctx: PromptContext): BuiltPrompt {
     '',
     rowFormatRules(ctx.cols, ctx.rows, 'char', ctx.gridFormat),
     '',
-    'Land, Coastal Land, Glacier, Isthmus, Islands and Mainland and islands MUST have elevation. Sea, Sea Ice, Lake and Strait MUST be ".".',
+    'Land, Glacier, Isthmus, Islands and Mainland and islands MUST have elevation. Sea, Sea Ice, Lake and Strait MUST be ".".',
     '',
     houseStyle(),
   ].join('\n');
@@ -559,7 +557,7 @@ function climatePrompt(ctx: PromptContext): BuiltPrompt {
   return { system, user: parts.join('\n') };
 }
 
-const CLIMATE_EMPTY_NOTE = 'Land, Coastal Land, Glacier, Isthmus, Islands and Mainland and islands receive climate. Sea, Sea Ice, Lake and Strait get --. Glacier normally receives EF, or ET at its fringe.';
+const CLIMATE_EMPTY_NOTE = 'Land, Glacier, Isthmus, Islands and Mainland and islands receive climate. Sea, Sea Ice, Lake and Strait get --. Glacier normally receives EF, or ET at its fringe.';
 
 /* -------------------------------------------------------------- vegetation */
 
@@ -571,7 +569,7 @@ function vegetationLegend(): string[] {
       .join(', ');
     lines.push(`${group}: ${items}`);
   }
-  lines.push('-- = no value (Sea, Sea Ice, Lake or Strait). Land, Coastal Land, Glacier, Isthmus, Islands and Mainland and islands receive land cover.');
+  lines.push('-- = no value (Sea, Sea Ice, Lake or Strait). Land, Glacier, Isthmus, Islands and Mainland and islands receive land cover.');
   return lines;
 }
 
@@ -730,7 +728,7 @@ function riversPrompt(ctx: PromptContext): BuiltPrompt {
       '  - with the Sea or Lake hex the river empties into (include that water hex as the final entry),',
       '  - with the hex where it meets the river it flows into (a tributary: name that river in "joins"), or',
       '  - with the land hex on the map border through which the river leaves the map.',
-      'Apart from a first lake hex and a final mouth hex, every hex in the path must be Land, Coastal Land, Glacier, Isthmus, Islands or Mainland and islands,',
+      'Apart from a first lake hex and a final mouth hex, every hex in the path must be Land, Glacier, Isthmus, Islands or Mainland and islands,',
       'or a Lake hex the river passes through (it flows into the lake and out of the far side). Rivers may link lakes:',
       'one can flow out of a lake and into another, or run through a lake on its way to the sea.',
       'A distributary (an arm of a delta) starts on a hex of the river it splits from: name that river in "branchOf". Give a distributary an empty name ("") unless the brief names it.',
@@ -793,11 +791,11 @@ function citiesPrompt(ctx: PromptContext): BuiltPrompt {
     section('WHERE CITIES GO', [
       ...(ctx.allowUnderwater
         ? [
-            '- On Land, Coastal Land, Glacier, Isthmus, Strait, Islands or Mainland and islands hexes, or - since this world has submerged settlements - on Sea or Lake hexes',
+            '- On Land, Glacier, Isthmus, Strait, Islands or Mainland and islands hexes, or - since this world has submerged settlements - on Sea or Lake hexes',
             '  where the brief or the setting supports one (a drowned city, a merfolk reef-city, a pile-built lake town).',
             '  Never on Sea Ice. Keep underwater cities rare.',
           ]
-        : ['- On Land, Coastal Land, Glacier, Isthmus, Strait, Islands or Mainland and islands hexes only. Never on Sea, Sea Ice or Lake. A Strait city is a channel port straddling both banks.']),
+        : ['- On Land, Glacier, Isthmus, Strait, Islands or Mainland and islands hexes only. Never on Sea, Sea Ice or Lake. A Strait city is a channel port straddling both banks.']),
       '- Cities want water and traffic: river mouths, the lowest bridging point of a river, confluences, sheltered',
       '  bays, the neck of a peninsula, the pass through a range, the edge of a fertile plain.',
       '- Cities want food: cultivated or fertile hexes nearby. A great city in the middle of a desert needs a reason',
@@ -966,7 +964,7 @@ function populationPrompt(ctx: PromptContext): BuiltPrompt {
     gridRules(ctx.cols, ctx.rows, ctx.hexDimensions),
     '',
     section('WHAT YOU ARE COUNTING', [
-      'One non-negative integer per Land, Coastal Land, Glacier, Isthmus, Islands or Mainland and islands hex: the ordinary rural and small-village population living in that hex.',
+      'One non-negative integer per Land, Glacier, Isthmus, Islands or Mainland and islands hex: the ordinary rural and small-village population living in that hex.',
       'This EXCLUDES the population of any city in the hex - those are counted separately. A hex containing a great',
       'city still gets a rural figure for the farms and villages around it (usually a high one, because a city feeds',
       'itself from its own hinterland).',
@@ -1223,7 +1221,7 @@ function riversPathsPrompt(ctx: PromptContext, roster: Roster | null): BuiltProm
       '  - with the Sea or Lake hex the river empties into (include that water hex as the final entry),',
       '  - with the hex where it meets the river it flows into (a tributary: name that river in "joins"), or',
       '  - with the land hex on the map border through which the river leaves the map.',
-      'Apart from a first lake hex and a final mouth hex, every hex in the path must be Land, Coastal Land, Glacier, Isthmus, Islands or Mainland and islands,',
+      'Apart from a first lake hex and a final mouth hex, every hex in the path must be Land, Glacier, Isthmus, Islands or Mainland and islands,',
       'or a Lake hex the river passes through (it flows into the lake and out of the far side). Rivers may link lakes:',
       'one can flow out of a lake and into another, or run through a lake on its way to the sea.',
       'A distributary (an arm of a delta) starts on a hex of the river it splits from: name that river in "branchOf". Give a distributary an empty name ("") unless the brief names it.',

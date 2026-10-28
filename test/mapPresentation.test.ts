@@ -84,9 +84,10 @@ test('map presentation hides tiny polity labels and smooths thicker rivers', () 
 });
 
 test('terrain-mark elevation preserves geography colours and encodes height with strokes', () => {
-  const map = createMapState('Elevation marks', 3, 1);
-  map.layers.base.data = ['Land', 'Coastal Land', 'Land'];
-  map.layers.elevation.data = ['Lowland', 'Plateau', 'Mountains'];
+  const map = createMapState('Elevation marks', 4, 1);
+  // The third hex meets the sea, so it is shore land.
+  map.layers.base.data = ['Land', 'Land', 'Land', 'Sea'];
+  map.layers.elevation.data = ['Lowland', 'Plateau', 'Mountains', null];
   const visible = defaultVisibility();
   visible.elevation = true;
 
@@ -102,13 +103,13 @@ test('terrain-mark elevation preserves geography colours and encodes height with
     (p) => p.kind === 'polyline' && p.stroke === 'rgba(37,30,22,0.72)',
   );
 
-  assert.deepEqual(fills, ['#c4d49b', '#d9c58f', '#c4d49b']);
+  assert.deepEqual(fills, ['#c4d49b', '#c4d49b', '#d9c58f', '#1d3b57']);
   assert.equal(marks.length, 6);
   assert.equal(marks.filter((p) => p.points.length === 2).length, 2);
   assert.equal(marks.filter((p) => p.points.length === 3).length, 4);
   const uniform = buildScene(map, { size: 20, visible, labels: false, elevationStyle: 'contours' });
   assert.deepEqual(uniform.prims.filter(p => p.kind === 'polygon').map(p => p.fill),
-    ['#c4d49b', '#c4d49b', '#c4d49b']);
+    ['#c4d49b', '#c4d49b', '#c4d49b', '#1d3b57']);
 });
 
 test('contrasting polity colours separate adjacent realms deterministically', () => {
@@ -134,7 +135,7 @@ test('contrasting polity colours remain distinct beyond the twelve curated colou
 
 test('polity fills are opaque and independent of underlying thematic colours', () => {
   const map = createMapState('Polity colour test', 1, 1);
-  map.layers.base.data = ['Coastal Land'];
+  map.layers.base.data = ['Land'];
   map.layers.elevation.data = ['Mountains'];
   map.layers.polities.data = {
     polities: [{ id: 'realm', name: 'Realm', colour: '#2f6fbb' }],
@@ -286,8 +287,9 @@ test('polity opacity below 1 makes the fill translucent so terrain shows through
 });
 
 test('uniform land draws coastal and inland land in the same base colour', () => {
-  const map = createMapState('Uniform land test', 2, 1);
-  map.layers.base.data = ['Land', 'Coastal Land'];
+  const map = createMapState('Uniform land test', 3, 1);
+  // The second hex meets the sea, so it is shore land.
+  map.layers.base.data = ['Land', 'Land', 'Sea'];
   const fills = (uniformLand: boolean) =>
     buildScene(map, { size: 20, visible: defaultVisibility(), labels: false, uniformLand }).prims
       .filter((p) => p.kind === 'polygon').map((p) => p.fill);

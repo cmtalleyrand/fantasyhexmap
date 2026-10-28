@@ -19,7 +19,7 @@ export function componentFixture(): MapState {
   map.layers.rivers.data = { rivers: [] };
   map.layers.cities.data = { cities: [] };
   map.layers.polities.data = { polities: [], owner: Array(720).fill(null) };
-  for (const start of [3, 29]) for (let row = 5; row <= 7; row++) for (let col = start; col < start + 3; col++) map.layers.base.data![row * 40 + col] = 'Coastal Land';
+  for (const start of [3, 29]) for (let row = 5; row <= 7; row++) for (let col = start; col < start + 3; col++) map.layers.base.data![row * 40 + col] = 'Land';
   map.defaultIrregularity = 'Ragged';
   return map;
 }

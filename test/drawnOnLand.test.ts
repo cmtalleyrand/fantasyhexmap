@@ -35,6 +35,8 @@ test('an enclosed Sea hex does not resize the surrounding mainland into a giant 
   const map = createMapState('Enclosed sea', 5, 5);
   map.id = 'named-sea';
   map.layers.base.data = Array(25).fill('Land'); map.layers.base.data![12] = 'Sea';
+  // The topology is under test, not the land shares: the shore hexes keep all their land.
+  map.hexDimensions.coastalLandPercent = 100;
   const scene = buildScene(map, { size: 40, visible: defaultVisibility(), labels: false, style: resolveStyle({ preset: 'parchment', overrides: {} }) });
   const paths: PathCmd[][] = [];
   const collect = (prims: import('../src/render/prims.ts').Prim[]) => { for (const p of prims) {
@@ -98,9 +100,10 @@ test('a set of symbols is shrunk and moved onto the land, never left over water'
 function coastWithMountains(share: number): MapState {
   const map = createMapState('Peaks', 5, 4);
   map.id = 'peaks'; // the coast's roughening is seeded by the map
-  const L: BaseGeo = 'Land', C: BaseGeo = 'Coastal Land', S: BaseGeo = 'Sea';
-  map.layers.base.data = [L, L, L, L, L, C, C, C, C, C, S, S, C, S, S, S, S, S, S, S];
-  map.hexShapes = { '12': { type: 'Coastal Land', land: share } };
+  const L: BaseGeo = 'Land', S: BaseGeo = 'Sea';
+  // The second row and hex 12 meet the sea, so they are shore land.
+  map.layers.base.data = [L, L, L, L, L, L, L, L, L, L, S, S, L, S, S, S, S, S, S, S];
+  map.hexShapes = { '12': { type: 'Land', land: share } };
   map.layers.elevation.data = map.layers.base.data.map((b, i) => (b === S ? null : i === 12 ? 'Mountains' : 'Hills'));
   return map;
 }
@@ -127,17 +130,16 @@ function ruggedCoasts(id: string): MapState {
   map.id = id;
   const land = (c: number, r: number) => Math.sin(c * 0.5) + Math.cos(r * 0.45) + Math.sin((c + r) * 0.23) > 0.2;
   const base: BaseGeo[] = [];
+  const edges: number[] = [];
   for (let r = 0; r < n; r++) {
     for (let c = 0; c < n; c++) {
       const l = land(c, r);
-      const edge = l && [[-1, 0], [1, 0], [0, -1], [0, 1]].some(([dc, dr]) => !land(c + dc!, r + dr!));
-      base.push(!l ? 'Sea' : edge ? 'Coastal Land' : 'Land');
+      base.push(l ? 'Land' : 'Sea');
+      if (l && [[-1, 0], [1, 0], [0, -1], [0, 1]].some(([dc, dr]) => !land(c + dc!, r + dr!))) edges.push(r * n + c);
     }
   }
   map.layers.base.data = base;
-  map.hexShapes = Object.fromEntries(
-    base.flatMap((b, i) => (b === 'Coastal Land' ? [[String(i), { type: 'Coastal Land' as BaseGeo, land: 15 + (i % 6) * 12 }]] : [])),
-  );
+  map.hexShapes = Object.fromEntries(edges.map((i) => [String(i), { type: 'Land' as BaseGeo, land: 15 + (i % 6) * 12 }]));
   map.layers.elevation.data = base.map((b, i) => (b === 'Sea' ? null : (['Mountains', 'Hills', 'Highland'] as const)[i % 3]));
   return map;
 }

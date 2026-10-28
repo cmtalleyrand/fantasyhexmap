@@ -8,13 +8,15 @@ import { areaCoverage, polyArea } from '../src/render/footprint.ts';
 import { pathPolylines } from '../src/render/ice.ts';
 import { scenePaths } from './helpers/scene.ts';
 import type { BaseGeo } from '../shared/types.ts';
+import { LAND_SHARE_TOLERANCE } from '../shared/surfaceArea.ts';
 
 const style = resolveStyle(NEW_USER_STYLE_CHOICE), size = 30;
 const corners = hexCorners(2, 2, size), full = polyArea(corners);
-function measure(share: number, side: number, strength: number) {
+function measure(share: number, side: number, strength: number, coastal?: number) {
   const map = createMapState('Lake concentration defaults', 5, 5);
   map.id = 'lake-concentration-evidence';
   map.layers.base.data = Array<BaseGeo>(25).fill('Land'); map.layers.base.data[12] = 'Lake';
+  if (coastal !== undefined) map.hexDimensions.coastalLandPercent = coastal;
   map.hexShapes = { '12': { type: 'Lake', land: share * 100, concentrationSide: side, concentration: strength } };
   const scene = buildScene(map, { size, style, visible: defaultVisibility(), labels: false, cache: 'off' });
   const paths = scenePaths(scene.prims);
@@ -33,8 +35,10 @@ function measure(share: number, side: number, strength: number) {
 
 for (let side = 0; side < 6; side++) {
   test(`default Ragged lake keeps its land target under strong concentration: side ${side}`, () => {
-    const result = measure(0.8, side, 100);
-    assert.ok(Math.abs(result.land - 0.8) < 0.01, `side ${side}: ${result.land}`);
+    // The lake's own share is under test: the shore land round it keeps all its land, so the
+    // two shares do not compete for one shoreline.
+    const result = measure(0.8, side, 100, 100);
+    assert.ok(Math.abs(result.land - 0.8) <= LAND_SHARE_TOLERANCE, `side ${side}: ${result.land}`);
   });
 }
 

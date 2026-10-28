@@ -24,7 +24,7 @@ function stackedStrait(): BaseGeo[] {
       const n = neighbourOf(i % W, Math.floor(i / W), e);
       return inBounds(W, H, n.col, n.row) && base[id(n.col, n.row)] === 'Sea';
     });
-    if (touchesSea) base[i] = 'Coastal Land';
+    if (touchesSea) base[i] = 'Land';
   }
   base[id(4, 3)] = 'Strait';
   base[id(4, 4)] = 'Strait';
@@ -113,7 +113,7 @@ test('islands off a smoothed mainland keep their share, kept clear of the coast 
   // Islands were kept clear of the mainland's reshaped polygon, which the smoothed coast's
   // fitting enlarges well past the drawn shore, and were crowded down to specks.
   const base: BaseGeo[] = Array(W * H).fill('Sea');
-  for (let r = 0; r < H; r++) for (let c = 0; c < 3; c++) base[id(c, r)] = c === 2 ? 'Coastal Land' : 'Land';
+  for (let r = 0; r < H; r++) for (let c = 0; c < 3; c++) base[id(c, r)] = c === 2 ? 'Land' : 'Land';
   const m = id(3, 3);
   base[m] = 'Mainland and islands';
   const map = createMapState('Mainland islands', W, H);

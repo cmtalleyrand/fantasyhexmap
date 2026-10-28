@@ -12,7 +12,7 @@
 import type { CityMarkerSet } from './cityMarkers.js';
 import type { CityRiver } from './riverCity.js';
 import type { LetteringId } from './lettering.js';
-import { BASE_COLOURS, ISLAND_DOT, MAP_COLOURS } from './palette.js';
+import { BASE_COLOURS, COASTAL_LAND_COLOUR, ISLAND_DOT, MAP_COLOURS } from './palette.js';
 
 export type StylePresetId = 'classic' | 'parchment' | 'atlas' | 'night' | 'frills';
 
@@ -25,7 +25,7 @@ export interface StyleKnobs {
   coast: 'none' | 'hex' | 'smooth';
   /** Hex grid: on every hex, on land only, or off. */
   grid: 'all' | 'land' | 'none';
-  /** Coastal Land as its own band of colour, or the same colour as inland Land. */
+  /** Land on the shore (where Land meets sea or lake) as its own band of colour, or the same colour as inland Land. */
   land: 'band' | 'uniform';
   /** Island hexes: a round dot, or an irregular islet with its own shore. */
   islands: 'dot' | 'blob';
@@ -154,7 +154,7 @@ const CLASSIC: PresetInfo = {
     coast: '#16232e',
     coastWidth: 0.0525,
     land: BASE_COLOURS.Land,
-    coastalLand: BASE_COLOURS['Coastal Land'],
+    coastalLand: COASTAL_LAND_COLOUR,
     island: ISLAND_DOT,
     ice: BASE_COLOURS.Glacier,
     seaIce: BASE_COLOURS['Sea Ice'],
@@ -243,7 +243,7 @@ const PARCHMENT: PresetInfo = {
     ripples: 0,
     coast: 'smooth',
     grid: 'land',
-    // One land colour by default; the Coastal Land type remains in the map data.
+    // One land colour by default; a banding style colours Land on the shore apart.
     land: 'uniform',
     islands: 'blob',
     ice: 'glacier',

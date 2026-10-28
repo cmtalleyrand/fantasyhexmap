@@ -181,7 +181,7 @@ test('the final land silhouette has ground beneath folds in its donor patches', 
   const map = createMapState('Coast evidence', cols, rows);
   map.id = 'coast-evidence';
   map.layers.base.data = Array(64).fill('Sea');
-  for (const i of [19, 27, 36]) map.layers.base.data[i] = 'Coastal Land';
+  for (const i of [19, 27, 36]) map.layers.base.data[i] = 'Land';
   map.defaultIrregularity = 'Ragged';
   const style = resolveStyle({ preset: 'parchment' });
   const scene = buildScene(map, { size, visible: defaultVisibility(), labels: false, style });
@@ -255,7 +255,7 @@ test('scene coast tracing uses component area before per-hex reshaping can split
     map.hexDimensions.coastalLandPercent = percent;
     map.defaultIrregularity = 'Ragged';
     map.layers.base.data = Array(64).fill('Sea');
-    for (const i of [19, 27, 36]) map.layers.base.data[i] = 'Coastal Land';
+    for (const i of [19, 27, 36]) map.layers.base.data[i] = 'Land';
     const scene = buildScene(map, { size, visible: defaultVisibility(), labels: false, style });
     const land = scene.prims.find(p => p.kind === 'group' && p.clipRule === 'evenodd' && p.clip && p.prims.some(q => (q.kind === 'polygon' || q.kind === 'path') && q.fill === (style.knobs.land === 'uniform' ? style.palette.land : style.palette.coastalLand)));
     assert.ok(land && land.kind === 'group' && land.clip);

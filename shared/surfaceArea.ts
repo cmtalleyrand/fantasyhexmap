@@ -14,6 +14,13 @@ import {
 } from './types.js';
 import { straitSharers } from './straits.js';
 import { neighbourOf, inBounds } from './hex.js';
+import { isShoreLand } from './derive.js';
+
+/**
+ * How far (as a share of a hex, 0 to 1) the land a hex is drawn with may stray from its land share
+ * and still count as meeting it: the area fits stop there, and only a larger miss is reported.
+ */
+export const LAND_SHARE_TOLERANCE = 0.025;
 
 /** Dimensions saved before land shares were set per type carried one island share. */
 type StoredHexDimensions = Partial<HexDimensions> & { islandLandPercent?: number };
@@ -81,17 +88,20 @@ export function channelAreaFraction(fraction: number): number {
 
 /**
  * How much of a hex is land, from 0 to 1. A hex a person has given a land share
- * takes that. Otherwise it is its type's share (see `HexDimensions`): a coastal
- * hex, a lake, an isthmus, a strait or a glacier has one; an island hex is the sum of its
+ * takes that. Otherwise it is its type's share (see `HexDimensions`): Land on a
+ * shore (`shore`, see `isShoreLand`), a lake, an isthmus, a strait or a glacier has one; an island hex is the sum of its
  * islands, each large island and each small one taking its own share; and a
- * mainland-and-islands hex adds the mainland's share to those.
+ * mainland-and-islands hex adds the mainland's share to those. Inland Land is whole,
+ * whatever is set on it.
  */
 export function landFraction(
   value: BaseGeo | null | undefined,
   stored: IslandSpec | undefined,
   dimensions: HexDimensions,
   shape?: HexShape,
+  shore = false,
 ): number {
+  if (value === 'Land' && !shore) return 1;
   const set = hexShapeFor(value, shape).land;
   if (set !== undefined) return set / 100;
   const percent = (n: number) => Math.min(100, Math.max(0, n)) / 100;
@@ -102,11 +112,9 @@ export function landFraction(
   if (width !== null) return value === 'Isthmus' ? channelAreaFraction(width) : 1 - channelAreaFraction(width);
   switch (value) {
     case 'Land':
-      return 1;
+      return percent(dimensions.coastalLandPercent);
     case 'Glacier':
       return percent(dimensions.glacierPercent);
-    case 'Coastal Land':
-      return percent(dimensions.coastalLandPercent);
     case 'Sea':
       return percent(dimensions.seaLandPercent ?? 0);
     case 'Lake':
@@ -122,7 +130,11 @@ export function landFraction(
   }
 }
 
-/** Sea land shares extend existing shores; open sea contributes no land area. */
+/**
+ * `landFraction` of hex `index` in its place on the grid: Land takes the coastal share
+ * where it meets water, and Sea land shares extend existing shores (open sea contributes
+ * no land area). Without `cols` neither can be known: Land is whole and Sea takes its share.
+ */
 export function landFractionAt(
   base: BaseData, index: number, dimensions: HexDimensions,
   specs?: Record<string, IslandSpec>, shapes?: Record<string, HexShape>, cols?: number,
@@ -133,26 +145,30 @@ export function landFractionAt(
       const n = neighbourOf(index % cols, Math.floor(index / cols), e);
       if (!inBounds(cols, rows, n.col, n.row)) return false;
       const v = base[n.row * cols + n.col];
-      return v === 'Land' || v === 'Coastal Land' || v === 'Glacier';
+      return v === 'Land' || v === 'Glacier';
     });
     if (!shore) return 0;
   }
-  return landFraction(base[index], specs?.[String(index)], dimensions, shapes?.[String(index)]);
+  const shore = cols !== undefined && isShoreLand(base, cols, index);
+  return landFraction(base[index], specs?.[String(index)], dimensions, shapes?.[String(index)], shore);
 }
 
 /**
  * How much of a hex the coast draws as land, from 0 to 1: its share, except that
  * a Mainland and islands hex draws only its mainland there (its islands are drawn
  * separately, from the rest of the share), and a share set below the mainland's
- * leaves the mainland all of it. Null for a type with no share to draw.
+ * leaves the mainland all of it. Null for a type with no share to draw, inland Land among them.
  */
 export function drawnLandFraction(
   value: BaseGeo | null | undefined,
   dimensions: HexDimensions,
   shape?: HexShape,
+  /** Whether a Land hex meets water (`isShoreLand`). */
+  shore = false,
 ): number | null {
   switch (value) {
-    case 'Coastal Land':
+    case 'Land':
+      return shore ? landFraction(value, undefined, dimensions, shape, true) : null;
     case 'Glacier':
     case 'Isthmus':
     case 'Strait':

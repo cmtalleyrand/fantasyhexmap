@@ -15,7 +15,7 @@ import { sceneToSvg } from '../src/render/svg.ts';
 
 function sampleMap(): MapState {
   const map = createMapState('A small realm.', 3, 2, 'Test Realm');
-  map.layers.base.data = ['Land', 'Coastal Land', 'Sea', 'Land', 'Land', 'Sea'];
+  map.layers.base.data = ['Land', 'Land', 'Sea', 'Land', 'Land', 'Sea'];
   map.layers.elevation.data = ['Hills', 'Lowland', null, 'Hills', 'Mountains', null];
   map.layers.climate.data = ['Cfb', 'Cfb', null, 'Dfc', 'Dfc', null];
   map.layers.vegetation.data = ['Prairie', 'Prairie', null, 'Boreal Forest', 'Boreal Forest', null];
@@ -72,11 +72,11 @@ test('legend follows what the scene paints, not everything that is switched on',
 test('onlyUsed trims entries to values on the map; turning it off lists the full vocabulary', () => {
   const map = sampleMap();
   const used = legendSections(map, visibility('vegetation'), 'colour', opts());
-  assert.deepEqual(used.find((s) => s.id === 'base')!.entries.map((e) => e.label), ['Land', 'Coastal Land', 'Sea']);
+  assert.deepEqual(used.find((s) => s.id === 'base')!.entries.map((e) => e.label), ['Land', 'Sea']);
   assert.deepEqual(used.find((s) => s.id === 'vegetation')!.entries.map((e) => e.label), ['Prairie', 'Boreal Forest']);
 
   const all = legendSections(map, visibility('vegetation'), 'colour', opts({ onlyUsed: false }));
-  assert.equal(all.find((s) => s.id === 'base')!.entries.length, 10, 'every base value, the four island types included');
+  assert.equal(all.find((s) => s.id === 'base')!.entries.length, 9, 'every base value, the island types included');
   assert.equal(all.find((s) => s.id === 'vegetation')!.entries.length, 19);
 });
 

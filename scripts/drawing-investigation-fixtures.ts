@@ -38,8 +38,8 @@ export function riverMetrics(line: { x: number; y: number }[], river = windingRi
 }
 export function coastMap(share = 20, id = 'drawing-investigation'): MapState {
   const map = createMapState('Drawn coast', 5, 4); map.id = id;
-  map.layers.base.data = ['Land','Land','Land','Land','Land','Coastal Land','Coastal Land','Coastal Land','Coastal Land','Coastal Land','Sea','Sea','Coastal Land','Sea','Sea','Sea','Sea','Sea','Sea','Sea'];
-  map.hexShapes = { '12': { type: 'Coastal Land', land: share } };
+  map.layers.base.data = ['Land','Land','Land','Land','Land','Land','Land','Land','Land','Land','Sea','Sea','Land','Sea','Sea','Sea','Sea','Sea','Sea','Sea'];
+  map.hexShapes = { '12': { type: 'Land', land: share } };
   map.layers.elevation.data = map.layers.base.data.map((b, i) => b === 'Sea' ? null : i === 12 ? 'Mountains' : 'Hills');
   return map;
 }

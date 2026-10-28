@@ -12,10 +12,10 @@ import { canHoldSettlement } from '../shared/derive.ts';
 
 function fixture() {
   const map = createMapState('Kingdom contains Duchy. Seat is the capital.', 3, 3);
-  map.layers.base.data = ['Coastal Land', 'Lake', 'Islands', 'Glacier', 'Isthmus', 'Strait', 'Land', 'Land', 'Land'];
+  map.layers.base.data = ['Land', 'Lake', 'Islands', 'Glacier', 'Isthmus', 'Strait', 'Land', 'Land', 'Land'];
   map.hexDimensions = { ...DEFAULT_HEX_DIMENSIONS, width: 20, height: 30, coastalLandPercent: 70 };
   map.islandSpecs = { '2': { large: 2, small: 1 } };
-  map.hexShapes = { '0': { type: 'Coastal Land', land: 60 } };
+  map.hexShapes = { '0': { type: 'Land', land: 60 } };
   map.geoNames = [{ id: 'g', name: 'Silver Lake', kind: 'lake', hexes: [1] }];
   map.layers.polities.data = {
     polities: [
@@ -51,7 +51,7 @@ test('all transports retain physical settings, overrides and measured land fract
   for (const ctx of [direct, checked.req.ctx]) {
     const { user, system } = buildPrompt('polities', ctx);
     assert.match(user, /One whole hex: 450 km\^2/);
-    assert.match(user, /r0: \[0\] 60 10 35/);
+    assert.match(user, /r0: \[0\] 60 0 35/);
     assert.doesNotMatch(user, /Factory defaults|"coastalLandPercent":80/);
     assert.match(user, /"coastalLandPercent":70/);
     assert.match(user, /Silver Lake/);
@@ -146,7 +146,7 @@ test('terrain eligibility and defaults match the supported map model', () => {
   assert.equal(canHoldSettlement('Isthmus', false), true);
   assert.equal(canHoldSettlement('Strait', false), true);
   assert.equal(DEFAULT_HEX_DIMENSIONS.coastalLandPercent, 80);
-  assert.equal(DEFAULT_HEX_DIMENSIONS.lakeLandPercent, 10);
+  assert.equal(DEFAULT_HEX_DIMENSIONS.lakeLandPercent, 0);
   assert.equal(DEFAULT_HEX_DIMENSIONS.largeIslandPercent, 15);
   assert.equal(DEFAULT_HEX_DIMENSIONS.smallIslandPercent, 5);
   assert.equal(DEFAULT_HEX_DIMENSIONS.mainlandPercent, 40);

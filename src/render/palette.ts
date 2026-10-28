@@ -9,7 +9,6 @@ export const BASE_COLOURS: Record<BaseGeo, string> = {
   Sea: '#1d3b57',
   Lake: '#2f6f8f',
   Land: '#c4d49b',
-  'Coastal Land': '#d9c58f',
   Glacier: '#e4eef3',
   // Frozen sea: pale, with a cold tint of the water under it.
   'Sea Ice': '#c9dde8',
@@ -21,6 +20,9 @@ export const BASE_COLOURS: Record<BaseGeo, string> = {
   // A channel of sea: its banks take the colours of the land they face.
   Strait: '#1d3b57',
 };
+
+/** Land on the shore, in a style that bands the coast in a colour of its own. */
+export const COASTAL_LAND_COLOUR = '#d9c58f';
 
 export const ISLAND_DOT = '#cbbd93';
 

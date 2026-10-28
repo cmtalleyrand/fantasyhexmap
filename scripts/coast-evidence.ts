@@ -28,7 +28,7 @@ for (const [name, land] of Object.entries(fixtures)) {
   map.hexDimensions.coastalLandPercent = landPercent;
   const base: BaseGeo[] = Array(64).fill('Sea');
   for (const [c, r] of land)
-    base[r * 8 + c] = 'Coastal Land';
+    base[r * 8 + c] = 'Land';
   if (name === 'isthmus')
     base[27] = 'Isthmus';
   if (name === 'strait')

@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { LAND_SHARE_TOLERANCE } from '../shared/surfaceArea.ts';
 import { hexCenter, hexCorners, neighbourOf } from '../shared/hex.ts';
 import type { BaseGeo } from '../shared/types.ts';
 import { coastEdges, coastGeometryOf, drawnLand, surfaceMap } from '../src/render/coast.ts';
@@ -15,7 +16,7 @@ for (let wet = 0; wet < 6; wet++) {
   test(`single coastal edge ${wet}: concentration skews land while preserving area`, () => {
     const base: BaseGeo[] = Array.from({ length: cols * rows }, (_, i) =>
       i % cols === 0 || i % cols === cols - 1 || i < cols || i >= cols * (rows - 1) ? 'Sea' : 'Land');
-    base[h] = 'Coastal Land';
+    base[h] = 'Land';
     const sea = neighbourOf(2, 2, wet);
     base[sea.row * cols + sea.col] = 'Sea';
     const edges = coastEdges(base, cols, rows, size), surface = surfaceMap(base, cols, rows);
@@ -52,7 +53,7 @@ for (let wet = 0; wet < 6; wet++) {
       const page = { width: 300, height: 300 };
       const fitted = fitCoastAreas(geometry, new Map([[h, { share: 0.8 }]]), cols, rows, size, page, 0);
       const coverage = areaCoverage(pathPolylines(drawnLand(fitted, page.width, page.height, size), 8), { evenOdd: true });
-      assert.ok(Math.abs(coverage(corners) / full - 0.8) < 0.01, `shown ${coverage(corners) / full}`);
+      assert.ok(Math.abs(coverage(corners) / full - 0.8) <= LAND_SHARE_TOLERANCE, `shown ${coverage(corners) / full}`);
       return coverage(half) / full;
     };
     const plus = fittedHalf((wet + 1) % 6), minus = fittedHalf((wet + 4) % 6);

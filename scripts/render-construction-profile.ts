@@ -44,7 +44,7 @@ if (!process.argv.includes('--sample')) {
   if (hex < 0) throw Error('Fixture has no exposed mainland hex');
   for (let i = 0; i < Number(arg('--edits', '20')); i++) {
     map.layers.base = { ...map.layers.base, data: [...original] };
-    map.layers.base.data![hex] = i % 2 ? original[hex]! : 'Coastal Land';
+    map.layers.base.data![hex] = i % 2 ? original[hex]! : 'Land';
     edits.push({ hex, ...run() });
   }
   console.log(JSON.stringify({ cold, edits }));

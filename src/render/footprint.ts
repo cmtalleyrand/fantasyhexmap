@@ -6,7 +6,7 @@
  * hex (see `surfaceMap`), so a hex that sets a share (or whose type has one)
  * is reshaped here until the land left is exactly that share:
  *
- * - A coast hex (Coastal Land, Glacier, or an Isthmus or mainland hex with no
+ * - A coast hex (Land on the shore, Glacier, or an Isthmus or mainland hex with no
  *   land beside it) has its sea-facing edges moved in, all by one depth.
  * - A split hex is given a land of uniform width: an Isthmus or a mainland is
  *   a neck of land running from the middle of the hex to each land neighbour,

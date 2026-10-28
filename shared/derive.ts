@@ -23,7 +23,30 @@ export function isWater(v: BaseGeo | undefined): boolean {
 }
 
 export function isLandLike(v: BaseGeo | undefined): boolean {
-  return v === 'Land' || v === 'Coastal Land' || v === 'Glacier' || v === 'Isthmus' || isIslandType(v);
+  return v === 'Land' || v === 'Glacier' || v === 'Isthmus' || isIslandType(v);
+}
+
+/** Whole-hex water a shore runs along: everything drawn as water across a shared edge. */
+function isShoreWater(v: BaseGeo | null | undefined): boolean {
+  return v === 'Sea' || v === 'Lake' || v === 'Sea Ice' || v === 'Islands';
+}
+
+/**
+ * Whether hex `i` is Land with a shore: an edge shared with sea, lake, sea ice or an
+ * island-sea hex. Such a hex is drawn and measured at the map's coastal land share
+ * (`HexDimensions.coastalLandPercent`) and takes coast settings (`HexShape`); inland
+ * Land is whole. Off-map edges do not count.
+ */
+export function isShoreLand(base: ReadonlyArray<BaseGeo | null | undefined>, cols: number, i: number): boolean {
+  if (base[i] !== 'Land') return false;
+  const rows = Math.floor(base.length / cols);
+  const col = i % cols;
+  const row = Math.floor(i / cols);
+  for (let e = 0; e < 6; e++) {
+    const n = neighbourOf(col, row, e);
+    if (inBounds(cols, rows, n.col, n.row) && isShoreWater(base[hexIndex(cols, n.col, n.row)])) return true;
+  }
+  return false;
 }
 
 /**

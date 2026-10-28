@@ -9,7 +9,7 @@ test('profiling is opt-in, resets between jobs, and does not alter the scene', (
   assert.equal(endRenderProfile(), undefined);
   const map = createMapState('profile', 4, 4);
   map.id = 'profile'; map.layers.base.data = Array(16).fill('Sea');
-  map.layers.base.data![5] = 'Coastal Land';
+  map.layers.base.data![5] = 'Land';
   const opts = { size: 26, visible: defaultVisibility(), labels: false };
   const direct = buildStaticScene(structuredClone(map), { ...opts, cache: 'off' });
   beginRenderProfile();

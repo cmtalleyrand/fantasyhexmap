@@ -19,7 +19,7 @@ function world(): MapState {
   const base: BaseGeo[] = Array(COLS * ROWS).fill('Sea');
   base[at(3, 1)] = 'Land';
   base[at(3, 3)] = 'Land';
-  base[at(4, 3)] = 'Coastal Land';
+  base[at(4, 3)] = 'Land';
   base[at(1, 5)] = 'Islands';
   base[at(5, 3)] = 'Lake';
   base[at(0, 3)] = 'Land';

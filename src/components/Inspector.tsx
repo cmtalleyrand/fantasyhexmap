@@ -1,7 +1,7 @@
 import { hexCount } from './selectionText.js';
 import { useMemo, useState } from 'react';
 import { hexIndex, indexToOffset, neighbourOf } from '../../shared/hex.js';
-import { canHoldSettlement } from '../../shared/derive.js';
+import { canHoldSettlement, isShoreLand } from '../../shared/derive.js';
 import { landEdgesOf } from '../../shared/straits.js';
 import { isLakeNeck, lakeEdgesOf } from '../render/sites.js';
 import { holdersOf } from '../../shared/polityShares.js';
@@ -698,7 +698,8 @@ const LAND_SHARE_STEPS = Array.from({ length: 21 }, (_, n) => n * 5);
 function HexShapePanel(props: SubProps) {
   const { map, dispatch, selected } = props;
   const base = map.layers.base.data;
-  const hexes = selected.filter((i) => isShapedType(base?.[i]) || hasLandShare(base?.[i]));
+  // Land has a shore to shape only where it meets sea or lake.
+  const hexes = selected.filter((i) => (isShapedType(base?.[i]) || hasLandShare(base?.[i])) && (base![i] !== 'Land' || isShoreLand(base!, map.cols, i)));
   if (hexes.length === 0) return null;
   // A lake takes an irregularity for its own shore too; unset, its shore follows the land beside it, then the map's lake setting.
   const shaped = hexes.filter(i => base![i] !== 'Sea');
@@ -708,7 +709,7 @@ function HexShapePanel(props: SubProps) {
       : hexShapeFor(base![i], map.hexShapes?.[String(i)], map.defaultIrregularity).irregular;
   const dims = normaliseHexDimensions(map.hexDimensions);
   const percentOf = (i: number, withShape: boolean) =>
-    Math.round(landFraction(base![i], map.islandSpecs?.[String(i)], dims, withShape ? map.hexShapes?.[String(i)] : undefined) * 100);
+    Math.round(landFraction(base![i], map.islandSpecs?.[String(i)], dims, withShape ? map.hexShapes?.[String(i)] : undefined, base![i] === 'Land') * 100);
   const sharedOf = (values: string[]) => (new Set(values).size === 1 ? values[0]! : '');
   const landHexes = hexes.filter((i) => hasLandShare(base![i]));
   // An isthmus or a strait is drawn at a width, not to a land share.
@@ -757,6 +758,9 @@ function HexShapePanel(props: SubProps) {
             How much of the hex is drawn as land, and counted in surface areas.{usual !== '' ? ` Usually ${usual}%.` : ''}
             {channelHexes.length > 0
               ? ' For an isthmus or strait the width below sets how narrow it is at its thinnest; a land share as well tunes how much land there is round that, widening or narrowing the flared ends of a neck and the banks of a channel.'
+              : ''}
+            {landHexes.some((i) => base![i] === 'Land')
+              ? ' Land is cut back from the edges it shares with sea or lake; inland Land is always whole.'
               : ''}
             {landHexes.some((i) => base![i] === 'Lake')
               ? ' In a lake hex this is land drawn in from the edges it shares with land (the lake keeps the rest); 0% leaves the lake as it is.'

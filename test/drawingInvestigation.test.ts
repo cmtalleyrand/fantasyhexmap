@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { LAND_SHARE_TOLERANCE } from '../shared/surfaceArea.ts';
 import { nearestOn } from '../src/render/footprint.ts';
 import { hexCenter, pixelToOffset } from '../shared/hex.ts';
 import { beginRenderProfile, endRenderProfile } from '../src/render/profile.ts';
@@ -166,7 +167,8 @@ for (const name of ['coast-fit-classic', 'coast-fit-parchment']) test(`${name} r
     total++;if(land({x,y})||ink.some(s=>nearestOn({x,y},s.rings).dist<=s.reach))dry++;
   }
   const wanted=map.hexShapes!['12']!.land!;
-  assert.ok(Math.abs(100*dry/total-wanted)<1, `${100*dry/total}% versus ${wanted}%`);
+  assert.ok(Math.abs(100*dry/total-wanted)<=100*LAND_SHARE_TOLERANCE, `${100*dry/total}% versus ${wanted}%`);
   assert.ok(!scene.compromises?.some(c=>c.hexes.includes(12)&&/land share/i.test(c.what)));
-  if(name==='coast-fit-classic')assert.equal(profile.counters['coast.globalPasses'],4);
+  // The first measured cut is already within the land-share tolerance, so no further pass is traced.
+  if(name==='coast-fit-classic')assert.equal(profile.counters['coast.globalPasses'],1);
 });

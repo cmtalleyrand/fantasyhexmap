@@ -1,7 +1,7 @@
 /**
  * The benchmark's map: a continent whose coast hexes carry explicit land shares (about half of
  * them concentrated), straits, isthmuses, mainland-and-island hexes, offshore island hexes and
- * inland lakes. `layout` 'plain' makes every coast hex plain Coastal Land instead. The modules
+ * inland lakes. `layout` 'plain' leaves every coast hex plain Land instead. The modules
  * are passed in so the same map can be built against another checkout.
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -31,13 +31,13 @@ export function featureFixture(deps: { createMapState: any; neighbourOf: any; in
     const around = neighbours(i);
     if (original[i] === 'Land' && around.some(j => j >= 0 && original[j] === 'Sea')) {
       const r = random();
-      if (layout === 'plain') { base[i] = 'Coastal Land'; continue; }
+      if (layout === 'plain') { base[i] = 'Land'; continue; }
       if (r < 0.06) { base[i] = 'Strait'; shapes[i] = { type: 'Strait', land: 40 }; }
       else if (r < 0.10) { base[i] = 'Isthmus'; shapes[i] = { type: 'Isthmus', land: 50 }; }
       else if (r < 0.16) { base[i] = 'Mainland and islands'; islandSpecs[i] = { count: 2 }; }
       else {
-        base[i] = 'Coastal Land';
-        if (r < 0.7) shapes[i] = { type: 'Coastal Land', land: 30 + Math.round(random() * 60),
+        base[i] = 'Land';
+        if (r < 0.7) shapes[i] = { type: 'Land', land: 30 + Math.round(random() * 60),
           ...(r < 0.4 ? { concentrationSide: Math.floor(random() * 6), concentration: 60 } : {}) };
       }
     } else if (original[i] === 'Sea' && around.some(j => j >= 0 && original[j] === 'Land') && random() < 0.08 && layout !== 'plain') {

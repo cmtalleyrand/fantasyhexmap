@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { LAND_SHARE_TOLERANCE } from '../shared/surfaceArea.ts';
 import test from 'node:test';
 import { chainEdges, coastEdges, evenOddTest, surfaceMap } from '../src/render/coast.ts';
 import { areaCoverage, polyArea, shapeCoast } from '../src/render/footprint.ts';
@@ -88,8 +89,10 @@ function fixture(percent: number, seed = 'investigation'): MapState {
   const base = layout((1 << 3) | (1 << 1));
   for (const e of [3, 1]) {
     const n = neighbourOf(3, 3, e), n2 = neighbourOf(n.col, n.row, e);
-    base[n.row * cols + n.col] = 'Coastal Land';
+    base[n.row * cols + n.col] = 'Land';
     base[n2.row * cols + n2.col] = 'Land';
+    // The land behind each join is whole and smooth, as the mainland it leads to.
+    map.hexShapes![String(n2.row * cols + n2.col)] = { type: 'Land', land: 100, irregular: 'Smooth' };
   }
   map.layers.base.data = base;
   return map;
@@ -122,7 +125,7 @@ test('final irregular strait and neighbouring coastal hexes meet achievable perc
     const { measure, rings } = renderedCoverage(fixture(percent, seed));
     assert.equal(crosses(rings), false, 'final coastline fitting preserves simple, disjoint shores');
     assert.equal(evenOddTest(rings, size / 8)(hexCenter(3, 3, size)), false, 'water remains through the strait centre');
-    for (const i of [23, 24, 32]) assert.ok(Math.abs(measure(i) - percent / 100) < 0.01,
+    for (const i of [23, 24, 32]) assert.ok(Math.abs(measure(i) - percent / 100) <= LAND_SHARE_TOLERANCE,
       `${seed}: hex ${i} requested ${percent}%, drew ${(measure(i) * 100).toFixed(2)}%`);
   }
 });

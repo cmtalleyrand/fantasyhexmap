@@ -14,18 +14,18 @@ import { reducer } from '../src/state/store.ts';
 
 function fixture() {
   const map = createMapState('Two islands and a mainland shore.', 3, 2);
-  map.layers.base.data = ['Islands', 'Mainland and islands', 'Sea', 'Land', 'Lake', 'Coastal Land'];
+  map.layers.base.data = ['Islands', 'Mainland and islands', 'Sea', 'Land', 'Lake', 'Land'];
   map.islandSpecs = { '0': { large: 1, small: 2, coastal: { large: true }, side: 3, layoutSeed: 9 } };
-  map.hexShapes = { '0': { type: 'Islands', land: 37, irregular: 'Ragged' }, '5': { type: 'Coastal Land', land: 70 } };
+  map.hexShapes = { '0': { type: 'Islands', land: 37, irregular: 'Ragged' }, '5': { type: 'Land', land: 70 } };
   return map;
 }
-const rows = ['ikm', 'tlc'];
+const rows = ['ikm', 'tlt'];
 const islands = [{ col: 0, row: 0, small: 3, arrangement: 'chain', orientation: 'along', irregular: 'Wavy' }];
 
 test('old replies remain valid; limited island controls validate in row and keyed replies', () => {
   assert.ok(BaseResponse(3, 2).safeParse({ rows }).success);
   assert.ok(BaseResponse(3, 2).safeParse({ rows, islands }).success);
-  const keyed = { r0: { c0: 'i', c1: 'k', c2: 'm' }, r1: { c0: 't', c1: 'l', c2: 'c' } };
+  const keyed = { r0: { c0: 'i', c1: 'k', c2: 'm' }, r1: { c0: 't', c1: 'l', c2: 't' } };
   assert.ok(BaseResponse(3, 2, { grid: 'keyed' }).safeParse({ rows: keyed, names: [], islands }).success);
   for (const bad of [{ col: 3 }, { row: -1 }, { large: 3 }, { small: 7 }, { arrangement: 'unknown' }, { orientation: 'north' }, { irregular: 'unknown' }]) {
     assert.equal(BaseResponse(3, 2).safeParse({ rows, islands: [{ ...islands[0], ...bad }] }).success, false);
@@ -70,7 +70,7 @@ test('empty lists preserve settings; non-island, duplicate and empty-count edits
 
 test('changing terrain drops obsolete settings and never revives another terrain type configuration', () => {
   const map = fixture();
-  const result = decodeLayer('base', { rows: ['mim', 'tlc'], islands: [{ col: 1, row: 0, arrangement: 'arc' }] }, contextFromMap(map, null));
+  const result = decodeLayer('base', { rows: ['mim', 'tlt'], islands: [{ col: 1, row: 0, arrangement: 'arc' }] }, contextFromMap(map, null));
   assert.equal(result.islandSpecs?.['1']?.large, 1);
   const changed = reducer(map, { type: 'applyGeneration', layer: 'base', ...result });
   assert.equal(changed.islandSpecs?.['0'], undefined);
@@ -92,7 +92,7 @@ test('combined webchat import preserves island settings alongside later layer da
 
 test('API generation returns decoded island settings rather than dropping metadata in transport', async () => {
   const map = fixture();
-  const keyed = { r0: { c0: 'i', c1: 'k', c2: 'm' }, r1: { c0: 't', c1: 'l', c2: 'c' } };
+  const keyed = { r0: { c0: 'i', c1: 'k', c2: 'm' }, r1: { c0: 't', c1: 'l', c2: 't' } };
   const client = { beta: { messages: { stream() { return {
     on() {}, finalMessage: async () => ({ stop_reason: 'end_turn', stop_details: null,
       content: [{ type: 'text', text: JSON.stringify({ rows: keyed, names: [], islands }) }],
