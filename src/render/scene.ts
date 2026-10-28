@@ -751,7 +751,7 @@ function cachedCoast(
   // The coast was shaped and fitted smooth; its local cuts and fine detail go on now,
   // where moving it can no longer squeeze or stretch them, and a short last fit evens
   // out the little land the detail adds or takes away in each hex.
-  geometry = applyCoastDetail(geometry, cols, rows, size);
+  geometry = applyCoastDetail(geometry, size);
   geometry = profileTime('coast.fit', () => cachedCoastFit(geometry, fitTargets, cols, rows, size, page, inkReach, fitPassages, seed, 2));
   coastPhase('coverageAndLakes');
   const lakeOf = new Map<number, number>();

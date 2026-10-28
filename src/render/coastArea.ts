@@ -318,29 +318,43 @@ export function fitCoastAreas(geometry: CoastGeometry, targets: ReadonlyMap<numb
       }
       return transpose;
     };
-    const lambda = (size * 0.05) ** 2, mu = (size * 0.25) ** 2;
-    const bend = (x: Float64Array, out: Float64Array) => {
-      for (const { base, count, closed: loop } of controls) for (let c = loop ? 0 : 1; c < (loop ? count : count - 1); c++) {
-        const a = base + (c - 1 + count) % count, b = base + c, d = base + (c + 1) % count;
-        const second = mu * (x[a]! - 2 * x[b]! + x[d]!);
-        out[a] = out[a]! + second; out[b] = out[b]! - 2 * second; out[d] = out[d]! + second;
-      }
-    };
+    // A weak bend penalty lets the extra controls undo a lake's concentration while
+    // reaching its total area. Keep the correction broad enough to retain that shape.
+    const lambda = (size * 0.05) ** 2, mu = size ** 2;
+    // Scale the residual by the system's diagonal and stop relative to the original
+    // residual, rather than requiring each iteration to improve by eight orders.
+    const bends: Array<[number, number, number]> = [];
+    const diagonal = new Float64Array(unknowns).fill(lambda);
+    for (const { indices, values } of matrixRows) for (let j = 0; j < indices.length; j++) {
+      diagonal[indices[j]!] = diagonal[indices[j]!]! + values[j]! ** 2;
+    }
+    for (const { base, count, closed: loop } of controls) for (let c = loop ? 0 : 1; c < (loop ? count : count - 1); c++) {
+      const a = base + (c - 1 + count) % count, b = base + c, d = base + (c + 1) % count;
+      bends.push([a, b, d]);
+      diagonal[a] = diagonal[a]! + mu; diagonal[b] = diagonal[b]! + 4 * mu; diagonal[d] = diagonal[d]! + mu;
+    }
     const rhs = Float64Array.from(timesT(Float64Array.from(hexes, h => short.get(h)!)));
     const x = new Float64Array(unknowns);
-    const r = Float64Array.from(rhs), dir = Float64Array.from(r);
-    let rr = r.reduce((sum, v) => sum + v * v, 0);
-    for (let iteration = 0; iteration < 80 && rr > 1e-12; iteration++) {
+    const r = Float64Array.from(rhs), dir = Float64Array.from(r, (v, j) => v / diagonal[j]!);
+    let rz = r.reduce((sum, v, j) => sum + v * dir[j]!, 0);
+    const tolerance = r.reduce((sum, v) => sum + v * v, 0) * 1e-8;
+    for (let iteration = 0; iteration < 80 && rz > 1e-12; iteration++) {
       profileCount('fit.solverIterations');
       const q = timesT(times(dir));
       for (let j = 0; j < unknowns; j++) q[j] = q[j]! + lambda * dir[j]!;
-      bend(dir, q);
-      const alpha = rr / (dir.reduce((sum, v, j) => sum + v * q[j]!, 0) || 1);
-      for (let j = 0; j < unknowns; j++) { x[j] = x[j]! + alpha * dir[j]!; r[j] = r[j]! - alpha * q[j]!; }
-      const next = r.reduce((sum, v) => sum + v * v, 0);
-      if (next < rr * 1e-8) break;
-      for (let j = 0; j < unknowns; j++) dir[j] = r[j]! + (next / rr) * dir[j]!;
-      rr = next;
+      for (const [a, b, d] of bends) {
+        const second = mu * (dir[a]! - 2 * dir[b]! + dir[d]!);
+        q[a] = q[a]! + second; q[b] = q[b]! - 2 * second; q[d] = q[d]! + second;
+      }
+      const alpha = rz / (dir.reduce((sum, v, j) => sum + v * q[j]!, 0) || 1);
+      let residual = 0, next = 0;
+      for (let j = 0; j < unknowns; j++) {
+        x[j] = x[j]! + alpha * dir[j]!; r[j] = r[j]! - alpha * q[j]!;
+        residual += r[j]! ** 2; next += r[j]! ** 2 / diagonal[j]!;
+      }
+      if (residual <= tolerance) break;
+      for (let j = 0; j < unknowns; j++) dir[j] = r[j]! / diagonal[j]! + (next / rz) * dir[j]!;
+      rz = next;
     }
     // No round moves the coast by more than a quarter of a hex.
     for (let i = 0; i < unknowns; i++) x[i] = Math.max(-size * 0.25, Math.min(size * 0.25, x[i]!));
@@ -369,7 +383,10 @@ export function fitCoastAreas(geometry: CoastGeometry, targets: ReadonlyMap<numb
       const faults = [...distorts(referenceRings, trial, size * 0.2), ...distorts(current, trial, size * 0.2),
         ...newCrossings(current, trial, closed, size)];
       if (!faults.length) { next = trial; break; }
-      for (const [k, j] of faults) for (const [i] of support[k]?.[j] ?? []) factor[i] = attempt < 4 ? factor[i]! * 0.5 : 0;
+      // A control shared by several faulty points is halved once, not once per point.
+      const hit = new Set<number>();
+      for (const [k, j] of faults) for (const [i] of support[k]?.[j] ?? []) hit.add(i);
+      for (const i of hit) factor[i] = attempt < 4 ? factor[i]! * 0.5 : 0;
     }
     if (!next) break;
     phase('measureAndAccept');
@@ -454,27 +471,6 @@ function newCrossings(before: Point[][], after: Point[][], closed: boolean[], si
 }
 
 /**
- * Each hex near `p`, with its weight there, summing to one: a hex's weight holds steady
- * over its middle and blends with its neighbour's over about the third of a hex either
- * side of their shared edge.
- */
-function hexWeights(p: Point, cols: number, rows: number, size: number, centres: readonly Point[]): Array<[number, number]> {
-  const sigma = size * 0.4;
-  const home = nearestHex(p, cols, rows, size, centres), hc = home % cols, hr = Math.floor(home / cols);
-  const out: Array<[number, number]> = [];
-  let total = 0;
-  for (let r = Math.max(0, hr - 1); r <= Math.min(rows - 1, hr + 1); r++) for (let c = Math.max(0, hc - 1); c <= Math.min(cols - 1, hc + 1); c++) {
-    const h = r * cols + c, q = centres[h]!, d2 = (p.x - q.x) ** 2 + (p.y - q.y) ** 2;
-    if (d2 > (size * 1.5) ** 2) continue;
-    const w = Math.exp(-d2 / (2 * sigma * sigma));
-    if (w < 1e-4) continue;
-    out.push([h, w]);
-    total += w;
-  }
-  return out.map(([h, w]) => [h, w / total]);
-}
-
-/**
  * Each anchor moved to the nearest point of the coast as drawn (`paths`), found from a grid
  * of the coast's segments so only those nearby are checked.
  */
@@ -513,39 +509,21 @@ function snapAnchors(anchors: Map<string, Point>, paths: PathCmd[][], size: numb
 /**
  * Put the held-back detail back on every path: each point moves its recorded offset along
  * the coast's normal there (land on the right, as the offset was found). Points with none
- * recorded (a coast's run to the map's edge, say) stay where they are.
+ * recorded (a coast's run to the map's edge, say) stay where they are. The final spline
+ * fit absorbs the area change without levelling the detail against individual hexes.
  */
-export function applyCoastDetail(geometry: CoastGeometry, cols: number, rows: number, size: number): CoastGeometry {
+export function applyCoastDetail(geometry: CoastGeometry, size: number): CoastGeometry {
   const detail = geometry.detail;
   if (!detail?.size) return geometry;
-  const centres = Array.from({ length: cols * rows }, (_, h) => hexCenter(h % cols, Math.floor(h / cols), size));
-  // Less each hex's mean, blended across hex edges, so the detail adds about as much land
-  // as it takes away in every hex (whose share was fitted without it): each hex's stretch
-  // of coast keeps its cuts and capes and only shifts by that mean, as the fit moves it.
   const rings = geometry.paths.map(d => pathPolylines(d, 8)[0] ?? []);
-  const sum = new Map<number, number>(), length = new Map<number, number>();
-  const samples = rings.map(ring => ring.map((p, j) => {
-    const offset = detail.get(detailKey(p));
-    if (offset === undefined) return null; // a run to the map's edge, say: it stays put
-    const along = (j > 0 ? Math.hypot(p.x - ring[j - 1]!.x, p.y - ring[j - 1]!.y) : 0)
-      + (j + 1 < ring.length ? Math.hypot(ring[j + 1]!.x - p.x, ring[j + 1]!.y - p.y) : 0);
-    const weights = hexWeights(p, cols, rows, size, centres);
-    for (const [h, w] of weights) {
-      sum.set(h, (sum.get(h) ?? 0) + w * offset * along);
-      length.set(h, (length.get(h) ?? 0) + w * along);
-    }
-    return { offset, weights };
-  }));
   const paths = geometry.paths.map((d, k) => {
     const ring = rings[k]!;
     if (ring.length < 3) return d;
     const closed = geometry.chains[k]?.closed ?? false;
     const n = ring.length, last = closed && ring[0]!.x === ring[n - 1]!.x && ring[0]!.y === ring[n - 1]!.y ? n - 1 : n;
     const at = (j: number) => ring[closed ? (j + last) % last : Math.max(0, Math.min(n - 1, j))]!;
-    const offsets = samples[k]!.map(sample => !sample ? 0 : sample.offset
-      - sample.weights.reduce((m, [h, w]) => m + w * (sum.get(h)! / (length.get(h)! || 1)), 0));
     const moved = ring.map((p, j) => {
-      const offset = j < last ? offsets[j]! : 0;
+      const offset = j < last ? detail.get(detailKey(p)) ?? 0 : 0;
       if (!offset) return p;
       const a = at(j - 1), b = at(j + 1), dx = b.x - a.x, dy = b.y - a.y, length = Math.hypot(dx, dy) || 1;
       return { x: p.x - dy / length * offset, y: p.y + dx / length * offset };

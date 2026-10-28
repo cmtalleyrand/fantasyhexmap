@@ -99,6 +99,9 @@ test('local coverage preparation preserves enclosing rings, holes, ink and queri
 });
 
 test('reused scanlines preserve fill parity and stroke unions across adjacent and unrelated queries', () => {
+  // Merging a scanline before clipping changes the order of floating-point sums.
+  const sameArea = (actual: number, expected: number) =>
+    assert.ok(Math.abs(actual - expected) <= 1e-12 * Math.max(1, expected), `${actual} versus ${expected}`);
   const rings = [
     [{ x: -100, y: -100 }, { x: 300, y: -100 }, { x: 300, y: 300 }, { x: -100, y: 300 }],
     [{ x: 5, y: 0 }, { x: 70, y: 10 }, { x: 40, y: 95 }, { x: -5, y: 60 }],
@@ -110,11 +113,11 @@ test('reused scanlines preserve fill parity and stroke unions across adjacent an
     const uncached = areaCoverage(rings, options), cached = areaCoverage(rings, { ...options, reuseScanlines: true });
     for (const lines of [17, 96, 128]) for (let r = 0; r < 7; r++) for (let c = 0; c < 8; c++) {
       const clip = hexCorners(c, r, 11);
-      assert.equal(cached(clip, lines), uncached(clip, lines));
+      sameArea(cached(clip, lines), uncached(clip, lines));
     }
     const clip = hexCorners(1, 1, 11);
     const local = areaCoverage(rings, { ...options, within: clip, reuseScanlines: true });
-    assert.equal(local(clip, 128), uncached(clip, 128));
-    assert.equal(local(hexCorners(6, 4, 11), 17), uncached(hexCorners(6, 4, 11), 17));
+    sameArea(local(clip, 128), uncached(clip, 128));
+    sameArea(local(hexCorners(6, 4, 11), 17), uncached(hexCorners(6, 4, 11), 17));
   }
 });
