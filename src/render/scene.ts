@@ -125,7 +125,7 @@ import { ELEVATION_RANK, floeFringe, glacierEdges, glacierFlow, glacierMarginPri
 import { areaCoverage, coveredArea, nearestOn, lakeStraitFrame, shapeCoast, type ShapeMemo, type ShapeTarget } from './footprint.js';
 import { LAND_SHARE_TOLERANCE, withShoreSlack, channelShareSet, channelWidthFraction, drawnLandFraction, landFraction, normaliseHexDimensions } from '../../shared/surfaceArea.js';
 import { isShoreLand } from '../../shared/derive.js';
-import { fitCoastAreas } from './coastArea.js';
+import { applyCoastDetail, fitCoastAreas } from './coastArea.js';
 import { coastPaintPatches, coastPaintPaths } from './coastPaint.js';
 import { realmBoundary } from './realmBoundary.js';
 import { boundsOf, intersects, type Bounds } from './bounds.js';
@@ -373,7 +373,7 @@ interface TracedCoast {
 
 const coastCache = new BoundedMemo<TracedCoast>(4, 20_000_000);
 const coastComponents = new BoundedMemo<CoastComponentRecord>(192, 16_000_000);
-const coastFits = new BoundedMemo<Pick<CoastGeometry, 'paths' | 'anchors'>>(8, 12_000_000);
+const coastFits = new BoundedMemo<Pick<CoastGeometry, 'paths' | 'anchors' | 'detail'>>(8, 12_000_000);
 const glacierMargins = new BoundedMemo<CoastGeometry>(4, 8_000_000);
 const packIceDrawings = new BoundedMemo<Prim[]>(4, 8_000_000);
 
@@ -404,16 +404,16 @@ function prepareSceneCacheScope(map: MapState, size: number): void {
  * inputs form one dependency group; changing one input rebuilds that group. */
 function cachedCoastFit(geometry: CoastGeometry, targets: ReadonlyMap<number, { share: number; width?: number }>,
   cols: number, rows: number, size: number, page: { width: number; height: number }, ink: number,
-  passages: number[], seed: string): CoastGeometry {
+  passages: number[], seed: string, rounds?: number): CoastGeometry {
   if (!geometry.component || !targets.size) return geometry;
-  const key = JSON.stringify([seed, cols, rows, size, page, ink, passages, [...targets],
-    geometry.chains.map(c => c.closed), geometry.paths, [...geometry.anchors]]);
+  const key = JSON.stringify([seed, cols, rows, size, page, ink, passages, rounds, [...targets],
+    geometry.chains.map(c => c.closed), geometry.paths, [...geometry.anchors], [...geometry.detail ?? []]]);
   const hit = coastFits.get(key);
   if (hit) { profileCount('coast.fitGroupHits'); return { ...geometry, ...hit }; }
   profileCount('coast.fitGroupBuilds');
-  const fitted = fitCoastAreas(geometry, targets, cols, rows, size, page, ink, passages);
-  coastFits.set(key, { paths: fitted.paths, anchors: fitted.anchors },
-    fitted.paths.reduce((n, path) => n + path.length * 48, 0) + fitted.anchors.size * 64);
+  const fitted = fitCoastAreas(geometry, targets, cols, rows, size, page, ink, passages, rounds);
+  coastFits.set(key, { paths: fitted.paths, anchors: fitted.anchors, detail: fitted.detail },
+    fitted.paths.reduce((n, path) => n + path.length * 48, 0) + fitted.anchors.size * 64 + (fitted.detail?.size ?? 0) * 64);
   return fitted;
 }
 
@@ -589,6 +589,7 @@ function cachedCoast(
         featureSeed: chain => aggregateArea.has(chain.edges[0]?.hex ?? -1) ? undefined
           : Math.min(...chain.edges.map(edge => featureSeeds.get(edge.land) ?? edge.land)),
         componentInk: inkReach,
+        deferDetail: true,
         amplitude: (edge: CoastEdge) => Math.min((lakeWater(edge.water)
           ? COAST_AMPLITUDE[lakeShoreIrregularity(base[edge.land], shapes?.[String(edge.land)], defaultLakeIrregularity, shapes?.[String(edge.water)])]
           : Math.max(amplitudeOf(edge.hex), amplitudeOf(edge.across),
@@ -729,11 +730,16 @@ function cachedCoast(
     aimed.set(i, { ...target, share: selected.share });
   }
   coastPhase('coupledFit');
-  geometry = profileTime('coast.fit', () => cachedCoastFit(geometry, new Map([...targets].flatMap(([i, target]) =>
+  const fitTargets = new Map([...targets].flatMap(([i, target]) =>
     (base[i] === 'Land' && !shore[i]) || (target.width !== undefined && !target.fit) ? []
-      : [[i, { share: wanted.get(i)!, width: target.width }] as const])), cols, rows, size, page, inkReach,
-    [...targets].filter(([, target]) => target.width !== undefined).map(([i]) => i),
-    seed));
+      : [[i, { share: wanted.get(i)!, width: target.width }] as const]));
+  const fitPassages = [...targets].filter(([, target]) => target.width !== undefined).map(([i]) => i);
+  geometry = profileTime('coast.fit', () => cachedCoastFit(geometry, fitTargets, cols, rows, size, page, inkReach, fitPassages, seed));
+  // The coast was shaped and fitted smooth; its local cuts and fine detail go on now,
+  // where moving it can no longer squeeze or stretch them, and a short last fit evens
+  // out the little land the detail adds or takes away in each hex.
+  geometry = applyCoastDetail(geometry, cols, rows, size);
+  geometry = profileTime('coast.fit', () => cachedCoastFit(geometry, fitTargets, cols, rows, size, page, inkReach, fitPassages, seed, 2));
   coastPhase('coverageAndLakes');
   const lakeOf = new Map<number, number>();
   lakes.forEach((lake, k) => lake.forEach(i => lakeOf.set(i, k)));

@@ -295,6 +295,8 @@ export interface CoastGeometry {
    * or roughened coast that is off the corner itself. Absent for a coast drawn on the hex edges.
    */
   anchors: Map<string, Point>;
+  /** Detail held back from the paths (see `Roughness.deferDetail`): each point's offset along the coast's normal, by `detailKey` (componentCoast.ts). */
+  detail?: Map<string, number>;
 }
 
 // Preserve the clipper's small shore fragments. A 0.01-unit key collapses
@@ -471,6 +473,12 @@ export interface Roughness {
   featureSeed?: (chain: CoastChain) => number | undefined;
   /** Outer half of the coast stroke, counted toward a component area target. */
   componentInk?: number;
+  /**
+   * Leave a component's local cuts and fine detail off its path, recording each point's
+   * offset in `CoastGeometry.detail` instead, so the smooth coast can be fitted to its
+   * shares first and the detail added after (`applyCoastDetail`).
+   */
+  deferDetail?: boolean;
 }
 
 /** Samples along each quadratic piece of a roughened coast. */
@@ -708,6 +716,8 @@ export interface CoastComponentRecord {
   anchors: Map<string, Point>;
   component: boolean;
   aggregate: boolean;
+  /** Held-back detail, by `detailKey` (see `Roughness.deferDetail`). */
+  detail?: Array<[string, number]>;
 }
 export interface CoastComponentReuse {
   cache: BoundedMemo<CoastComponentRecord>;
@@ -741,7 +751,8 @@ export function coastGeometryOf(
     const toLand: Sliver[] = [], toWater: Sliver[] = [];
     const anchors = new Map<string, Point>();
     let component = false, aggregate = false;
-    const finish = (path: PathCmd[]): CoastComponentRecord => ({ path, toLand, toWater, anchors, component, aggregate });
+    let detail: Array<[string, number]> | undefined;
+    const finish = (path: PathCmd[]): CoastComponentRecord => ({ path, toLand, toWater, anchors, component, aggregate, detail });
     if (!smooth || chain.points.length < 3) return finish(hexPath(chain));
     const { points, edges, closed } = chain;
     const n = points.length;
@@ -757,6 +768,7 @@ export function coastGeometryOf(
       toLand.push(...silhouette.toLand);
       toWater.push(...silhouette.toWater);
       silhouette.anchors.forEach((point, id) => anchors.set(id, point));
+      detail = silhouette.detail;
       return finish(silhouette.path);
     }
     // Legacy Smooth geometry, with optional lean used by ice margins.
@@ -797,12 +809,13 @@ export function coastGeometryOf(
     }
     return finish(piece.some(Boolean) ? roughPath(points, closed, piece) : smoothPath(points, closed));
   };
+  const detail = new Map<string, number>();
   let cache = reuse?.cache ?? (rough ? componentCache.get(rough) : undefined);
   if (!cache && rough) { cache = new BoundedMemo<CoastComponentRecord>(128, 12_000_000); componentCache.set(rough, cache); }
   const paths = chains.map(chain => {
     // An edit that splits/joins a ring changes this content key. Clearance includes
     // every nearby edge it may inspect, so approaching components invalidate too.
-    const signature = cache ? JSON.stringify([reuse?.policyKey, smooth, chain.closed, rough?.size, rough?.smoothing,
+    const signature = cache ? JSON.stringify([reuse?.policyKey, smooth, chain.closed, rough?.size, rough?.smoothing, rough?.deferDetail,
       rough?.componentArea?.(chain), rough?.componentInk, rough?.featureSeed?.(chain),
       chain.edges.map(edge => [edge.from.x, edge.from.y, edge.to.x, edge.to.y, edge.land, edge.water,
         edge.hex, edge.across, rough?.amplitude(edge), rough?.lean?.(edge), rough?.displacementLimit?.(edge), rough?.narrowSide?.(edge)]),
@@ -816,9 +829,11 @@ export function coastGeometryOf(
     component ||= record.component; aggregate ||= record.aggregate;
     toLand.push(...record.toLand); toWater.push(...record.toWater);
     record.anchors.forEach((point, id) => anchors.set(id, point));
+    for (const [key, offset] of record.detail ?? []) detail.set(key, offset);
     return record.path;
   });
-  return { component, aggregate, chains, strips, paths, toWater, toLand, grown: reshaped?.grown ?? [], water: reshaped?.water ?? new Map(), land: reshaped?.land ?? new Map(), anchors };
+  return { component, aggregate, chains, strips, paths, toWater, toLand, grown: reshaped?.grown ?? [], water: reshaped?.water ?? new Map(), land: reshaped?.land ?? new Map(), anchors,
+    ...(detail.size ? { detail } : {}) };
 }
 
 /** A smoothed chain in which some corners carry a sampled, roughened curve. */

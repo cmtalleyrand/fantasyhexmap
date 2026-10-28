@@ -2,6 +2,9 @@ import type { Point } from '../../shared/hex.js';
 import type { CoastChain, CoastEdge, Roughness, Sliver } from './coast.js';
 import type { PathCmd } from './prims.js';
 import { polygonSliver } from './sliver.js';
+
+/** The key a path point's held-back detail is found by: its exact coordinates. */
+export const detailKey = (p: Point) => `${p.x},${p.y}`;
 const lerp = (a: Point, b: Point, t: number): Point => ({ x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t });
 const distance = (a: Point, b: Point) => Math.hypot(a.x - b.x, a.y - b.y);
 /** Spatial index shared by all component rings: nearby islands and holes constrain each other. */
@@ -264,6 +267,7 @@ export function componentCoast(chain: CoastChain, rough: Roughness, clearance: R
     }
     return { amplitude: amplitude / weight, limit };
   });
+  const held = new Array<number>(n).fill(0);
   const detail = eased.map((p, i) => {
     const previous = eased[chain.closed ? (i - 1 + n) % n : Math.max(0, i - 1)]!;
     const next = eased[chain.closed ? (i + 1) % n : Math.min(n - 1, i + 1)]!;
@@ -283,7 +287,8 @@ export function componentCoast(chain: CoastChain, rough: Roughness, clearance: R
     const moveLength = Math.hypot(move.x, move.y) || 1;
     const ends = chain.closed ? 1 : Math.min(1, arc / size, (perimeter - arc) / size);
     const gain = limit > 0 ? limit * Math.tanh(moveLength / limit) / moveLength * ends : 0;
-    return { x: p.x + move.x * gain, y: p.y + move.y * gain };
+    held[i] = offset * gain;
+    return rough.deferDetail ? p : { x: p.x + move.x * gain, y: p.y + move.y * gain };
   });
   if (targetArea !== undefined) {
     // A positive affine transform changes the component's area without folding
@@ -373,5 +378,6 @@ export function componentCoast(chain: CoastChain, rough: Roughness, clearance: R
   if (chain.closed)
     path.push(['Z']);
   if (targetArea === 0) path.length = 0;
-  return { path, toLand, toWater, anchors };
+  return { path, toLand, toWater, anchors,
+    detail: rough.deferDetail && path.length ? result.map((p, i): [string, number] => [detailKey(p), held[i]!]).filter(([, offset]) => offset !== 0) : undefined };
 }

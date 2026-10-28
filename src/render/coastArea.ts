@@ -3,7 +3,7 @@ import { profileCount, profilePhases, profileTime } from './profile.js';
 /** Fit every hex's share on the final coastline (see `fitCoastAreas`). */
 import { hexCenter, hexCorners, type Point } from '../../shared/hex.js';
 import { LAND_SHARE_TOLERANCE } from '../../shared/surfaceArea.js';
-import { coastClearance } from './componentCoast.js';
+import { coastClearance, detailKey } from './componentCoast.js';
 import { drawnLand, drawnLandLayout, evenOddTest, type CoastChain, type CoastGeometry } from './coast.js';
 import { areaCoverage, nearestHex, nearestOn } from './footprint.js';
 import { pathPolylines } from './ice.js';
@@ -127,6 +127,20 @@ export function fitCoastAreas(geometry: CoastGeometry, targets: ReadonlyMap<numb
     const { ring: untangled, joins } = untangle(ring, closed[k]!);
     current.push(roundLoopJoins(untangled, closed[k]!, joins, size * .32, p => passageFade(p) >= 1, current));
   });
+  // Detail held back from the paths (see `Roughness.deferDetail`) belongs to points, which
+  // the fit moves but keeps in order: carry each point's offset along, filling in points
+  // the loop repairs added from those beside them.
+  const held = geometry.detail ? current.map(ring => {
+    const offsets = ring.map(p => geometry.detail!.get(detailKey(p)) ?? NaN);
+    offsets.forEach((v, j) => {
+      if (!Number.isNaN(v)) return;
+      let a = j - 1, b = j + 1;
+      while (a >= 0 && Number.isNaN(offsets[a]!)) a--;
+      while (b < offsets.length && Number.isNaN(offsets[b]!)) b++;
+      offsets[j] = a < 0 || b >= offsets.length ? 0 : offsets[a]! + (offsets[b]! - offsets[a]!) * (j - a) / (b - a);
+    });
+    return offsets;
+  }) : null;
   // Open ends never move. Reuse the page-edge joins, then supply the evolving
   // polylines directly, including the original Z closure.
   const layout = drawnLandLayout(geometryOf(current), page.width, page.height, size);
@@ -145,23 +159,7 @@ export function fitCoastAreas(geometry: CoastGeometry, targets: ReadonlyMap<numb
       return ring;
     }).filter(ring => ring.length > 1);
   };
-  // Each hex's amount holds evenly over the middle of the hex and blends with its
-  // neighbour's over about the third of a hex either side of their shared edge.
-  const sigma = size * 0.4;
-  const weights = (p: Point): Array<[number, number]> => {
-    const home = nearestHex(p, cols, rows, size, centres), hc = home % cols, hr = Math.floor(home / cols);
-    const out: Array<[number, number]> = [];
-    let total = 0;
-    for (let r = Math.max(0, hr - 1); r <= Math.min(rows - 1, hr + 1); r++) for (let c = Math.max(0, hc - 1); c <= Math.min(cols - 1, hc + 1); c++) {
-      const h = r * cols + c, q = centreOf(h), d2 = (p.x - q.x) ** 2 + (p.y - q.y) ** 2;
-      if (d2 > (size * 1.5) ** 2) continue;
-      const w = Math.exp(-d2 / (2 * sigma * sigma));
-      if (w < 1e-4) continue;
-      out.push([h, w]);
-      total += w;
-    }
-    return out.map(([h, w]) => [h, w / total]);
-  };
+  const weights = (p: Point) => hexWeights(p, cols, rows, size, centres);
   const measureAll = (rs: Point[][], hexes: Iterable<number>) => {
     profileCount('fit.measurements');
     const coverage = areaCoverage(landRings(rs),
@@ -368,7 +366,8 @@ export function fitCoastAreas(geometry: CoastGeometry, targets: ReadonlyMap<numb
   phase('anchors');
   const paths = pathsOf(current);
   const all = paths.flatMap(d => pathPolylines(d, 8));
-  const result = { ...geometry, paths, anchors: new Map([...geometry.anchors].map(([key, p]) => [key, nearestOn(p, all).at])) };
+  const detail = held ? new Map(current.flatMap((ring, k) => ring.map((p, j): [string, number] => [detailKey(p), held[k]![j]!]))) : undefined;
+  const result = { ...geometry, paths, detail, anchors: new Map([...geometry.anchors].map(([key, p]) => [key, nearestOn(p, all).at])) };
   phase();
   return result;
 }
@@ -437,4 +436,75 @@ function newCrossings(before: Point[][], after: Point[][], closed: boolean[], si
     }
   }
   return faults;
+}
+
+/**
+ * Each hex near `p`, with its weight there, summing to one: a hex's weight holds steady
+ * over its middle and blends with its neighbour's over about the third of a hex either
+ * side of their shared edge.
+ */
+function hexWeights(p: Point, cols: number, rows: number, size: number, centres: readonly Point[]): Array<[number, number]> {
+  const sigma = size * 0.4;
+  const home = nearestHex(p, cols, rows, size, centres), hc = home % cols, hr = Math.floor(home / cols);
+  const out: Array<[number, number]> = [];
+  let total = 0;
+  for (let r = Math.max(0, hr - 1); r <= Math.min(rows - 1, hr + 1); r++) for (let c = Math.max(0, hc - 1); c <= Math.min(cols - 1, hc + 1); c++) {
+    const h = r * cols + c, q = centres[h]!, d2 = (p.x - q.x) ** 2 + (p.y - q.y) ** 2;
+    if (d2 > (size * 1.5) ** 2) continue;
+    const w = Math.exp(-d2 / (2 * sigma * sigma));
+    if (w < 1e-4) continue;
+    out.push([h, w]);
+    total += w;
+  }
+  return out.map(([h, w]) => [h, w / total]);
+}
+
+/**
+ * Put the held-back detail back on every path: each point moves its recorded offset along
+ * the coast's normal there (land on the right, as the offset was found). Points with none
+ * recorded (a coast's run to the map's edge, say) stay where they are.
+ */
+export function applyCoastDetail(geometry: CoastGeometry, cols: number, rows: number, size: number): CoastGeometry {
+  const detail = geometry.detail;
+  if (!detail?.size) return geometry;
+  const centres = Array.from({ length: cols * rows }, (_, h) => hexCenter(h % cols, Math.floor(h / cols), size));
+  // Less each hex's mean, blended across hex edges, so the detail adds about as much land
+  // as it takes away in every hex (whose share was fitted without it): each hex's stretch
+  // of coast keeps its cuts and capes and only shifts by that mean, as the fit moves it.
+  const rings = geometry.paths.map(d => pathPolylines(d, 8)[0] ?? []);
+  const sum = new Map<number, number>(), length = new Map<number, number>();
+  const samples = rings.map(ring => ring.map((p, j) => {
+    const offset = detail.get(detailKey(p));
+    if (offset === undefined) return null; // a run to the map's edge, say: it stays put
+    const along = (j > 0 ? Math.hypot(p.x - ring[j - 1]!.x, p.y - ring[j - 1]!.y) : 0)
+      + (j + 1 < ring.length ? Math.hypot(ring[j + 1]!.x - p.x, ring[j + 1]!.y - p.y) : 0);
+    const weights = hexWeights(p, cols, rows, size, centres);
+    for (const [h, w] of weights) {
+      sum.set(h, (sum.get(h) ?? 0) + w * offset * along);
+      length.set(h, (length.get(h) ?? 0) + w * along);
+    }
+    return { offset, weights };
+  }));
+  const paths = geometry.paths.map((d, k) => {
+    const ring = rings[k]!;
+    if (ring.length < 3) return d;
+    const closed = geometry.chains[k]?.closed ?? false;
+    const n = ring.length, last = closed && ring[0]!.x === ring[n - 1]!.x && ring[0]!.y === ring[n - 1]!.y ? n - 1 : n;
+    const at = (j: number) => ring[closed ? (j + last) % last : Math.max(0, Math.min(n - 1, j))]!;
+    const offsets = samples[k]!.map(sample => !sample ? 0 : sample.offset
+      - sample.weights.reduce((m, [h, w]) => m + w * (sum.get(h)! / (length.get(h)! || 1)), 0));
+    const moved = ring.map((p, j) => {
+      const offset = j < last ? offsets[j]! : 0;
+      if (!offset) return p;
+      const a = at(j - 1), b = at(j + 1), dx = b.x - a.x, dy = b.y - a.y, length = Math.hypot(dx, dy) || 1;
+      return { x: p.x - dy / length * offset, y: p.y + dx / length * offset };
+    });
+    if (last < n) moved[n - 1] = moved[0]!;
+    const out: PathCmd[] = moved.map((p, j) => [j ? 'L' : 'M', p.x, p.y]);
+    if (closed) out.push(['Z']);
+    return out;
+  });
+  const all = paths.flatMap(d => pathPolylines(d, 8));
+  return { ...geometry, paths, detail: undefined,
+    anchors: new Map([...geometry.anchors].map(([key, p]) => [key, nearestOn(p, all).at])) };
 }
