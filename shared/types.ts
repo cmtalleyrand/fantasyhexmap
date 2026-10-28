@@ -702,6 +702,11 @@ export interface MapState {
    */
   hexShapes?: Record<string, HexShape>;
   /**
+   * Set once a map's shores are derived from the water beside Land (`isShoreLand`) rather than
+   * stored as Coastal Land: maps without it are migrated on load (`migrateMap`).
+   */
+  derivedShores?: true;
+  /**
    * The irregularity of every shaped hex that has none of its own (`hexShapes`).
    * Absent: each type uses its own default (`DEFAULT_IRREGULARITY`).
    */

@@ -16,7 +16,7 @@
  * `migrateCoastalLand`).
  */
 
-import { LEGACY_COASTAL_VALUE, LEGACY_ICE_VALUE, type BaseGeo, type HexShape, type IslandSpec, type LegacyIslandGeo, type MapHistorySnapshot, type MapState } from './types.js';
+import { DEFAULT_HEX_DIMENSIONS, LEGACY_COASTAL_VALUE, LEGACY_ICE_VALUE, type BaseGeo, type HexShape, type IslandSpec, type LegacyIslandGeo, type MapHistorySnapshot, type MapState } from './types.js';
 
 const LEGACY_SPECS: Record<LegacyIslandGeo, IslandSpec> = {
   Island: { large: 0, small: 1 },
@@ -123,7 +123,25 @@ export function migrateCoastalLand(map: MapState): MapState {
   return { ...next, history: historyChanged ? { past, future } : history };
 }
 
+/** The lake land share that was the default before shores were derived. */
+const OLD_LAKE_LAND_DEFAULT = 10;
+
+/**
+ * Move a map saved before shores were derived onto them: Coastal Land becomes Land, and the old
+ * default lake land share (10%), which claimed the same shoreline as the Land now cut back beside
+ * a lake, becomes the current default. Runs once: the map is then marked (`derivedShores`), so a
+ * share chosen afterwards is kept whatever it is.
+ */
+export function migrateToDerivedShores(map: MapState): MapState {
+  if (map.derivedShores) return map;
+  const next = migrateCoastalLand(map);
+  const lake = next.hexDimensions?.lakeLandPercent === OLD_LAKE_LAND_DEFAULT
+    ? { hexDimensions: { ...next.hexDimensions, lakeLandPercent: DEFAULT_HEX_DIMENSIONS.lakeLandPercent } }
+    : {};
+  return { ...next, ...lake, derivedShores: true };
+}
+
 /** Every migration a loaded map goes through, oldest first. */
 export function migrateMap(map: MapState): MapState {
-  return migrateCoastalLand(migrateLegacyIslands(map));
+  return migrateToDerivedShores(migrateLegacyIslands(map));
 }

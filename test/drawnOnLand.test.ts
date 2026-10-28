@@ -35,8 +35,6 @@ test('an enclosed Sea hex does not resize the surrounding mainland into a giant 
   const map = createMapState('Enclosed sea', 5, 5);
   map.id = 'named-sea';
   map.layers.base.data = Array(25).fill('Land'); map.layers.base.data![12] = 'Sea';
-  // The topology is under test, not the land shares: the shore hexes keep all their land.
-  map.hexDimensions.coastalLandPercent = 100;
   const scene = buildScene(map, { size: 40, visible: defaultVisibility(), labels: false, style: resolveStyle({ preset: 'parchment', overrides: {} }) });
   const paths: PathCmd[][] = [];
   const collect = (prims: import('../src/render/prims.ts').Prim[]) => { for (const p of prims) {
@@ -47,7 +45,9 @@ test('an enclosed Sea hex does not resize the surrounding mainland into a giant 
   const centre = hexCenter(2, 2, 40);
   const points = paths.flatMap(p => pathPolylines(p, 12)).flat();
   assert.ok(points.length > 0, 'the enclosed shore is drawn');
-  assert.ok(points.every(p => Math.hypot(p.x - centre.x, p.y - centre.y) < 60), 'the shore belongs to the single sea hex');
+  // The six shore hexes round it give up their coastal share to the sea, so the shore lies a little
+  // beyond the sea hex; a mainland mistaken for an island would put it at the page edge, far further.
+  assert.ok(points.every(p => Math.hypot(p.x - centre.x, p.y - centre.y) < 80), 'the shore belongs to the single sea hex');
 });
 
 test('two bays from one edge: each coast is joined to the next along the page, not to itself', () => {

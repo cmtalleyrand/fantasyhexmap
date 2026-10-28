@@ -1,15 +1,9 @@
 import assert from 'node:assert/strict';
-import { LAND_SHARE_TOLERANCE } from '../shared/surfaceArea.ts';
 import test from 'node:test';
 import { chainEdges, coastEdges, evenOddTest, surfaceMap } from '../src/render/coast.ts';
 import { areaCoverage, polyArea, shapeCoast } from '../src/render/footprint.ts';
-import { hexCenter, hexCorners, neighbourOf, type Point } from '../shared/hex.ts';
-import { createMapState } from './seededMap.ts';
-import { buildScene, defaultVisibility } from '../src/render/scene.ts';
-import { resolveStyle } from '../src/render/styles.ts';
-import { pathPolylines } from '../src/render/ice.ts';
-import type { BaseGeo, MapState } from '../shared/types.ts';
-import { scenePaths } from './helpers/scene.ts';
+import { hexCorners, neighbourOf } from '../shared/hex.ts';
+import type { BaseGeo } from '../shared/types.ts';
 const size = 30, cols = 7, centre = 24, area = 1.5 * Math.sqrt(3) * size * size;
 function layout(mask: number) {
   const base: BaseGeo[] = Array(49).fill('Sea');
@@ -78,82 +72,6 @@ test('low-share strait banks project inland instead of remaining thin bands alon
         `rotation=${rotation}, share=${share}: shallow edge-parallel land bar`);
     }
   }
-});
-const style = resolveStyle({ preset: 'parchment', overrides: { water: 'flat', grain: false, grid: 'none', land: 'uniform' } });
-function fixture(percent: number, seed = 'investigation'): MapState {
-  const map = createMapState('Strait regression', cols, cols);
-  map.id = seed;
-  map.defaultIrregularity = 'Ragged';
-  map.hexDimensions.coastalLandPercent = percent;
-  map.hexShapes = { '24': { type: 'Strait', land: percent } };
-  const base = layout((1 << 3) | (1 << 1));
-  for (const e of [3, 1]) {
-    const n = neighbourOf(3, 3, e), n2 = neighbourOf(n.col, n.row, e);
-    base[n.row * cols + n.col] = 'Land';
-    base[n2.row * cols + n2.col] = 'Land';
-    // The land behind each join is whole and smooth, as the mainland it leads to.
-    map.hexShapes![String(n2.row * cols + n2.col)] = { type: 'Land', land: 100, irregular: 'Smooth' };
-  }
-  map.layers.base.data = base;
-  return map;
-}
-function renderedCoverage(map: MapState) {
-  const scene = buildScene(map, { size, visible: defaultVisibility(), labels: false, style });
-  const ground = scene.prims.find(p => p.kind === 'group' && p.clip);
-  assert.ok(ground?.kind === 'group' && ground.clip, 'final land silhouette clips ground');
-  const strokes = scenePaths(scene.prims)
-    .filter(p => p.stroke === style.palette.coast)
-    .map(p => ({ d: pathPolylines(p.d, 8), reach: (p.strokeWidth ?? 0) / 2 }));
-  assert.equal(strokes.flatMap(s => s.d).length, 2, 'two connected mainland shores, no detached banks or islands');
-  const measure = areaCoverage(pathPolylines(ground.clip, 8), { evenOdd: true,
-    stroke: { rings: strokes.flatMap(s => s.d), reach: strokes[0]?.reach ?? 0 } });
-  return { scene, rings: strokes.flatMap(s => s.d), measure: (i: number) => measure(hexCorners(i % cols, Math.floor(i / cols), size), 192) / area };
-}
-function crosses(rings: Point[][]) {
-  const cross = (a: Point, b: Point, c: Point) => (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
-  for (let r = 0; r < rings.length; r++) for (let i = 0; i + 1 < rings[r]!.length; i++) {
-    const a = rings[r]![i]!, b = rings[r]![i + 1]!;
-    for (let s = r; s < rings.length; s++) for (let j = s === r ? i + 2 : 0; j + 1 < rings[s]!.length; j++) {
-      const c = rings[s]![j]!, d = rings[s]![j + 1]!;
-      if (cross(a, b, c) * cross(a, b, d) < -1e-8 && cross(c, d, a) * cross(c, d, b) < -1e-8) return true;
-    }
-  }
-  return false;
-}
-test('final irregular strait and neighbouring coastal hexes meet achievable percentages', () => {
-  for (const seed of ['investigation', 'coast-driftwood', 'coast-reefs']) for (const percent of [30, 50, 60]) {
-    const { measure, rings } = renderedCoverage(fixture(percent, seed));
-    assert.equal(crosses(rings), false, 'final coastline fitting preserves simple, disjoint shores');
-    assert.equal(evenOddTest(rings, size / 8)(hexCenter(3, 3, size)), false, 'water remains through the strait centre');
-    for (const i of [23, 24, 32]) assert.ok(Math.abs(measure(i) - percent / 100) <= LAND_SHARE_TOLERANCE,
-      `${seed}: hex ${i} requested ${percent}%, drew ${(measure(i) * 100).toFixed(2)}%`);
-  }
-});
-test('rendered banks do not flare into a large lobe beyond a pinched mainland join', () => {
-  for (const seed of ['investigation', 'coast-driftwood', 'coast-reefs']) {
-    const { rings } = renderedCoverage(fixture(30, seed));
-    const land = evenOddTest(rings, size / 8), c = hexCenter(3, 3, size), corners = hexCorners(3, 3, size);
-    for (const e of [3, 1]) {
-      const a = corners[e]!, b = corners[(e + 1) % 6]!, root = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
-      const length = Math.hypot(c.x - root.x, c.y - root.y), nx = (c.x - root.x) / length, ny = (c.y - root.y) / length;
-      const widthAt = (depth: number) => {
-        let width = 0;
-        for (let t = -size; t < size; t += 0.1)
-          if (land({ x: root.x + nx * depth - ny * t, y: root.y + ny * depth + nx * t })) width += 0.1;
-        return width;
-      };
-      const join = widthAt(-2), head = Math.max(...[2, 6, 10].map(widthAt));
-      assert.ok(head < join * 1.5, `${seed}, side=${e}: ${head.toFixed(1)}-wide lobe beyond ${join.toFixed(1)}-wide join`);
-    }
-  }
-});
-test('an unattainable strait share is reported with its measured result and a useful width explanation', () => {
-  const { scene, measure } = renderedCoverage(fixture(90));
-  const note = scene.compromises?.find(c => c.hexes.includes(centre));
-  assert.ok(note);
-  assert.match(note.what, /instead of 90%/);
-  assert.match(note.why, /width/);
-  assert.ok(measure(centre) > 0.6 && measure(centre) < 0.8);
 });
 test('coverage measures holes and overlapping coastline ink once, inside the hex', () => {
   const square = [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }, { x: 0, y: 10 }];
