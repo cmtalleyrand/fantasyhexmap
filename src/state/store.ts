@@ -17,6 +17,7 @@ import { recomputeCityFacts, canHoldSettlement, isShoreLand } from '../../shared
 import { CHANNEL_WIDTH_VALUES, hasChannelWidth, hasLandConcentration, hasLandShare, isIslandType, isShapedType, islandSpecFor, type ChannelWidth, type HexShape, type IslandSpec, type Irregularity } from '../../shared/types.js';
 import { mergeGeneratedIslandSettings } from '../../shared/generatedIslands.js';
 import { migrateMap } from '../../shared/islandMigration.js';
+import { normaliseHexDimensions, withShoreSlack } from '../../shared/surfaceArea.js';
 import { GEO_KIND_LABEL, geoEligibility, geoNamesOf, mergeGeneratedNames, withMigratedGeoNames } from '../../shared/geoNames.js';
 import { withValidParents } from '../../shared/polityTree.js';
 import { applyAutoShade } from '../../shared/polityShade.js';
@@ -1373,7 +1374,9 @@ function reduceMap(map: MapState, action: Action): MapState {
         if (change === null) next = undefined;
         else {
           if (change.land === null) delete next.land;
-          else if (change.land !== undefined && hasLandShare(value)) next.land = Math.max(0, Math.min(100, Math.round(change.land)));
+          // An extreme the shore slack rules out is held to the nearest share allowed (`withShoreSlack`).
+          else if (change.land !== undefined && hasLandShare(value)) next.land = Math.round(100 * withShoreSlack(base, map.cols, i,
+            Math.max(0, Math.min(100, Math.round(change.land))) / 100, normaliseHexDimensions(map.hexDimensions), map.hexShapes));
           if (change.width === null) delete next.width;
           else if (change.width !== undefined && hasChannelWidth(value) && CHANNEL_WIDTH_VALUES.includes(change.width)) next.width = change.width;
           if (value === 'Strait') {

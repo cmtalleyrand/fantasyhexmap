@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { CHANNEL_WIDTH_PERCENT, CHANNEL_WIDTH_VALUES, type ChannelWidth, type HexDimensions } from '../../shared/types.js';
 import {
+  SHORE_SLACK,
   isRegularHex,
   measuresFromWidth,
   regularHexSize,
@@ -31,6 +32,17 @@ const LAND_SHARES: Array<[keyof HexDimensions, string]> = [
   
   ['glacierPercent', 'Glacier'],
 ];
+
+/** What a map-wide extreme becomes where whole land meets water with no land (`withShoreSlack`). */
+function slackNote(field: keyof HexDimensions, percent: number): string {
+  if ((field === 'coastalLandPercent' || field === 'glacierPercent') && percent === 100) {
+    return ` (${100 - SHORE_SLACK * 100}% beside 0% water)`;
+  }
+  if ((field === 'seaLandPercent' || field === 'lakeLandPercent') && percent === 0) {
+    return ` (${SHORE_SLACK * 100}% beside 100% land)`;
+  }
+  return '';
+}
 
 const fmt = (n: number) =>
   Number.isFinite(n) ? Number(n.toPrecision(4)).toLocaleString(undefined, { maximumFractionDigits: 4 }) : '-';
@@ -242,12 +254,15 @@ export default function HexSizeInput({
             >
               {(field === 'smallIslandPercent' ? SMALL_ISLAND_PERCENT_OPTIONS : LAND_PERCENT_OPTIONS).map((p) => (
                 <option key={p} value={p}>
-                  {p}%
+                  {p}%{slackNote(field, p)}
                 </option>
               ))}
             </select>
           </div>
         ))}
+        <p className="hint" style={{ gridColumn: '1 / -1' }}>
+          Shores keep {SHORE_SLACK * 100}% either side.
+        </p>
         {([['isthmusWidth', 'isthmusPercent', 'Isthmus'], ['straitWidth', 'straitPercent', 'Strait']] as const).map(([field, shareField, label]) => (
           <div key={field}>
             <label>{label} width</label>
