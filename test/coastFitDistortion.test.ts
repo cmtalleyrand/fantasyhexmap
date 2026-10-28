@@ -14,7 +14,7 @@ test('repeated coast fitting cannot compound a small feature into a spike', () =
     { size, amplitude: () => .12, noise: () => .4 });
   const targets = new Map(base.map((v, i) => [i, { share: v === 'Lake' ? .1 : .8 }]));
   const page = gridPixelSize(cols, rows, size);
-  const fit = (rounds: number) => fitCoastAreas(geometry, targets, cols, rows, size, page, .4, [], () => .5, rounds)
+  const fit = (rounds: number) => fitCoastAreas(geometry, targets, cols, rows, size, page, .4, [], rounds)
     .paths.map(d => pathPolylines(d, 8)[0]!);
   const initial = fit(0), final = fit(16);
   for (let k = 0; k < initial.length; k++) {

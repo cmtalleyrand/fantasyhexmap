@@ -1,8 +1,7 @@
 import type { Point } from '../../shared/hex.js';
 
 /** Round only the joins introduced by deleting a fold-back loop. Original
- * coastline detail remains intact. Call after tangential skew, before fitting area,
- * so the skew cannot sharpen this repair again.
+ * coastline detail remains intact. Call before fitting area.
  */
 export function roundLoopJoins(input: Point[], closed: boolean, joins: Point[], radius: number,
   allowed: (p: Point) => boolean, otherRings: Point[][] = []): Point[] {

@@ -411,8 +411,7 @@ function cachedCoastFit(geometry: CoastGeometry, targets: ReadonlyMap<number, { 
   const hit = coastFits.get(key);
   if (hit) { profileCount('coast.fitGroupHits'); return { ...geometry, ...hit }; }
   profileCount('coast.fitGroupBuilds');
-  const fitted = fitCoastAreas(geometry, targets, cols, rows, size, page, ink, passages,
-    (hex, k) => unit(seed, 'coast-fit', hex, k));
+  const fitted = fitCoastAreas(geometry, targets, cols, rows, size, page, ink, passages);
   coastFits.set(key, { paths: fitted.paths, anchors: fitted.anchors },
     fitted.paths.reduce((n, path) => n + path.length * 48, 0) + fitted.anchors.size * 64);
   return fitted;
