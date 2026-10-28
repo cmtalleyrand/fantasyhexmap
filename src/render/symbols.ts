@@ -313,35 +313,150 @@ export function hillshade(
 }
 
 /**
- * The edge of a plateau where it falls to lower ground: a line just inside
- * the plateau's side of the hex edge, with short ticks running downhill
- * across it, the cartographer's sign for an escarpment.
+ * A shared rim vertex is inset toward all plateau cells meeting that corner.
+ * Using the same cells on either side keeps the rim joined across hexes.
  */
-export function escarpment(a: Point, b: Point, centre: Point, size: number, colours: SymbolInk, rand: (k: number) => number): Placed {
-  const inset = 0.14;
-  const p = { x: a.x + (centre.x - a.x) * inset, y: a.y + (centre.y - a.y) * inset };
-  const q = { x: b.x + (centre.x - b.x) * inset, y: b.y + (centre.y - b.y) * inset };
-  const len = Math.hypot(q.x - p.x, q.y - p.y) || 1;
-  // Downhill: away from the plateau hex's centre.
-  const mx = (p.x + q.x) / 2;
-  const my = (p.y + q.y) / 2;
-  const ox = mx - centre.x;
-  const oy = my - centre.y;
-  const olen = Math.hypot(ox, oy) || 1;
-  const dx = ox / olen;
-  const dy = oy / olen;
-  const ink = mix(colours.ground, colours.ink, 0.75);
-  const stroke = Math.max(0.55, size * 0.03);
-  const d: PathCmd[] = [['M', p.x, p.y], ['L', q.x, q.y]];
-  const ticks = Math.max(3, Math.round(len / (size * 0.16)));
-  for (let k = 0; k < ticks; k++) {
-    const t = (k + 0.5) / ticks;
-    const x = p.x + (q.x - p.x) * t;
-    const y = p.y + (q.y - p.y) * t;
-    const l = size * (0.13 + 0.05 * rand(k));
-    d.push(['M', x, y], ['L', x + dx * l, y + dy * l]);
+export function plateauRimVertex(vertex: Point, centres: Point[], size: number): Point {
+  const ordered = [...centres].sort((a, b) => a.x - b.x || a.y - b.y);
+  const mean = ordered.reduce((p, c) => ({ x: p.x + c.x / ordered.length, y: p.y + c.y / ordered.length }), { x: 0, y: 0 });
+  const length = Math.hypot(mean.x - vertex.x, mean.y - vertex.y) || 1;
+  return { x: vertex.x + (mean.x - vertex.x) / length * size * 0.14,
+    y: vertex.y + (mean.y - vertex.y) / length * size * 0.14 };
+}
+
+/** Continuous, deterministic value noise: erosion must not restart at every hex edge. */
+function erosionNoise(x: number, y: number, salt: number, seed = 0): number {
+  const hash = (i: number, j: number) => {
+    const n = Math.sin(i * 127.1 + j * 311.7 + salt * 74.7 + seed * 913.3) * 43758.5453;
+    return n - Math.floor(n);
+  };
+  const ix = Math.floor(x), iy = Math.floor(y);
+  const ease = (v: number) => v * v * (3 - 2 * v);
+  const u = ease(x - ix), v = ease(y - iy);
+  return (hash(ix, iy) * (1-u) + hash(ix+1, iy) * u) * (1-v)
+    + (hash(ix, iy+1) * (1-u) + hash(ix+1, iy+1) * u) * v;
+}
+
+/** Smooth the whole connected rim, so alternating hex corners do not become scallops. */
+export function smoothPlateauRims(rims: Array<[Point, Point]>, contour?: { size: number; seed: number }): Point[][] {
+  const key = (p: Point) => `${p.x.toFixed(5)},${p.y.toFixed(5)}`;
+  const vertices = new Map<string, { point: Point; neighbours: Set<string> }>();
+  for (const [a, b] of rims) {
+    for (const [p, q] of [[a, b], [b, a]] as Array<[Point, Point]>) {
+      const id = key(p);
+      if (!vertices.has(id)) vertices.set(id, { point: p, neighbours: new Set() });
+      vertices.get(id)!.neighbours.add(key(q));
+    }
   }
-  return { y: my, prims: [{ kind: 'path', d, stroke: ink, strokeWidth: stroke, round: true }] };
+  // Relax the zigzag before interpolating it; rounding each hex corner alone
+  // would still advertise the grid. Open ends stay fixed at higher terrain.
+  for (let pass = 0; pass < 2; pass++) {
+    const next = new Map<string, Point>();
+    for (const [id, v] of vertices) {
+      const neighbours = [...v.neighbours].map(k => vertices.get(k)!.point);
+      next.set(id, neighbours.length === 2 ? {
+        x: v.point.x * 0.5 + (neighbours[0]!.x + neighbours[1]!.x) * 0.25,
+        y: v.point.y * 0.5 + (neighbours[0]!.y + neighbours[1]!.y) * 0.25,
+      } : v.point);
+    }
+    for (const [id, point] of next) vertices.get(id)!.point = point;
+  }
+  return rims.map(([a, b]) => {
+    const va = vertices.get(key(a))!, vb = vertices.get(key(b))!;
+    const p = va.point, q = vb.point;
+    const before = [...va.neighbours].find(id => id !== key(b));
+    const after = [...vb.neighbours].find(id => id !== key(a));
+    const prev = before ? vertices.get(before)!.point : p;
+    const next = after ? vertices.get(after)!.point : q;
+    // Cubic Hermite interpolation gives the same tangent on both sides of a join.
+    return Array.from({ length: 25 }, (_, k) => {
+      const t = k / 24, t2 = t * t, t3 = t2 * t;
+      const at = (axis: 'x' | 'y') => (2*t3 - 3*t2 + 1)*p[axis] + (t3 - 2*t2 + t)*(q[axis] - prev[axis])/2
+        + (-2*t3 + 3*t2)*q[axis] + (t3 - t2)*(next[axis] - p[axis])/2;
+      const point = { x: at('x'), y: at('y') };
+      if (!contour) return point;
+      const { size, seed } = contour;
+      // Shape the contour itself: broad shoulders interrupted by unequal
+      // re-entrants. Domain warping prevents a regular series of scallops.
+      const x = point.x / size, y = point.y / size;
+      const wx = x + (erosionNoise(x * 0.35, y * 0.35, 1, seed) - 0.5) * 1.6;
+      const wy = y + (erosionNoise(x * 0.35, y * 0.35, 2, seed) - 0.5) * 1.6;
+      const shoulder = (erosionNoise(wx * 0.45, wy * 0.45, 3, seed) - 0.5) * 0.6;
+      const gully = Math.max(0, erosionNoise(wx * 1.15, wy * 1.15, 4, seed) - 0.38) * 1.65;
+      const ledge = (erosionNoise(wx * 3.2, wy * 3.2, 5, seed) - 0.5) * 0.16;
+      const derivative = (axis: 'x' | 'y') => (6*t2 - 6*t)*p[axis] + (3*t2 - 4*t + 1)*(q[axis] - prev[axis])/2
+        + (-6*t2 + 6*t)*q[axis] + (3*t2 - 2*t)*(next[axis] - p[axis])/2;
+      const tx = derivative('x'), ty = derivative('y');
+      const length = Math.hypot(tx, ty) || 1;
+      // Fade displacement into fixed open ends where the plateau meets higher ground.
+      const fade = (before ? 1 : t*t*(3-2*t)) * (after ? 1 : (1-t)*(1-t)*(1+2*t));
+      let offset = Math.max(-0.6, Math.min(0.25, shoulder - gully + ledge)) * size * fade;
+      // A recess cannot cut deeper than the radius of a tight bend: that
+      // would fold the normal-offset curve into a loop, especially on mesas.
+      const curvatureAt = (a: Point, b: Point, c: Point): number => {
+        const cross = (b.x-a.x)*(c.y-b.y) - (b.y-a.y)*(c.x-b.x);
+        const lengths = Math.hypot(b.x-a.x, b.y-a.y) * Math.hypot(c.x-b.x, c.y-b.y) * Math.hypot(c.x-a.x, c.y-a.y);
+        return lengths > 1e-8 ? 2*cross/lengths : 0;
+      };
+      // Shared vertices also share their curvature limit. The Hermite
+      // pieces have different second derivatives at a join.
+      const curvature = curvatureAt(prev, p, q)*(1-t) + curvatureAt(p, q, next)*t;
+      if (offset * curvature < 0 && Math.abs(curvature) > 1e-8) {
+        const limit = 0.4 / Math.abs(curvature);
+        offset = limit * Math.tanh(offset / limit);
+      }
+      return { x: point.x + ty / length * offset, y: point.y - tx / length * offset };
+    });
+  });
+}
+
+/** A gently broken cliff lip, shaded face and varied downhill hachures. */
+export function escarpment(a: Point, b: Point, centre: Point, size: number, colours: SymbolInk, rand: (k: number) => number,
+  rim: Point[] = [plateauRimVertex(a, [centre], size), plateauRimVertex(b, [centre], size)],
+): Placed {
+  const p = rim[0]!, q = rim[rim.length - 1]!;
+  const mx = (a.x + b.x) / 2;
+  const my = (a.y + b.y) / 2;
+  const olen = Math.hypot(mx - centre.x, my - centre.y) || 1;
+  const dx = (mx - centre.x) / olen;
+  const dy = (my - centre.y) / olen;
+  const ink = mix(colours.ground, colours.ink, 0.68);
+  const stroke = Math.max(0.5, size * 0.025);
+  const steps = rim.length > 2 ? rim.length - 1 : 12;
+  const lip = Array.from({ length: steps + 1 }, (_, k) => {
+    const t = k / steps;
+    return rim.length > 2 ? rim[k]! : { x: p.x + (q.x - p.x) * t, y: p.y + (q.y - p.y) * t };
+  });
+  const d: PathCmd[] = lip.map((v, k) => [k === 0 ? 'M' : 'L', v.x, v.y]);
+  // The foot follows the same curved outline, rather than exposing hex edges
+  // through the shaded face. Downhill strokes follow its local normal.
+  const feet = lip.map((v, k) => {
+    if (rim.length === 2) return { x: a.x + (b.x - a.x) * k / steps, y: a.y + (b.y - a.y) * k / steps };
+    const prev = lip[Math.max(0, k - 1)]!, next = lip[Math.min(steps, k + 1)]!;
+    const tx = next.x - prev.x, ty = next.y - prev.y;
+    const length = Math.hypot(tx, ty) || 1;
+    const sign = (-ty * dx + tx * dy) >= 0 ? 1 : -1;
+    return { x: v.x - ty / length * size * 0.10 * sign, y: v.y + tx / length * size * 0.10 * sign };
+  });
+  const ticks = Math.max(4, Math.round(Math.hypot(q.x - p.x, q.y - p.y) / (size * 0.18)));
+  for (let k = 0; k < ticks; k++) {
+    const t = (k + 0.15 + rand(k) * 0.7) / ticks;
+    const segment = Math.min(steps - 1, Math.floor(t * steps));
+    const u = t * steps - segment;
+    const v = lip[segment]!, w = lip[segment + 1]!;
+    const x = v.x + (w.x - v.x) * u, y = v.y + (w.y - v.y) * u;
+    const f0 = feet[segment]!, f1 = feet[segment + 1]!;
+    const f = { x: f0.x + (f1.x - f0.x) * u, y: f0.y + (f1.y - f0.y) * u };
+    const reach = 0.65 + rand(20 + k) * 0.35;
+    d.push(['M', x, y], ['L', x + (f.x - x) * reach, y + (f.y - y) * reach]);
+  }
+  // Light from the north-west, consistent with the other relief symbols.
+  const shadow = 0.08 + 0.07 * (dx + dy + 2) / 4;
+  const face: PathCmd[] = [...lip.map((v, k): PathCmd => [k === 0 ? 'M' : 'L', v.x, v.y]), ...[...feet].reverse().map((v): PathCmd => ['L', v.x, v.y]), ['Z']];
+  return { y: my, prims: [
+    { kind: 'path', d: face, fill: mix(colours.ground, colours.ink, shadow) },
+    { kind: 'path', d, stroke: ink, strokeWidth: stroke, round: true },
+  ] };
 }
 
 /** Points along a symbol's drawing: every vertex and control point, and the middle of each step between them. */
