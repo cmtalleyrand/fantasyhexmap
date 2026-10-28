@@ -13,7 +13,7 @@
  *    layer is already flagged stale by the upstream change.
  */
 
-import { recomputeCityFacts, canHoldSettlement, isShoreLand } from '../../shared/derive.js';
+import { recomputeCityFacts, canHoldSettlement, hasDerivedShore, isShoreLand } from '../../shared/derive.js';
 import { CHANNEL_WIDTH_VALUES, hasChannelWidth, hasLandConcentration, hasLandShare, isIslandType, isShapedType, islandSpecFor, type ChannelWidth, type HexShape, type IslandSpec, type Irregularity } from '../../shared/types.js';
 import { mergeGeneratedIslandSettings } from '../../shared/generatedIslands.js';
 import { migrateMap } from '../../shared/islandMigration.js';
@@ -1365,7 +1365,7 @@ function reduceMap(map: MapState, action: Action): MapState {
       let changed = 0;
       for (const i of action.indices) {
         const value = base[i];
-        if ((!isShapedType(value) && !hasLandShare(value)) || (value === 'Land' && !isShoreLand(base, map.cols, i))) continue;
+        if ((!isShapedType(value) && !hasLandShare(value)) || (hasDerivedShore(value) && !isShoreLand(base, map.cols, i))) continue;
         const key = String(i);
         const before = JSON.stringify(shapes[key] ?? null);
         const kept = shapes[key]?.type === value ? shapes[key]! : undefined;

@@ -1,7 +1,7 @@
 import { hexCount } from './selectionText.js';
 import { useMemo, useState } from 'react';
 import { hexIndex, indexToOffset, neighbourOf } from '../../shared/hex.js';
-import { canHoldSettlement, isShoreLand } from '../../shared/derive.js';
+import { canHoldSettlement, hasDerivedShore, isShoreLand } from '../../shared/derive.js';
 import { landEdgesOf } from '../../shared/straits.js';
 import { isLakeNeck, lakeEdgesOf } from '../render/sites.js';
 import { holdersOf } from '../../shared/polityShares.js';
@@ -700,7 +700,7 @@ function HexShapePanel(props: SubProps) {
   const { map, dispatch, selected } = props;
   const base = map.layers.base.data;
   // Land has a shore to shape only where it meets sea or lake.
-  const hexes = selected.filter((i) => (isShapedType(base?.[i]) || hasLandShare(base?.[i])) && (base![i] !== 'Land' || isShoreLand(base!, map.cols, i)));
+  const hexes = selected.filter((i) => (isShapedType(base?.[i]) || hasLandShare(base?.[i])) && (!hasDerivedShore(base![i]) || isShoreLand(base!, map.cols, i)));
   if (hexes.length === 0) return null;
   // A lake takes an irregularity for its own shore too; unset, its shore follows the land beside it, then the map's lake setting.
   const shaped = hexes.filter(i => base![i] !== 'Sea');
@@ -768,8 +768,8 @@ function HexShapePanel(props: SubProps) {
             {channelHexes.length > 0
               ? ' For an isthmus or strait the width below sets how narrow it is at its thinnest; a land share as well tunes how much land there is round that, widening or narrowing the flared ends of a neck and the banks of a channel.'
               : ''}
-            {landHexes.some((i) => base![i] === 'Land')
-              ? ' Land is cut back from the edges it shares with sea or lake; inland Land is always whole.'
+            {landHexes.some((i) => hasDerivedShore(base![i]))
+              ? ' Land and glacier are cut back from the edges they share with sea or lake; inland they are always whole.'
               : ''}
             {highest < 100 ? ` Max ${highest}% beside 0% water.` : ''}
             {lowest > 0 ? ` Min ${lowest}% beside 100% land.` : ''}

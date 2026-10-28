@@ -181,7 +181,7 @@ export function legendSections(
         // A style that bands the coast shows Land on the shore in a colour of its own.
         if (style.knobs.land !== 'uniform') {
           const base = map.layers.base.data;
-          const banded = !options.onlyUsed || Boolean(base?.some((_, i) => isShoreLand(base, map.cols, i)));
+          const banded = !options.onlyUsed || Boolean(base?.some((v, i) => v === 'Land' && isShoreLand(base, map.cols, i)));
           const at = entries.findIndex((entry) => entry.label === 'Land');
           if (banded) entries.splice(at + 1, 0, { swatch: { kind: 'fill', colour: palette.coastalLand }, label: 'Land on the shore' });
         }

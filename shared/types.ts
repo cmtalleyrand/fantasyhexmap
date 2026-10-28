@@ -759,7 +759,7 @@ export interface HexDimensions {
    */
   isthmusPercent?: number;
   straitPercent?: number;
-  /** Glacier is land under ice; less than all of it for a hex at the edge of an ice sheet. */
+  /** Share of a Glacier hex that is land where it meets sea or lake (`isShoreLand`): the ice is cut back there like Land's shore. Inland Glacier is whole. */
   glacierPercent: number;
   /** Increment used when displaying areas (in square `unit`s). */
   areaRounding: number;
@@ -780,7 +780,7 @@ export const DEFAULT_HEX_DIMENSIONS: HexDimensions = {
   mainlandPercent: 40,
   isthmusWidth: DEFAULT_CHANNEL_WIDTH.Isthmus,
   straitWidth: DEFAULT_CHANNEL_WIDTH.Strait,
-  glacierPercent: 100,
+  glacierPercent: 80,
   areaRounding: 100,
   lengthRounding: 10,
 };

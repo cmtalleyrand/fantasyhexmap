@@ -125,7 +125,7 @@ import { descendantsOf } from '../../shared/polityTree.js';
 import { ELEVATION_RANK, floeFringe, glacierEdges, glacierFlow, glacierMarginPrims, glacierShading, glacierShelf, iceSeam, nearHexes, pathPolylines, seaIcePrims } from './ice.js';
 import { areaCoverage, coveredArea, nearestOn, lakeStraitFrame, shapeCoast, type ShapeMemo, type ShapeTarget } from './footprint.js';
 import { LAND_SHARE_TOLERANCE, withShoreSlack, channelShareSet, channelWidthFraction, drawnLandFraction, landFraction, normaliseHexDimensions } from '../../shared/surfaceArea.js';
-import { isShoreLand } from '../../shared/derive.js';
+import { hasDerivedShore, isShoreLand } from '../../shared/derive.js';
 import { applyCoastDetail, fitCoastAreas } from './coastArea.js';
 import { coastPaintPatches, coastPaintPaths } from './coastPaint.js';
 import { realmBoundary } from './realmBoundary.js';
@@ -509,7 +509,7 @@ function cachedCoast(
     const shape = hexShapeFor(base[i], shapes?.[String(i)], defaultIrregularity);
     const own = ownShare(i);
     // Land whose only water edge is not a shore (an unsplit strait) is a whole hex of land: its ink counts too.
-    const share = own ?? (base[i] === 'Land' && inkReach > 0 && shoreLength.has(i) ? 1 : null);
+    const share = own ?? (hasDerivedShore(base[i]) && inkReach > 0 && shoreLength.has(i) ? 1 : null);
     if (share === null) continue;
     // The land inside the line is the share less the outer half of the ink along it.
     const aimed = inkReach > 0 ? Math.max(0, share - ((shoreLength.get(i) ?? 0) * inkReach) / hexAreaOf) : share;
@@ -744,7 +744,7 @@ function cachedCoast(
   }
   coastPhase('coupledFit');
   const fitTargets = new Map([...targets].flatMap(([i, target]) =>
-    (base[i] === 'Land' && !shore[i]) || (target.width !== undefined && !target.fit) ? []
+    (hasDerivedShore(base[i]) && !shore[i]) || (target.width !== undefined && !target.fit) ? []
       : [[i, { share: wanted.get(i)!, width: target.width }] as const]));
   const fitPassages = [...targets].filter(([, target]) => target.width !== undefined).map(([i]) => i);
   geometry = profileTime('coast.fit', () => cachedCoastFit(geometry, fitTargets, cols, rows, size, page, inkReach, fitPassages, seed));
@@ -855,7 +855,7 @@ function cachedCoast(
       evenOdd: true, stroke: { rings: geometry.paths.flatMap(d => pathPolylines(d, 8)), reach: inkReach },
     });
     for (const [i, target] of targets) {
-      if ((base[i] === 'Land' && !shore[i]) || (target.width !== undefined && !target.fit)) continue;
+      if ((hasDerivedShore(base[i]) && !shore[i]) || (target.width !== undefined && !target.fit)) continue;
       coverage.set(i, { wanted: wanted.get(i)!, shown: measure(hexCorners(i % cols, Math.floor(i / cols), size)) / hexArea });
     }
   }
