@@ -3,6 +3,7 @@ import { buildSync } from 'esbuild';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { launchBrowser, serveBuild } from './browser-runtime.mjs';
+import { visibleChange } from './visible-change.mjs';
 const arg = (name, fallback) => process.argv.includes(name) ? process.argv[process.argv.indexOf(name) + 1] : fallback;
 const output = resolve(arg('--output', 'work/render-incremental'));
 mkdirSync(output, { recursive: true });
@@ -17,6 +18,7 @@ try {
   const page = await context.newPage();
   await page.goto('http://render.test/blank'); await page.addScriptTag({ url: 'http://render.test/api.js' });
   await page.addScriptTag({ url: 'http://render.test/reference.js' });
+  await page.addScriptTag({ content: `window.visibleChange = ${visibleChange}` });
   const cases = await page.evaluate(() => api.editCases().map(c => c.name));
   for (let index = 0; index < cases.length; index++) {
     if (arg('--only', '') && !cases[index].startsWith(arg('--only', ''))) continue;
@@ -45,8 +47,8 @@ try {
       // previously stroked Path2D a channel level differently from a fresh one,
       // even for the same scene object. Cloning both
       // inputs preserves their values and aliases, but prevents earlier cases'
-      // painter memo entries from favouring the incremental side. Pixel and scene
-      // comparisons remain exact; production painting is unchanged.
+      // painter memo entries from favouring the incremental side. Scene comparisons
+      // remain exact; production painting is unchanged.
       const cachedExport = structuredClone(cached), fullExport = structuredClone(full);
       const coastPrims = prims => prims.flatMap(p => p.kind === 'group' ? coastPrims(p.prims)
         : p.kind === 'path' && p.stroke === options.style.palette.coast ? [p] : []);
@@ -90,7 +92,9 @@ try {
             artifacts[label] = btoa(binary);
           }
         }
-        images.push({ dpr, zoom, mode, compositor, changedPixels, maxChannelDelta, coastInkPixels, differences, artifacts });
+        const { visible, maxTolerantDelta, strongPixels, weakPixels } = changedPixels
+          ? visibleChange(pixels[0], pixels[1], width, height) : { visible: false, maxTolerantDelta: 0, strongPixels: 0, weakPixels: 0 };
+        images.push({ dpr, zoom, mode, compositor, changedPixels, maxChannelDelta, visible, maxTolerantDelta, strongPixels, weakPixels, coastInkPixels, differences, artifacts });
       }
       return { name, cachedMs, fullMs, profile, identicalScene: JSON.stringify(cached) === JSON.stringify(full), images };
     }, index);
@@ -100,9 +104,10 @@ try {
     }
     records.push(record);
     console.log(JSON.stringify({ name: record.name, identicalScene: record.identicalScene, cachedMs: record.cachedMs,
-      changedPixels: Math.max(...record.images.map(i => i.changedPixels)) }));
+      changedPixels: Math.max(...record.images.map(i => i.changedPixels)), visible: record.images.some(i => i.visible) }));
   }
   await context.close();
 } finally { await browser.close(); }
 writeFileSync(resolve(output, 'results.json'), JSON.stringify({ browser: browser.version(), records }, null, 2));
-if (records.some(r => !r.identicalScene || r.images.some(i => i.changedPixels || (i.mode === 'coast' && i.zoom === 'fit' && !i.coastInkPixels)))) throw Error('Incremental geometry or browser pixels changed, or empty coast mask');
+// Scenes must be equal (exact cached reconstruction); pictures need only show no visible change (§76).
+if (records.some(r => !r.identicalScene || r.images.some(i => i.visible || (i.mode === 'coast' && i.zoom === 'fit' && !i.coastInkPixels)))) throw Error('Incremental geometry changed, pixels changed visibly, or empty coast mask');

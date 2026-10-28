@@ -35,3 +35,40 @@ test('two ragged realm regions meet exactly on the ink path without growth or a 
     }
   }
 });
+
+test('a frontier ending on the coast keeps its wander when the coast moves slightly', () => {
+  const [a, b] = hexEdgePoints(4, 3, 1, 26);
+  const anchored = { x: b.x + 0.37, y: b.y - 0.21 }, moved = { x: anchored.x + 0.004, y: anchored.y - 0.003 };
+  for (const level of ['wobbly', 'ragged', 'wild'] as const) {
+    const before = raggedEdge(a, anchored, level, 'seed', 26, [a, b]);
+    const after = raggedEdge(a, moved, level, 'seed', 26, [a, b]);
+    assert.equal(before.length, after.length);
+    const shift = Math.max(...before.map((p, k) => Math.hypot(p.x - after[k]!.x, p.y - after[k]!.y)));
+    assert.ok(shift < 0.01, `${level}: wander moved ${shift}`);
+    // Walked the other way, the same line.
+    const back = raggedEdge(anchored, a, level, 'seed', 26, [b, a]);
+    assert.deepEqual([a, ...before.slice(0, -1)].reverse().map(p => [p.x, p.y].map(v => Math.round(v * 1e6))),
+      back.map(p => [p.x, p.y].map(v => Math.round(v * 1e6))));
+  }
+  // Without moved ends the corners are the ends, as before.
+  assert.deepEqual(raggedEdge(a, b, 'ragged', 'seed', 26), raggedEdge(a, b, 'ragged', 'seed', 26, [a, b]));
+});
+
+
+test('a thin coastal strip of a mainland-with-islands hex is drawn as the realm it lies along', async () => {
+  const { buildStaticScene } = await import('../src/render/scene.ts');
+  const { fixture, options } = await import('../scripts/render-profile-input.ts');
+  const opts = options(), scene = buildStaticScene(fixture('populated'), opts);
+  const vertices: Array<[number, number]> = [];
+  const walk = (prims: typeof scene.prims): void => prims.forEach(p => p.kind === 'group' ? walk(p.prims)
+    : p.kind === 'path' && p.stroke === opts.style!.palette.frontier ? p.d.forEach(c => { if (c.length === 3) vertices.push([c[1], c[2]]); }) : undefined);
+  walk(scene.prims);
+  const passes = (hex: number) => {
+    const c = hexCenter(hex % 40, Math.floor(hex / 40), opts.size);
+    return vertices.some(([x, y]) => Math.hypot(x - c.x, y - c.y) < 1e-6);
+  };
+  // Hex 87's land facing realm J's hex 46 is a strip along the coast: the border runs through its centre.
+  assert.ok(passes(87));
+  // Hex 794's land facing realm A is most of its sector: the border keeps to the hex edges.
+  assert.ok(!passes(794));
+});

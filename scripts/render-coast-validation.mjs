@@ -1,10 +1,14 @@
-/** Exact baseline/candidate scenes and browser pixels, including maximum-zoom coast crops. */
+/**
+ * Baseline/candidate scenes and browser pixels, including maximum-zoom coast crops. Pictures
+ * must show no visible change (§76); `--exact-scene` also requires equal scenes.
+ */
 import { buildSync } from 'esbuild';
 import { readFileSync, writeFileSync, mkdirSync, cpSync, symlinkSync, existsSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { resolve } from 'node:path';
 import { createHash } from 'node:crypto';
 import { launchBrowser, serveBuild } from './browser-runtime.mjs';
+import { visibleChange } from './visible-change.mjs';
 const arg = (name, fallback) => process.argv.includes(name) ? process.argv[process.argv.indexOf(name) + 1] : fallback;
 const referenceRoot = arg('--reference-root', '');
 const sha = referenceRoot || execFileSync('git', ['rev-parse', `${arg('--baseline', 'HEAD')}^{commit}`], { encoding: 'utf8' }).trim();
@@ -31,6 +35,7 @@ try {
   await page.goto('http://render.test/blank');
   await page.addScriptTag({ url: 'http://render.test/before.js' });
   await page.addScriptTag({ url: 'http://render.test/after.js' });
+  await page.addScriptTag({ content: `window.visibleChange = ${visibleChange}` });
   const names = await page.evaluate(() => ['populated', 'feature', ...afterApi.coastGallery().map(f => f.name)]);
   const only = arg('--only', '').split(',').filter(Boolean);
   if (only.some(name => !names.includes(name))) throw Error('Unknown fixture in --only');
@@ -88,7 +93,9 @@ try {
         dc.putImageData(data, 0, 0);
         const diffBytes = new Uint8Array(await (await diff.convertToBlob()).arrayBuffer()); let binary = '';
         for (let i = 0; i < diffBytes.length; i += 8192) binary += String.fromCharCode(...diffBytes.subarray(i,i+8192));
-        images.push({ mode, compositor, zoom, dpr, changedPixels: changed, maxChannelDelta, coastInkPixels, before: outputs.before, after: outputs.after, diff: btoa(binary) });
+        const { visible, maxTolerantDelta, strongPixels, weakPixels } = changed
+          ? visibleChange(pixels.before, pixels.after, width, height) : { visible: false, maxTolerantDelta: 0, strongPixels: 0, weakPixels: 0 };
+        images.push({ mode, compositor, zoom, dpr, changedPixels: changed, maxChannelDelta, visible, maxTolerantDelta, strongPixels, weakPixels, coastInkPixels, before: outputs.before, after: outputs.after, diff: btoa(binary) });
       }
       return { name, edited, focusHex: feature, identicalScene, timings, compromises: scenes.after.compromises ?? [], images };
     }, { name, edited });
@@ -97,10 +104,11 @@ try {
       for (const version of ['before', 'after', 'diff']) { writeFileSync(resolve(output, `${file}-${version}.png`), Buffer.from(image[version], 'base64')); delete image[version]; }
     }
     records.push(result);
-    console.log(JSON.stringify({ name, edited, identicalScene: result.identicalScene, maxChangedPixels: Math.max(...result.images.map(i => i.changedPixels)) }));
+    console.log(JSON.stringify({ name, edited, identicalScene: result.identicalScene, maxChangedPixels: Math.max(...result.images.map(i => i.changedPixels)), visible: result.images.some(i => i.visible) }));
   }
   await context.close();
 } finally { await browser.close(); }
 const report = { baseline: sha, fixtureSha256: createHash('sha256').update(readFileSync('test/fixtures/populated-40.json')).digest('hex'), records };
 writeFileSync(resolve(output, 'results.json'), JSON.stringify(report, null, 2));
-if (records.some(r => !r.identicalScene || r.images.some(i => i.changedPixels || (i.mode === 'coast' && i.coastInkPixels === 0)))) throw Error('Coast geometry or same-compositor pixels changed');
+const exactScene = process.argv.includes('--exact-scene');
+if (records.some(r => (exactScene && !r.identicalScene) || r.images.some(i => i.visible || (i.mode === 'coast' && i.coastInkPixels === 0)))) throw Error('Coast geometry or same-compositor pixels changed visibly');

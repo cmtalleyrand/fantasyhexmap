@@ -321,13 +321,17 @@ const BORDER_IRREGULARITY = {
  * The points a border takes from `a` to `b`, ending at `b`. The wandering is
  * fixed by the edge's own ends, not by the direction it is walked or the realm
  * walking it, so both neighbours draw the same line along a shared edge.
+ * `corners` are the grid corners of the edge when an end has been moved onto the
+ * coast: they fix the wandering instead, so it does not change when the coast
+ * moves slightly (DECISIONS §77).
  */
-export function raggedEdge(a: Point, b: Point, level: keyof typeof BORDER_IRREGULARITY, seed: string, size: number): Point[] {
+export function raggedEdge(a: Point, b: Point, level: keyof typeof BORDER_IRREGULARITY, seed: string, size: number,
+  corners: [Point, Point] = [a, b]): Point[] {
   const { points, reach } = BORDER_IRREGULARITY[level];
   if (points === 0) return [b];
-  const forward = key(a) <= key(b);
+  const forward = key(corners[0]) <= key(corners[1]);
   const [p, q] = forward ? [a, b] : [b, a];
-  const id = `${key(p)}|${key(q)}`;
+  const id = forward ? `${key(corners[0])}|${key(corners[1])}` : `${key(corners[1])}|${key(corners[0])}`;
   const dx = q.x - p.x;
   const dy = q.y - p.y;
   const len = Math.hypot(dx, dy) || 1;

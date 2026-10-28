@@ -8,6 +8,10 @@ import { areaCoverage, nearestHex, nearestOn } from './footprint.js';
 import { pathPolylines } from './ice.js';
 import type { PathCmd } from './prims.js';
 
+/** Measuring lines per hex while fitting. 64 moves the fitted coast by under a hundredth
+ * of a hex against 128 at about a third less measuring cost (DECISIONS §77). */
+export const FIT_COVERAGE_LINES = 64;
+
 /** Remove small fold-back loops already introduced by roughening tight caps. */
 export function untangle(ring: Point[], closed: boolean): { ring: Point[]; joins: Point[] } {
   const joins: Point[] = [];
@@ -164,7 +168,7 @@ export function fitCoastAreas(geometry: CoastGeometry, targets: ReadonlyMap<numb
     const coverage = areaCoverage(landRings(rs),
       { evenOdd: true, stroke: { rings: strokeRings(rs), reach: ink }, reuseScanlines: true });
     const out = new Map<number, number>();
-    for (const h of hexes) { profileCount('fit.hexMeasurements'); out.set(h, coverage(cornersOf(h), 128) / hexArea); }
+    for (const h of hexes) { profileCount('fit.hexMeasurements'); out.set(h, coverage(cornersOf(h), FIT_COVERAGE_LINES) / hexArea); }
     return out;
   };
   function skewAlongShore(rs: Point[][]): Point[][] {

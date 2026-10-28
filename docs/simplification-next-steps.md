@@ -9,8 +9,8 @@ A simplification must not change behaviour.
 
 - **Tests and checks:** the Node suite, `npm run typecheck`, `npm run build` and
   `npm run test:drawing-pixels` pass unchanged.
-- **Pictures:** rendered output is byte-identical, unless a change is deliberately accepted under the
-  "no visible change" criterion of §73 with before/after images.
+- **Pictures:** no visible change, shown with before/after images (§73). Byte identity is a
+  convenient check where it holds, but the owner does not require it.
 - **Exactness:** keep the exactness rules in DECISIONS: finished coastline as the single land/water
   boundary, exact cached/uncached reconstruction, unchanged thresholds.
 - **Size:** prefer deleting or merging over adding layers. Do one area per PR so each can be reviewed

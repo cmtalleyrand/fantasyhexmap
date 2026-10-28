@@ -1506,3 +1506,96 @@ but two paired production-worker runs showed no reliable gain (paint medians 236
 240 → 218 ms; edit to sharp frame 366/367 → 383/381 ms), presumably because unchanged band
 outlines are already shared and cached across edits (§74). It also moved inner band edges by up
 to 32 levels at 1×, so it was not adopted.
+
+## 76. Pictures are held to no visible change, not byte identity
+
+**Chosen.** The owner's criterion for pictures is no visible change. `scripts/visible-change.mjs`
+measures it: each changed pixel is compared with the colour range its 3×3 neighbourhood spans in the
+other image, both ways, so edge antialiasing, first-draw raster variation and moves of up to a pixel
+fall below it. A change is visible when more than 0.01% of pixels differ by more than 32 levels on
+that measure, or more than 1% by more than 8. `render-coast-validation.mjs` and
+`render-incremental-validation.mjs` now fail on visible change instead of any changed pixel. Scene
+equality stays required where it is a correctness rule (cached against uncached builds);
+`render-coast-validation.mjs` requires equal scenes only with `--exact-scene`.
+
+**It is a screen, not a verdict.** A difference it passes can still matter: the river reshaped round
+Mocktown 27 (§77) passed it. When a change moves any drawn element by more than the geometry the change
+itself moves, find out why before accepting it; it is usually a discontinuity in the drawing, and the
+fix belongs there.
+
+## 77. Fit coasts with 64 measuring lines per hex, and keep rivers and frontiers stable when the coast moves
+
+**Chosen.** `fitCoastAreas` measures each hex with 64 scanlines (`FIT_COVERAGE_LINES`), not 128. The
+scene's reported land shares are measured at 96 lines, as before.
+
+**Effect.** Pilot (Node, cold, geography only, 40×40 `populated`): build 8.2 → 7.3 s, `fit.measure`
+2.3–2.6 → 1.7 s, with the same 8 solver rounds and about 887 iterations. Most of the remaining
+measuring cost is per-call setup, so fewer lines save little more (32 lines: 1.3 s). The fitted coast
+moves by at most 0.0068 hex sizes; land shares change by at most 0.19 points.
+
+**What it exposed.** The first comparison against 128 lines showed visible changes far larger than the
+coast's own movement, in two places where the drawing turned an imperceptible coast change into a
+large one. Neither came from the line count itself; both happen on any coast refit (an edit, a preset).
+- **Frontiers.** A border between realms that ends on the coast starts from the point where the coast
+  passes the hex corner, and its wander was seeded by that point's exact coordinates. Any refit moved
+  the point by a hair and redrew the whole wander, up to 5 units at the frontier and colour spilling
+  into the neighbouring hex. On `main`, changing one hex's land share moved frontier points 5 hexes
+  away. The wander is now seeded by the edge's grid corners, which never move. (Fading the wander out
+  towards the coast was tried and dropped: it drew straight borders, which the owner rejected.)
+- **Rivers past cities.** A city icon beside a river is set so its edge just touches the bank at the
+  nearest river sample, so that sample lies on the icon's clearance to within rounding. Whether the
+  river was then smoothed into a bow round the icon (and the smoothing reaches about 16 samples either
+  side) was decided by that rounding: on the populated fixture two of three such rivers bowed and one
+  did not, and a refit could flip it (2.7 units along the whole river, the icon then hugging the bank).
+  Only an intrusion deeper than a millionth of a hex now bows the river.
+
+**Pictures.** With both fixes, no drawn element moves by more than a quarter of a unit between 128 and 64
+lines on the populated fixture, labels by less than 0.003. Against `main`, the fixes themselves change
+the picture once: frontiers that end on the coast take a different, stable wander (see also §79), and the two rivers
+whose bows were set off by rounding (Mocktown 13 and 29) keep their own course instead of being
+smoothed past the icon; the owner prefers them so. Their own course has sharp bends (sharpest turn 35° → 62° and 46° → 68°), as
+most rivers on `main` already do (9 of 13 on the populated fixture turn by 58–81° somewhere, none near a
+city); the rounding-triggered smoothing had hidden them on these two. Those bends are a separate
+weakness of the meander, not of this change.
+
+## 78. A stand-in picture while the coast fits: rejected as a workaround
+
+**Tried.** While a build's exact coast was not yet cached, the worker first built and painted a
+stand-in (the coast traced and roughened, without the global share passes or the fit), then built and
+painted the exact scene. Through the production worker on the 50×50 fixture the first picture came
+after 2.6–2.9 s instead of 8.4–9.1 s on opening and 1.5–2.1 s instead of 6.9–7.7 s after a land edit;
+the exact picture came 0.5–0.9 s later than before. The stand-in's land shares were off by about 10
+points on average (up to about 33), so coasts visibly changed shape when the exact picture replaced it.
+
+**Rejected.** The owner regards it as an undesirable workaround: it hides the cost of the coast fit
+behind a wrong picture instead of reducing it, and makes the exact picture later. It was built and
+removed (see the history of this entry's PR). Making opening and coast edits fast means making the fit
+itself cheaper (the solver, the global share passes and each measurement's fixed setup), not showing
+something else while it runs.
+
+## 79. A thin coastal strip of a mainland-with-islands hex is drawn as the realm it lies along
+
+**Problem.** A mainland-with-islands hex keeps land in the sectors facing land. Where that land faces
+another realm's hex and the coast has cut it down to a strip along their shared edge, the strip took its
+own hex's realm colour and the frontier ran along the edge beside the coast: it read as an enclave of
+one realm inside the other. On `main` this showed or not by chance (the frontier's random wander
+sometimes bulged over the strip); with a stable wander (§77) it showed at hex 87 of the populated
+fixture, a yellow wedge in pink.
+
+**Chosen (owner's decision).** The owner's rule is general: there are never enclaves or exclaves within
+a hex. Land of a mainland-with-islands hex facing another realm's land is drawn as that realm's where
+colouring it as its own would leave an enclave: where it does not reach its own realm's land over drawn
+land, or is only a thin strip (under a quarter of its sector drawn as land), which reads as an enclave
+even where it touches its realm at a point. The border between the two hexes then runs through the split
+hex's centre instead of along their edge, so the realm across takes that land and the frontier meets the
+coast. The same decision sets the colour of the split hex's pieces in the fill and tint styles, so
+grounds, bands, fills and the frontier agree. Ownership in the map data is unchanged.
+
+**Checked.** Sampling the drawn realm colours on the populated fixture in seven styles (classic,
+parchment, atlas, night, frills, and parchment and atlas with hex coasts): `main` leaves 27 patches of a
+realm's colour cut off against another realm; this change leaves none, apart from two whole hexes their
+realms own apart from the rest in the map data.
+
+**Effect.** On the populated fixture it applies at hexes 87, 282, 392 (three edges) and 917; hex 794,
+whose land facing realm A is a whole sector, is unchanged.
+
