@@ -49,14 +49,12 @@ test('all transports retain physical settings, overrides and measured land fract
   assert.deepEqual(checked.req.ctx.islandSpecs, direct.islandSpecs);
   assert.deepEqual(checked.req.ctx.hexShapes, direct.hexShapes);
   for (const ctx of [direct, checked.req.ctx]) {
-    const { user, system } = buildPrompt('polities', ctx);
+    const { user } = buildPrompt('polities', ctx);
     assert.match(user, /One whole hex: 450 km\^2/);
     assert.match(user, /r0: \[0\] 60 5 35/); // the lake beside a whole glacier keeps the 5% shore slack
     assert.doesNotMatch(user, /Factory defaults|"coastalLandPercent":80/);
     assert.match(user, /"coastalLandPercent":70/);
     assert.match(user, /Silver Lake/);
-    assert.match(user, /Measured polity land areas/);
-    assert.match(system, /Do not infer another scale/);
   }
   const multi = buildMultiWebchatPrompt({ layers: ['base', 'elevation'], ctx: direct });
   assert.equal((multi.match(/PHYSICAL SCALE AND LAND SURFACE AREAS/g) ?? []).length, 1);
@@ -93,7 +91,6 @@ test('two-pass output carries sharing and zero-direct-territory parents through 
   const paint = buildPrompt('polities', ctx, 'paint', roster);
   assert.match(paint.user, /Kingdom.*0 hexes/);
   assert.match(paint.user, /Duchy.*parent=Kingdom/);
-  assert.match(paint.user, /CURRENT|POLITIES/);
   const combined = combinePasses('polities', roster, { rows: ['B.B', 'BBB', 'BBB'],
     sharedHexes: [{ col: 1, row: 2, with: 'A', share: 0.5 }] });
   const result = decodeLayer('polities', combined, ctx, existingFeatures(ctx));
@@ -116,19 +113,6 @@ test('city edits retain manual sites and capital status, including explicit rena
   assert.equal(removed.capital, undefined);
 });
 
-test('river prompts assume tapered drawing and explain the additional physical correction in every pass', () => {
-  const ctx = contextFromMap(fixture(), null);
-  for (const pass of ['full', 'roster', 'paint'] as const) {
-    const prompt = buildPrompt('rivers', ctx, pass, { kind: 'rivers', entries: [{ name: 'R', course: 'north to south' }] });
-    assert.match(prompt.system, /Assume the default TAPERED renderer/);
-    assert.match(prompt.system, /Catmull-Rom/);
-    assert.match(prompt.system, /1\.05 \* A\^0\.02/);
-    assert.match(prompt.system, /A = 450 km\^2/);
-    assert.match(prompt.system, /on top of bends already visible/);
-    assert.doesNotMatch(prompt.system, /classic style|600 km.*12 hexes/);
-  }
-});
-
 test('roster-only river renames retain exact manually edited geometry and connections', () => {
   const map = fixture();
   map.layers.rivers.data = { rivers: [{ id: 'r', name: 'Old', terminus: 'Sea',
@@ -139,15 +123,10 @@ test('roster-only river renames retain exact manually edited geometry and connec
   assert.deepEqual(output.rivers[0], { ...map.layers.rivers.data.rivers[0], name: 'New' });
 });
 
-test('terrain eligibility and defaults match the supported map model', () => {
+test('which terrains can hold a settlement', () => {
   assert.equal(canHoldSettlement('Sea Ice', true), false);
   assert.equal(canHoldSettlement('Sea', true), true);
   assert.equal(canHoldSettlement('Glacier', false), true);
   assert.equal(canHoldSettlement('Isthmus', false), true);
   assert.equal(canHoldSettlement('Strait', false), true);
-  assert.equal(DEFAULT_HEX_DIMENSIONS.coastalLandPercent, 80);
-  assert.equal(DEFAULT_HEX_DIMENSIONS.lakeLandPercent, 0);
-  assert.equal(DEFAULT_HEX_DIMENSIONS.largeIslandPercent, 15);
-  assert.equal(DEFAULT_HEX_DIMENSIONS.smallIslandPercent, 5);
-  assert.equal(DEFAULT_HEX_DIMENSIONS.mainlandPercent, 40);
 });

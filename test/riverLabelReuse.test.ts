@@ -70,13 +70,16 @@ test('a box touching only one river re-searches that river and its successors ne
 });
 
 test('scene rebuilds after ownership edits equal uncached rebuilds and reuse rivers', () => {
-  let map = fixture('river reuse scene', 24);
+  // A small map with two named rivers: the random-obstacle test above covers the reuse's exactness.
+  let map = fixture('river reuse scene', 12);
+  assert.ok(map.layers.rivers.data!.rivers.filter(r => r.name.trim()).length >= 2, 'fixture needs two named rivers');
   const opts = options();
   buildStaticScene(map, opts);
   const p = map.layers.polities.data!;
   const cells = p.owner.flatMap((owner, i) => owner && map.layers.base.data![i] === 'Land' ? [i] : []);
   let hits = 0;
-  for (const index of cells.slice(0, 4)) {
+  // On so small a map the first edits move a realm name near both rivers; later ones reach only one.
+  for (const index of cells.slice(0, 6)) {
     const owner = [...map.layers.polities.data!.owner];
     owner[index] = p.polities.find(polity => polity.id !== owner[index])!.id;
     map = { ...map, layers: { ...map.layers, polities: { ...map.layers.polities, data: { ...map.layers.polities.data!, owner } } } };

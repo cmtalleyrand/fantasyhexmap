@@ -795,11 +795,13 @@ export function riverCourse(river: River, size: number, seed: string, ends: Cour
     const m = { x: line[k]!.x + nx * side * setIn, y: line[k]!.y + ny * side * setIn };
     icons.push({ id: city.id, at: m });
     const clear = (i: number) => city.icon!.reach * (1 - (city.icon!.press ?? PRESS)) + widths[i]! / 2;
+    // The icon is set so its edge touches the bank at the nearest sample, so that sample lies on the clearance
+    // to within rounding: only a real intrusion bows the river (DECISIONS §77).
     const push = (i: number) => {
       const p = line[i]!;
       const d = Math.hypot(p.x - m.x, p.y - m.y);
       const need = clear(i);
-      if (d >= need) return false;
+      if (d >= need - size * 1e-6) return false;
       const u = d < 1e-6 ? { x: -nx * side, y: -ny * side } : { x: (p.x - m.x) / d, y: (p.y - m.y) / d };
       line[i] = { x: m.x + u.x * need, y: m.y + u.y * need };
       return true;
@@ -892,52 +894,6 @@ export function riverCourse(river: River, size: number, seed: string, ends: Cour
   // A river that comes out of a lake is open at its start too.
   const bank = river.branchOf || ends.before ? [left, right] : [[...left].reverse().concat(startCap, right)];
   return { centreline: line, widths, outline, sections, bank, icons };
-}
-
-/**
- * Whether a point is land, judged by the coast as drawn. The coast lines are
- * oriented with the land on their right (as `drawnLand` relies on), so near a
- * line the side a point falls on says whether it is land, however the coast
- * has been reshaped, smoothed or roughened. Away from every line (further than
- * `reach`) the answer is `elsewhere`'s, which knows only the hexes.
- */
-export function landBySide(lines: Point[][], reach: number, elsewhere: (p: Point) => boolean): (p: Point) => boolean {
-  const cell = reach;
-  const grid = new Map<string, Array<[Point, Point]>>();
-  const add = (cx: number, cy: number, seg: [Point, Point]) => {
-    const key = `${cx},${cy}`;
-    const list = grid.get(key);
-    if (list) list.push(seg);
-    else grid.set(key, [seg]);
-  };
-  for (const line of lines) {
-    for (let k = 0; k + 1 < line.length; k++) {
-      const a = line[k]!;
-      const b = line[k + 1]!;
-      // File the segment under every cell its box touches, so a query looks in one.
-      const x0 = Math.floor((Math.min(a.x, b.x) - reach) / cell);
-      const x1 = Math.floor((Math.max(a.x, b.x) + reach) / cell);
-      const y0 = Math.floor((Math.min(a.y, b.y) - reach) / cell);
-      const y1 = Math.floor((Math.max(a.y, b.y) + reach) / cell);
-      for (let cx = x0; cx <= x1; cx++) for (let cy = y0; cy <= y1; cy++) add(cx, cy, [a, b]);
-    }
-  }
-  return (p) => {
-    let best = reach;
-    let side = 0;
-    for (const [a, b] of grid.get(`${Math.floor(p.x / cell)},${Math.floor(p.y / cell)}`) ?? []) {
-      const dx = b.x - a.x;
-      const dy = b.y - a.y;
-      const len2 = dx * dx + dy * dy || 1e-9;
-      const u = Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / len2));
-      const d = Math.hypot(p.x - (a.x + dx * u), p.y - (a.y + dy * u));
-      if (d < best) {
-        best = d;
-        side = dx * (p.y - a.y) - dy * (p.x - a.x);
-      }
-    }
-    return side !== 0 ? side > 0 : elsewhere(p);
-  };
 }
 
 /** The point of `line` nearest `p`. */

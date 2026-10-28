@@ -68,6 +68,8 @@ Other scripts: `npm run typecheck` (client and server), `npm run build` (product
 
 Run `npm test` for the Node suite; no browser, API key or app server is needed.
 It uses Node's test runner with the `tsx` loader, and runs in CI before the build.
+`npm run test:slow` runs the slow tier in `test/slow/`: the remaining lake strait cases and
+the whole chain of incremental edits, of which `npm test` keeps one case per kind. CI runs both.
 For a focused run, pass a file and optional name filter directly to Node:
 
 ```bash
@@ -94,8 +96,8 @@ npm run test:drawing-sweeps
 
 On Linux machines missing browser system libraries, use `npm run test:browser:install -- --with-deps`.
 These tests need neither an API key nor a running app server. They write evidence under `work/`.
-For managed environments with an existing browser, both commands also accept
-`-- --chromium /path/to/chromium` and an optional `--driver /path/to/playwright-core/index.mjs`.
+For managed environments with an existing browser, set `CHROMIUM_PATH=/path/to/chromium`, or pass
+`-- --chromium /path/to/chromium`; an optional `--driver /path/to/playwright-core/index.mjs` also works.
 Normal checkouts do not need either override. CI installs Chromium and runs both commands.
 
 ## Deployment

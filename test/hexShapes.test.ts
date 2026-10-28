@@ -842,7 +842,7 @@ test('a hex on a lake shore shows its land share, the lake border counted as lan
   };
   for (const land of [30, 60, 90]) {
     const got = shown('Land', { [String(MID * N + MID)]: { type: 'Land', land } }[String(MID * N + MID)] as never);
-    assert.ok(Math.abs(got - land) < 3, `Coastal Land set to ${land}% on a lake shore shows ${got.toFixed(1)}%`);
+    assert.ok(Math.abs(got - land) < 3, `Shore Land set to ${land}% on a lake shore shows ${got.toFixed(1)}%`);
   }
   for (const land of [30, 40]) {
     const got = shown('Lake', { type: 'Lake', land } as never);

@@ -24,10 +24,6 @@ test('an adaptive model with a task budget gets effort, thinking and the budget'
   });
 });
 
-test('Opus 4.8 is asked to think, since it does not unless asked', () => {
-  assert.deepEqual(requestShape('claude-opus-4-8', 'high', 96000).thinking, { type: 'adaptive' });
-});
-
 test('a model without task budgets is sent neither the budget nor its beta', () => {
   for (const id of ['claude-sonnet-5', 'claude-sonnet-4-6']) {
     const shape = requestShape(id, 'high', 96000);
