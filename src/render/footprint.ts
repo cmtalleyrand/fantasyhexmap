@@ -792,36 +792,6 @@ function setAgainst(shaped: Poly[], was: Frag[], water: Frag[], hexArea: number)
 }
 
 /**
- * How much of a shore edge (0 to 1) a land hex cut back to `land` gives up to a water hex
- * growing `water` land beside it. The edge is shared out in proportion to what each asks of
- * it: the land hex gives up water along that much of the middle of the edge (a bay), and the
- * water hex grows land along the rest, at both ends (capes held by the land at the corners), so
- * one shoreline can meet both shares by crossing the edge between them.
- */
-export function weaveSplit(land: number, water: number): number {
-  const give = Math.max(0, 1 - land), take = Math.max(0, water);
-  return give + take > 0 ? give / (give + take) : 0;
-}
-
-/**
- * The part of `poly` within `depth` of the line through `edge` (land on its right), on its
- * `side`, and between fractions `t0` and `t1` of the way along it. Convex.
- */
-function edgeBand(poly: Poly, edge: { from: Point; to: Point }, depth: number, side: 'land' | 'water', t0: number, t1: number): Poly {
-  const { from, to } = edge;
-  const length = Math.hypot(to.x - from.x, to.y - from.y) || 1;
-  const ux = (to.x - from.x) / length, uy = (to.y - from.y) / length;
-  let out = side === 'land'
-    ? cut(cut(poly, from, to, 0, 'right'), from, to, depth, 'left')
-    : cut(cut(poly, from, to, 0, 'left'), from, to, -depth, 'right');
-  const at = (t: number) => ({ x: from.x + (to.x - from.x) * t, y: from.y + (to.y - from.y) * t });
-  // A line whose right-hand side is the half-plane further along the edge than `t0`, then short of `t1`.
-  if (t0 > 0 && out.length) { const p = at(t0); out = cut(out, p, { x: p.x + uy, y: p.y - ux }, 0, 'right'); }
-  if (t1 < 1 && out.length) { const p = at(t1); out = cut(out, p, { x: p.x - uy, y: p.y + ux }, 0, 'right'); }
-  return out;
-}
-
-/**
  * A coast hex cut back from its sea-facing edges until the land left is `target`:
  * the hex with each edge in `wet` moved in by one depth. The water it gives up is
  * returned edge by edge, each strip in the water of the edge it came from.
@@ -1102,26 +1072,13 @@ export function shapeCoast(
         const x = (e.from.x + e.to.x) / 2 - c.x, y = (e.from.y + e.to.y) / 2 - c.y;
         return chosen ? Math.exp(3 * (concentration ?? 0) / 100 * (x * chosen.x + y * chosen.y) / (Math.hypot(x, y) * Math.hypot(chosen.x, chosen.y))) : 1;
       });
-      // Beside land being cut back, the shared edge grows land only at its ends (`weaveSplit`).
-      const bays = against.map(e => {
-        const beside = e.hex === undefined ? undefined : targets.get(e.hex);
-        return beside?.kind === 'inset' && !surface.split.has(e.hex!) && beside.share < 1 && !beside.keepJoins ? weaveSplit(beside.share, share) : 0;
-      });
-      const woven = bays.some(t => t > 0);
       const waterAt = (depth: number) => against.reduce((p, e, k) => cut(p, e.to, e.from, depth * factors[k]!, 'right'), corners);
-      const landAt = (depth: number): Poly[] => {
-        if (!woven) { const water = waterAt(depth); return without(corners, water.length ? [water] : []); }
-        const bands = against.flatMap((e, k) => bays[k]! > 0
-          ? [edgeBand(corners, e, depth * factors[k]!, 'water', 0, (1 - bays[k]!) / 2), edgeBand(corners, e, depth * factors[k]!, 'water', (1 + bays[k]!) / 2, 1)]
-          : [edgeBand(corners, e, depth * factors[k]!, 'water', 0, 1)]).filter(b => b.length >= 3);
-        return without(corners, without(corners, bands));
-      };
       let low = 0, high = size * 2;
       for (let k = 0; k < 28; k++) {
         const mid = (low + high) / 2;
-        if (landAt(mid).reduce((sum, p) => sum + polyArea(p), 0) / hexArea < share) low = mid; else high = mid;
+        if (1 - polyArea(waterAt(mid)) / hexArea < share) low = mid; else high = mid;
       }
-      const land = landAt((low + high) / 2);
+      const water = waterAt((low + high) / 2), land = without(corners, water.length ? [water] : []);
       const donor = (p: Point) => [...against].sort((a, b) =>
         Math.hypot(p.x - (a.from.x + a.to.x) / 2, p.y - (a.from.y + a.to.y) / 2) -
         Math.hypot(p.x - (b.from.x + b.to.x) / 2, p.y - (b.from.y + b.to.y) / 2))[0]!.land;
@@ -1136,34 +1093,10 @@ export function shapeCoast(
         return surface.split.get(j)?.sides[6 + (e + 3) % 6] === 'land' || surface.whole[j] === 'land';
       }) : [];
       // (A hex joining a passage keeps an even cut: its join is the passage's root.)
-      // An edge shared with a water hex which grows land is woven (`weaveSplit`): this hex
-      // gives up water along the middle of it, and the water hex grows land at both ends,
-      // so the shoreline lies in both hexes and the final fit can meet both shares.
-      const growing = (e: CoastEdge) => targets.get(e.water)?.kind === 'water' && (targets.get(e.water)?.share ?? 0) > 0;
-      const wet = (wetEdges.get(i) ?? []).filter(e => !growing(e));
-      const woven = keepJoins ? [] : (wetEdges.get(i) ?? []).filter(growing);
-      if (woven.length && share < 1) {
-        const split = new Map(woven.map(e => [e, weaveSplit(share, targets.get(e.water)!.share)]));
-        const landAt = (depth: number) => {
-          const rest = wet.reduce((poly, e) => poly.length ? cut(poly, e.from, e.to, depth, 'right') : poly, corners);
-          return rest.length ? without(rest, woven.map(e => edgeBand(corners, e, depth, 'land', (1 - split.get(e)!) / 2, (1 + split.get(e)!) / 2)).filter(b => b.length >= 3)) : [];
-        };
-        const areaAt = (depth: number) => landAt(depth).reduce((sum, p) => sum + polyArea(p), 0) / hexArea;
-        let low = 0, high = size * 2;
-        for (let k = 0; k < 28; k++) {
-          const mid = (low + high) / 2;
-          if (areaAt(mid) > share) low = mid; else high = mid;
-        }
-        const depth = (low + high) / 2, land = landAt(depth);
-        const edgesOf = [...wet, ...woven];
-        const waterDonor = (poly: Poly) => {
-          const c = centroid(poly);
-          return [...edgesOf].sort((a, b) => Math.hypot(c.x - (a.from.x + a.to.x) / 2, c.y - (a.from.y + a.to.y) / 2)
-            - Math.hypot(c.x - (b.from.x + b.to.x) / 2, c.y - (b.from.y + b.to.y) / 2))[0]!.water;
-        };
-        return { depth, strips: without(corners, land).map(poly => ({ poly, donor: waterDonor(poly) })), grown: [],
-          land: land.map((poly) => ({ poly, hex: i, donor: i })) };
-      }
+      // A neighbouring water hex which grows land owns this initial boundary.
+      // Cutting its land neighbour back independently would strand the grown strip
+      // as an island. The final coupled fit resolves both hexes' area requests.
+      const wet = (wetEdges.get(i) ?? []).filter(e => targets.get(e.water)?.kind !== 'water');
       const result = reshapeCoastHex(corners, wet, share, concentrationSide, concentration, joins, joins.length ? undefined : bankBias);
       return result ? { depth: result.depth, strips: result.strips, grown: [], land: result.land.map((poly) => ({ poly, hex: i, donor: i })) } : null;
     }
@@ -1221,10 +1154,7 @@ export function shapeCoast(
       const n = neighbourOf(i % cols, Math.floor(i / cols), e);
       if (!inBounds(cols, rows, n.col, n.row)) return '-';
       const j = hexIndex(cols, n.col, n.row);
-      const beside = targets.get(j);
-      // A woven edge is shared out by both hexes' shares (`weaveSplit`).
-      const weave = beside && ((target.kind === 'inset' && beside.kind === 'water') || (target.kind === 'water' && beside.kind === 'inset')) ? `:${beside.share}:${beside.keepJoins ? 'joins' : ''}` : '';
-      return code(j) + (beside?.kind === 'water' ? ':shore-growth' : '') + weave + (target.kind === 'channel' ? `:${beside?.share ?? ''}` : '');
+      return code(j) + (targets.get(j)?.kind === 'water' ? ':shore-growth' : '') + (target.kind === 'channel' ? `:${targets.get(j)?.share ?? ''}` : '');
     })].join('|');
     const memoKey = `${size}:${cols}:${rows}:${i}`;
     let done = memo?.get(memoKey);
