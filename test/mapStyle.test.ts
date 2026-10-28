@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { hexCenter, hexEdgePoints, hexIndex, inBounds, neighbourOf } from '../shared/hex.ts';
+import { hexCenter, hexEdgePoints, hexIndex, hexLine, inBounds, neighbourOf } from '../shared/hex.ts';
 import { createMapState } from './seededMap.ts';
 import type { BaseGeo, MapState } from '../shared/types.ts';
 import { alike, chainEdges, coastEdges, coastGeometry, coastKey, drawnLand, raggedEdge, sideOf } from '../src/render/coast.ts';
 import type { PathCmd, Prim } from '../src/render/prims.ts';
-import { riverCourse } from '../src/render/rivers.ts';
+import { navigabilityWidens, riverCourse } from '../src/render/rivers.ts';
 import { buildScene, defaultVisibility } from '../src/render/scene.ts';
 import {
   KNOB_OPTIONS,
@@ -1306,7 +1306,9 @@ test('rivers start and stop on a lake’s drawn shore, and a river widens below 
   const distToShore = (p: { x: number; y: number }) => Math.min(...rings.flatMap((ring) => ring.map((q) => Math.hypot(q.x - p.x, q.y - p.y))));
   // Rivers are clipped to the land, so they may sit inside a group.
   const flat = (list: Prim[]): Prim[] => list.flatMap((p) => (p.kind === 'group' ? flat(p.prims) : [p]));
-  const rivers = flat(scene.prims).filter((p): p is Extract<Prim, { kind: 'path' }> => p.kind === 'path' && p.fill === style.palette.river);
+  // Each river is filled in the colour of its navigability; all three here are non-navigable.
+  const riverFills = [style.palette.river, style.palette.riverNonNavigable, style.palette.riverEstuarine];
+  const rivers = flat(scene.prims).filter((p): p is Extract<Prim, { kind: 'path' }> => p.kind === 'path' && riverFills.includes(p.fill!));
   assert.equal(rivers.length, 3);
   const [trunkPrim, , merePrim] = rivers;
   // The trunk leaves the lake at its shore.
@@ -1367,7 +1369,7 @@ test('the first map loaded, before any map is open, is migrated too', async () =
   assert.equal(appReducer(loaded, { type: 'reset' }), null);
 });
 
-test('dragging a river’s source onto a lake makes it flow out of the lake; its mouth may be dragged into water', async () => {
+test('dragging a river’s source onto a lake makes it flow out of the lake; its mouth may be dragged into water, a middle hex only into a lake', async () => {
   const { buildRiverFromPath } = await import('../shared/validate.ts');
   const { moveRiverSegment } = await import('../shared/riverEdit.ts');
   const map = riverNetworkMap();
@@ -1378,9 +1380,14 @@ test('dragging a river’s source onto a lake makes it flow out of the lake; its
   assert.ok(!('error' in fromLake), 'error' in fromLake ? fromLake.error : '');
   assert.equal(fromLake.river.fromLake, true);
   assert.deepEqual([fromLake.river.segments[0]!.col, fromLake.river.segments[0]!.row], [2, 2]);
-  // A middle hex cannot go into water.
-  const middle = moveRiverSegment(river, 2, { col: 1, row: 2 }, base, null, 9, 5, []);
-  assert.ok('error' in middle);
+  // A middle hex cannot go into the sea…
+  assert.ok('error' in moveRiverSegment(river, 2, { col: 8, row: 0 }, base, null, 9, 5, []));
+  // …but dragged onto a lake, the river runs through it.
+  const along = buildRiverFromPath({ name: 'A', path: hexLine({ col: 0, row: 1 }, { col: 7, row: 1 }) }, 'a', base, null, 9, 5, [])!;
+  const through = moveRiverSegment(along, 1, { col: 1, row: 2 }, base, null, 9, 5, []);
+  assert.ok(!('error' in through), 'error' in through ? through.error : '');
+  assert.ok(through.river.segments.some(s => s.col === 1 && s.row === 2), 'the river crosses the lake hex');
+  assert.equal(through.river.terminus, 'Sea');
   // The mouth can: the river then empties into the lake.
   const short = buildRiverFromPath({ name: 'S', path: [{ col: 4, row: 1 }, { col: 3, row: 1 }] }, 's', base, null, 9, 5, [])!;
   const intoLake = moveRiverSegment(short, 1, { col: 1, row: 2 }, base, null, 9, 5, []);
@@ -1501,7 +1508,8 @@ function arcs(line: Array<{ x: number; y: number }>): number[] {
 
 test('a river leaves its source hex half the normal width, and reaches the normal width a hex later', () => {
   const size = 40;
-  const normal = size * 0.045;
+  // The river is non-navigable throughout, so its normal width is that of non-navigable water.
+  const normal = size * 0.045 * (1 + navigabilityWidens('non-navigable'));
   // A river much shorter than the longest adds almost nothing for length, so its body is the normal width.
   const { centreline, widths } = riverCourse(eastward(9), size, 'seed', { longest: 1000 * size })!;
   const arc = arcs(centreline);
@@ -1529,9 +1537,12 @@ test('length, tributaries and navigability each widen a river by their own small
   const at = (n: number) => ({ at: { x: size * Math.sqrt(3) * (n + 0.5), y: size + 2 * 1.5 * size } });
   const fed = riverCourse(eastward(9), size, 'seed', { longest: 1000 * size, inflows: [at(2), at(3)] })!.widths;
   assert.ok(Math.abs((end(fed) - end(short.widths)) / normal - 0.1) < 0.012, `two tributaries add ${(end(fed) - end(short.widths)) / normal}`);
-  // Navigable water is a tenth wider.
+  // Non-navigable water is 15% thinner than the normal width and navigable water 15% wider, so navigable water is
+  // wider than non-navigable by three tenths of the normal width.
+  assert.equal(navigabilityWidens('non-navigable'), -0.15);
+  assert.equal(navigabilityWidens('navigable'), 0.15);
   const navigable = riverCourse(eastward(9, 4), size, 'seed', { longest: 1000 * size })!.widths;
-  assert.ok(Math.abs((end(navigable) - end(short.widths)) / normal - 0.1) < 0.012, `navigable adds ${(end(navigable) - end(short.widths)) / normal}`);
+  assert.ok(Math.abs((end(navigable) - end(short.widths)) / normal - 0.3) < 0.012, `navigable adds ${(end(navigable) - end(short.widths)) / normal}`);
   // The widest river of all is still slender.
   const big = riverCourse(eastward(12, 3), size, 'seed', { longest: 12 * Math.sqrt(3) * size, inflows: [at(2), at(4), at(6)] })!.widths;
   assert.ok(Math.max(...big) < size * 0.08, `widest ${Math.max(...big) / size} of a hex`);
