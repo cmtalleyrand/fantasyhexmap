@@ -1665,10 +1665,16 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
     // Clip the original sea fills too: their sealing strokes can otherwise leave tiny
     // traces of old hex edges inside the new coastline, even when later patches are clipped.
     if (componentWaterClip && seaFills.length > 0) prims.push({ kind: 'group', clip: componentWaterClip, clipRule: 'evenodd', prims: seaFills });
-    // Water that a reshaped hex takes as land, in the colours of the land it grows from.
-    for (const s of coast?.grown ?? []) {
+    // Water that a reshaped hex takes as land, in the colours of the land it grows from. The
+    // pieces are cut before the area fit moves the coast, so they are clipped to the coast as
+    // finally drawn, or they show as land-coloured slivers in the water beyond it.
+    const grownFills: Prim[] = (coast?.grown ?? []).map((s) => {
       const fill = groundColour(s.donor);
-      prims.push({ kind: 'path', d: s.d, fill, stroke: fill, strokeWidth: seal });
+      return { kind: 'path', d: s.d, fill, stroke: fill, strokeWidth: seal };
+    });
+    if (grownFills.length) {
+      if (coast?.component) prims.push({ kind: 'group', clip: drawnCoastLand(), clipRule: 'evenodd', prims: grownFills });
+      else prims.push(...grownFills);
     }
     // Whole-component movement can fold the swept donor ribbon at tight turns. Clip its
     // water corrections to the final silhouette, so overlapping patches cannot scar the land.
