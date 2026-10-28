@@ -1539,8 +1539,6 @@ test('length, tributaries and navigability each widen a river by their own small
   assert.ok(Math.abs((end(fed) - end(short.widths)) / normal - 0.1) < 0.012, `two tributaries add ${(end(fed) - end(short.widths)) / normal}`);
   // Non-navigable water is 15% thinner than the normal width and navigable water 15% wider, so navigable water is
   // wider than non-navigable by three tenths of the normal width.
-  assert.equal(navigabilityWidens('non-navigable'), -0.15);
-  assert.equal(navigabilityWidens('navigable'), 0.15);
   const navigable = riverCourse(eastward(9, 4), size, 'seed', { longest: 1000 * size })!.widths;
   assert.ok(Math.abs((end(navigable) - end(short.widths)) / normal - 0.3) < 0.012, `navigable adds ${(end(navigable) - end(short.widths)) / normal}`);
   // The widest river of all is still slender.

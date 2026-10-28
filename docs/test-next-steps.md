@@ -133,6 +133,31 @@ The coast fit then stops at the cumulative distortion bound from #158, which
 `test/coastFitDistortion.test.ts` asserts. `docs/drawing-work-plan.md` §4 sets out the options. Test work must not change
 either the 5-point gate or that bound to make the sweep pass.
 
+### 8. Delete tests that do not earn their place
+
+Many of the 574 fast tests would not catch a bug a user could see. Before steps 4 and 5 (which rewrite
+tests), delete those, so the rewrite touches fewer files. A test stays only if it fails when the app
+does something wrong that a user or a saved map would notice. Delete, with the code they keep alive:
+
+- **Tests of code nothing else uses.** `landBySide` (`src/render/rivers.ts`) has no caller; its only
+  test (`drawingInvestigation.test.ts`, "nearest-segment side misclassifies…") shows that it is wrong.
+  `pressIcon` (`src/render/riverCity.ts`) is "unused by the renderers, for its tests" (DECISIONS).
+  Delete each function with its tests.
+- **Tests of test helpers.** `sceneHelpers.test.ts` tests a six-line helper that every test using it
+  already exercises.
+- **Tests that restate a table.** Tests that pin one row of a configuration table (`models.test.ts`:
+  "Opus 4.8 is asked to think…") fail only when the table is edited on purpose. Keep the rules
+  (an effort the model does not accept is stepped down; an unknown model gets the default request), not
+  one test per model.
+- **Tests that match prompt wording.** `promptAlignment.test.ts` and similar files `assert.match` on
+  phrases of the prompt (`/Do not infer another scale/`). Keep checks that a value reaches the prompt;
+  drop checks of its wording.
+- **Duplicates across files.** `mapStyle.test.ts` (76 tests, 1,800 lines) has become a catch-all,
+  mostly about rivers, which `riverEditing.test.ts`, `riverJoinLength.test.ts` and
+  `riverSinuosity.test.ts` also cover. Move what is unique to the river files; delete the overlap.
+
+Report the count deleted, and the `npm test` time before and after, in the PR.
+
 ## A red suite on main, and how it was fixed
 
 After PR #166 put the Node suite in CI, `main` failed 7 tests. The cause was not in the tests: the
@@ -151,6 +176,7 @@ now caught by CI; check `git diff <its base> <its result>` for unrelated deletio
 | 1 | 1 (Node suite in CI) | Done |
 | 2 | 2, 3 (fast tier) | Done |
 | 3 | 6 (sweep reporting) | Done |
-| 4 | 4 (equality helper) | Removes duplication before the larger rewrite |
-| 5 | 5 (role tags) | The largest step; touches 14 files |
-| 6 | 7 | Only once Classic is retired |
+| 4 | 8 (delete tests that do not earn their place) | Fewer tests for steps 4 and 5 to rewrite |
+| 5 | 4 (equality helper) | Removes duplication before the larger rewrite |
+| 6 | 5 (role tags) | The largest step; fewer than 14 files once step 8 is done |
+| 7 | 7 | Only once Classic is retired |
