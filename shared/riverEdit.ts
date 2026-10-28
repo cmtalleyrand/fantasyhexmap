@@ -401,7 +401,9 @@ export function setRiverTributary(
   // Check if river already ends on host.
   const alreadyOnHost = host.segments.some((s) => s.col === last.col && s.row === last.row);
   if (alreadyOnHost) {
-    return { river: { ...river, joins: host.id, terminus: 'River' }, warnings: [] };
+    // A confluence ends on the host's course, replacing any former water or off-map outlet.
+    const segments = river.segments.map((s, i) => i === river.segments.length - 1 ? { ...s, exitEdge: null } : s);
+    return { river: { ...river, segments, joins: host.id, terminus: 'River' }, warnings: [] };
   }
 
   // Find nearest hex on host to connect to.

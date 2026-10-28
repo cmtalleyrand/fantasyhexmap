@@ -16,11 +16,46 @@ import {
 import { buildRiverFromPath } from '../shared/validate.ts';
 import { reducer } from '../src/state/store.ts';
 import type { BaseData, River } from '../shared/types.ts';
+import { riverCourses } from '../src/render/rivers.ts';
 
 const COLS = 8;
 const ROWS = 5;
 // Land everywhere except a sea column on the right edge.
 const base: BaseData = Array.from({ length: COLS * ROWS }, (_, i) => (i % COLS === COLS - 1 ? 'Sea' : 'Land'));
+
+for (const outlet of ['Sea', 'Lake', 'OffMap'] as const) {
+  test(`assigning a river already on its host replaces its ${outlet} outlet with a rendered confluence`, () => {
+    const outletBase = base.map((v, i) => outlet === 'OffMap' ? 'Land' : i % COLS === COLS - 1 ? outlet : v) as BaseData;
+    const col = outlet === 'OffMap' ? COLS - 1 : 6;
+    const build = (id: string, path: Array<{ col: number; row: number }>) => {
+      const r = buildRiverFromPath({ name: id, path }, id, outletBase, null, COLS, ROWS, []);
+      assert.ok(r);
+      return r;
+    };
+    const tributary = build('tributary', hexLine({ col: col - 2, row: 2 }, { col, row: 2 }));
+    const host = build('host', [{ col, row: 1 }, { col, row: 2 }, { col, row: 3 }]);
+    const oldLast = tributary.segments.at(-1)!;
+    assert.equal(tributary.terminus, outlet);
+    assert.notEqual(oldLast.exitEdge, null);
+    oldLast.navigability = 'estuarine';
+    oldLast.navigable = true;
+    oldLast.reach = { min: 0.1, max: 0.4 };
+    const before = structuredClone(tributary);
+
+    const result = setRiverTributary(tributary, host.id, outletBase, null, COLS, ROWS, [host]);
+    assert.ok(!('error' in result));
+    assert.equal(result.river.joins, host.id);
+    assert.equal(result.river.terminus, 'River');
+    assert.deepEqual(result.river.segments, before.segments.map((s, i) =>
+      i === before.segments.length - 1 ? { ...s, exitEdge: null } : s));
+    assert.deepEqual(tributary, before, 'assignment does not mutate the original river');
+
+    const courses = riverCourses([result.river, host], 26, 'host-assignment');
+    const mouth = courses.get(tributary.id)!.centreline.at(-1)!;
+    assert.ok(courses.get(host.id)!.centreline.some(p => Math.hypot(p.x - mouth.x, p.y - mouth.y) < 1e-6),
+      'the tributary mouth ends on the rendered host course');
+  });
+}
 
 function river(path: [number, number][], navigable: boolean[]): River {
   const r = buildRiverFromPath(
@@ -272,4 +307,5 @@ test('tributary and distributary relationships can be defined', () => {
   assert.ok(!('error' in undistResult));
   assert.equal(undistResult.river.branchOf, undefined);
 });
+
 
