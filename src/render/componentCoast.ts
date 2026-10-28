@@ -177,9 +177,11 @@ export function componentCoast(chain: CoastChain, rough: Roughness, clearance: R
       const id = f + (broad ? 1000 : band === 1 ? 10000 : 20000);
       const position = random(id, 0) * perimeter;
       const width = size * (broad ? 0.9 + random(id, 1) * 2.7 : band === 1 ? 0.2 + random(id, 1) ** 2 * 1.0 : 0.06 + random(id, 1) ** 2 * 0.3);
+      // No flank shorter than a tenth of a hex: the coast is sampled every twentieth of a
+      // hex, and a flank of a sample or two draws a kink rather than a tooth.
       const left = Math.min(perimeter / 4, width * (0.4 + random(id, 2) * 1.2));
       const right = Math.min(perimeter / 4, width * (0.4 + random(id, 3) * 1.2));
-      const height = (random(id, 4) * 2 - 1) * Math.min(broad ? 0.55 : band === 1 ? 0.4 : 0.16, Math.min(left, right) / size * (broad ? 0.7 : 1.15));
+      const height = (random(id, 4) * 2 - 1) * Math.min(broad ? 0.55 : band === 1 ? 0.4 : 0.16, Math.min(left, right) / size * (broad ? 0.7 : 0.85));
       const kind = Math.floor(random(id, 5) * 4);
       const power = 1 + random(id, 6) * 1.25;
       const shelf = 0.15 + random(id, 7) * 0.45;
@@ -188,11 +190,13 @@ export function componentCoast(chain: CoastChain, rough: Roughness, clearance: R
         if (!chain.closed && (j < 0 || j >= n)) continue;
         const i = (j % n + n) % n, delta = j * step - position;
         const u = Math.abs(delta) / (delta < 0 ? left : right);
+        // Every profile is smooth through its tip and its shoulders: a profile that turns
+        // there draws a pointed tooth or a square step at the scale of a few pixels.
         let shape: number;
         if (kind === 0) shape = (1 - u * u) ** 2;
-        else if (kind === 1) shape = (1 - u) ** power;
-        else if (kind === 2) shape = u < shelf ? 1 : (1 - u) / (1 - shelf);
-        else shape = (1 - u * u) ** 2 * (1 - (delta < 0 ? 3 : 0.5) * u);
+        else if (kind === 1) shape = (1 - u) ** power * (1 + power * u);
+        else if (kind === 2) { const t = u < shelf ? 0 : (u - shelf) / (1 - shelf); shape = 1 - t * t * (3 - 2 * t); }
+        else shape = (1 - u * u) ** 2 * (1 - (delta < 0 ? 3 : 0.5) * u * u);
         values[i] = values[i]! + height * shape;
       }
     }

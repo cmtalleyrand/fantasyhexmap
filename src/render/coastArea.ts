@@ -5,7 +5,7 @@ import { hexCenter, hexCorners, type Point } from '../../shared/hex.js';
 import { LAND_SHARE_TOLERANCE } from '../../shared/surfaceArea.js';
 import { coastClearance, detailKey } from './componentCoast.js';
 import { drawnLand, drawnLandLayout, evenOddTest, type CoastChain, type CoastGeometry } from './coast.js';
-import { areaCoverage, nearestHex, nearestOn } from './footprint.js';
+import { areaCoverage, nearestHex } from './footprint.js';
 import { pathPolylines } from './ice.js';
 import type { PathCmd } from './prims.js';
 
@@ -365,9 +365,8 @@ export function fitCoastAreas(geometry: CoastGeometry, targets: ReadonlyMap<numb
   }
   phase('anchors');
   const paths = pathsOf(current);
-  const all = paths.flatMap(d => pathPolylines(d, 8));
   const detail = held ? new Map(current.flatMap((ring, k) => ring.map((p, j): [string, number] => [detailKey(p), held[k]![j]!]))) : undefined;
-  const result = { ...geometry, paths, detail, anchors: new Map([...geometry.anchors].map(([key, p]) => [key, nearestOn(p, all).at])) };
+  const result = { ...geometry, paths, detail, anchors: snapAnchors(geometry.anchors, paths, size) };
   phase();
   return result;
 }
@@ -460,6 +459,42 @@ function hexWeights(p: Point, cols: number, rows: number, size: number, centres:
 }
 
 /**
+ * Each anchor moved to the nearest point of the coast as drawn (`paths`), found from a grid
+ * of the coast's segments so only those nearby are checked.
+ */
+function snapAnchors(anchors: Map<string, Point>, paths: PathCmd[][], size: number): Map<string, Point> {
+  const lines = paths.flatMap(d => pathPolylines(d, 8));
+  const grid = new Map<number, Array<[Point, Point]>>();
+  const key = (x: number, y: number) => x * 65536 + y;
+  for (const line of lines) for (let j = 0; j + 1 < line.length; j++) {
+    const a = line[j]!, b = line[j + 1]!;
+    for (let x = Math.floor(Math.min(a.x, b.x) / size); x <= Math.floor(Math.max(a.x, b.x) / size); x++)
+      for (let y = Math.floor(Math.min(a.y, b.y) / size); y <= Math.floor(Math.max(a.y, b.y) / size); y++) {
+        const cell = grid.get(key(x, y));
+        if (cell) cell.push([a, b]); else grid.set(key(x, y), [[a, b]]);
+      }
+  }
+  const nearest = (p: Point): Point => {
+    const cx = Math.floor(p.x / size), cy = Math.floor(p.y / size);
+    let best = Infinity, at = p;
+    // Ring by ring outwards; a ring further out than the best distance found cannot hold a nearer segment.
+    for (let r = 0; r < 64 && (r - 1) * size < best; r++) {
+      for (let x = cx - r; x <= cx + r; x++) for (let y = cy - r; y <= cy + r; y++) {
+        if (Math.max(Math.abs(x - cx), Math.abs(y - cy)) !== r) continue;
+        for (const [a, b] of grid.get(key(x, y)) ?? []) {
+          const ex = b.x - a.x, ey = b.y - a.y;
+          const t = Math.max(0, Math.min(1, ((p.x - a.x) * ex + (p.y - a.y) * ey) / (ex * ex + ey * ey || 1)));
+          const q = { x: a.x + ex * t, y: a.y + ey * t }, d = Math.hypot(p.x - q.x, p.y - q.y);
+          if (d < best) { best = d; at = q; }
+        }
+      }
+    }
+    return at;
+  };
+  return new Map([...anchors].map(([id, p]) => [id, nearest(p)]));
+}
+
+/**
  * Put the held-back detail back on every path: each point moves its recorded offset along
  * the coast's normal there (land on the right, as the offset was found). Points with none
  * recorded (a coast's run to the map's edge, say) stay where they are.
@@ -504,7 +539,5 @@ export function applyCoastDetail(geometry: CoastGeometry, cols: number, rows: nu
     if (closed) out.push(['Z']);
     return out;
   });
-  const all = paths.flatMap(d => pathPolylines(d, 8));
-  return { ...geometry, paths, detail: undefined,
-    anchors: new Map([...geometry.anchors].map(([key, p]) => [key, nearestOn(p, all).at])) };
+  return { ...geometry, paths, detail: undefined, anchors: snapAnchors(geometry.anchors, paths, size) };
 }
