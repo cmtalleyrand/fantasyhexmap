@@ -2,7 +2,8 @@ import { useRef, useState } from 'react';
 import { LAYER_META, plannedLayers } from '../../shared/layers.js';
 import { type LayerId, type MapState } from '../../shared/types.js';
 import type { AuditIssue } from '../render/audit.js';
-import { auditExport, exportComposite, exportLayer, exportLegendText } from '../render/export.js';
+import { auditExport, exportComposite, exportFeatureAreas, exportLayer, exportLegendText } from '../render/export.js';
+import { geoNamesOf } from '../../shared/geoNames.js';
 import type { PolityNameMin } from '../render/labels.js';
 import { DEFAULT_LEGEND_OPTIONS, legendLayers } from '../render/legend.js';
 import type { MarginaliaOptions } from '../render/marginalia.js';
@@ -75,6 +76,8 @@ export default function ExportPanel({
   const [onlyUsed, setOnlyUsed] = useState(DEFAULT_LEGEND_OPTIONS.onlyUsed);
   const [polityAreas, setPolityAreas] = useState(DEFAULT_LEGEND_OPTIONS.polityAreas);
   const [riverLengths, setRiverLengths] = useState(DEFAULT_LEGEND_OPTIONS.riverLengths);
+  const [featureAreas, setFeatureAreas] = useState(DEFAULT_LEGEND_OPTIONS.featureAreas ?? false);
+  const hasFeatures = geoNamesOf(map).length > 0;
   // Stored as exclusions so a layer switched on later is in the legend by default.
   const [legendExclude, setLegendExclude] = useState<LayerId[]>([]);
   // Off to begin with, so an export is the bare map until furniture is asked for.
@@ -109,7 +112,7 @@ export default function ExportPanel({
     polityNames,
     cityStateMax,
     legend: legend
-      ? { exclude: legendExclude, onlyUsed, polityAreas, riverLengths, title: legendTitle }
+      ? { exclude: legendExclude, onlyUsed, polityAreas, riverLengths, featureAreas, title: legendTitle }
       : null,
     marginalia: Object.values(furniture).some(Boolean) ? furniture : null,
   };
@@ -189,6 +192,11 @@ export default function ExportPanel({
                 River lengths
               </Check>
             )}
+            {legendChoices.includes('base') && hasFeatures && (
+              <Check checked={featureAreas} onChange={setFeatureAreas}>
+                Named sea, lake, land feature and island areas
+              </Check>
+            )}
             {legendChoices.includes('polities') && (
               <Check checked={polityAreas} onChange={setPolityAreas}>
                 Polity land areas
@@ -224,7 +232,7 @@ export default function ExportPanel({
                   map,
                   visible,
                   elevationStyle,
-                  { exclude: legendExclude, onlyUsed, polityAreas, riverLengths, title: legendTitle },
+                  { exclude: legendExclude, onlyUsed, polityAreas, riverLengths, featureAreas, title: legendTitle },
                   mapStyle,
                 )
               }
@@ -272,6 +280,16 @@ export default function ExportPanel({
             readable, and drop labels unless the layer is cities or polities (river and range names go with their own layers).
           </p>
         </div>
+
+        {hasFeatures && (
+          <div>
+            <button onClick={() => exportFeatureAreas(map)}>Export named feature areas (CSV)</button>
+            <p className="hint" style={{ marginTop: 4 }}>
+              One row per named sea, lake, land feature and island: water area for seas and lakes, land
+              area for land features and islands, from the hex size set in Settings → Map.
+            </p>
+          </div>
+        )}
 
         <div>
           <button

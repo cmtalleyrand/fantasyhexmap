@@ -62,7 +62,8 @@ import {
   populationColour,
   withAlpha,
 } from './palette.js';
-import { clearRiverLabelCache, placeAreaLabels, placeRangeLabels, placeRiverLabels, placeWaterLabels } from './featureLabels.js';
+import { clearRiverLabelCache, placeAreaLabels, placeRangeLabels, placeRiverLabels, placeWaterLabels, type FeatureLabel } from './featureLabels.js';
+import { boxesOverlap } from './collide.js';
 import { geoEligibility, geoNamesOf, liveHexes } from '../../shared/geoNames.js';
 import type { GeoNameKind } from '../../shared/types.js';
 import {
@@ -355,7 +356,7 @@ function cachedPolityLabels(
   land: (p: Point) => boolean,
   landKey: unknown[],
 ): { labels: PolityLabel[]; notes: PolityLabelNote[] } {
-  return cachedPlacement('polityLabels', [data.owner, data.polities.map(p => [p.id, p.name, p.shortName]),
+  return cachedPlacement('polityLabels', [data.owner, data.polities.map(p => [p.id, p.name, p.shortName, p.labelPriority]),
     cols, rows, size, obstacles, minHexes, sizing, role, letteringId, measureEpoch,
     [...lakes], [...unnamed].sort(), landKey], () => {
     const notes: PolityLabelNote[] = [];
@@ -3252,7 +3253,40 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
   // seat is lettered in capitals as a realm's name would be.
   const seats = polities && cities ? cityStateSeats(polities.polities, polities.owner, cities.cities, cols, opts.cityStateMax) : new Map<string, string>();
   const seatIds = new Set(seats.values());
-  const unnamed = new Set(seats.keys());
+  // So does a realm whose name has been hidden.
+  const unnamed = new Set([...seats.keys(), ...(polities?.polities ?? []).filter((p) => p.labelHidden).map((p) => p.id)]);
+  const geoNames = base ? geoNamesOf(map) : [];
+  /** The named areas of these kinds at this priority, cut down to the hexes that are still eligible. */
+  const liveNames = (kinds: GeoNameKind[], priority: boolean) =>
+    geoNames
+      .filter((n) => !n.hidden && Boolean(n.priority) === priority && kinds.includes(n.kind))
+      .map((n) => ({ name: n.name, hexes: liveHexes(n, geoEligibility(n.kind, base!, cols, rows)) }))
+      .filter((n) => n.hexes.length > 0);
+  const landRole = lettering.range;
+  const waterLabelsOf = (areas: Array<{ name: string; hexes: number[] }>) =>
+    cachedPlacement('waterLabels', [areas, cols, rows, size, lettering.water, base, measureEpoch, symbolLandRevision.id],
+      () => placeWaterLabels(areas, cols, size, lettering.water, base, rows, p => !quickLandAt(p)));
+  const landLabelsOf = (areas: Array<{ name: string; hexes: number[] }>) =>
+    cachedPlacement('areaLabels', [areas, cols, size, landRole, measureEpoch],
+      () => placeAreaLabels(areas, cols, size, landRole));
+  /** What a placed water name covers: each letter where it is set letter by letter. */
+  const waterBoxes = (l: FeatureLabel): OrientedBox[] => l.glyphs?.length
+    ? l.glyphs.map((g) => ({ cx: g.x, cy: g.y, halfW: l.size * 0.5, halfH: l.size * 0.6, rotation: g.rotation }))
+    : [{ cx: l.at.x, cy: l.at.y, halfW: (roleEm(lettering.water, l.text) * l.size) / 2, halfH: l.size * 0.6, rotation: l.rotation }];
+  const landBoxes = (l: FeatureLabel): OrientedBox[] =>
+    [{ cx: l.at.x, cy: l.at.y, halfW: (roleEm(landRole, l.text) * l.size) / 2, halfH: l.size * 0.6, rotation: l.rotation }];
+  // Geographical names given priority are placed before every other name, which keep clear of them.
+  const priorityAreas = {
+    water: opts.seaNames && base ? liveNames(['sea', 'lake'], true) : [],
+    land: opts.landNames && base ? liveNames(['land', 'island'], true) : [],
+  };
+  const priorityWater = priorityAreas.water.length > 0 ? waterLabelsOf(priorityAreas.water) : [];
+  const priorityLand = priorityAreas.land.length > 0 ? landLabelsOf(priorityAreas.land) : [];
+  const priorityGeoBoxes = [...priorityWater.flatMap(waterBoxes), ...priorityLand.flatMap(landBoxes)];
+  /** Every prioritised name placed so far, which a geographical name without priority may not cover. */
+  const priorityBoxes: OrientedBox[] = [...priorityGeoBoxes];
+  const prioritisedRealms = new Set((polities?.polities ?? []).filter((p) => p.labelPriority).map((p) => p.id));
+
   /** Realms named other than as asked, or not at all. */
   const nameNotesOut: PolityLabelNote[] = [];
   if (opts.labels && polities) {
@@ -3263,6 +3297,7 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
       const r = markerReach(city.population, city.capital);
       obstacles.push({ left: c.x - r, right: c.x + r, top: c.y - r, bottom: c.y + r });
     }
+    for (const b of priorityGeoBoxes) obstacles.push({ ...b, padX: 0, padY: 0 });
     // Without a hierarchy every realm is named once, from the cache. With one,
     // each level is named in turn, largest first: a realm across all its
     // parts, then the parts in smaller, lighter type clear of the realm's name.
@@ -3278,7 +3313,7 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
       levels.push({ labels: named.labels, depth: 0 });
     } else {
       const named = cachedPlacement('hierarchyLabels', [namingPolities!.owner,
-        polities.polities.map(p => [p.id, p.name, p.shortName, p.parentId]), cols, rows, size,
+        polities.polities.map(p => [p.id, p.name, p.shortName, p.parentId, p.labelPriority]), cols, rows, size,
         obstacles, opts.polityNames, knobs.realmNames, realmRole, subWeight, measureEpoch,
         [...labelLakes], [...unnamed].sort(), symbolLandRevision.id], () => {
         const cachedLevels: typeof levels = [], cachedNotes: PolityLabelNote[] = [];
@@ -3339,13 +3374,15 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
         });
         const weight = depth === 0 ? realmRole.weight : subWeight;
         const em = Math.max(...label.lines.map((line) => roleEm(realmRole, line, weight)));
-        taken.push({
+        const box: OrientedBox = {
           cx: label.at.x,
           cy: label.at.y,
           halfW: (em * label.size) / 2,
           halfH: (label.size * LABEL_LINE_EM * label.lines.length) / 2,
           rotation: label.rotation,
-        });
+        };
+        taken.push(box);
+        if (prioritisedRealms.has(label.polityId)) priorityBoxes.push(box);
       }
     }
   }
@@ -3374,6 +3411,9 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
       prims.splice(run.from, run.to - run.from, { kind: 'group', opacity: RELIEF_FADE, prims: prims.slice(run.from, run.to) });
     }
   }
+
+  // Prioritised geographical names, which river and city names keep clear of.
+  taken.push(...priorityGeoBoxes);
 
   // City markers, which river names keep clear of.
   const cityBoxes: OrientedBox[] = (cities?.cities ?? []).map((city) => {
@@ -3449,18 +3489,24 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
     }
   }
 
-  const geoNames = base ? geoNamesOf(map) : [];
-  /** The named areas of these kinds, cut down to the hexes that are still eligible. */
-  const liveNames = (kinds: GeoNameKind[]) =>
-    geoNames
-      .filter((n) => !n.hidden && kinds.includes(n.kind))
-      .map((n) => ({ name: n.name, hexes: liveHexes(n, geoEligibility(n.kind, base!, cols, rows)) }))
-      .filter((n) => n.hexes.length > 0);
+  /** Whether a geographical name without priority would cover a prioritised name. */
+  const coversPriority = (boxes: OrientedBox[]) => boxes.some((b) => priorityBoxes.some((p) => boxesOverlap(b, p)));
+  /** Report a name left out for a prioritised one. */
+  const yielded = (areas: Array<{ name: string; hexes: number[] }>, text: string, what: string) => {
+    const area = areas.find((a) => a.name.trim().toUpperCase() === text);
+    if (area) compromises.push({ hexes: area.hexes, what: `${what} name “${area.name}” left out`, why: 'it would cover a name that has been prioritised' });
+  };
   if (opts.seaNames && base) {
-    const waterAreas = liveNames(['sea', 'lake']);
-    const waterNames = cachedPlacement('waterLabels', [waterAreas, cols, rows, size, lettering.water, base, measureEpoch, symbolLandRevision.id],
-      () => placeWaterLabels(waterAreas, cols, size, lettering.water, base, rows, p => !quickLandAt(p)));
-    const namedWater = new Set(waterNames.map(n => n.text));
+    const ordinary = liveNames(['sea', 'lake'], false);
+    const waterAreas = [...priorityAreas.water, ...ordinary];
+    const placedOrdinary = ordinary.length > 0 ? waterLabelsOf(ordinary) : [];
+    const keptOrdinary = placedOrdinary.filter((l) => {
+      if (!coversPriority(waterBoxes(l))) return true;
+      yielded(ordinary, l.text, 'Water');
+      return false;
+    });
+    const waterNames = [...priorityWater, ...keptOrdinary];
+    const namedWater = new Set([...priorityWater, ...placedOrdinary].map(n => n.text));
     for (const area of waterAreas) {
       if (!area.name.trim() || namedWater.has(area.name.trim().toUpperCase())) continue;
       compromises.push({
@@ -3484,17 +3530,20 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
         tag: { kind: 'water' },
         glyphs: l.glyphs,
       });
-      for (const g of l.glyphs ?? []) {
-        taken.push({ cx: g.x, cy: g.y, halfW: l.size * 0.5, halfH: l.size * 0.6, rotation: g.rotation });
-      }
+    }
+    // Prioritised names are already in `taken`; the others claim their letters, as before.
+    for (const l of keptOrdinary) {
+      for (const g of l.glyphs ?? []) taken.push({ cx: g.x, cy: g.y, halfW: l.size * 0.5, halfH: l.size * 0.6, rotation: g.rotation });
     }
   }
   if (opts.landNames && base) {
-    const landRole = lettering.range;
-    const landAreas = liveNames(['land', 'island']);
-    const landNames = cachedPlacement('areaLabels', [landAreas, cols, size, landRole, measureEpoch],
-      () => placeAreaLabels(landAreas, cols, size, landRole));
-    for (const l of landNames) {
+    const ordinary = liveNames(['land', 'island'], false);
+    const keptOrdinary = (ordinary.length > 0 ? landLabelsOf(ordinary) : []).filter((l) => {
+      if (!coversPriority(landBoxes(l))) return true;
+      yielded(ordinary, l.text, 'Land');
+      return false;
+    });
+    for (const l of [...priorityLand, ...keptOrdinary]) {
       prims.push({
         kind: 'text',
         at: l.at,
@@ -3511,8 +3560,8 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
         tag: { kind: 'land' },
         glyphs: l.glyphs,
       });
-      taken.push({ cx: l.at.x, cy: l.at.y, halfW: (roleEm(landRole, l.text) * l.size) / 2, halfH: l.size * 0.6, rotation: l.rotation });
     }
+    for (const l of keptOrdinary) taken.push(...landBoxes(l));
   }
 
   if (opts.labels && cities) {

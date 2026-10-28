@@ -46,7 +46,7 @@ const contextSchema = z.object({
   })).optional(),
   geoNames: z.array(z.object({
     id: z.string(), name: z.string(), kind: z.enum(['sea', 'lake', 'land', 'island']),
-    hidden: z.boolean().optional(), hexes: z.array(z.number().int().nonnegative()),
+    hidden: z.boolean().optional(), priority: z.boolean().optional(), hexes: z.array(z.number().int().nonnegative()),
   })).optional(),
   mountainRanges: z.array(z.object({
     id: z.string(), name: z.string(), hexes: z.array(z.number().int().nonnegative()),

@@ -32,7 +32,10 @@ import { isLayerEnabled } from '../../shared/layers.js';
 import { detachOrphanBranches, setRiverNavigability } from '../../shared/riverEdit.js';
 import { cosmeticallyEqual, currentDepVersions, identicalData, trimHistory } from '../../shared/layers.js';
 import { LAYER_META, normaliseSelection } from '../../shared/layers.js';
-import { MAX_DIM, isRangeElevation, type PolitiesData } from '../../shared/types.js';
+import { MAX_DIM, geoNameDisplay, isRangeElevation, polityLabelDisplay, type LabelDisplay, type PolitiesData } from '../../shared/types.js';
+
+/** How the journal describes a change of a name's display. */
+const DISPLAY_VERB: Record<LabelDisplay, string> = { normal: 'Showed', hidden: 'Hid', priority: 'Prioritised' };
 import type {
   GeneratedIslandSettings,
   City,
@@ -118,6 +121,8 @@ export type Action =
   /** `autoShade` also marks every part so it follows its realm from now on. */
   | { type: 'setPolityColours'; colours: Record<string, string>; autoShade?: boolean }
   | { type: 'setPolityAutoShade'; ids: string[]; on: boolean }
+  /** Show a realm's name as usual, hide it, or prioritise it over the names it competes with. */
+  | { type: 'setPolityLabelDisplay'; id: string; display: LabelDisplay }
   | { type: 'removePolity'; id: string }
   | { type: 'upsertCity'; city: City }
   | { type: 'setCitySite'; id: string; site: CitySite }
@@ -141,7 +146,8 @@ export type Action =
   /** Take hexes out of a name; a name left with none is removed. */
   | { type: 'unnameGeoHexes'; id: string; indices: number[] }
   | { type: 'renameGeo'; id: string; name: string }
-  | { type: 'setGeoNameHidden'; id: string; hidden: boolean }
+  /** Show a geographical name as usual, hide it, or prioritise it over the names it competes with. */
+  | { type: 'setGeoNameDisplay'; id: string; display: LabelDisplay }
   | { type: 'removeGeo'; id: string }
   /**
    * Change how the islands of island hexes are drawn: their counts, which
@@ -1020,6 +1026,23 @@ function reduceMap(map: MapState, action: Action): MapState {
       );
     }
 
+    case 'setPolityLabelDisplay': {
+      const layer = map.layers.polities;
+      const old = layer.data?.polities.find((p) => p.id === action.id);
+      if (!layer.data || !old || polityLabelDisplay(old) === action.display) return map;
+      const { labelHidden: _hidden, labelPriority: _priority, ...rest } = old;
+      const next: Polity = {
+        ...rest,
+        ...(action.display === 'hidden' ? { labelHidden: true } : {}),
+        ...(action.display === 'priority' ? { labelPriority: true } : {}),
+      };
+      const polities = layer.data.polities.map((p) => (p.id === action.id ? next : p));
+      return journal(
+        withLayer(map, 'polities', commit(layer, { data: { ...layer.data, polities } })),
+        manualEntry('polities', `${DISPLAY_VERB[action.display]} the name of ${old.name} on the map.`),
+      );
+    }
+
     case 'setPolityAutoShade': {
       const layer = map.layers.polities;
       if (!layer.data) return map;
@@ -1264,6 +1287,7 @@ function reduceMap(map: MapState, action: Action): MapState {
         name: existing?.name ?? name,
         kind: action.kind,
         ...(existing?.hidden ? { hidden: true } : {}),
+        ...(existing?.priority ? { priority: true } : {}),
         hexes: [...new Set([...(existing?.hexes ?? []), ...picked])].sort((a, b) => a - b),
       };
       const what = GEO_KIND_LABEL[action.kind].singular.toLowerCase();
@@ -1317,17 +1341,23 @@ function reduceMap(map: MapState, action: Action): MapState {
       );
     }
 
-    case 'setGeoNameHidden': {
+    case 'setGeoNameDisplay': {
       const names = geoNamesOf(map);
       const old = names.find((n) => n.id === action.id);
-      if (!old || Boolean(old.hidden) === action.hidden) return map;
+      if (!old || geoNameDisplay(old) === action.display) return map;
+      const { hidden: _hidden, priority: _priority, ...rest } = old;
+      const next: GeoName = {
+        ...rest,
+        ...(action.display === 'hidden' ? { hidden: true } : {}),
+        ...(action.display === 'priority' ? { priority: true } : {}),
+      };
       return journal(
         {
           ...withMigratedGeoNames(map),
-          geoNames: names.map((n) => (n.id === action.id ? { ...n, hidden: action.hidden } : n)),
+          geoNames: names.map((n) => (n.id === action.id ? next : n)),
           updatedAt: Date.now(),
         },
-        manualEntry('base', `${action.hidden ? 'Hid' : 'Showed'} the name "${old.name}" on the map.`),
+        manualEntry('base', `${DISPLAY_VERB[action.display]} the name "${old.name}" on the map.`),
       );
     }
 

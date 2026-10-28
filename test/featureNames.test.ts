@@ -92,11 +92,11 @@ test('individual geographical names can be excluded from the rendered map', () =
   map = reducer(map, { type: 'nameGeo', id: 'land-2', kind: 'land', name: 'Red Reach', indices: [30, 31, 32] });
   assert.deepEqual(texts(map, { landNames: true }).sort(), ['GREEN REACH', 'RED REACH']);
 
-  map = reducer(map, { type: 'setGeoNameHidden', id: 'land-1', hidden: true });
+  map = reducer(map, { type: 'setGeoNameDisplay', id: 'land-1', display: 'hidden' });
   assert.equal(map.geoNames?.find((name) => name.id === 'land-1')?.hidden, true);
   assert.deepEqual(texts(map, { landNames: true }), ['RED REACH']);
 
-  map = reducer(map, { type: 'setGeoNameHidden', id: 'land-1', hidden: false });
-  assert.equal(map.geoNames?.find((name) => name.id === 'land-1')?.hidden, false);
+  map = reducer(map, { type: 'setGeoNameDisplay', id: 'land-1', display: 'normal' });
+  assert.equal(map.geoNames?.find((name) => name.id === 'land-1')?.hidden, undefined);
   assert.deepEqual(texts(map, { landNames: true }).sort(), ['GREEN REACH', 'RED REACH']);
 });

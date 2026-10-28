@@ -3,7 +3,9 @@
  * export and a vector export of the same view are the same picture.
  */
 
-import type { LayerId, MapState } from '../../shared/types.js';
+import { LABEL_DISPLAY_TEXT, geoNameDisplay, type LayerId, type MapState } from '../../shared/types.js';
+import { geoNameSurfaceAreas, normaliseHexDimensions } from '../../shared/surfaceArea.js';
+import { GEO_KIND_LABEL, geoNamesOf } from '../../shared/geoNames.js';
 import { LAYER_META } from '../../shared/layers.js';
 import {
   BASE_GEO_VALUES,
@@ -123,6 +125,37 @@ export function exportLegendText(
     }),
     `${slug(map.name)}-legend.txt`,
   );
+}
+
+/** A field of a CSV row, quoted when it has to be. */
+function csvField(value: string | number): string {
+  const text = String(value);
+  return /[",\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+}
+
+/**
+ * Every named sea, lake, land feature and island with its surface area, one row each: water area
+ * for seas and lakes, land area for land features and islands (see `geoNameSurfaceAreas`).
+ */
+export function serializeFeatureAreasCsv(map: MapState): string {
+  const { unit } = normaliseHexDimensions(map.hexDimensions);
+  const rows = [['Name', 'Kind', 'Measures', 'Hexes', `Area (${unit}²)`, 'Label']];
+  for (const f of geoNameSurfaceAreas(map)) {
+    const name = geoNamesOf(map).find((n) => n.id === f.id);
+    rows.push([
+      f.name,
+      GEO_KIND_LABEL[f.kind].singular,
+      f.kind === 'sea' || f.kind === 'lake' ? 'water' : 'land',
+      String(f.hexCount),
+      String(Math.round(f.area * 100) / 100),
+      name ? LABEL_DISPLAY_TEXT[geoNameDisplay(name)] : '',
+    ]);
+  }
+  return `${rows.map((row) => row.map(csvField).join(',')).join('\r\n')}\r\n`;
+}
+
+export function exportFeatureAreas(map: MapState): void {
+  download(new Blob([serializeFeatureAreasCsv(map)], { type: 'text/csv;charset=utf-8' }), `${slug(map.name)}-feature-areas.csv`);
 }
 
 /** The change history as a document: every generation and hand edit, oldest first. */
