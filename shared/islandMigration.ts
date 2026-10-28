@@ -125,6 +125,8 @@ export function migrateCoastalLand(map: MapState): MapState {
 
 /** The lake land share that was the default before shores were derived. */
 const OLD_LAKE_LAND_DEFAULT = 10;
+/** The glacier land share that was the default before glacier shores were derived (every glacier hex whole). */
+const OLD_GLACIER_DEFAULT = 100;
 
 /**
  * Move a map saved before shores were derived onto them: Coastal Land becomes Land, and the old
@@ -139,8 +141,11 @@ export function migrateToDerivedShores(map: MapState): MapState {
   // bring back the old lake share, nor a reload then change it again.
   const settle = (s: MapState): MapState => ({
     ...s,
-    ...(s.hexDimensions?.lakeLandPercent === OLD_LAKE_LAND_DEFAULT
-      ? { hexDimensions: { ...s.hexDimensions, lakeLandPercent: DEFAULT_HEX_DIMENSIONS.lakeLandPercent } } : {}),
+    ...(s.hexDimensions ? { hexDimensions: {
+      ...s.hexDimensions,
+      ...(s.hexDimensions.lakeLandPercent === OLD_LAKE_LAND_DEFAULT ? { lakeLandPercent: DEFAULT_HEX_DIMENSIONS.lakeLandPercent } : {}),
+      ...(s.hexDimensions.glacierPercent === OLD_GLACIER_DEFAULT ? { glacierPercent: DEFAULT_HEX_DIMENSIONS.glacierPercent } : {}),
+    } } : {}),
     derivedShores: true,
   });
   const history = next.history && { past: next.history.past.map(settle), future: next.history.future.map(settle) };

@@ -51,6 +51,19 @@ test('maps saved with Coastal Land load it as Land, with its settings and undo h
   assert.equal(migrateMap(migrated), migrated, 'a current map is left alone');
 });
 
+test('glacier is whole inland and cut back to its share where it meets water, like Land', async () => {
+  const { landFractionAt } = await import('../shared/surfaceArea.js');
+  const { migrateMap } = await import('../shared/islandMigration.js');
+  const { DEFAULT_HEX_DIMENSIONS } = await import('../shared/types.js');
+  const { createMapState } = await import('./seededMap.ts');
+  assert.equal(landFractionAt(['Glacier', 'Glacier'], 0, DEFAULT_HEX_DIMENSIONS, undefined, undefined, 2), 1);
+  assert.equal(landFractionAt(['Glacier', 'Lake'], 0, DEFAULT_HEX_DIMENSIONS, undefined, undefined, 2), DEFAULT_HEX_DIMENSIONS.glacierPercent / 100);
+  const old = createMapState('Old ice', 2, 1);
+  delete old.derivedShores;
+  old.hexDimensions = { ...old.hexDimensions, glacierPercent: 100 };
+  assert.equal(migrateMap(old).hexDimensions.glacierPercent, DEFAULT_HEX_DIMENSIONS.glacierPercent, 'the old whole-glacier default moves to the shore default');
+});
+
 test('the old 10% lake share is reset in undo history too, so undo does not bring it back', async () => {
   const { createMapState } = await import('./seededMap.ts');
   const { migrateMap } = await import('../shared/islandMigration.js');

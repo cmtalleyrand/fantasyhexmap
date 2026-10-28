@@ -30,7 +30,7 @@ const LAND_SHARES: Array<[keyof HexDimensions, string]> = [
   ['mainlandPercent', 'Mainland (with islands)'],
   
   
-  ['glacierPercent', 'Glacier'],
+  ['glacierPercent', 'Glacier on the shore (beside sea or lake)'],
 ];
 
 /** What a map-wide extreme becomes where whole land meets water with no land (`withShoreSlack`). */

@@ -31,14 +31,19 @@ function isShoreWater(v: BaseGeo | null | undefined): boolean {
   return v === 'Sea' || v === 'Lake' || v === 'Sea Ice' || v === 'Islands';
 }
 
+/** Whether a hex of this type is whole inland and cut back only where it meets water: Land and Glacier. */
+export function hasDerivedShore(v: BaseGeo | null | undefined): boolean {
+  return v === 'Land' || v === 'Glacier';
+}
+
 /**
- * Whether hex `i` is Land with a shore: an edge shared with sea, lake, sea ice or an
- * island-sea hex. Such a hex is drawn and measured at the map's coastal land share
- * (`HexDimensions.coastalLandPercent`) and takes coast settings (`HexShape`); inland
- * Land is whole. Off-map edges do not count.
+ * Whether hex `i` is Land or Glacier with a shore: an edge shared with sea, lake, sea ice
+ * or an island-sea hex. Such a hex is drawn and measured at its type's shore share
+ * (`HexDimensions.coastalLandPercent`, `glacierPercent`) and takes coast settings
+ * (`HexShape`); inland it is whole. Off-map edges do not count.
  */
 export function isShoreLand(base: ReadonlyArray<BaseGeo | null | undefined>, cols: number, i: number): boolean {
-  if (base[i] !== 'Land') return false;
+  if (!hasDerivedShore(base[i])) return false;
   const rows = Math.floor(base.length / cols);
   const col = i % cols;
   const row = Math.floor(i / cols);

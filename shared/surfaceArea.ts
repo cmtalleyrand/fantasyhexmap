@@ -101,7 +101,7 @@ export function landFraction(
   shape?: HexShape,
   shore = false,
 ): number {
-  if (value === 'Land' && !shore) return 1;
+  if ((value === 'Land' || value === 'Glacier') && !shore) return 1;
   const set = hexShapeFor(value, shape).land;
   if (set !== undefined) return set / 100;
   const percent = (n: number) => Math.min(100, Math.max(0, n)) / 100;
@@ -188,7 +188,7 @@ export function withShoreSlack(
     const j = n.row * cols + n.col, v = base[j];
     if (!v) continue;
     // The neighbour's own share: Land beside this water is on a shore by definition.
-    const theirs = () => landFraction(v, undefined, dimensions, shapes?.[String(j)], v === 'Land');
+    const theirs = () => landFraction(v, undefined, dimensions, shapes?.[String(j)], v === 'Land' || v === 'Glacier');
     if (water && SHORE_LAND.has(v) && theirs() >= 1) floor = SHORE_SLACK;
     if (land && SHORE_WATER.has(v) && theirs() <= 0) ceiling = 1 - SHORE_SLACK;
   }
@@ -210,8 +210,8 @@ export function drawnLandFraction(
 ): number | null {
   switch (value) {
     case 'Land':
-      return shore ? landFraction(value, undefined, dimensions, shape, true) : null;
     case 'Glacier':
+      return shore ? landFraction(value, undefined, dimensions, shape, true) : null;
     case 'Isthmus':
     case 'Strait':
       return landFraction(value, undefined, dimensions, shape);

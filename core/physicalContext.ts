@@ -20,8 +20,8 @@ export function physicalContext(ctx: PromptContext): string {
     JSON.stringify(dims),
     `Default island configurations: ${JSON.stringify(DEFAULT_ISLAND_SPECS)}`,
     'Default land percentages by terrain, using the current map settings and default island counts:',
-    BASE_GEO_VALUES.map((v) => v === 'Land'
-      ? `Land: 100% inland, ${number(100 * landFraction(v, undefined, dims, undefined, true))}% where it shares an edge with Sea, Lake, Sea Ice or Islands`
+    BASE_GEO_VALUES.map((v) => v === 'Land' || v === 'Glacier'
+      ? `${v}: 100% inland, ${number(100 * landFraction(v, undefined, dims, undefined, true))}% where it shares an edge with Sea, Lake, Sea Ice or Islands`
       : `${v}: ${number(100 * landFraction(v, undefined, dims))}%`).join('; '),
     'Per-hex island configurations (flat index = row * columns + column):',
     JSON.stringify(ctx.islandSpecs ?? {}),
