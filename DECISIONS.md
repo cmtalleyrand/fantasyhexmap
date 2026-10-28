@@ -1582,14 +1582,19 @@ one realm inside the other. On `main` this showed or not by chance (the frontier
 sometimes bulged over the strip); with a stable wander (§77) it showed at hex 87 of the populated
 fixture, a yellow wedge in pink.
 
-**Chosen (owner's decision).** Such a strip is drawn as the realm it lies along: the border between
-the two hexes runs through the split hex's centre instead of along their edge, so the realm across
-takes the strip and the frontier meets the coast where the split hex's own land begins. Ownership in the
-map data is unchanged; only the drawing of the strip is. It applies only where under a quarter of the
-sector (centre to edge) is drawn land: on the populated fixture the strips cover 0.5–11% of their
-sector and the mainland sectors facing another realm 100%, so the threshold sits well clear of both and
-a coast refit does not flip it. Realm grounds, bands and the frontier share the one border, so they
-stay consistent.
+**Chosen (owner's decision).** The owner's rule is general: there are never enclaves or exclaves within
+a hex. Land of a mainland-with-islands hex facing another realm's land is drawn as that realm's where
+colouring it as its own would leave an enclave: where it does not reach its own realm's land over drawn
+land, or is only a thin strip (under a quarter of its sector drawn as land), which reads as an enclave
+even where it touches its realm at a point. The border between the two hexes then runs through the split
+hex's centre instead of along their edge, so the realm across takes that land and the frontier meets the
+coast. The same decision sets the colour of the split hex's pieces in the fill and tint styles, so
+grounds, bands, fills and the frontier agree. Ownership in the map data is unchanged.
+
+**Checked.** Sampling the drawn realm colours on the populated fixture in seven styles (classic,
+parchment, atlas, night, frills, and parchment and atlas with hex coasts): `main` leaves 27 patches of a
+realm's colour cut off against another realm; this change leaves none, apart from two whole hexes their
+realms own apart from the rest in the map data.
 
 **Effect.** On the populated fixture it applies at hexes 87, 282, 392 (three edges) and 917; hex 794,
 whose land facing realm A is a whole sector, is unchanged.

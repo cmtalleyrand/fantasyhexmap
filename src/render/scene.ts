@@ -228,6 +228,18 @@ export interface SymbolTrace {
 /** The symbols each scene drew, kept beside it like its land test, for the audit to check against the land. */
 const symbolTraces = new WeakMap<object, SymbolTrace[]>();
 
+/** Each realm's area as drawn (its ground, before it is cut to the land), kept beside each scene for the audit. */
+const realmAreas = new WeakMap<object, RealmAreas>();
+
+/**
+ * Each realm's region (by polity id) and its coastal fills, and the land no realm owns, as `scene` drew
+ * them: a realm colours its region, and its fills only where no other region (or unowned land) lies.
+ */
+export interface RealmAreas { regions: Map<string, PathCmd[]>; fills: Map<string, PathCmd[]>; unowned: PathCmd[] }
+export function realmAreasOf(scene: Scene): RealmAreas | undefined {
+  return realmAreas.get(scene);
+}
+
 /** The symbols `scene` drew on the land, where it recorded them. */
 export function symbolsOf(scene: Scene): SymbolTrace[] | undefined {
   return symbolTraces.get(scene);
@@ -1037,6 +1049,7 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
   }
   /** Every symbol drawn on the land, for the audit (see `symbolsOf`). */
   const traces: SymbolTrace[] = [];
+  let realmArea: RealmAreas | null = null;
   const trace = (hex: number, placed: Placed[]) => {
     for (const p of placed) traces.push({ hex, points: samplePoints(p) });
   };
@@ -1201,6 +1214,83 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
   const lakeBodies = traced?.lakes ?? [];
   const lakeIslands = traced?.lakeIslands ?? new Set<number>();
   const terrain = traced?.surface ?? null;
+  /**
+   * The land of a mainland-with-islands hex facing another realm's land is drawn as that realm's
+   * where colouring it as its own would leave an enclave (DECISIONS §79): where it does not reach
+   * its own realm's land over drawn land, or is only a thin strip (under a quarter of its sector),
+   * which reads as an enclave even where it touches its realm at a point. The border between the two
+   * hexes then runs through the split hex's centre instead of along their shared edge, so the realm
+   * across takes that land and the frontier reaches the coast where the split hex's own land begins.
+   */
+  const centreCrossings = new Map<number, Point | null>();
+  const throughCentre = (i: number, e: number, j: number): Point | null => {
+    const splitI = base?.[i] === 'Mainland and islands', splitJ = base?.[j] === 'Mainland and islands';
+    if (splitI === splitJ) return null;
+    const [s, t, edge] = splitI ? [i, j, e] : [j, i, (e + 3) % 6];
+    const known = centreCrossings.get(s * 6 + edge);
+    if (known !== undefined) return known;
+    const mine = polities?.owner[s], theirs = polities?.owner[t];
+    let crossing: Point | null = null;
+    if (mine && theirs && topLevel.get(mine) !== topLevel.get(theirs) && terrain && traced
+      && pieceSurface(terrain, s, 6 + edge) === 'land') {
+      const c = hexCenter(s % cols, Math.floor(s / cols), size);
+      const [a, b] = hexEdgePoints(s % cols, Math.floor(s / cols), edge, size);
+      if (!reachesOwnLand(s, c, a, b)) crossing = c;
+      else {
+        let samples = 0, dry = 0;
+        for (let u = 0.025; u < 1; u += 0.05) for (let v = 0.025; u + v < 1; v += 0.05) {
+          samples++;
+          if (traced.onLand({ x: c.x + (a.x - c.x) * u + (b.x - c.x) * v, y: c.y + (a.y - c.y) * u + (b.y - c.y) * v })) dry++;
+        }
+        if (dry < samples / 4) crossing = c;
+      }
+    }
+    centreCrossings.set(s * 6 + edge, crossing);
+    return crossing;
+  };
+  /**
+   * Whether the drawn land in hex `s`'s sector (centre `c`, edge `a`–`b`) reaches, over drawn land
+   * within `s` and its realm's neighbouring hexes, land in one of those neighbours: sampled on a grid
+   * of a twentieth of a hex over `s` and its neighbours.
+   */
+  const reachesOwnLand = (s: number, c: Point, a: Point, b: Point): boolean => {
+    const realm = topLevel.get(polities!.owner[s]!);
+    const col = s % cols, row = Math.floor(s / cols), step = size / 20, span = size * 3.2;
+    const n = Math.ceil(2 * span / step), x0 = c.x - span, y0 = c.y - span;
+    const hexAt = (x: number, y: number) => { const h = pixelToOffset(x, y, size); return inBounds(cols, rows, h.col, h.row) ? hexIndex(cols, h.col, h.row) : -1; };
+    const own = (h: number) => h !== s && h >= 0 && !!polities!.owner[h] && topLevel.get(polities!.owner[h]!) === realm
+      && Math.abs((h % cols) - col) <= 1 && Math.abs(Math.floor(h / cols) - row) <= 1;
+    const state = new Int8Array(n * n); // 0 unvisited, 1 blocked, 2 queued
+    const queue: number[] = [];
+    const inSector = (p: Point) => {
+      const d = (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
+      const u = ((b.x - p.x) * (c.y - p.y) - (b.y - p.y) * (c.x - p.x)) / d, v = ((c.x - p.x) * (a.y - p.y) - (c.y - p.y) * (a.x - p.x)) / d;
+      return u >= 0 && v >= 0 && u + v <= 1;
+    };
+    for (let k = 0; k < n * n; k++) {
+      const p = { x: x0 + (k % n + 0.5) * step, y: y0 + (Math.floor(k / n) + 0.5) * step };
+      if (hexAt(p.x, p.y) === s && inSector(p) && traced!.onLand(p)) { state[k] = 2; queue.push(k); }
+    }
+    while (queue.length) {
+      const k = queue.pop()!, kx = k % n, ky = Math.floor(k / n);
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+        const mx = kx + dx, my = ky + dy;
+        if (mx < 0 || my < 0 || mx >= n || my >= n || state[my * n + mx]) continue;
+        const m = my * n + mx, p = { x: x0 + (mx + 0.5) * step, y: y0 + (my + 0.5) * step }, h = hexAt(p.x, p.y);
+        if (!traced!.onLand(p) || (h !== s && !own(h))) { state[m] = 1; continue; }
+        if (own(h)) return true;
+        state[m] = 2; queue.push(m);
+      }
+    }
+    return false;
+  };
+  /** The hex whose colours land piece `p` of split hex `i` takes: `donor`, or the realm across if handed over. */
+  const landPieceDonor = (i: number, p: number, donor: number): number => {
+    const e = p % 6, n = neighbourOf(i % cols, Math.floor(i / cols), e);
+    if (!inBounds(cols, rows, n.col, n.row)) return donor;
+    const j = hexIndex(cols, n.col, n.row);
+    return throughCentre(i, e, j) ? j : donor;
+  };
   const inLakeBody = new Set(lakeBodies.flat());
   // A small lake's hexes are drawn as land, then the lake body over them.
   /** The colour a hex finally shows: its fill with every overlay laid over it. */
@@ -1541,7 +1631,7 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
           fillSea({ kind: 'polygon', points, fill, stroke: fill, strokeWidth: seal });
           return;
         }
-        const donor = side === 'land' ? split.donors[p]! : side === 'lake' && traced?.lakeCoast
+        const donor = side === 'land' ? landPieceDonor(i, p, split.donors[p]!) : side === 'lake' && traced?.lakeCoast
           ? lakeSectorDonors(i)[p % 6]! : isWater(i) ? lakeShoreDonor(i) : i;
         const fill = groundColour(donor);
         prims.push({ kind: 'polygon', points, fill, stroke: fill, strokeWidth: seal });
@@ -1565,7 +1655,7 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
           rimWater[surface].push(...polygonPath(piece.points));
           continue;
         }
-        const donor = split ? split.donors[6 + piece.edge]! : i;
+        const donor = split ? landPieceDonor(i, 6 + piece.edge, split.donors[6 + piece.edge]!) : i;
         const fill = groundColour(donor);
         rimLand.push({ kind: 'path', d: polygonPath(piece.points), fill, stroke: fill, strokeWidth: seal });
       }
@@ -2572,37 +2662,6 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
       const end = traced?.geometry.anchors.get(coastKey(b)) ?? b;
       return raggedEdge(start, end, knobs.borders, seed, size, [a, b]).map((q, k, all) => ({ from: k === 0 ? start : all[k - 1]!, to: q }));
     };
-    /**
-     * The land of a mainland-with-islands hex facing another realm's land, where it is only a
-     * thin strip of its sector (under a quarter of it drawn as land), is drawn as that realm's:
-     * otherwise it reads as an enclave in it. The border between them then runs through the split
-     * hex's centre instead of along their shared edge, so it reaches the coast where the split
-     * hex's own land begins (DECISIONS §79). Strips cover about a tenth of their sector or less, a
-     * mainland sector nearly all of it, so the threshold sits well clear of both.
-     */
-    const centreCrossings = new Map<number, Point | null>();
-    const throughCentre = (i: number, e: number, j: number): Point | null => {
-      const splitI = base?.[i] === 'Mainland and islands', splitJ = base?.[j] === 'Mainland and islands';
-      if (splitI === splitJ) return null;
-      const [s, t, edge] = splitI ? [i, j, e] : [j, i, (e + 3) % 6];
-      const known = centreCrossings.get(s * 6 + edge);
-      if (known !== undefined) return known;
-      const mine = polities.owner[s], theirs = polities.owner[t];
-      let crossing: Point | null = null;
-      if (mine && theirs && topLevel.get(mine) !== topLevel.get(theirs) && terrain && traced
-        && pieceSurface(terrain, s, 6 + edge) === 'land') {
-        const c = hexCenter(s % cols, Math.floor(s / cols), size);
-        const [a, b] = hexEdgePoints(s % cols, Math.floor(s / cols), edge, size);
-        let samples = 0, dry = 0;
-        for (let u = 0.025; u < 1; u += 0.05) for (let v = 0.025; u + v < 1; v += 0.05) {
-          samples++;
-          if (traced.onLand({ x: c.x + (a.x - c.x) * u + (b.x - c.x) * v, y: c.y + (a.y - c.y) * u + (b.y - c.y) * v })) dry++;
-        }
-        if (dry < samples / 4) crossing = c;
-      }
-      centreCrossings.set(s * 6 + edge, crossing);
-      return crossing;
-    };
     /** The pieces of the border between hex `i` and its neighbour `j` across edge `e`, from `a` to `b`. */
     const border = (i: number, e: number, j: number, a: Point, b: Point): Array<{ from: Point; to: Point }> => {
       const centre = throughCentre(i, e, j);
@@ -2695,6 +2754,7 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
       bounds: boundsOf({ kind: 'path', d }), inverse: [...pageRect, ...d] }));
     const supplements = new Map([...extraLand].map(([owner, d]) => [owner, alike(d)]));
     const fullGround = new Map([...rawRegions].map(([owner, d]) => [owner, [...d, ...supplements.get(owner) ?? []]]));
+    realmArea = { regions: rawRegions, fills: supplements, unowned: blockerPaths.find(([owner]) => owner === '')?.[1] ?? [] };
     const ground = (owner: string, hexes: number[]): PathCmd[] => hexes === regions.get(owner)
       ? fullGround.get(owner) ?? [] : [...realmGround(hexes), ...supplements.get(owner) ?? []];
     const keepInRealm = (owner: string, inner: Prim[]): Prim[] => {
@@ -3443,6 +3503,7 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
   profileCount('scene.primitives', prims.length);
   landTests.set(scene, landAt);
   symbolTraces.set(scene, traces);
+  if (realmArea) realmAreas.set(scene, realmArea);
   return scene;
 }
 
