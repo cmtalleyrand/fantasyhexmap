@@ -101,7 +101,11 @@ first differing prim path.
 - **Geometric checks.** Where a test checks a property of the picture, prefer a land/water predicate
   or a coverage measurement over the presence of a particular prim.
 
-### 6. Make the browser sweeps report what failed
+### 6. Make the browser sweeps report what failed — done
+
+`--check` prints every coverage case over the tolerance, every island and enclosed-sea failure, and
+throws naming the failed groups (`Drawing sweep failed: coverage`). `launchBrowser` also reads
+`CHROMIUM_PATH`. The original brief:
 
 - **List each failing case.** `scripts/drawing-investigation-extended.mjs --check` prints only a
   per-preset summary (median, maximum, worst case) and one generic error. Print every case over the
@@ -148,7 +152,7 @@ now caught by CI; check `git diff <its base> <its result>` for unrelated deletio
 |---|---|---|
 | 1 | 1 (Node suite in CI) | Done |
 | 2 | 2, 3 (fast tier) | Done |
-| 3 | 6 (sweep reporting) | Small; makes the known red check readable |
-| 4 | 4 (equality helper) | Removes duplication before the larger rewrite |
+| 3 | 6 (sweep reporting) | Done |
+| 4 | 4 (equality helper) | Started: helper exists; move the remaining hand-written comparisons onto it |
 | 5 | 5 (role tags) | The largest step; touches 14 files |
 | 6 | 7 | Only once Classic is retired |

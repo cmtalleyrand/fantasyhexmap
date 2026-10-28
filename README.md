@@ -96,8 +96,8 @@ npm run test:drawing-sweeps
 
 On Linux machines missing browser system libraries, use `npm run test:browser:install -- --with-deps`.
 These tests need neither an API key nor a running app server. They write evidence under `work/`.
-For managed environments with an existing browser, both commands also accept
-`-- --chromium /path/to/chromium` and an optional `--driver /path/to/playwright-core/index.mjs`.
+For managed environments with an existing browser, set `CHROMIUM_PATH=/path/to/chromium`, or pass
+`-- --chromium /path/to/chromium`; an optional `--driver /path/to/playwright-core/index.mjs` also works.
 Normal checkouts do not need either override. CI installs Chromium and runs both commands.
 
 ## Deployment
