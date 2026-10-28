@@ -325,14 +325,20 @@ export function fitCoastAreas(geometry: CoastGeometry, targets: ReadonlyMap<numb
     }
     // No round moves a hex's coast by more than a quarter of a hex.
     for (let i = 0; i < unknowns; i++) x[i] = Math.max(-size * 0.25, Math.min(size * 0.25, x[i]!));
-    const moveBy = (scale: number) => current.map((ring, k) => {
+    // Each hex's share of its amount; a spot the step would kink or make cross another
+    // coast halves the amounts of the hexes moving it, and only theirs, until it is clean.
+    const factor = new Float64Array(unknowns).fill(1);
+    const moveBy = () => current.map((ring, k) => {
       if (ring.length < 3) return ring;
       const moved = ring.map((p, j) => {
         const s = samples[k]![j]!;
         if (!s.reach) return p;
         let d = 0;
-        for (const [h, w] of s.weights) d += w * x[index.get(h) ?? -1]! || 0;
-        d = Math.max(-s.reach, Math.min(s.reach, d)) * scale;
+        for (const [h, w] of s.weights) {
+          const i = index.get(h);
+          if (i !== undefined) d += w * x[i]! * factor[i]!;
+        }
+        d = Math.max(-s.reach, Math.min(s.reach, d));
         return { x: p.x + s.n.x * d, y: p.y + s.n.y * d };
       });
       // Keep closed rings closed on their first point.
@@ -341,11 +347,15 @@ export function fitCoastAreas(geometry: CoastGeometry, targets: ReadonlyMap<numb
     });
     phase('moveAndCheck');
     let next: Point[][] | null = null;
-    for (const scale of [1, 0.5, 0.25]) {
+    for (let attempt = 0; attempt < 6; attempt++) {
       profileCount('fit.trials');
-      const trial = moveBy(scale);
-      if (!distorts(referenceRings, trial, size * 0.2) && !distorts(current, trial, size * 0.2)
-        && !newCrossings(current, trial, closed, size)) { next = trial; break; }
+      const trial = moveBy();
+      const faults = [...distorts(referenceRings, trial, size * 0.2), ...distorts(current, trial, size * 0.2),
+        ...newCrossings(current, trial, closed, size)];
+      if (!faults.length) { next = trial; break; }
+      const hit = new Set<number>();
+      for (const p of faults) for (const [h] of weights(p)) { const i = index.get(h); if (i !== undefined) hit.add(i); }
+      for (const i of hit) factor[i] = attempt < 4 ? factor[i]! * 0.5 : 0;
     }
     if (!next) break;
     phase('measureAndAccept');
@@ -364,12 +374,13 @@ export function fitCoastAreas(geometry: CoastGeometry, targets: ReadonlyMap<numb
 }
 
 /**
- * Whether moving `before` to `after` stretches a stretch of coast to more than twice its
+ * Where moving `before` to `after` stretches a stretch of coast to more than twice its
  * length or turns it by more than about 50 degrees: what a field too steep for the
  * detail it carries does, drawing a small cape out into a spike. Stretches are at least
  * `span` long, so the roughening's smallest teeth, which any movement turns, do not count.
  */
-function distorts(before: Point[][], after: Point[][], span: number): boolean {
+function distorts(before: Point[][], after: Point[][], span: number): Point[] {
+  const faults: Point[] = [];
   for (let k = 0; k < before.length; k++) {
     const a = before[k]!, b = after[k]!;
     let e = 0, arc = 0;
@@ -381,18 +392,19 @@ function distorts(before: Point[][], after: Point[][], span: number): boolean {
       const lu = Math.hypot(ux, uy), lv = Math.hypot(vx, vy);
       arc -= Math.hypot(a[j + 1]!.x - a[j]!.x, a[j + 1]!.y - a[j]!.y) + (j + 2 < a.length ? Math.hypot(a[j + 2]!.x - a[j + 1]!.x, a[j + 2]!.y - a[j + 1]!.y) : 0);
       if (lu < span * 0.25) continue;
-      if (lv > lu * 2 || (ux * vx + uy * vy) < lu * lv * 0.64) return true;
+      if (lv > lu * 2 || (ux * vx + uy * vy) < lu * lv * 0.64) faults.push(a[j]!, a[e]!);
     }
   }
-  return false;
+  return faults;
 }
 
 /**
- * Whether moving `before` to `after` makes a segment cross another that it did not cross
+ * Where moving `before` to `after` makes a segment cross another that it did not cross
  * before (adjacent segments of one ring aside). Crossings the outline already had, where
  * chains meet, are not the step's doing.
  */
-function newCrossings(before: Point[][], after: Point[][], closed: boolean[], size: number): boolean {
+function newCrossings(before: Point[][], after: Point[][], closed: boolean[], size: number): Point[] {
+  const faults: Point[] = [];
   const cell = size / 2;
   const grid = new Map<string, Array<[number, number]>>();
   const cross = (a: Point, b: Point, c: Point) => (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
@@ -417,12 +429,12 @@ function newCrossings(before: Point[][], after: Point[][], closed: boolean[], si
         for (const [m, i] of list) {
           if (m === k && (Math.abs(i - j) <= 1 || (closed[k] && Math.abs(i - j) >= ring.length - 2))) continue;
           if (!mine && !moved(m, i)) continue;
-          if (crosses(after, k, j, m, i) && !crosses(before, k, j, m, i)) return true;
+          if (crosses(after, k, j, m, i) && !crosses(before, k, j, m, i)) faults.push(before[k]![j]!, before[m]![i]!);
         }
         list.push([k, j]);
         grid.set(key, list);
       }
     }
   }
-  return false;
+  return faults;
 }
