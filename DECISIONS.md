@@ -953,7 +953,7 @@ the icon, clipped to the icon's silhouette so the icon stays whole: its two bank
 translucent band of water (`wash`), in a water colour lightened toward the paper on the dark-bodied marker sets so it
 shows (`riverThroughIcon`). The placing is `riverStance`. The river keeps clear of the icon's whole drawn extent
 (`iconClearance`, from `markerExtent`), not just its body. The legend swatch follows the mode (a city, not a town,
-for the two see-through modes). `pressIcon` remains, unused by the renderers, for its tests.
+for the two see-through modes). `pressIcon`, which no renderer used, has since been deleted.
 Tried and dropped: a straight band over the icon, a clip cutting the icon along the river, icons rebuilt as parts laid
 along the bank, sliding points radially to the nearest bank point (it folded tips into stalks and flaps), pressing
 the icon against the bank (distorts small icons), and, among the placements offered and dropped, a bridge deck

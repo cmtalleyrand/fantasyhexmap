@@ -7,6 +7,7 @@ import { invalidateTextMeasures } from '../src/render/fonts.ts';
 import { islandSpecFor } from '../shared/types.ts';
 import { componentFixture, placementFixture, editOptions, editCases } from '../scripts/render-edit-fixtures.ts';
 import { createMapState } from './seededMap.ts';
+import { assertCachedBuildsMatch } from './helpers/scene.ts';
 
 function profiled(map: ReturnType<typeof componentFixture>, options = editOptions()) {
   beginRenderProfile();
@@ -83,15 +84,13 @@ test('pack ice reuses its exact drawing and invalidates on shore, roughness and 
   check(map, { ...options, style: { ...options.style!, knobs: { ...options.style!.knobs, ice: 'flat' } } });
 });
 test('incremental rebuilds equal uncached rebuilds after merges, splits, settings, islands, hierarchy and obstacle edits', () => {
-  const cases = editCases();
+  // Every kind of edit, on the Ragged coast galleries; the slow tier replays the
+  // whole chain, Fractured galleries included (test/slow/incrementalChain.test.ts).
+  const cases = editCases().filter(c => !c.name.includes('-Fractured/'));
   const island = cases.find(c => c.name === 'placement/islands')!.map;
   const more = cases.find(c => c.name === 'placement/island-count')!.map;
   assert.notDeepEqual(islandSpecFor('Islands', island.islandSpecs!['51']), islandSpecFor('Islands', more.islandSpecs!['51']));
-  for (const c of cases) {
-    const cached = buildStaticScene(c.map, c.options);
-    const full = buildStaticScene(structuredClone(c.map), { ...c.options, cache: 'off' });
-    assert.deepEqual(cached, full, c.name);
-  }
+  assertCachedBuildsMatch(cases);
 });
 test('unchanged placement inputs reuse every search, while marker, font and terrain changes invalidate correctly', () => {
   const map = placementFixture(), options = editOptions();

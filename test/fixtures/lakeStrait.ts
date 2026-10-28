@@ -38,3 +38,9 @@ export const LAKE_STRAIT_CASES: LakeStraitCase[] = [
   { width: 'Wide', side: 2, land: 50, irregular: 'Wavy' },
   { width: 'Wide', side: 4, irregular: 'Fractured' },
 ];
+
+/**
+ * One case per width runs in the fast tier: those that also set a junction side,
+ * a land share or an unusual roughness. All sixteen run in the slow tier.
+ */
+export const FAST_LAKE_STRAIT_CASES: ReadonlySet<number> = new Set([3, 7, 11, 13]);

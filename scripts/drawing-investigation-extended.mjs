@@ -68,6 +68,14 @@ try{
  const summary=Array.from(new Set(coverage.map(r=>r.preset))).map(preset=>{const rows=coverage.filter(r=>r.preset===preset),errors=rows.map(r=>Math.abs(r.shown-r.share)).sort((a,b)=>a-b);return{preset,cases:rows.length,medianErrorPP:errors[Math.floor(errors.length/2)],maxErrorPP:errors.at(-1),worst:rows.reduce((a,b)=>Math.abs(a.shown-a.share)>Math.abs(b.shown-b.share)?a:b)}});
  writeFileSync(resolve(output,'results.json'),JSON.stringify({selection,coverage,summary,seedIslands,enclosedSeas},null,2));console.log(JSON.stringify({summary,seedIslands,enclosedSeas},null,2));
  if(selection.only==='coverage'&&!coverage.length)throw Error('No coverage cases selected');
- if(process.argv.includes('--check')&&(seedIslands.failures.length||enclosedSeas.failures.length||summary.some(r=>r.maxErrorPP>5)))throw Error('Island pixels, enclosed-sea topology or ordinary-coast area tolerance failed');
+ if(process.argv.includes('--check')){
+  // Every case over the 5-point land-share tolerance, then the groups that failed.
+  const overShare=coverage.filter(r=>Math.abs(r.shown-r.share)>5);
+  for(const r of overShare)console.error(`coverage over tolerance: ${r.preset} ${r.seed}: ${r.share}% asked, ${r.shown.toFixed(1)}% drawn`);
+  for(const f of seedIslands.failures)console.error(`island symbol over water: ${f.seed} at ${f.point.x.toFixed(1)},${f.point.y.toFixed(1)}`);
+  for(const f of enclosedSeas.failures)console.error(`enclosed sea painted wrong: ${f.preset} ${f.seed} hex ${f.hex}: wanted ${f.wanted}, painted ${f.painted}`);
+  const failed=[seedIslands.failures.length&&'islands',enclosedSeas.failures.length&&'enclosed seas',overShare.length&&'coverage'].filter(Boolean);
+  if(failed.length)throw Error(`Drawing sweep failed: ${failed.join(', ')}`);
+ }
  await context.close();
 }finally{await browser.close();}

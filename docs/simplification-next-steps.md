@@ -115,7 +115,7 @@ once per prim. This is behaviour-neutral, and the code gets shorter.
 still the fallback in `styles.ts` (`PRESET_ORDER`, default choice, resolver fallbacks, legacy
 normalisation). The owner does not need Classic's look preserved. So retire it outright: make the
 default preset the fallback, and have legacy normalisation map saved Classic choices to that default.
-Then delete Classic's code paths, its tests, and its cases in the drawing sweeps.
+Then delete Classic's code paths, its tests, and its cases in the drawing sweeps. The step-by-step brief is `docs/test-next-steps.md` step 7.
 
 ## Suggested order
 
