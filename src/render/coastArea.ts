@@ -203,7 +203,8 @@ export function fitCoastAreas(geometry: CoastGeometry, targets: ReadonlyMap<numb
     phase('field');
     profileCount('fit.rounds');
     const short = new Map([...touched].map(h => [h, outside(h, shown) * hexArea]));
-    if (Math.max(...[...targets.keys()].map(h => Math.abs(short.get(h)!))) <= LAND_SHARE_TOLERANCE * hexArea) break;
+    // Done once every hex with a share is inside its band.
+    if (Math.max(...[...targets.keys()].map(h => Math.abs(short.get(h)!))) <= 0.002 * hexArea) break;
     // Every point's direction to the sea (each ring's orientation found by probing which
     // side is land), averaged over a short stretch so the roughening's small teeth do not
     // turn it; its weights; how far it may move; and the length of coast it stands for.

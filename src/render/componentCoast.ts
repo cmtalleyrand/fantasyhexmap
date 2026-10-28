@@ -272,6 +272,9 @@ export function componentCoast(chain: CoastChain, rough: Roughness, clearance: R
     return { amplitude: amplitude / weight, limit };
   });
   const held = new Array<number>(n).fill(0);
+  // A component sized as a whole (below) keeps its detail: that sizing is exact and comes
+  // after the detail, and such a component is not fitted hex by hex.
+  const defer = rough.deferDetail === true && !aggregate;
   const detail = eased.map((p, i) => {
     const previous = eased[chain.closed ? (i - 1 + n) % n : Math.max(0, i - 1)]!;
     const next = eased[chain.closed ? (i + 1) % n : Math.min(n - 1, i + 1)]!;
@@ -292,7 +295,7 @@ export function componentCoast(chain: CoastChain, rough: Roughness, clearance: R
     const ends = chain.closed ? 1 : Math.min(1, arc / size, (perimeter - arc) / size);
     const gain = limit > 0 ? limit * Math.tanh(moveLength / limit) / moveLength * ends : 0;
     held[i] = offset * gain;
-    return rough.deferDetail ? p : { x: p.x + move.x * gain, y: p.y + move.y * gain };
+    return defer ? p : { x: p.x + move.x * gain, y: p.y + move.y * gain };
   });
   if (targetArea !== undefined) {
     // A positive affine transform changes the component's area without folding
@@ -383,5 +386,5 @@ export function componentCoast(chain: CoastChain, rough: Roughness, clearance: R
     path.push(['Z']);
   if (targetArea === 0) path.length = 0;
   return { path, toLand, toWater, anchors,
-    detail: rough.deferDetail && path.length ? result.map((p, i): [string, number] => [detailKey(p), held[i]!]).filter(([, offset]) => offset !== 0) : undefined };
+    detail: defer && path.length ? result.map((p, i): [string, number] => [detailKey(p), held[i]!]).filter(([, offset]) => offset !== 0) : undefined };
 }

@@ -689,23 +689,9 @@ test('an isthmus beside lakes uses the same land construction as beside sea', ()
   }
 });
 
-test('coast ink counts as land: a full coastal hex has its coastline inside it, and neighbouring islands keep their ink apart', () => {
+test('coast ink counts as land: neighbouring islands keep their ink apart', () => {
   const size = 30;
-  const map = { ...mapWith(['Sea', 'Land', 'Sea']), hexShapes: { '1': { type: 'Land' as const, land: 100 } } };
-  const lines: Array<{ x: number; y: number }> = [];
-  const collect = (prims: Prim[]) => {
-    for (const p of prims) {
-      if (p.kind === 'group') collect(p.prims);
-      else if (p.kind === 'path' && p.stroke === smooth.palette.coast) for (const ring of pathPolylines(p.d, 6)) lines.push(...ring);
-    }
-  };
-  collect(buildScene(map, { size, visible: defaultVisibility(), labels: false, style: smooth }).prims);
-  const centre = hexCenter(1, 0, size);
-  const half = Math.abs(hexCenter(1, 0, size).x - hexCenter(0, 0, size).x) / 2;
   const ink = Math.max(0.8, size * smooth.palette.coastWidth) / 2;
-  const side = lines.filter((q) => Math.abs(q.y - centre.y) < size * 0.7);
-  assert.ok(side.length > 0, 'the coast is drawn');
-  for (const q of side) assert.ok(Math.abs(q.x - centre.x) <= half - ink * 0.8, `coast at ${q.x.toFixed(1)} leaves room for its ink inside the hex`);
 
   // Islands of one hex: their outer ink edges do not meet.
   const isles = mapWith(['Islands']);

@@ -296,6 +296,24 @@ export interface SurfaceStatistic {
  * hexes can contribute to two rows, so hex counts describe containing hexes;
  * areas, unlike those counts, partition the grid exactly.
  */
+/**
+ * Whether the water in hex `index`, not itself water, is lake water: every water hex it
+ * meets is Lake (the water cut back from a lake's shore belongs to the lake).
+ */
+function lakeShoreOnly(base: BaseData, cols: number, index: number): boolean {
+  if (base[index] === 'Sea' || base[index] === 'Lake') return false;
+  const rows = base.length / cols;
+  let lake = false;
+  for (let e = 0; e < 6; e++) {
+    const n = neighbourOf(index % cols, Math.floor(index / cols), e);
+    if (!inBounds(cols, rows, n.col, n.row)) continue;
+    const v = base[n.row * cols + n.col];
+    if (v === 'Lake') lake = true;
+    else if (v === 'Sea' || v === 'Sea Ice' || v === 'Islands') return false;
+  }
+  return lake;
+}
+
 export function baseSurfaceStatistics(
   base: BaseData,
   dimensions: HexDimensions,
@@ -315,7 +333,7 @@ export function baseSurfaceStatistics(
       stat.area += hexArea * land;
     }
     if (water > 0) {
-      const stat = stats.get(value === 'Lake' ? 'Lake' : 'Sea')!;
+      const stat = stats.get(value === 'Lake' || (cols !== undefined && lakeShoreOnly(base, cols, index)) ? 'Lake' : 'Sea')!;
       stat.hexCount++;
       stat.area += hexArea * water;
     }

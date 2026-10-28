@@ -51,7 +51,7 @@ test('all transports retain physical settings, overrides and measured land fract
   for (const ctx of [direct, checked.req.ctx]) {
     const { user, system } = buildPrompt('polities', ctx);
     assert.match(user, /One whole hex: 450 km\^2/);
-    assert.match(user, /r0: \[0\] 60 0 35/);
+    assert.match(user, /r0: \[0\] 60 5 35/); // the lake beside a whole glacier keeps the 5% shore slack
     assert.doesNotMatch(user, /Factory defaults|"coastalLandPercent":80/);
     assert.match(user, /"coastalLandPercent":70/);
     assert.match(user, /Silver Lake/);

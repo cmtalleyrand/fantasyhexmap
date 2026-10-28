@@ -146,3 +146,9 @@ test('an unowned strait is shared between the realms on its banks; an owned one 
   assert.deepEqual(Object.fromEntries(owned), { a: 6 + 6 * banks, b: 6 });
   assert.equal(straitSharers([...base], ['a', 'a', 'b'], 3, 1, 1).size, 0);
 });
+
+test('water cut back from a lake shore counts as lake, not sea', () => {
+  const stats = baseSurfaceStatistics(['Land', 'Lake', 'Land'], DEFAULT_HEX_DIMENSIONS, undefined, undefined, 3);
+  assert.equal(stats.find(s => s.label === 'Sea')!.area, 0);
+  assert.ok(stats.find(s => s.label === 'Lake')!.area > 0.75 * DEFAULT_HEX_DIMENSIONS.width * DEFAULT_HEX_DIMENSIONS.height);
+});

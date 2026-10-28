@@ -38,6 +38,7 @@ test('maps saved with Coastal Land load it as Land, with its settings and undo h
   const { createMapState } = await import('./seededMap.ts');
   const { migrateMap } = await import('../shared/islandMigration.js');
   const map = createMapState('Old coast', 3, 1);
+  delete map.derivedShores; // saved before shores were derived
   const old = ['Land', 'Coastal Land', 'Sea'] as unknown as BaseGeo[];
   map.layers.base.data = old;
   map.hexShapes = { '1': { type: 'Coastal Land' as BaseGeo, land: 60, irregular: 'Wavy' } };
@@ -48,6 +49,20 @@ test('maps saved with Coastal Land load it as Land, with its settings and undo h
   assert.deepEqual(migrated.history!.past[0]!.layers.base.data, ['Land', 'Land', 'Sea']);
   assert.deepEqual(migrated.history!.past[0]!.hexShapes, { '1': { type: 'Land', land: 60, irregular: 'Wavy' } });
   assert.equal(migrateMap(migrated), migrated, 'a current map is left alone');
+});
+
+test('the old 10% lake share is reset in undo history too, so undo does not bring it back', async () => {
+  const { createMapState } = await import('./seededMap.ts');
+  const { migrateMap } = await import('../shared/islandMigration.js');
+  const map = createMapState('Old lakes', 2, 1);
+  delete map.derivedShores;
+  map.hexDimensions = { ...map.hexDimensions, lakeLandPercent: 10 };
+  map.history = { past: [{ ...map }], future: [{ ...map }] };
+  const migrated = migrateMap(map);
+  for (const s of [migrated, migrated.history!.past[0]!, migrated.history!.future[0]!]) {
+    assert.equal(s.hexDimensions.lakeLandPercent, 0);
+    assert.equal(s.derivedShores, true);
+  }
 });
 
 test('Glacier is land and Sea Ice is water', async () => {

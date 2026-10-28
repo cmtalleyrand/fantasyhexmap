@@ -135,10 +135,16 @@ const OLD_LAKE_LAND_DEFAULT = 10;
 export function migrateToDerivedShores(map: MapState): MapState {
   if (map.derivedShores) return map;
   const next = migrateCoastalLand(map);
-  const lake = next.hexDimensions?.lakeLandPercent === OLD_LAKE_LAND_DEFAULT
-    ? { hexDimensions: { ...next.hexDimensions, lakeLandPercent: DEFAULT_HEX_DIMENSIONS.lakeLandPercent } }
-    : {};
-  return { ...next, ...lake, derivedShores: true };
+  // Undo restores whole snapshots, so they move onto derived shores too: an undo must not
+  // bring back the old lake share, nor a reload then change it again.
+  const settle = (s: MapState): MapState => ({
+    ...s,
+    ...(s.hexDimensions?.lakeLandPercent === OLD_LAKE_LAND_DEFAULT
+      ? { hexDimensions: { ...s.hexDimensions, lakeLandPercent: DEFAULT_HEX_DIMENSIONS.lakeLandPercent } } : {}),
+    derivedShores: true,
+  });
+  const history = next.history && { past: next.history.past.map(settle), future: next.history.future.map(settle) };
+  return { ...settle(next), ...(history ? { history } : {}) };
 }
 
 /** Every migration a loaded map goes through, oldest first. */
