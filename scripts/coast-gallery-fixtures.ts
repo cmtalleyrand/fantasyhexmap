@@ -17,8 +17,8 @@ const fx: Array<{ name: string; land: Array<[number, number]>; set?: Record<stri
 const out: Array<{name: string; map: MapState}> = [];
 for (const level of ['Smooth', 'Wavy', 'Ragged', 'Fractured'] as const) for (const f of fx) {
   const map = createMapState('g', W, H); map.id = `g-${f.name}`;
-  const base: BaseGeo[] = Array(W * H).fill('Sea'); for (const [c, r] of f.land) base[id(c, r)] = 'Coastal Land';
-  for (let i = 0; i < W * H; i++) if (base[i] === 'Coastal Land' && ![0, 1, 2, 3, 4, 5].some(e => { const n = neighbourOf(i % W, Math.floor(i / W), e); return inBounds(W, H, n.col, n.row) && base[n.row * W + n.col] === 'Sea'; })) base[i] = 'Land';
+  const base: BaseGeo[] = Array(W * H).fill('Sea'); for (const [c, r] of f.land) base[id(c, r)] = 'Land';
+  for (let i = 0; i < W * H; i++) if (base[i] === 'Land' && ![0, 1, 2, 3, 4, 5].some(e => { const n = neighbourOf(i % W, Math.floor(i / W), e); return inBounds(W, H, n.col, n.row) && base[n.row * W + n.col] === 'Sea'; })) base[i] = 'Land';
   for (const [k, t] of Object.entries(f.types ?? {})) base[Number(k)] = t;
   map.layers.base.data = base; map.hexShapes = Object.fromEntries(Object.entries(f.set ?? {}).map(([k, v]) => [k, { type: base[Number(k)], ...v }])); map.islandSpecs = f.specs ?? {}; map.defaultIrregularity = level;
   out.push({name: `${f.name}-${level}`, map});

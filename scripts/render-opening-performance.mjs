@@ -122,7 +122,7 @@ try {
       const selection = await page.evaluate(shore => {
         const s = window.renderProbe, map = s.lastMap, base = map.layers.base.data;
         // An exposed mainland hex near the map centre, changed by the actual inspector.
-        const index = base.findIndex((v, i) => (shore ? v === 'Coastal Land' : v === 'Land') && (shore || i > map.cols * 10 && i < map.cols * 30) && (base[i - 1] === 'Sea' || base[i + 1] === 'Sea'));
+        const index = base.findIndex((v, i) => (shore ? v === 'Land' : v === 'Land') && (shore || i > map.cols * 10 && i < map.cols * 30) && (base[i - 1] === 'Sea' || base[i + 1] === 'Sea'));
         if (index < 0) throw Error('Fixture has no exposed land hex');
         const col = index % map.cols, row = Math.floor(index / map.cols), frame = s.lastFrame;
         return { index, x: frame.view.x + Math.sqrt(3) * 26 * (col + .5 * (row & 1)) * frame.view.scale + Math.sqrt(3) * 13 * frame.view.scale,
@@ -131,9 +131,9 @@ try {
       await page.mouse.click(box.x + selection.x, box.y + selection.y);
       const apply = page.getByRole('button', { name: 'Apply to 1 selected', exact: true });
       await apply.waitFor();
-      const select = page.locator('select').filter({ has: page.locator('option[value="Coastal Land"]') }).first();
+      const select = page.locator('select').filter({ has: page.locator('option[value="Land"]') }).first();
       for (let edit = 0; edit < Number(arg('--edits', '20')); edit++) {
-        const value = process.argv.includes('--shore') ? (edit % 2 ? 'Coastal Land' : 'Sea') : (edit % 2 ? 'Land' : 'Coastal Land');
+        const value = process.argv.includes('--shore') ? (edit % 2 ? 'Land' : 'Sea') : (edit % 2 ? 'Land' : 'Land');
         await select.selectOption(value);
         const start = await page.evaluate(() => performance.now());
         await apply.click();
@@ -151,7 +151,7 @@ try {
         console.log(JSON.stringify({ edit, kind: process.argv.includes('--shore') ? 'shore' : 'land-share', sharpMs: edits.at(-1).sharpMs }));
       }
       if (process.argv.includes('--burst')) {
-        for (const value of ['Sea', 'Land', 'Sea', 'Coastal Land', 'Land']) {
+        for (const value of ['Sea', 'Land', 'Sea', 'Land', 'Land']) {
           await select.selectOption(value); await apply.click();
         }
         await settle(page);

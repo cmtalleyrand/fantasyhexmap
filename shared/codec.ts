@@ -36,7 +36,6 @@ export function stripGridView(line: string): string {
 
 export const BASE_CHARS: Record<BaseGeo, string> = {
   Land: 't',
-  'Coastal Land': 'c',
   Sea: 'm',
   Lake: 'l',
   Glacier: 'g',
@@ -50,6 +49,8 @@ const BASE_BY_CHAR = new Map<string, BaseGeo>([
   // Characters of the retired island types still read, as Islands.
   ['b', 'Islands'],
   ['a', 'Islands'],
+  // The retired Coastal Land type still reads, as Land: its shore is derived from the water beside it.
+  ['c', 'Land'],
   ...BASE_GEO_VALUES.map((v) => [BASE_CHARS[v], v] as [string, BaseGeo]),
 ]);
 

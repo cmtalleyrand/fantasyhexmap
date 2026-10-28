@@ -14,6 +14,13 @@ import {
 } from './types.js';
 import { straitSharers } from './straits.js';
 import { neighbourOf, inBounds } from './hex.js';
+import { isShoreLand } from './derive.js';
+
+/**
+ * How far (as a share of a hex, 0 to 1) the land a hex is drawn with may stray from its land share
+ * and still count as meeting it: the area fits stop there, and only a larger miss is reported.
+ */
+export const LAND_SHARE_TOLERANCE = 0.025;
 
 /** Dimensions saved before land shares were set per type carried one island share. */
 type StoredHexDimensions = Partial<HexDimensions> & { islandLandPercent?: number };
@@ -81,17 +88,20 @@ export function channelAreaFraction(fraction: number): number {
 
 /**
  * How much of a hex is land, from 0 to 1. A hex a person has given a land share
- * takes that. Otherwise it is its type's share (see `HexDimensions`): a coastal
- * hex, a lake, an isthmus, a strait or a glacier has one; an island hex is the sum of its
+ * takes that. Otherwise it is its type's share (see `HexDimensions`): Land on a
+ * shore (`shore`, see `isShoreLand`), a lake, an isthmus, a strait or a glacier has one; an island hex is the sum of its
  * islands, each large island and each small one taking its own share; and a
- * mainland-and-islands hex adds the mainland's share to those.
+ * mainland-and-islands hex adds the mainland's share to those. Inland Land is whole,
+ * whatever is set on it.
  */
 export function landFraction(
   value: BaseGeo | null | undefined,
   stored: IslandSpec | undefined,
   dimensions: HexDimensions,
   shape?: HexShape,
+  shore = false,
 ): number {
+  if (value === 'Land' && !shore) return 1;
   const set = hexShapeFor(value, shape).land;
   if (set !== undefined) return set / 100;
   const percent = (n: number) => Math.min(100, Math.max(0, n)) / 100;
@@ -102,11 +112,9 @@ export function landFraction(
   if (width !== null) return value === 'Isthmus' ? channelAreaFraction(width) : 1 - channelAreaFraction(width);
   switch (value) {
     case 'Land':
-      return 1;
+      return percent(dimensions.coastalLandPercent);
     case 'Glacier':
       return percent(dimensions.glacierPercent);
-    case 'Coastal Land':
-      return percent(dimensions.coastalLandPercent);
     case 'Sea':
       return percent(dimensions.seaLandPercent ?? 0);
     case 'Lake':
@@ -122,7 +130,11 @@ export function landFraction(
   }
 }
 
-/** Sea land shares extend existing shores; open sea contributes no land area. */
+/**
+ * `landFraction` of hex `index` in its place on the grid: Land takes the coastal share
+ * where it meets water, and Sea land shares extend existing shores (open sea contributes
+ * no land area). Without `cols` neither can be known: Land is whole and Sea takes its share.
+ */
 export function landFractionAt(
   base: BaseData, index: number, dimensions: HexDimensions,
   specs?: Record<string, IslandSpec>, shapes?: Record<string, HexShape>, cols?: number,
@@ -133,26 +145,72 @@ export function landFractionAt(
       const n = neighbourOf(index % cols, Math.floor(index / cols), e);
       if (!inBounds(cols, rows, n.col, n.row)) return false;
       const v = base[n.row * cols + n.col];
-      return v === 'Land' || v === 'Coastal Land' || v === 'Glacier';
+      return v === 'Land' || v === 'Glacier';
     });
     if (!shore) return 0;
   }
-  return landFraction(base[index], specs?.[String(index)], dimensions, shapes?.[String(index)]);
+  const shore = cols !== undefined && isShoreLand(base, cols, index);
+  const own = landFraction(base[index], specs?.[String(index)], dimensions, shapes?.[String(index)], shore);
+  return cols === undefined ? own : withShoreSlack(base, cols, index, own, dimensions, shapes);
+}
+
+/**
+ * How much of a hex either side of a shore always keeps for the other: water beside land that is
+ * whole has at least this much land, and land beside water that has none at most one minus it.
+ * A roughened coast wanders either side of the hex edge it follows, so a whole land hex beside
+ * landless water asks for a shoreline that cannot exist; this leaves it room on both sides.
+ */
+export const SHORE_SLACK = 0.05;
+
+/** Whole hexes a shore runs between: land that can be cut back, and water that can grow land. */
+const SHORE_LAND: ReadonlySet<BaseGeo> = new Set(['Land', 'Glacier']);
+const SHORE_WATER: ReadonlySet<BaseGeo> = new Set(['Sea', 'Lake']);
+
+/**
+ * `share`, the land share hex `index` has of its own, held to the shore slack (`SHORE_SLACK`): a Sea
+ * or Lake hex beside a whole Land or Glacier hex has at least that much land, and a Land or Glacier
+ * hex beside a landless Sea or Lake hex at most one minus it. Each side judges its neighbour by the
+ * neighbour's own share, so the two rules never feed one another.
+ */
+export function withShoreSlack(
+  base: ReadonlyArray<BaseGeo | null | undefined>, cols: number, index: number, share: number,
+  dimensions: HexDimensions, shapes?: Record<string, HexShape>,
+): number {
+  const value = base[index];
+  const land = value !== null && value !== undefined && SHORE_LAND.has(value);
+  const water = value !== null && value !== undefined && SHORE_WATER.has(value);
+  if (!land && !water) return share;
+  const rows = Math.floor(base.length / cols);
+  let floor = 0, ceiling = 1;
+  for (let e = 0; e < 6; e++) {
+    const n = neighbourOf(index % cols, Math.floor(index / cols), e);
+    if (!inBounds(cols, rows, n.col, n.row)) continue;
+    const j = n.row * cols + n.col, v = base[j];
+    if (!v) continue;
+    // The neighbour's own share: Land beside this water is on a shore by definition.
+    const theirs = () => landFraction(v, undefined, dimensions, shapes?.[String(j)], v === 'Land');
+    if (water && SHORE_LAND.has(v) && theirs() >= 1) floor = SHORE_SLACK;
+    if (land && SHORE_WATER.has(v) && theirs() <= 0) ceiling = 1 - SHORE_SLACK;
+  }
+  return Math.min(ceiling, Math.max(floor, share));
 }
 
 /**
  * How much of a hex the coast draws as land, from 0 to 1: its share, except that
  * a Mainland and islands hex draws only its mainland there (its islands are drawn
  * separately, from the rest of the share), and a share set below the mainland's
- * leaves the mainland all of it. Null for a type with no share to draw.
+ * leaves the mainland all of it. Null for a type with no share to draw, inland Land among them.
  */
 export function drawnLandFraction(
   value: BaseGeo | null | undefined,
   dimensions: HexDimensions,
   shape?: HexShape,
+  /** Whether a Land hex meets water (`isShoreLand`). */
+  shore = false,
 ): number | null {
   switch (value) {
-    case 'Coastal Land':
+    case 'Land':
+      return shore ? landFraction(value, undefined, dimensions, shape, true) : null;
     case 'Glacier':
     case 'Isthmus':
     case 'Strait':
@@ -238,6 +296,24 @@ export interface SurfaceStatistic {
  * hexes can contribute to two rows, so hex counts describe containing hexes;
  * areas, unlike those counts, partition the grid exactly.
  */
+/**
+ * Whether the water in hex `index`, not itself water, is lake water: every water hex it
+ * meets is Lake (the water cut back from a lake's shore belongs to the lake).
+ */
+function lakeShoreOnly(base: BaseData, cols: number, index: number): boolean {
+  if (base[index] === 'Sea' || base[index] === 'Lake') return false;
+  const rows = base.length / cols;
+  let lake = false;
+  for (let e = 0; e < 6; e++) {
+    const n = neighbourOf(index % cols, Math.floor(index / cols), e);
+    if (!inBounds(cols, rows, n.col, n.row)) continue;
+    const v = base[n.row * cols + n.col];
+    if (v === 'Lake') lake = true;
+    else if (v === 'Sea' || v === 'Sea Ice' || v === 'Islands') return false;
+  }
+  return lake;
+}
+
 export function baseSurfaceStatistics(
   base: BaseData,
   dimensions: HexDimensions,
@@ -257,7 +333,7 @@ export function baseSurfaceStatistics(
       stat.area += hexArea * land;
     }
     if (water > 0) {
-      const stat = stats.get(value === 'Lake' ? 'Lake' : 'Sea')!;
+      const stat = stats.get(value === 'Lake' || (cols !== undefined && lakeShoreOnly(base, cols, index)) ? 'Lake' : 'Sea')!;
       stat.hexCount++;
       stat.area += hexArea * water;
     }

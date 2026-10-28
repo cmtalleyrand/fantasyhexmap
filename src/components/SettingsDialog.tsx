@@ -154,7 +154,7 @@ export default function SettingsDialog(props: SettingsDialogProps) {
               hex whose irregularity you have not set by hand. Hexes you have set keep their own.
             </p>
             <p className="hint" aria-label="Each type's own irregularity">
-              With no default chosen, each type is drawn: {SHAPED_TYPES.map((t) => `${t} ${DEFAULT_IRREGULARITY[t].toLowerCase()}`).join(', ')}.
+              With no default chosen, each type is drawn: {SHAPED_TYPES.map((t) => `${t === 'Land' ? 'Land on the shore' : t} ${DEFAULT_IRREGULARITY[t].toLowerCase()}`).join(', ')}.
               No map style changes these; choose a default above to make all of them rougher.
             </p>
             <label htmlFor="default-lake-irregularity">Default lake shore irregularity</label>

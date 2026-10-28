@@ -41,7 +41,6 @@ export const LAYER_ORDER: LayerId[] = [
 
 export type BaseGeo =
   | 'Land'
-  | 'Coastal Land'
   | 'Sea'
   | 'Lake'
   | 'Glacier'
@@ -51,7 +50,7 @@ export type BaseGeo =
   | 'Isthmus'
   | 'Strait';
 export const BASE_GEO_VALUES: BaseGeo[] = [
-  'Land', 'Coastal Land', 'Sea', 'Lake', 'Glacier', 'Sea Ice', 'Islands', 'Mainland and islands', 'Isthmus', 'Strait',
+  'Land', 'Sea', 'Lake', 'Glacier', 'Sea Ice', 'Islands', 'Mainland and islands', 'Isthmus', 'Strait',
 ];
 
 /**
@@ -67,6 +66,13 @@ export const LEGACY_ISLAND_VALUES: LegacyIslandGeo[] = ['Island', 'Coastal Islan
  * so they become Sea Ice.
  */
 export const LEGACY_ICE_VALUE = 'Ice';
+
+/**
+ * Maps saved when the shore was a type of its own hold 'Coastal Land'. It is read and
+ * migrated to Land (see `migrateCoastalLand`), never written: a Land hex's shore now
+ * follows from the water beside it (`isShoreLand`).
+ */
+export const LEGACY_COASTAL_VALUE = 'Coastal Land';
 
 /**
  * Hexes that hold islands: open sea with islands in it, or part of a mainland
@@ -88,8 +94,7 @@ export function isSplitType(value: BaseGeo | null | undefined): boolean {
 
 /** What each base type means, for the sidebar and the legend. */
 export const BASE_DESCRIPTIONS: Record<BaseGeo, string> = {
-  Land: 'Dry land.',
-  'Coastal Land': 'Land with a shoreline crossing it.',
+  Land: 'Dry land. Where it meets sea or lake its shore is drawn in from the water automatically, at the map\'s coastal land share.',
   Sea: 'Open salt water.',
   Lake: 'Fresh water enclosed by land.',
   Glacier: 'Land under permanent ice: it has elevation and the rest of the land layers, and shows the ice over the relief.',
@@ -101,7 +106,7 @@ export const BASE_DESCRIPTIONS: Record<BaseGeo, string> = {
 };
 
 /** Hex types that carry land-only layer values (elevation, climate, vegetation, population). */
-export const LAND_LIKE: BaseGeo[] = ['Land', 'Coastal Land', 'Glacier', 'Islands', 'Mainland and islands', 'Isthmus'];
+export const LAND_LIKE: BaseGeo[] = ['Land', 'Glacier', 'Islands', 'Mainland and islands', 'Isthmus'];
 
 /**
  * The patterns islands lie in, as they do in nature. Scattered is a shelf
@@ -188,9 +193,12 @@ export function islandSpecFor(value: BaseGeo | null | undefined, stored: IslandS
 export type Irregularity = 'Smooth' | 'Wavy' | 'Ragged' | 'Fractured';
 export const IRREGULARITY_VALUES: Irregularity[] = ['Smooth', 'Wavy', 'Ragged', 'Fractured'];
 
-/** Base types whose land share and irregularity can be set: anything with a shoreline or an ice edge. */
+/**
+ * Base types whose land share and irregularity can be set: anything with a shoreline or an ice edge.
+ * Land has a shoreline only where it meets sea or lake (`isShoreLand`); inland, its settings are ignored.
+ */
 export const SHAPED_TYPES: BaseGeo[] = [
-  'Coastal Land', 'Islands', 'Mainland and islands', 'Isthmus', 'Strait', 'Glacier', 'Sea Ice',
+  'Land', 'Islands', 'Mainland and islands', 'Isthmus', 'Strait', 'Glacier', 'Sea Ice',
 ];
 
 export function isShapedType(value: BaseGeo | null | undefined): boolean {
@@ -208,7 +216,7 @@ export function hasLandShare(value: BaseGeo | null | undefined): boolean {
 
 /** Types whose land can be biased towards one edge without changing its total share. */
 export function hasLandConcentration(value: BaseGeo | null | undefined): boolean {
-  return value === 'Coastal Land' || value === 'Mainland and islands' || value === 'Lake' || value === 'Sea';
+  return value === 'Land' || value === 'Mainland and islands' || value === 'Lake' || value === 'Sea';
 }
 
 /**
@@ -229,12 +237,11 @@ export const DEFAULT_CHANNEL_WIDTH: Record<'Isthmus' | 'Strait', ChannelWidth> =
 
 /**
  * The irregularity a type is drawn with when none is set: Ragged for every shaped
- * type (coasts, islands, isthmuses, straits, ice). Land, Sea and Lake are not shaped,
+ * type (shore land, islands, isthmuses, straits, ice). Sea and Lake are not shaped,
  * so theirs is not used.
  */
 export const DEFAULT_IRREGULARITY: Record<BaseGeo, Irregularity> = {
-  Land: 'Smooth',
-  'Coastal Land': 'Ragged',
+  Land: 'Ragged',
   Sea: 'Smooth',
   Lake: 'Smooth',
   Glacier: 'Ragged',
@@ -695,6 +702,11 @@ export interface MapState {
    */
   hexShapes?: Record<string, HexShape>;
   /**
+   * Set once a map's shores are derived from the water beside Land (`isShoreLand`) rather than
+   * stored as Coastal Land: maps without it are migrated on load (`migrateMap`).
+   */
+  derivedShores?: true;
+  /**
    * The irregularity of every shaped hex that has none of its own (`hexShapes`).
    * Absent: each type uses its own default (`DEFAULT_IRREGULARITY`).
    */
@@ -724,7 +736,10 @@ export interface HexDimensions {
   /** Corner-to-corner vertical span of one hex. */
   height: number;
   unit: string;
-  /** Share of a hex that is land, by type, unless a hex sets its own (`MapState.hexShapes`). */
+  /**
+   * Share of a Land hex that is land where it meets sea or lake (`isShoreLand`), unless the
+   * hex sets its own (`MapState.hexShapes`). Inland Land is always whole.
+   */
   coastalLandPercent: number;
   /** Land extending from a neighbouring shore into a Sea hex. Defaults to zero. */
   seaLandPercent: number;
@@ -759,7 +774,7 @@ export const DEFAULT_HEX_DIMENSIONS: HexDimensions = {
   unit: 'km',
   coastalLandPercent: 80,
   seaLandPercent: 0,
-  lakeLandPercent: 10,
+  lakeLandPercent: 0,
   largeIslandPercent: 15,
   smallIslandPercent: 5,
   mainlandPercent: 40,

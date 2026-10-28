@@ -44,7 +44,7 @@ try {
       const map = name === 'populated' || name === 'feature' ? afterApi.fixture(name) : afterApi.coastGallery().find(f => f.name === name).map;
       if (edited) {
         const base = map.layers.base.data;
-        const hex = base.findIndex((v, i) => (v === 'Land' || v === 'Coastal Land') && (base[i - 1] === 'Sea' || base[i + 1] === 'Sea'));
+        const hex = base.findIndex((v, i) => (v === 'Land' || v === 'Land') && (base[i - 1] === 'Sea' || base[i + 1] === 'Sea'));
         if (hex < 0) throw Error(`No exposed hex in ${name}`);
         map.layers.base = { ...map.layers.base, data: [...base] };
         map.layers.base.data[hex] = 'Sea';

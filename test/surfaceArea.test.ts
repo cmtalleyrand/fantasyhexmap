@@ -13,7 +13,7 @@ import { reducer } from '../src/state/store.ts';
 
 test('polity surface area weights coast and island land shares', () => {
   const areas = politySurfaceAreas(
-    ['Land', 'Coastal Land', 'Islands', 'Sea'],
+    ['Land', 'Land', 'Islands', 'Sea'],
     {
       polities: [{ id: 'realm', name: 'Realm', colour: '#123456' }],
       owner: ['realm', 'realm', 'realm', 'realm'],
@@ -21,23 +21,28 @@ test('polity surface area weights coast and island land shares', () => {
     { ...DEFAULT_HEX_DIMENSIONS, width: 10, height: 8, coastalLandPercent: 60, smallIslandPercent: 40 },
     // One small islet, as the old single Island was.
     { '2': { large: 0, small: 1 } },
+    undefined,
+    4,
   );
 
-  // Each hex is 60 km²; weighted land is 1 + 0.6 + 0.4 hexes. Sea contributes zero.
+  // Each hex is 60 km²; weighted land is 1 (inland) + 0.6 (the shore beside the islands) + 0.4 hexes. Sea contributes zero.
   assert.equal(areas.get('realm'), 120);
 });
 
 test('polity surface area remains linear across multiple owners', () => {
   const areas = politySurfaceAreas(
-    ['Land', 'Land', 'Coastal Land'],
+    ['Land', 'Land', 'Land', 'Sea'],
     {
       polities: [
         { id: 'a', name: 'A', colour: '#111111' },
         { id: 'b', name: 'B', colour: '#222222' },
       ],
-      owner: ['a', 'b', 'b'],
+      owner: ['a', 'b', 'b', null],
     },
     { ...DEFAULT_HEX_DIMENSIONS, width: 4, height: 2, unit: 'mi', coastalLandPercent: 50 },
+    undefined,
+    undefined,
+    4,
   );
 
   assert.deepEqual(Object.fromEntries(areas), { a: 6, b: 9 });
@@ -97,7 +102,7 @@ test('surface areas round to the configured display increment', () => {
 
 test('base surface totals partition shore hexes while counting every surface they contain', () => {
   const dimensions = { ...DEFAULT_HEX_DIMENSIONS, width: 10, height: 8, coastalLandPercent: 60, lakeLandPercent: 25 };
-  const stats = baseSurfaceStatistics(['Land', 'Coastal Land', 'Sea', 'Lake'], dimensions);
+  const stats = baseSurfaceStatistics(['Land', 'Land', 'Sea', 'Lake'], dimensions, undefined, undefined, 4);
 
   assert.deepEqual(stats, [
     { label: 'Land', hexCount: 3, area: 111 },
@@ -111,9 +116,11 @@ test('land-layer totals count assigned hexes and weight their areas by land shar
   const stats = landLayerSurfaceStatistics(
     ['Lowland', 'Lowland', 'Hills', null],
     ['Lowland', 'Hills', 'Mountains'],
-    ['Land', 'Coastal Land', 'Islands', 'Sea'],
+    ['Land', 'Land', 'Islands', 'Sea'],
     { ...DEFAULT_HEX_DIMENSIONS, width: 10, height: 8, coastalLandPercent: 50, smallIslandPercent: 25 },
     { '2': { large: 0, small: 1 } },
+    undefined,
+    4,
   );
 
   assert.deepEqual(stats, [
@@ -138,4 +145,10 @@ test('an unowned strait is shared between the realms on its banks; an owned one 
   const owned = politySurfaceAreas([...base], { polities, owner: ['a', 'a', 'b'] }, dims, undefined, undefined, 3);
   assert.deepEqual(Object.fromEntries(owned), { a: 6 + 6 * banks, b: 6 });
   assert.equal(straitSharers([...base], ['a', 'a', 'b'], 3, 1, 1).size, 0);
+});
+
+test('water cut back from a lake shore counts as lake, not sea', () => {
+  const stats = baseSurfaceStatistics(['Land', 'Lake', 'Land'], DEFAULT_HEX_DIMENSIONS, undefined, undefined, 3);
+  assert.equal(stats.find(s => s.label === 'Sea')!.area, 0);
+  assert.ok(stats.find(s => s.label === 'Lake')!.area > 0.75 * DEFAULT_HEX_DIMENSIONS.width * DEFAULT_HEX_DIMENSIONS.height);
 });

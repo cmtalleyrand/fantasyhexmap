@@ -30,6 +30,7 @@ import { LAYER_META } from '../../shared/layers.js';
 import { formatLength, riverLength, type RiverMeasurement } from '../../shared/riverLength.js';
 import { riverLabel } from '../../shared/riverEdit.js';
 import { formatArea, normaliseHexDimensions, politySurfaceAreas } from '../../shared/surfaceArea.js';
+import { isShoreLand } from '../../shared/derive.js';
 import {
   BASE_GEO_VALUES,
   isIslandType,
@@ -148,7 +149,6 @@ export function legendSections(
   const { palette } = style;
   const baseColour: Record<string, string> = {
     Land: palette.land,
-    'Coastal Land': style.knobs.land === 'uniform' ? palette.land : palette.coastalLand,
     Sea: palette.sea,
     Lake: palette.lake,
     Glacier: palette.ice,
@@ -178,6 +178,13 @@ export function legendSections(
               }
             : { swatch: { kind: 'fill', colour: baseColour[v] ?? BASE_COLOURS[v] }, label: v },
         );
+        // A style that bands the coast shows Land on the shore in a colour of its own.
+        if (style.knobs.land !== 'uniform') {
+          const base = map.layers.base.data;
+          const banded = !options.onlyUsed || Boolean(base?.some((_, i) => isShoreLand(base, map.cols, i)));
+          const at = entries.findIndex((entry) => entry.label === 'Land');
+          if (banded) entries.splice(at + 1, 0, { swatch: { kind: 'fill', colour: palette.coastalLand }, label: 'Land on the shore' });
+        }
         break;
       case 'elevation':
         entries = keep(ELEVATION_VALUES, usedValues(map.layers.elevation.data)).map((v) => ({

@@ -17,13 +17,13 @@ export const GEO_KIND_LABEL: Record<GeoNameKind, { singular: string; plural: str
   sea: {
     singular: 'Sea',
     plural: 'Seas and oceans',
-    accepts: 'Sea, Strait and island hexes (open water with islands in it). Coastal land is excluded.',
+    accepts: 'Sea, Strait and island hexes (open water with islands in it). Land on the shore is excluded.',
   },
   lake: { singular: 'Lake', plural: 'Lakes', accepts: 'Lake hexes.' },
   land: {
     singular: 'Land feature',
     plural: 'Land features',
-    accepts: 'Land hexes: Land, Coastal Land, Isthmus, Mainland and islands, and Glacier. Not water and not island-sea hexes.',
+    accepts: 'Land hexes: Land (inland or on the shore), Isthmus, Mainland and islands, and Glacier. Not water and not island-sea hexes.',
   },
   island: {
     singular: 'Island',
@@ -35,7 +35,7 @@ export const GEO_KIND_LABEL: Record<GeoNameKind, { singular: string; plural: str
 
 /** Dry land of every kind, including the land half of a split hex. Island-sea hexes are not land. */
 export function isLandHex(v: BaseGeo | null | undefined): boolean {
-  return v === 'Land' || v === 'Coastal Land' || v === 'Isthmus' || v === 'Mainland and islands' || v === 'Glacier';
+  return v === 'Land' || v === 'Isthmus' || v === 'Mainland and islands' || v === 'Glacier';
 }
 
 /**

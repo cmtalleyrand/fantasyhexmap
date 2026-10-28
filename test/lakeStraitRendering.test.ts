@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { LAND_SHARE_TOLERANCE } from '../shared/surfaceArea.ts';
 import { lakeStraitFixture, LAKE_STRAIT_CASES, FAST_LAKE_STRAIT_CASES } from './fixtures/lakeStrait.ts';
 import { assertLakeStraitCase, centre, cols, connected, render, size, style, throat } from './helpers/lakeStrait.ts';
 import { buildScene, defaultVisibility, landTestOf } from '../src/render/scene.ts';
@@ -111,7 +112,7 @@ test('lake shores adjoining a strait retain their own land-share controls', () =
   const map = fixture();
   map.hexShapes!['25'] = { type: 'Lake', land: 30 };
   const draw = render(map);
-  assert.ok(Math.abs(draw.share(25) - 0.3) < 0.01, `adjoining lake land share: ${draw.share(25)}`);
+  assert.ok(Math.abs(draw.share(25) - 0.3) <= LAND_SHARE_TOLERANCE, `adjoining lake land share: ${draw.share(25)}`);
 });
 
 test('a separate lake keeps its existing outline when another lake contains a strait', () => {

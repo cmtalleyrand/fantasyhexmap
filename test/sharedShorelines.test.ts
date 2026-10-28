@@ -15,7 +15,7 @@ const size = 30;
 const options = { size, visible: defaultVisibility(), labels: false, style: resolveStyle({ preset: 'parchment' }) };
 function shore(water: 'Sea' | 'Lake', percent = 0, irregular: Irregularity = 'Ragged') {
   const map = createMapState('Shared shore', 7, 7);
-  map.layers.base.data = Array.from({ length: 49 }, (_, i) => i % 7 < 3 ? water : i % 7 === 3 ? 'Coastal Land' : 'Land');
+  map.layers.base.data = Array.from({ length: 49 }, (_, i) => i % 7 < 3 ? water : i % 7 === 3 ? 'Land' : 'Land');
   map.hexDimensions = { ...map.hexDimensions, seaLandPercent: percent, lakeLandPercent: percent };
   map.defaultIrregularity = irregular;
   map.defaultLakeIrregularity = irregular;
@@ -64,13 +64,14 @@ test('Sea defaults to zero, retains per-hex overrides and counts only shore-adja
   assert.equal(landFractionAt(base, 0, dims, undefined, { '0': { type: 'Sea', land: 90 } }, 5), 0);
   const land = baseSurfaceStatistics(base, dims, undefined, undefined, 5).find(s => s.label === 'Land')!;
   assert.equal(land.hexCount, 7);
-  assert.ok(Math.abs(land.area / (dims.width * dims.height * 0.75) - 2.8) < 1e-10);
+  // The island hex is shore land at the coastal share; its six sea neighbours add their 30% each.
+  assert.ok(Math.abs(land.area / (dims.width * dims.height * 0.75) - (dims.coastalLandPercent / 100 + 6 * 0.3)) < 1e-10);
 });
 
 test('a sea land share grows the existing shore, and open sea stays water', () => {
   const map = shore('Sea');
   // A full land neighbour isolates the water-side target from competing requests.
-  map.layers.base.data = map.layers.base.data!.map(v => v === 'Coastal Land' ? 'Land' : v);
+  map.layers.base.data = map.layers.base.data!.map(v => v === 'Land' ? 'Land' : v);
   map.hexShapes = { '23': { type: 'Sea', land: 35 } };
   const scene = buildStaticScene(map, options), dry = landTestOf(scene)!;
   const centre = hexCenter(2, 3, size);
@@ -102,9 +103,9 @@ test('lake settings, undo and worker-style clones invalidate the shared coast ca
 
 test('mixed sea/lake shores preserve the intervening land and report one shared target', () => {
   const map = createMapState('Two waters', 9, 7);
-  map.layers.base.data = Array.from({ length: 63 }, (_, i) => i % 9 < 4 ? 'Sea' : i % 9 === 4 ? 'Coastal Land' : 'Lake');
+  map.layers.base.data = Array.from({ length: 63 }, (_, i) => i % 9 < 4 ? 'Sea' : i % 9 === 4 ? 'Land' : 'Lake');
   map.hexDimensions = { ...map.hexDimensions, lakeLandPercent: 0 };
-  map.hexShapes = { '31': { type: 'Coastal Land', land: 70 } };
+  map.hexShapes = { '31': { type: 'Land', land: 70 } };
   const scene = buildStaticScene(map, options), dry = landTestOf(scene)!;
   assert.equal(dry(hexCenter(4, 3, size)), true, 'land strip survives');
   const reports = scene.compromises?.filter(c => c.hexes.includes(31) && /% land drawn/.test(c.what)) ?? [];

@@ -136,6 +136,7 @@ export function createMapState(
     enabledLayers: normaliseSelection(enabledLayers),
     layers: emptyLayers(),
     journal: [],
+    derivedShores: true,
   };
 }
 
