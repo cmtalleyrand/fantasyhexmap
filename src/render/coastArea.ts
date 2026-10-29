@@ -90,7 +90,7 @@ export function untangle(ring: Point[], closed: boolean): { ring: Point[]; joins
 export function fitCoastAreas(geometry: CoastGeometry, targets: ReadonlyMap<number, { share: number; width?: number }>,
   cols: number, rows: number, size: number, page: { width: number; height: number }, ink: number,
   /** Every strait and isthmus drawn at a set width, whether or not its share is fitted. */
-  passageHexes: Iterable<number> = [], rounds = 4): CoastGeometry {
+  passageHexes: Iterable<number> = [], rounds = 4, repairEdges = false): CoastGeometry {
   if (!geometry.component || !targets.size) return geometry;
   const phase = profilePhases('fit');
   phase('prepare');
@@ -187,10 +187,18 @@ export function fitCoastAreas(geometry: CoastGeometry, targets: ReadonlyMap<numb
   let shown = initial;
   // Bound the total deformation, not just each accepted step.
   const referenceRings = current;
-  for (let round = 0; round < rounds; round++) {
+  // Fixed page endpoints make edge shares converge more slowly. After the normal
+  // fit, only boundary shares still outside tolerance request a correction; all
+  // other hexes constrain it to preserve their areas. Stop as soon as those shares fit.
+  const atEdge = (h: number) => h % cols === 0 || h % cols === cols - 1
+    || Math.floor(h / cols) === 0 || Math.floor(h / cols) === rows - 1;
+  for (let round = 0; round < rounds + (repairEdges ? 4 : 0); round++) {
     phase('field');
     profileCount('fit.rounds');
-    const short = new Map([...touched].map(h => [h, outside(h, shown) * hexArea]));
+    const final = round >= rounds;
+    const short = new Map([...touched].map(h => [h,
+      final && (!targets.has(h) || !atEdge(h) || Math.abs(want.get(h)! - shown.get(h)!) <= LAND_SHARE_TOLERANCE)
+        ? 0 : outside(h, shown) * hexArea]));
     // Done once every hex with a share is inside its band.
     if (Math.max(...[...targets.keys()].map(h => Math.abs(short.get(h)!))) <= 0.002 * hexArea) break;
     // Every point's direction to the sea (each ring's orientation found by probing which

@@ -417,14 +417,14 @@ function prepareSceneCacheScope(map: MapState, size: number): void {
  * inputs form one dependency group; changing one input rebuilds that group. */
 function cachedCoastFit(geometry: CoastGeometry, targets: ReadonlyMap<number, { share: number; width?: number }>,
   cols: number, rows: number, size: number, page: { width: number; height: number }, ink: number,
-  passages: number[], seed: string, rounds?: number): CoastGeometry {
+  passages: number[], seed: string, rounds?: number, repairEdges = false): CoastGeometry {
   if (!geometry.component || !targets.size) return geometry;
-  const key = JSON.stringify([seed, cols, rows, size, page, ink, passages, rounds, [...targets],
+  const key = JSON.stringify([seed, cols, rows, size, page, ink, passages, rounds, repairEdges, [...targets],
     geometry.chains.map(c => c.closed), geometry.paths, [...geometry.anchors], [...geometry.detail ?? []]]);
   const hit = coastFits.get(key);
   if (hit) { profileCount('coast.fitGroupHits'); return { ...geometry, ...hit }; }
   profileCount('coast.fitGroupBuilds');
-  const fitted = fitCoastAreas(geometry, targets, cols, rows, size, page, ink, passages, rounds);
+  const fitted = fitCoastAreas(geometry, targets, cols, rows, size, page, ink, passages, rounds, repairEdges);
   coastFits.set(key, { paths: fitted.paths, anchors: fitted.anchors, detail: fitted.detail },
     fitted.paths.reduce((n, path) => n + path.length * 48, 0) + fitted.anchors.size * 64 + (fitted.detail?.size ?? 0) * 64);
   return fitted;
@@ -750,9 +750,10 @@ function cachedCoast(
   geometry = profileTime('coast.fit', () => cachedCoastFit(geometry, fitTargets, cols, rows, size, page, inkReach, fitPassages, seed));
   // The coast was shaped and fitted smooth; its local cuts and fine detail go on now,
   // where moving it can no longer squeeze or stretch them, and a short last fit evens
-  // out the little land the detail adds or takes away in each hex.
+  // out the little land the detail adds or takes away in each hex. Boundary shares
+  // can finish with a targeted correction, since their page endpoints cannot move.
   geometry = applyCoastDetail(geometry, size);
-  geometry = profileTime('coast.fit', () => cachedCoastFit(geometry, fitTargets, cols, rows, size, page, inkReach, fitPassages, seed, 2));
+  geometry = profileTime('coast.fit', () => cachedCoastFit(geometry, fitTargets, cols, rows, size, page, inkReach, fitPassages, seed, 2, true));
   coastPhase('coverageAndLakes');
   const lakeOf = new Map<number, number>();
   lakes.forEach((lake, k) => lake.forEach(i => lakeOf.set(i, k)));
