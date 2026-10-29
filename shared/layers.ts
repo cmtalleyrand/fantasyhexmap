@@ -137,6 +137,7 @@ export function createMapState(
     layers: emptyLayers(),
     journal: [],
     derivedShores: true,
+    derivedGlacierShores: true,
   };
 }
 

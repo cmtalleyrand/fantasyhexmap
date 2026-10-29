@@ -144,7 +144,6 @@ export function migrateToDerivedShores(map: MapState): MapState {
     ...(s.hexDimensions ? { hexDimensions: {
       ...s.hexDimensions,
       ...(s.hexDimensions.lakeLandPercent === OLD_LAKE_LAND_DEFAULT ? { lakeLandPercent: DEFAULT_HEX_DIMENSIONS.lakeLandPercent } : {}),
-      ...(s.hexDimensions.glacierPercent === OLD_GLACIER_DEFAULT ? { glacierPercent: DEFAULT_HEX_DIMENSIONS.glacierPercent } : {}),
     } } : {}),
     derivedShores: true,
   });
@@ -152,7 +151,24 @@ export function migrateToDerivedShores(map: MapState): MapState {
   return { ...settle(next), ...(history ? { history } : {}) };
 }
 
+/**
+ * Move a map saved before glacier shores were derived onto them: the old glacier share,
+ * 100% (every glacier hex whole), becomes the shore default. Runs once, with its own marker
+ * (`derivedGlacierShores`), so maps already moved onto derived Land shores get it too.
+ */
+export function migrateToDerivedGlacierShores(map: MapState): MapState {
+  if (map.derivedGlacierShores) return map;
+  const settle = (s: MapState): MapState => ({
+    ...s,
+    ...(s.hexDimensions?.glacierPercent === OLD_GLACIER_DEFAULT
+      ? { hexDimensions: { ...s.hexDimensions, glacierPercent: DEFAULT_HEX_DIMENSIONS.glacierPercent } } : {}),
+    derivedGlacierShores: true,
+  });
+  const history = map.history && { past: map.history.past.map(settle), future: map.history.future.map(settle) };
+  return { ...settle(map), ...(history ? { history } : {}) };
+}
+
 /** Every migration a loaded map goes through, oldest first. */
 export function migrateMap(map: MapState): MapState {
-  return migrateToDerivedShores(migrateLegacyIslands(map));
+  return migrateToDerivedGlacierShores(migrateToDerivedShores(migrateLegacyIslands(map)));
 }

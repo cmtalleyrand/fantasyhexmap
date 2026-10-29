@@ -58,10 +58,17 @@ test('glacier is whole inland and cut back to its share where it meets water, li
   const { createMapState } = await import('./seededMap.ts');
   assert.equal(landFractionAt(['Glacier', 'Glacier'], 0, DEFAULT_HEX_DIMENSIONS, undefined, undefined, 2), 1);
   assert.equal(landFractionAt(['Glacier', 'Lake'], 0, DEFAULT_HEX_DIMENSIONS, undefined, undefined, 2), DEFAULT_HEX_DIMENSIONS.glacierPercent / 100);
-  const old = createMapState('Old ice', 2, 1);
-  delete old.derivedShores;
-  old.hexDimensions = { ...old.hexDimensions, glacierPercent: 100 };
-  assert.equal(migrateMap(old).hexDimensions.glacierPercent, DEFAULT_HEX_DIMENSIONS.glacierPercent, 'the old whole-glacier default moves to the shore default');
+  for (const landShoresDone of [false, true]) {
+    // Saved before any shores were derived, or after Land's but before Glacier's.
+    const old = createMapState('Old ice', 2, 1);
+    if (!landShoresDone) delete old.derivedShores;
+    delete old.derivedGlacierShores;
+    old.hexDimensions = { ...old.hexDimensions, glacierPercent: 100 };
+    const migrated = migrateMap(old);
+    assert.equal(migrated.hexDimensions.glacierPercent, DEFAULT_HEX_DIMENSIONS.glacierPercent, 'the old whole-glacier default moves to the shore default');
+    assert.equal(migrateMap({ ...migrated, hexDimensions: { ...migrated.hexDimensions, glacierPercent: 100 } }).hexDimensions.glacierPercent, 100,
+      'a glacier share chosen afterwards is kept');
+  }
 });
 
 test('the old 10% lake share is reset in undo history too, so undo does not bring it back', async () => {

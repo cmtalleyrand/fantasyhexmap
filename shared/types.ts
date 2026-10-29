@@ -735,6 +735,8 @@ export interface MapState {
    * stored as Coastal Land: maps without it are migrated on load (`migrateMap`).
    */
   derivedShores?: true;
+  /** Set once the old whole-glacier share (100%) has moved to the glacier shore default (`migrateToDerivedGlacierShores`). */
+  derivedGlacierShores?: true;
   /**
    * The irregularity of every shaped hex that has none of its own (`hexShapes`).
    * Absent: each type uses its own default (`DEFAULT_IRREGULARITY`).

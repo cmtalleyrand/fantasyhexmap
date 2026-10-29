@@ -1565,39 +1565,68 @@ export function coverageOf(rings: CoverageRing[], strokeSegments: (visit: (a: Po
     strokes.push({ poly: [{ x: a.x + dx, y: a.y + dy }, { x: b.x + dx, y: b.y + dy },
       { x: b.x - dx, y: b.y - dy }, { x: a.x - dx, y: a.y - dy }], a, b, box });
   });
-  // Hexes in one row query exactly the same y coordinates. Cache their un-clipped
-  // intersections, never clipped/parity-filtered results: holes and enclosing rings
-  // must still participate independently in every query.
-  type Prepared = typeof prepared[number];
-  type Scanline = { fill: Map<Prepared, number[]> };
-  const scanlines = new Map<number, Scanline>();
-  let cachedEntries = 0;
-  const scanlineAt = (y: number): Scanline => {
-    let hit = scanlines.get(y);
-    if (!hit) {
-      // This cache lives only as long as this coverage function. Bound it even for
-      // callers querying many unrelated clips or sampling densities.
-      if (scanlines.size >= 8192 || cachedEntries >= 131072) { scanlines.clear(); cachedEntries = 0; }
-      hit = { fill: new Map() };
-      scanlines.set(y, hit);
+  // Hexes in one row share measuring lines. Union the whole line once, including
+  // the round stroke, then intersect those disjoint runs with each hex's span.
+  const inkBins = new Map<number, typeof strokes>();
+  if (options.reuseScanlines) for (const stroke of strokes) {
+    for (let y = Math.floor(stroke.box[1]! / band); y <= Math.floor(stroke.box[3]! / band); y++) {
+      const bin = inkBins.get(y);
+      if (bin) bin.push(stroke); else inkBins.set(y, [stroke]);
     }
-    return hit;
+  }
+  const scanlines = new Map<number, Array<[number, number]>>();
+  let cachedEntries = 0;
+  const scanlineAt = (y: number): Array<[number, number]> => {
+    const hit = scanlines.get(y);
+    if (hit) return hit;
+    const runs: Array<[number, number]> = [], crossings: number[] = [];
+    const addPairs = (xs: number[]) => {
+      xs.sort((a, b) => a - b);
+      for (let k = 0; k + 1 < xs.length; k += 2) runs.push([xs[k]!, xs[k + 1]!]);
+    };
+    for (const ring of prepared) {
+      const xs: number[] = [];
+      for (const [a, b] of ring.bins.get(Math.floor(y / band)) ?? []) {
+        if (a.y <= y !== b.y <= y) xs.push(a.x + (y - a.y) / (b.y - a.y) * (b.x - a.x));
+      }
+      if (options.evenOdd) crossings.push(...xs); else addPairs(xs);
+    }
+    if (options.evenOdd) addPairs(crossings);
+    for (const stroke of inkBins.get(Math.floor(y / band)) ?? []) {
+      if (y < stroke.box[1]! || y > stroke.box[3]!) continue;
+      let lo = Infinity, hi = -Infinity;
+      for (let k = 0; k < 4; k++) {
+        const a = stroke.poly[k]!, b = stroke.poly[(k + 1) % 4]!;
+        if (a.y <= y !== b.y <= y) {
+          const x = a.x + (y - a.y) / (b.y - a.y) * (b.x - a.x);
+          lo = Math.min(lo, x); hi = Math.max(hi, x);
+        }
+      }
+      if (hi > lo) runs.push([lo, hi]);
+      for (const p of [stroke.a, stroke.b]) {
+        const dy = y - p.y;
+        if (Math.abs(dy) >= radius) continue;
+        const dx = Math.sqrt(radius * radius - dy * dy);
+        runs.push([p.x - dx, p.x + dx]);
+      }
+    }
+    runs.sort((a, b) => a[0] - b[0]);
+    const merged: Array<[number, number]> = [];
+    for (const [lo, hi] of runs) {
+      const last = merged.at(-1);
+      if (last && lo <= last[1]) last[1] = Math.max(last[1], hi);
+      else if (hi > lo) merged.push([lo, hi]);
+    }
+    if (scanlines.size >= 8192 || cachedEntries >= 131072) { scanlines.clear(); cachedEntries = 0; }
+    scanlines.set(y, merged); cachedEntries += merged.length * 2;
+    return merged;
   };
   return (clip, lines = 96) => {
     const top = Math.min(...clip.map((p) => p.y));
     const bottom = Math.max(...clip.map((p) => p.y));
     const step = (bottom - top) / lines;
     const x0 = Math.min(...clip.map(p => p.x)), x1 = Math.max(...clip.map(p => p.x));
-    const nearbyStroke = strokes.filter(s => s.box[2]! >= x0 && s.box[0]! <= x1 && s.box[3]! >= top && s.box[1]! <= bottom);
-    const localInkBins = new Map<number, typeof strokes>();
-    if (options.reuseScanlines) for (const stroke of nearbyStroke) {
-      const first = Math.floor(Math.max(top, stroke.box[1]!) / band), last = Math.floor(Math.min(bottom, stroke.box[3]!) / band);
-      for (let bandY = first; bandY <= last; bandY++) {
-        let bin = localInkBins.get(bandY);
-        if (!bin) { bin = []; localInkBins.set(bandY, bin); }
-        bin.push(stroke);
-      }
-    }
+    const nearbyStroke = options.reuseScanlines ? [] : strokes.filter(s => s.box[2]! >= x0 && s.box[0]! <= x1 && s.box[3]! >= top && s.box[1]! <= bottom);
     // Preserve all ray crossings (including those outside the clip), but discard
     // rings outside its bounds and edges that cannot cross any measuring line.
     const relevant = prepared.filter(({ box }) => !(box[2]! < x0 || box[0]! > x1 || box[3]! < top || box[1]! > bottom));
@@ -1617,18 +1646,21 @@ export function coverageOf(rings: CoverageRing[], strokeSegments: (visit: (a: Po
         }
       }
       if (!(right > left)) continue;
+      if (options.reuseScanlines) {
+        for (const [lo, hi] of scanlineAt(y)) {
+          if (lo >= right) break;
+          const width = Math.min(right, hi) - Math.max(left, lo);
+          if (width > 0) total += width * step;
+        }
+        continue;
+      }
       // Where each outline is on this line, as stretches of x.
       const runs: Array<[number, number]> = [];
       const crossings: number[] = [];
-      const line = options.reuseScanlines ? scanlineAt(y) : undefined;
       for (const ring of relevant) {
-        let xs = line?.fill.get(ring);
-        if (!xs) {
-          xs = [];
-          for (const [a, b] of ring.bins.get(Math.floor(y / band)) ?? []) {
-            if (a.y <= y !== b.y <= y) xs.push(a.x + ((y - a.y) / (b.y - a.y)) * (b.x - a.x));
-          }
-          if (line) { line.fill.set(ring, xs); cachedEntries += xs.length + 1; }
+        const xs: number[] = [];
+        for (const [a, b] of ring.bins.get(Math.floor(y / band)) ?? []) {
+          if (a.y <= y !== b.y <= y) xs.push(a.x + ((y - a.y) / (b.y - a.y)) * (b.x - a.x));
         }
         if (options.evenOdd) crossings.push(...xs);
         else {
@@ -1642,7 +1674,7 @@ export function coverageOf(rings: CoverageRing[], strokeSegments: (visit: (a: Po
       }
       // Union the round coastline stroke with land, rather than estimating ink
       // as perimeter times width (which counts overlaps and outside-hex ink).
-      for (const s of (line ? localInkBins.get(Math.floor(y / band)) ?? [] : nearbyStroke)) {
+      for (const s of nearbyStroke) {
         if (y < s.box[1]! || y > s.box[3]!) continue;
         const xs: number[] = [];
         for (let k = 0; k < 4; k++) {
