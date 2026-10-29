@@ -657,7 +657,9 @@ function cachedCoast(
     profileCount('coast.globalPasses');
     const outlines = pathPolylines(drawnLand(geometry, page.width, page.height, size), 8);
     const strokes = geometry.paths.flatMap(d => pathPolylines(d, 8));
-    const measure = areaCoverage(outlines, { evenOdd: true, stroke: { rings: strokes, reach: inkReach } });
+    // Adjacent hexes sample the same rows: union land and coastline ink once
+    // per scanline, then clip that union to each hex's footprint.
+    const measure = areaCoverage(outlines, { evenOdd: true, stroke: { rings: strokes, reach: inkReach }, reuseScanlines: true });
     let miss = 0;
     let maxError = 0;
     let movement = 0;
