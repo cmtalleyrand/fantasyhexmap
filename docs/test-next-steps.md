@@ -80,15 +80,17 @@ rivers on so small a map, so none would be reused), 11.6 s down to about 2.5 s. 
 In `riverLabelReuse.test.ts`, the scene-level test can use a 12×12 fixture with two rivers and keep its
 assertions. The random-obstacle test in the same file already covers the exactness of the reuse.
 
-### 4. One helper for cached-versus-uncached equality
+### 4. One helper for cached-versus-uncached equality — done
 
-`assertCachedBuildsMatch(cases)` in `test/helpers/scene.ts` is shared by the fast and slow incremental
-tests only; nothing else has been moved onto it. The original brief:
+`assertRebuildMatchesUncached(map, options, edit, cachedScene?)` in `test/helpers/scene.ts` replaces
+the separate batch helper and the repeated comparisons in incremental rendering, shared paths,
+shared shorelines and river-label reuse. Both fast and slow incremental chains use it. It accepts an
+already profiled scene so cache-counter checks do not trigger an extra cached build, compares the
+whole scene, and names the edit and first differing scene path when it fails.
 
-Add `assertRebuildsMatchUncached(map, options, edits)` to a shared test helper module. It applies
-each edit, builds with caches on, builds the same state with `cache: 'off'`, and compares the two
-scenes. Replace the hand-written versions with it. The helper's failure message names the edit and the
-first differing prim path.
+The lake-strait tests also drop the duplicate Narrow/Normal width test and four repeated connectivity
+checks. Their exact fixtures remain in the representative matrix across the fast and slow tiers.
+The undo check reuses its restored scene instead of rebuilding it twice.
 
 ### 5. Query by meaning, not appearance
 
@@ -187,5 +189,5 @@ now caught by CI; check `git diff <its base> <its result>` for unrelated deletio
 | 4 | 8, first pass | Done |
 | 5 | 7 (retire Classic) | The owner wants it; deletes many tests before the rewrites |
 | 6 | 8, rest (`mapStyle.test.ts` and prompt-wording files) | Smaller after step 7 |
-| 7 | 4 (equality helper) | Removes duplication before the larger rewrite |
+| 7 | 4 (equality helper) | Done |
 | 8 | 5 (role tags) | The largest step; fewer files once 7 and 8 are done |

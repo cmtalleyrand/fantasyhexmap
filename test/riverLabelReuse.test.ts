@@ -5,6 +5,7 @@ import type { OrientedBox } from '../src/render/labels.ts';
 import { beginRenderProfile, endRenderProfile } from '../src/render/profile.ts';
 import { buildStaticScene } from '../src/render/scene.ts';
 import { fixture, options } from '../scripts/render-all-layers-fixture.ts';
+import { assertRebuildMatchesUncached } from './helpers/scene.ts';
 
 const SIZE = 26;
 function rng(seed: number) {
@@ -85,7 +86,7 @@ test('scene rebuilds after ownership edits equal uncached rebuilds and reuse riv
     map = { ...map, layers: { ...map.layers, polities: { ...map.layers.polities, data: { ...map.layers.polities.data!, owner } } } };
     const { result, hits: reused } = counted(() => buildStaticScene(map, opts));
     hits += reused;
-    assert.deepEqual(result, buildStaticScene(structuredClone(map), { ...opts, cache: 'off' }));
+    assertRebuildMatchesUncached(map, opts, `ownership at ${index}`, result);
   }
   assert.ok(hits > 0, 'ownership edits should reuse at least some river names');
 });
