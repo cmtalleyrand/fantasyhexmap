@@ -4,6 +4,7 @@ import type { PathCmd, Prim } from '../src/render/prims.ts';
 import { clearSharedPaths, shareUnchangedPaths } from '../src/render/sharedPaths.ts';
 import { buildStaticScene } from '../src/render/scene.ts';
 import { fixture, options } from '../scripts/render-all-layers-fixture.ts';
+import { assertRebuildMatchesUncached } from './helpers/scene.ts';
 
 const outline = (shift = 0): PathCmd[] => [['M', shift, 0], ...Array.from({ length: 80 }, (_, i) => ['L', shift + i, i % 7] as PathCmd), ['Z']];
 
@@ -34,5 +35,5 @@ test('after an ownership edit, shared outlines leave the scene equal to an uncac
   const index = p.owner.findIndex((o, i) => o && map.layers.base.data![i] === 'Land');
   map = structuredClone(map);
   map.layers.polities.data!.owner[index] = p.polities.find(q => q.id !== p.owner[index])!.id;
-  assert.deepEqual(buildStaticScene(map, opts), buildStaticScene(structuredClone(map), { ...opts, cache: 'off' }));
+  assertRebuildMatchesUncached(map, opts, 'ownership');
 });

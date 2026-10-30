@@ -7,7 +7,7 @@ import { invalidateTextMeasures } from '../src/render/fonts.ts';
 import { islandSpecFor } from '../shared/types.ts';
 import { componentFixture, placementFixture, editOptions, editCases } from '../scripts/render-edit-fixtures.ts';
 import { createMapState } from './seededMap.ts';
-import { assertCachedBuildsMatch } from './helpers/scene.ts';
+import { assertRebuildMatchesUncached } from './helpers/scene.ts';
 
 function profiled(map: ReturnType<typeof componentFixture>, options = editOptions()) {
   beginRenderProfile();
@@ -30,7 +30,7 @@ test('a distant component reuses its silhouette and performs no fitting after a 
   assert.equal(profile.counters['coast.componentBuilds'], 1);
   assert.ok(profile.counters['coast.componentHits']! >= 1);
   assert.equal(profile.counters['fit.rounds'] ?? 0, 0);
-  assert.deepEqual(scene, buildStaticScene(edited, { ...editOptions(), cache: 'off' }));
+  assertRebuildMatchesUncached(edited, editOptions(), 'local shore', scene);
 });
 test('unchanged glacier margins reuse their exact geometry and invalidate on terrain or policy edits', () => {
   const map = createMapState('Glacier cache', 5, 4);
@@ -41,11 +41,11 @@ test('unchanged glacier margins reuse their exact geometry and invalidate on ter
   profiled(map, options);
   const warm = profiled(structuredClone(map), { ...options, polityOpacity: .3 });
   assert.equal(warm.profile.counters['coast.componentBuilds'] ?? 0, 0, 'warm redraw must not retrace ice margins');
-  assert.deepEqual(warm.scene, buildStaticScene(map, { ...options, polityOpacity: .3, cache: 'off' }));
+  assertRebuildMatchesUncached(map, { ...options, polityOpacity: .3 }, 'opacity', warm.scene);
   const check = (changed: typeof map, opts = options) => {
     const result = profiled(changed, opts);
     assert.ok(result.profile.counters['glacier.marginBuilds']! > 0, 'changed geometry inputs rebuild');
-    assert.deepEqual(result.scene, buildStaticScene(structuredClone(changed), { ...opts, cache: 'off' }));
+    assertRebuildMatchesUncached(changed, opts, 'geometry invalidation', result.scene);
   };
   const raised = structuredClone(map); raised.layers.elevation.data![7] = 'Mountains'; check(raised);
   const rough = structuredClone(map); rough.defaultIrregularity = 'Fractured'; check(rough);
@@ -62,7 +62,7 @@ test('returning to an already validated land revision does not replay unchanged 
   assert.ok(validated.profile.counters['symbols.revalidatedFits']! > 0);
   const again = profiled(structuredClone(map), options);
   assert.equal(again.profile.counters['symbols.revalidatedFits'] ?? 0, 0);
-  assert.deepEqual(again.scene, buildStaticScene(map, { ...options, cache: 'off' }));
+  assertRebuildMatchesUncached(map, options, 'restore land revision', again.scene);
 });
 test('pack ice reuses its exact drawing and invalidates on shore, roughness and appearance edits', () => {
   const map = createMapState('Pack ice cache', 5, 4), options = editOptions();
@@ -72,11 +72,11 @@ test('pack ice reuses its exact drawing and invalidates on shore, roughness and 
   const warm = profiled(structuredClone(map), { ...options, polityOpacity: .3 });
   assert.equal(warm.profile.counters['coast.componentBuilds'] ?? 0, 0);
   assert.equal(warm.profile.counters['ice.packHits'], 1);
-  assert.deepEqual(warm.scene, buildStaticScene(map, { ...options, polityOpacity: .3, cache: 'off' }));
+  assertRebuildMatchesUncached(map, { ...options, polityOpacity: .3 }, 'opacity', warm.scene);
   const check = (changed: typeof map, opts = options) => {
     const result = profiled(changed, opts);
     assert.equal(result.profile.counters['ice.packBuilds'], 1);
-    assert.deepEqual(result.scene, buildStaticScene(structuredClone(changed), { ...opts, cache: 'off' }));
+    assertRebuildMatchesUncached(changed, opts, 'geometry invalidation', result.scene);
   };
   const shore = structuredClone(map); shore.layers.base.data![1] = 'Land'; check(shore);
   const rough = structuredClone(map); rough.defaultIrregularity = 'Fractured'; check(rough);
@@ -90,7 +90,7 @@ test('incremental rebuilds equal uncached rebuilds after merges, splits, setting
   const island = cases.find(c => c.name === 'placement/islands')!.map;
   const more = cases.find(c => c.name === 'placement/island-count')!.map;
   assert.notDeepEqual(islandSpecFor('Islands', island.islandSpecs!['51']), islandSpecFor('Islands', more.islandSpecs!['51']));
-  assertCachedBuildsMatch(cases);
+  for (const c of cases) assertRebuildMatchesUncached(c.map, c.options, c.name);
 });
 test('unchanged placement inputs reuse every search, while marker, font and terrain changes invalidate correctly', () => {
   const map = placementFixture(), options = editOptions();
@@ -102,22 +102,22 @@ test('unchanged placement inputs reuse every search, while marker, font and terr
   assert.equal(repeat.profile.counters['symbols.searches'] ?? 0, 0);
   assert.equal(repeat.profile.counters['placement.searches'] ?? 0, 0);
   assert.ok(repeat.profile.counters['placement.cacheHits']! >= 4);
-  assert.deepEqual(repeat.scene, buildStaticScene(map, { ...changed, cache: 'off' }));
+  assertRebuildMatchesUncached(map, changed, 'opacity', repeat.scene);
   const marker = { ...changed, style: { ...changed.style!, knobs: { ...changed.style!.knobs, cityMarkers: 'classic' as const } } };
   const markerResult = profiled(map, marker);
   assert.ok(markerResult.profile.counters['polityLabels.searches']! > 0, 'actual marker bounds affect polity names');
-  assert.deepEqual(markerResult.scene, buildStaticScene(map, { ...marker, cache: 'off' }));
+  assertRebuildMatchesUncached(map, marker, 'marker', markerResult.scene);
   invalidateTextMeasures();
   const fontResult = profiled(map, marker);
   assert.ok(fontResult.profile.counters['placement.searches']! >= 4);
-  assert.deepEqual(fontResult.scene, buildStaticScene(map, { ...marker, cache: 'off' }));
+  assertRebuildMatchesUncached(map, marker, 'font', fontResult.scene);
   const lake = structuredClone(map); lake.layers.base.data![5 * 12 + 7] = 'Lake';
   const landResult = profiled(lake, marker);
   assert.ok(landResult.profile.counters['symbols.revalidatedFits']! > 0);
   // A lake no longer bulges into its neighbours independently of their shares.
   // Removed symbols need no new search; surviving probes must still be revalidated.
   assert.notDeepEqual(landResult.scene, fontResult.scene);
-  assert.deepEqual(landResult.scene, buildStaticScene(lake, { ...marker, cache: 'off' }));
+  assertRebuildMatchesUncached(lake, marker, 'lake obstacle', landResult.scene);
 });
 
 
@@ -129,11 +129,11 @@ test('unchanged island drawings reuse layouts and outlines while shape edits inv
   const warm=profiled(structuredClone(map),{...options,polityOpacity:.3});
   assert.equal(warm.profile.counters['islands.drawingBuilds']??0,0);
   assert.ok(warm.profile.counters['islands.drawingHits']!>0);
-  assert.deepEqual(warm.scene,buildStaticScene(map,{...options,polityOpacity:.3,cache:'off'}));
+  assertRebuildMatchesUncached(map, { ...options, polityOpacity: .3 }, 'island opacity', warm.scene);
   const edited=structuredClone(map);edited.islandSpecs!['6']={large:2,small:1};
   const changed=profiled(edited,options);
   assert.ok(changed.profile.counters['islands.drawingBuilds']!>0);
-  assert.deepEqual(changed.scene,buildStaticScene(edited,{...options,cache:'off'}));
+  assertRebuildMatchesUncached(edited, options, 'island shape', changed.scene);
 });
 
 test('coast paint geometry survives colour redraws without retaining old colours', () => {
@@ -151,7 +151,6 @@ test('coast paint geometry survives colour redraws without retaining old colours
   assert.equal(after.clip, before.clip);
   assert.equal(after.points, before.points);
   assert.notEqual(after.fill, before.fill);
-  const full = buildStaticScene(map, { ...coloured, cache: 'off' });
+  const full = assertRebuildMatchesUncached(map, coloured, 'coast colour', warm);
   assert.notEqual(underlay(full).clip, before.clip);
-  assert.deepEqual(warm, full);
 });

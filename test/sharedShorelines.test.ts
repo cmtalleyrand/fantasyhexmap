@@ -10,6 +10,7 @@ import { DEFAULT_HEX_DIMENSIONS, hexShapeFor, type BaseGeo, type Irregularity } 
 import { baseSurfaceStatistics, landFractionAt, normaliseHexDimensions } from '../shared/surfaceArea.ts';
 import { reducer } from '../src/state/store.ts';
 import { parseMapImport, prepareLoadedMap } from '../src/state/import.ts';
+import { assertRebuildMatchesUncached } from './helpers/scene.ts';
 
 const size = 30;
 const options = { size, visible: defaultVisibility(), labels: false, style: resolveStyle({ preset: 'parchment' }) };
@@ -91,11 +92,8 @@ test('lake settings, undo and worker-style clones invalidate the shared coast ca
   const initial = shore('Lake');
   const edits = [initial, { ...initial, defaultLakeIrregularity: 'Fractured' as const },
     { ...initial, hexShapes: { '23': { type: 'Lake' as const, land: 35 } } }, initial];
-  const scenes = edits.map(map => {
-    const scene = buildStaticScene(structuredClone(map), options);
-    assert.deepEqual(scene, buildStaticScene(structuredClone(map), { ...options, cache: 'off' }));
-    return scene;
-  });
+  const names = ['initial lake', 'lake roughness', 'lake land share', 'undo lake settings'];
+  const scenes = edits.map((map, i) => assertRebuildMatchesUncached(structuredClone(map), options, names[i]!));
   assert.notDeepEqual(scenes[0], scenes[1]);
   assert.notDeepEqual(scenes[0], scenes[2]);
   assert.deepEqual(scenes[0], scenes[3]);
@@ -110,7 +108,7 @@ test('mixed sea/lake shores preserve the intervening land and report one shared 
   assert.equal(dry(hexCenter(4, 3, size)), true, 'land strip survives');
   const reports = scene.compromises?.filter(c => c.hexes.includes(31) && /% land drawn/.test(c.what)) ?? [];
   assert.ok(reports.length <= 1, 'one area fit accounts for both shores');
-  assert.deepEqual(scene, buildStaticScene(structuredClone(map), { ...options, cache: 'off' }));
+  assertRebuildMatchesUncached(map, options, 'mixed sea/lake shores', scene);
 });
 
 test('lake islands, map-edge water and fully filled lakes retain their topology', () => {

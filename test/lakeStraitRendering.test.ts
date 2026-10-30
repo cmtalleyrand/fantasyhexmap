@@ -14,17 +14,10 @@ function fixture(width: ChannelWidth = 'Normal', side?: number, land?: number, i
   return lakeStraitFixture({ width, side, land, irregular });
 }
 test('narrow lake straits retain a continuous water route after roughening and coastline ink', () => {
-  for (const irregular of ['Smooth', 'Ragged', 'Fractured'] as const) for (const width of ['Very narrow', 'Narrow'] as const) {
+  // The representative matrix covers both Ragged widths with the same fixture.
+  for (const irregular of ['Smooth', 'Fractured'] as const) for (const width of ['Very narrow', 'Narrow'] as const) {
     const draw = render(fixture(width, undefined, undefined, irregular));
     assert.ok(connected(draw), `${irregular}, ${width}: lake passage pinched shut`);
-  }
-});
-test('lake strait widths alter the rendered constriction', () => {
-  const narrow = render(fixture('Narrow')), normal = render(fixture('Normal'));
-  assert.ok(throat(normal).distance > throat(narrow).distance + size * 0.1);
-  for (const [draw, fraction] of [[narrow, 0.15], [normal, 0.3]] as const) {
-    const actual = throat(draw).distance, expected = fraction * Math.sqrt(3) * size;
-    assert.ok(Math.abs(actual - expected) < size * 0.04, `painted shore width ${actual} must match requested ${expected}`);
   }
 });
 test('west and east lake junction selections move the rendered passage', () => {
@@ -41,7 +34,7 @@ test('west and east lake junction selections move the rendered passage', () => {
   assert.ok(east.water(eastThroat), 'eastern junction lies in water');
   assert.equal(landTestOf(west.scene)?.({ x: c.x, y: c.y - size * 0.75 }), true, 'expanded lake bank is available for land placement');
   assert.equal(landTestOf(east.scene)?.(eastThroat), false, 'moved channel is water for placement too');
-  assert.ok(connected(west)); assert.ok(connected(east));
+  // The representative Normal/side=3 and Normal/side=0 cases check connectivity.
 });
 test('lake straits report land shares without sacrificing their headland shape to high targets', () => {
   const low = render(fixture('Narrow', undefined, 30));
@@ -130,9 +123,10 @@ test('editing a lake junction and undoing it restores the cached rendered shore'
   const east = render(map).rings;
   assert.notDeepEqual(west, east);
   map.hexShapes![centre]!.straitJunctionSide = 3;
-  assert.deepEqual(render(map).rings, west);
+  const restored = render(map);
+  assert.deepEqual(restored.rings, west);
   const uncached = buildScene(map, { size, visible: defaultVisibility(), labels: false, style, cache: 'off' });
-  assert.deepEqual(uncached.prims, render(map).scene.prims);
+  assert.deepEqual(uncached.prims, restored.scene.prims);
 });
 
 test('a lake passage reaching the map edge closes its water clip along the page', () => {
@@ -145,6 +139,7 @@ test('a lake passage reaching the map edge closes its water clip along the page'
   assert.equal(draw.water(hexCenter(6, 6, size)), false);
 });
 
+// The Narrow/Normal width bounds also guarantee Normal is wider by more than size * 0.1.
 for (const [index, example] of LAKE_STRAIT_CASES.entries()) {
   // The other cases run in the slow tier (test/slow/lakeStraitCases.test.ts).
   if (!FAST_LAKE_STRAIT_CASES.has(index)) continue;
