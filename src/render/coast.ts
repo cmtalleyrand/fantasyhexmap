@@ -1295,7 +1295,7 @@ export function evenOddTest(rings: Point[][], band: number): (p: Point) => boole
       }
     }
   }
-  const columns = new Map<number, Map<number, { edges: Array<[Point, Point]>; events: number[] }>>();
+  const columns = new Map<number, Map<number, { edges: Array<[Point, Point]>; events: Float64Array }>>();
   const width = band * 4;
   return (p) => {
     const row = Math.floor(p.y / band), col = Math.floor(p.x / width);
@@ -1310,8 +1310,8 @@ export function evenOddTest(rings: Point[][], band: number): (p: Point) => boole
         if (Math.min(a.x, b.x) > right + 1e-9) events.push(Math.min(a.y, b.y), Math.max(a.y, b.y));
         else edges.push([a, b]);
       }
-      events.sort((a, b) => a - b);
-      cell = { edges, events }; cells.set(col, cell);
+      // A typed sort orders numbers natively, without a comparator call per step.
+      cell = { edges, events: Float64Array.from(events).sort() }; cells.set(col, cell);
     }
     let lo = 0, hi = cell.events.length;
     while (lo < hi) { const mid = (lo + hi) >>> 1; if (cell.events[mid]! <= p.y) lo = mid + 1; else hi = mid; }

@@ -1599,3 +1599,30 @@ realms own apart from the rest in the map data.
 **Effect.** On the populated fixture it applies at hexes 87, 282, 392 (three edges) and 917; hex 794,
 whose land facing realm A is a whole sector, is unchanged.
 
+
+## 80. The coast fit made cheaper without changing what it computes
+
+**Problem.** With the stand-in rejected (§78), the only route to a faster opening is a cheaper coast
+fit. A CPU profile of a cold build of the populated fixture put most of the fit's own time in four
+places: the per-scanline union of land and coastline ink (a comparator sort of every run on a whole map
+row, then each hex walking that row from its left end), the nearest-edge clearance of each silhouette
+point (a `Set` per spatial cell and a `Math.hypot` per candidate), the solver's new-crossing check
+(string grid keys and a tuple per segment), and the spline support (four tuples per coast point per
+round), with about 0.8 s of garbage collection behind the allocations.
+
+**Chosen.** Each is replaced by an equivalent that computes the same numbers. The scanline union sorts
+run starts and run ends separately in native typed arrays and sweeps them (a start equal to an end comes
+first, so touching runs still join), is stored flat, and a hex finds its first run by bisection;
+skipped runs end left of the hex and added nothing. Clearance compares squared distances and takes one
+root of the nearest; candidate lists keep first occurrences in bin order, as the `Set` did. The
+crossing grid uses numeric keys and flat (ring, index) pairs in the same order; even-odd point tests
+sort with a typed array; spline support is two typed arrays per ring.
+
+**Checked.** The serialised scene is byte-identical (SHA-256) to the parent commit on the populated and
+mixed fixtures; typecheck, the fast suite (581 tests), the slow suite and `test:drawing-pixels` pass.
+In a rotating five-pair cold-build comparison of the populated fixture (Node, separate processes) the
+parent took 4,609–5,047 ms (mean 4,834) and this change 4,239–4,502 ms (mean 4,354), about 10% less.
+
+**Still open.** The fit's arithmetic is unchanged, so its remaining cost is real work: the global share
+passes' traces, ten solver rounds and their measurements, and the clearance queries. Further gains need
+fewer rounds or measurements, which can change the coast and must be judged by §76.
