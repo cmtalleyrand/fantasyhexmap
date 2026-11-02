@@ -1621,8 +1621,48 @@ sort with a typed array; spline support is two typed arrays per ring.
 **Checked.** The serialised scene is byte-identical (SHA-256) to the parent commit on the populated and
 mixed fixtures; typecheck, the fast suite (581 tests), the slow suite and `test:drawing-pixels` pass.
 In a rotating five-pair cold-build comparison of the populated fixture (Node, separate processes) the
-parent took 4,609–5,047 ms (mean 4,834) and this change 4,239–4,502 ms (mean 4,354), about 10% less.
+parent took 4,609–5,047 ms (mean 4,834) and this change 4,239–4,502 ms (mean 4,354). Per pair the
+reduction ranged from 4% to 16% (median 11%). Absolute times are not comparable with other entries;
+see §82.
 
 **Still open.** The fit's arithmetic is unchanged, so its remaining cost is real work: the global share
 passes' traces, ten solver rounds and their measurements, and the clearance queries. Further gains need
 fewer rounds or measurements, which can change the coast and must be judged by §76.
+
+## 81. The coast fit's setup and checks made cheaper, results unchanged
+
+**Problem.** After §80 a cold build still spent time on work that does not affect its result. Each trace
+re-flattened every other coast path for every open coast it extended to the page rim, whether or not
+the curve's crossing check ran, and that check tested every segment of every coast. Each coverage
+measurement built a tuple per edge per band and nested point objects per ink segment, and each scanline
+copied its runs into new typed arrays to sort them. Every solver trial recomputed the segment lengths of
+the unchanged rings it compares against, and the solver kept its bends as tuples.
+
+**Chosen.** Each is replaced by an equivalent computing the same numbers. Rim extension flattens the
+other coasts only when a curve is checked, once per path array (a `WeakMap`), and skips obstacle
+segments whose bounding box misses the curve's step, which cannot cross it. Coverage bands store edges
+as flat point pairs and ink quadrilaterals as flat coordinates; scanlines collect runs in reused
+growing `Float64Array` buffers sorted in place. `distorts` reads segment lengths cached per ring; bends
+are a flat `Int32Array` and the solver's dot product a plain loop in the same order.
+
+**Checked.** The serialised scene is byte-identical (SHA-256) to `main` on the populated and mixed
+fixtures; typecheck, the fast suite (581 tests), the slow suite (14) and `test:drawing-pixels` pass.
+Cold builds in rotating pairs against `main` (Node, separate processes): populated, ten pairs, mean
+4,913 ms before and 4,139 ms after, every pair faster, the per-pair reduction ranging from 6% to 23%
+(median 16%); mixed, five pairs, 3,238 ms and 2,932 ms (about 9% less). These figures are for the six
+changes together: intermediate batches did not resolve their separate effects (§82).
+
+## 82. How rendering performance is measured and reported
+
+**Problem.** Cold builds of the same code on the same container varied between sessions by over a
+third (the populated fixture took about 4.4 s on one day and 6.0 s the next) and within one batch by
+about 10% (4.5–5.0 s). Absolute timings in this file and in `docs/render-performance-next-steps.md`
+therefore describe the machine's state as much as the code: figures taken on different days, or one run
+per variant, cannot be compared with each other.
+
+**Chosen.** A performance claim is a paired comparison: the before and after builds run alternately, in
+separate processes, in one session, and the claim reports per-pair ratios (range and median), not only
+means. Absolute milliseconds are given only as context for that session. With five pairs, differences
+under about 3–4% are not resolved; a change claimed below that needs many more pairs or a
+machine-independent measure of work. Earlier figures recorded from single runs (the 27 October pilot
+in the performance plan, including its line-count table) are indicative only.

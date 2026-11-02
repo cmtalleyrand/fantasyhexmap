@@ -1535,12 +1535,27 @@ export interface CoverageRing {
  * stroke as segments in order. An outline whose box misses `within`, and edges that cross
  * none of its measuring lines, may be left out without changing the result.
  */
+/** A reusable, growing list of numbers that sorts natively in place. */
+class NumberBuffer {
+  private data = new Float64Array(256);
+  length = 0;
+  push(value: number) {
+    if (this.length === this.data.length) { const grown = new Float64Array(this.length * 2); grown.set(this.data); this.data = grown; }
+    this.data[this.length++] = value;
+  }
+  /** The values in ascending order; valid until the next push. */
+  sorted(): Float64Array { return this.data.subarray(0, this.length).sort(); }
+}
+// Scratch space for building one scanline at a time; nothing holds it between calls.
+const runStarts = new NumberBuffer(), runEnds = new NumberBuffer(), crossingXs = new NumberBuffer();
+
 export function coverageOf(rings: CoverageRing[], strokeSegments: (visit: (a: Point, b: Point) => void) => void,
   options: { evenOdd?: boolean; reach: number; within?: Poly; reuseScanlines?: boolean }): (clip: Poly, lines?: number) => number {
   const band = 8;
   const region = options.within ? boxOf(options.within) : null;
   const prepared = rings.map(({ box, edges }) => {
-    const bins = new Map<number, Array<[Point, Point]>>();
+    // Each band lists its edges as consecutive (from, to) points.
+    const bins = new Map<number, Point[]>();
     if (!region || !(box[2]! < region[0] || box[0]! > region[2] || box[3]! < region[1] || box[1]! > region[3])) edges((a, b) => {
       if (a.y === b.y) return;
       const first = Math.max(Math.floor(Math.min(a.y, b.y) / band), region ? Math.floor(region[1] / band) : -Infinity);
@@ -1548,13 +1563,14 @@ export function coverageOf(rings: CoverageRing[], strokeSegments: (visit: (a: Po
       for (let y = first; y <= last; y++) {
         let bin = bins.get(y);
         if (!bin) { bin = []; bins.set(y, bin); }
-        bin.push([a, b]);
+        bin.push(a, b);
       }
     });
     return { box, bins };
   });
   const radius = options.reach;
-  const strokes: Array<{ poly: Point[]; a: Point; b: Point; box: number[] }> = [];
+  // Each stroke's quadrilateral is laid out flat as x0, y0, ... x3, y3.
+  const strokes: Array<{ poly: number[]; a: Point; b: Point; box: number[] }> = [];
   if (radius > 0) strokeSegments((a, b) => {
     const box = [Math.min(a.x, b.x) - radius, Math.min(a.y, b.y) - radius,
       Math.max(a.x, b.x) + radius, Math.max(a.y, b.y) + radius];
@@ -1562,8 +1578,7 @@ export function coverageOf(rings: CoverageRing[], strokeSegments: (visit: (a: Po
     const length = Math.hypot(b.x - a.x, b.y - a.y);
     if (!length) return;
     const dx = (b.y - a.y) / length * radius, dy = (a.x - b.x) / length * radius;
-    strokes.push({ poly: [{ x: a.x + dx, y: a.y + dy }, { x: b.x + dx, y: b.y + dy },
-      { x: b.x - dx, y: b.y - dy }, { x: a.x - dx, y: a.y - dy }], a, b, box });
+    strokes.push({ poly: [a.x + dx, a.y + dy, b.x + dx, b.y + dy, b.x - dx, b.y - dy, a.x - dx, a.y - dy], a, b, box });
   });
   // Hexes in one row share measuring lines. Union the whole line once, including
   // the round stroke, then intersect those disjoint runs with each hex's span.
@@ -1581,32 +1596,41 @@ export function coverageOf(rings: CoverageRing[], strokeSegments: (visit: (a: Po
   const scanlineAt = (y: number): Float64Array => {
     const hit = scanlines.get(y);
     if (hit) return hit;
-    const starts: number[] = [], ends: number[] = [];
-    const run = (lo: number, hi: number) => { if (hi > lo) { starts.push(lo); ends.push(hi); } };
+    runStarts.length = runEnds.length = crossingXs.length = 0;
+    const run = (lo: number, hi: number) => { if (hi > lo) { runStarts.push(lo); runEnds.push(hi); } };
     const row = Math.floor(y / band);
-    const crossings: number[] = [];
     for (const ring of prepared) {
+      const bin = ring.bins.get(row);
       // Even-odd fill pairs every crossing on the line, so collect them in one list.
-      const xs: number[] = options.evenOdd ? crossings : [];
-      for (const [a, b] of ring.bins.get(row) ?? []) {
+      if (options.evenOdd) {
+        if (bin) for (let e = 0; e < bin.length; e += 2) {
+          const a = bin[e]!, b = bin[e + 1]!;
+          if (a.y <= y !== b.y <= y) crossingXs.push(a.x + (y - a.y) / (b.y - a.y) * (b.x - a.x));
+        }
+        continue;
+      }
+      const xs: number[] = [];
+      if (bin) for (let e = 0; e < bin.length; e += 2) {
+        const a = bin[e]!, b = bin[e + 1]!;
         if (a.y <= y !== b.y <= y) xs.push(a.x + (y - a.y) / (b.y - a.y) * (b.x - a.x));
       }
-      if (!options.evenOdd) {
+      {
         xs.sort((u, v) => u - v);
         for (let k = 0; k + 1 < xs.length; k += 2) run(xs[k]!, xs[k + 1]!);
       }
     }
     if (options.evenOdd) {
-      const xs = Float64Array.from(crossings).sort();
+      const xs = crossingXs.sorted();
       for (let k = 0; k + 1 < xs.length; k += 2) run(xs[k]!, xs[k + 1]!);
     }
     for (const stroke of inkBins.get(row) ?? []) {
       if (y < stroke.box[1]! || y > stroke.box[3]!) continue;
       let lo = Infinity, hi = -Infinity;
       for (let k = 0; k < 4; k++) {
-        const a = stroke.poly[k]!, b = stroke.poly[(k + 1) % 4]!;
-        if (a.y <= y !== b.y <= y) {
-          const x = a.x + (y - a.y) / (b.y - a.y) * (b.x - a.x);
+        const q = stroke.poly, m = (k + 1) % 4;
+        const ax = q[2 * k]!, ay = q[2 * k + 1]!, bx = q[2 * m]!, by = q[2 * m + 1]!;
+        if (ay <= y !== by <= y) {
+          const x = ax + (y - ay) / (by - ay) * (bx - ax);
           lo = Math.min(lo, x); hi = Math.max(hi, x);
         }
       }
@@ -1622,7 +1646,7 @@ export function coverageOf(rings: CoverageRing[], strokeSegments: (visit: (a: Po
     // A union's pieces begin where cover rises from none and end where it
     // falls back, so starts and ends can be sorted apart, natively. A start
     // equal to an end comes first, joining runs that touch.
-    const from = Float64Array.from(starts).sort(), to = Float64Array.from(ends).sort();
+    const from = runStarts.sorted(), to = runEnds.sorted();
     const pieces: number[] = [];
     for (let i = 0, j = 0, depth = 0; j < to.length;) {
       if (i < from.length && from[i]! <= to[j]!) { if (depth++ === 0) pieces.push(from[i]!); i++; }
@@ -1682,7 +1706,9 @@ export function coverageOf(rings: CoverageRing[], strokeSegments: (visit: (a: Po
       const crossings: number[] = [];
       for (const ring of relevant) {
         const xs: number[] = [];
-        for (const [a, b] of ring.bins.get(Math.floor(y / band)) ?? []) {
+        const bin = ring.bins.get(Math.floor(y / band));
+        if (bin) for (let e = 0; e < bin.length; e += 2) {
+          const a = bin[e]!, b = bin[e + 1]!;
           if (a.y <= y !== b.y <= y) xs.push(a.x + ((y - a.y) / (b.y - a.y)) * (b.x - a.x));
         }
         if (options.evenOdd) crossings.push(...xs);
@@ -1701,8 +1727,9 @@ export function coverageOf(rings: CoverageRing[], strokeSegments: (visit: (a: Po
         if (y < s.box[1]! || y > s.box[3]!) continue;
         const xs: number[] = [];
         for (let k = 0; k < 4; k++) {
-          const a = s.poly[k]!, b = s.poly[(k + 1) % 4]!;
-          if (a.y <= y !== b.y <= y) xs.push(a.x + (y - a.y) / (b.y - a.y) * (b.x - a.x));
+          const q = s.poly, m = (k + 1) % 4;
+          const ax = q[2 * k]!, ay = q[2 * k + 1]!, bx = q[2 * m]!, by = q[2 * m + 1]!;
+          if (ay <= y !== by <= y) xs.push(ax + (y - ay) / (by - ay) * (bx - ax));
         }
         if (xs.length >= 2) runs.push([Math.max(left, Math.min(...xs)), Math.min(right, Math.max(...xs))]);
         for (const p of [s.a, s.b]) {

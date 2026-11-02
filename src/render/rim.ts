@@ -107,17 +107,30 @@ function rimXY(p: Point, bounds: RimBounds): [number, number] {
  * neighbouring coasts keep their boundary ordering. This path is installed in
  * the geometry before fitting; land queries and painted ink share it.
  */
+const flattenedPaths = new WeakMap<PathCmd[], Point[][]>();
+/** A path's polylines, kept per path array: callers pass the same unchanged paths again and again. */
+function flattened(d: PathCmd[]): Point[][] {
+  let lines = flattenedPaths.get(d);
+  if (!lines) { lines = pathPolylines(d, 8); flattenedPaths.set(d, lines); }
+  return lines;
+}
+
 export function extendCoastToRim(path: PathCmd[], closed: boolean, bounds: RimBounds, size: number, otherPaths: PathCmd[][] = []): PathCmd[] {
   if (closed || path.length < 3 || path.some(c => c[0] !== 'M' && c[0] !== 'L')) return extendToRim(path, closed, bounds, size);
   const points = path.map(c => ({ x: c[1] as number, y: c[2] as number }));
-  const obstacles = [path, ...otherPaths].flatMap(d => pathPolylines(d,8));
+  // Only a curve's safety check needs the other coasts, flattened once per path.
+  let obstacles: Point[][] | undefined;
   const cross = (a: Point,b: Point,c: Point)=>(b.x-a.x)*(c.y-a.y)-(b.y-a.y)*(c.x-a.x);
   const safe = (p: Point,control: Point,rim: Point) => {
     let a=p;
     for(let k=1;k<=8;k++) {
       const t=k/8,u=1-t,b={x:u*u*p.x+2*u*t*control.x+t*t*rim.x,y:u*u*p.y+2*u*t*control.y+t*t*rim.y};
+      obstacles ??= [path, ...otherPaths].flatMap(flattened);
+      // Segments whose boxes do not overlap cannot cross.
+      const x0=Math.min(a.x,b.x),x1=Math.max(a.x,b.x),y0=Math.min(a.y,b.y),y1=Math.max(a.y,b.y);
       for(const ring of obstacles)for(let j=0;j+1<ring.length;j++) {
         const c=ring[j]!,d=ring[j+1]!;
+        if((c.x<x0&&d.x<x0)||(c.x>x1&&d.x>x1)||(c.y<y0&&d.y<y0)||(c.y>y1&&d.y>y1))continue;
         if(cross(a,b,c)*cross(a,b,d)<-1e-8&&cross(c,d,a)*cross(c,d,b)<-1e-8)return false;
       }
       a=b;
