@@ -339,16 +339,18 @@ export function fitCoastAreas(geometry: CoastGeometry, targets: ReadonlyMap<numb
     const lambda = (size * 0.05) ** 2, mu = size ** 2;
     // Scale the residual by the system's diagonal and stop relative to the original
     // residual, rather than requiring each iteration to improve by eight orders.
-    const bends: Array<[number, number, number]> = [];
+    const bendList: number[] = [];
     const diagonal = new Float64Array(unknowns).fill(lambda);
     for (const { indices, values } of matrixRows) for (let j = 0; j < indices.length; j++) {
       diagonal[indices[j]!] = diagonal[indices[j]!]! + values[j]! ** 2;
     }
     for (const { base, count, closed: loop } of controls) for (let c = loop ? 0 : 1; c < (loop ? count : count - 1); c++) {
       const a = base + (c - 1 + count) % count, b = base + c, d = base + (c + 1) % count;
-      bends.push([a, b, d]);
+      bendList.push(a, b, d);
       diagonal[a] = diagonal[a]! + mu; diagonal[b] = diagonal[b]! + 4 * mu; diagonal[d] = diagonal[d]! + mu;
     }
+    // Each bend is three consecutive controls (a, b, d).
+    const bends = Int32Array.from(bendList);
     const rhs = Float64Array.from(timesT(Float64Array.from(hexes, h => short.get(h)! * (targets.has(h) ? 1 : 0.5))));
     const x = new Float64Array(unknowns);
     const r = Float64Array.from(rhs), dir = Float64Array.from(r, (v, j) => v / diagonal[j]!);
@@ -358,11 +360,14 @@ export function fitCoastAreas(geometry: CoastGeometry, targets: ReadonlyMap<numb
       profileCount('fit.solverIterations');
       const q = timesT(times(dir));
       for (let j = 0; j < unknowns; j++) q[j] = q[j]! + lambda * dir[j]!;
-      for (const [a, b, d] of bends) {
+      for (let n = 0; n < bends.length; n += 3) {
+        const a = bends[n]!, b = bends[n + 1]!, d = bends[n + 2]!;
         const second = mu * (dir[a]! - 2 * dir[b]! + dir[d]!);
         q[a] = q[a]! + second; q[b] = q[b]! - 2 * second; q[d] = q[d]! + second;
       }
-      const alpha = rz / (dir.reduce((sum, v, j) => sum + v * q[j]!, 0) || 1);
+      let curvature = 0;
+      for (let j = 0; j < unknowns; j++) curvature += dir[j]! * q[j]!;
+      const alpha = rz / (curvature || 1);
       let residual = 0, next = 0;
       for (let j = 0; j < unknowns; j++) {
         x[j] = x[j]! + alpha * dir[j]!; r[j] = r[j]! - alpha * q[j]!;
@@ -430,18 +435,30 @@ export function fitCoastAreas(geometry: CoastGeometry, targets: ReadonlyMap<numb
  * detail it carries does, drawing a small cape out into a spike. Stretches are at least
  * `span` long, so the roughening's smallest teeth, which any movement turns, do not count.
  */
+const segmentLengths = new WeakMap<Point[], Float64Array>();
+/** The length of each segment of `ring`, kept per ring: every trial step compares against the same rings. */
+function lengthsOf(ring: Point[]): Float64Array {
+  let lengths = segmentLengths.get(ring);
+  if (!lengths) {
+    lengths = new Float64Array(Math.max(0, ring.length - 1));
+    for (let j = 0; j + 1 < ring.length; j++) lengths[j] = Math.hypot(ring[j + 1]!.x - ring[j]!.x, ring[j + 1]!.y - ring[j]!.y);
+    segmentLengths.set(ring, lengths);
+  }
+  return lengths;
+}
+
 function distorts(before: Point[][], after: Point[][], span: number): Array<[number, number]> {
   const faults: Array<[number, number]> = [];
   for (let k = 0; k < before.length; k++) {
-    const a = before[k]!, b = after[k]!;
+    const a = before[k]!, b = after[k]!, length = lengthsOf(a);
     let e = 0, arc = 0;
     for (let j = 0; j < a.length; j += 2) {
       if (e < j) { e = j; arc = 0; }
-      while (e + 1 < a.length && arc < span) { arc += Math.hypot(a[e + 1]!.x - a[e]!.x, a[e + 1]!.y - a[e]!.y); e++; }
+      while (e + 1 < a.length && arc < span) { arc += length[e]!; e++; }
       if (arc < span) break;
       const ux = a[e]!.x - a[j]!.x, uy = a[e]!.y - a[j]!.y, vx = b[e]!.x - b[j]!.x, vy = b[e]!.y - b[j]!.y;
       const lu = Math.hypot(ux, uy), lv = Math.hypot(vx, vy);
-      arc -= Math.hypot(a[j + 1]!.x - a[j]!.x, a[j + 1]!.y - a[j]!.y) + (j + 2 < a.length ? Math.hypot(a[j + 2]!.x - a[j + 1]!.x, a[j + 2]!.y - a[j + 1]!.y) : 0);
+      arc -= length[j]! + (j + 2 < a.length ? length[j + 1]! : 0);
       if (lu < span * 0.25) continue;
       if (lv > lu * 2 || (ux * vx + uy * vy) < lu * lv * 0.64) faults.push([k, j], [k, e]);
     }

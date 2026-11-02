@@ -13,7 +13,8 @@ compares them, gives a pilot measurement for each of the first two, and sets the
 - **Picture checks:** the scripts now judge pictures by visible change (§76).
 
 What remains is the last section, the fit's own cost. Its first step, removing overhead without
-changing any result, is done (DECISIONS §80): cold builds about 10% faster, scenes byte-identical.
+changing any result, is done (DECISIONS §80 and §81): cold builds about 10% and then a further 16%
+faster, scenes byte-identical.
 
 The rest of this brief is the plan as written.
 
@@ -133,5 +134,5 @@ untouched, and they are the only route to a faster first picture now that a stan
 |---|---|---|
 | — | Option 1 | Rejected by the owner as a workaround (§78) |
 | 1 | Option 2 at 64 lines (done; §77) | One constant and existing checks, plus the fixes it exposed |
-| 2 | The fit's own cost: overhead with identical results (done; §80) | Free: no picture change |
+| 2 | The fit's own cost: overhead with identical results (done; §80, §81) | Free: no picture change |
 | 3 | The fit's own cost: fewer rounds, passes or measurements | What still bounds the picture; judged by §76 |

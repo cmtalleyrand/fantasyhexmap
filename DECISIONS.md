@@ -1626,3 +1626,25 @@ parent took 4,609–5,047 ms (mean 4,834) and this change 4,239–4,502 ms (mean
 **Still open.** The fit's arithmetic is unchanged, so its remaining cost is real work: the global share
 passes' traces, ten solver rounds and their measurements, and the clearance queries. Further gains need
 fewer rounds or measurements, which can change the coast and must be judged by §76.
+
+## 81. The coast fit's setup and checks made cheaper, results unchanged
+
+**Problem.** After §80 a cold build still spent time on work that does not affect its result. Each trace
+re-flattened every other coast path for every open coast it extended to the page rim, whether or not
+the curve's crossing check ran, and that check tested every segment of every coast. Each coverage
+measurement built a tuple per edge per band and nested point objects per ink segment, and each scanline
+copied its runs into new typed arrays to sort them. Every solver trial recomputed the segment lengths of
+the unchanged rings it compares against, and the solver kept its bends as tuples.
+
+**Chosen.** Each is replaced by an equivalent computing the same numbers. Rim extension flattens the
+other coasts only when a curve is checked, once per path array (a `WeakMap`), and skips obstacle
+segments whose bounding box misses the curve's step, which cannot cross it. Coverage bands store edges
+as flat point pairs and ink quadrilaterals as flat coordinates; scanlines collect runs in reused
+growing `Float64Array` buffers sorted in place. `distorts` reads segment lengths cached per ring; bends
+are a flat `Int32Array` and the solver's dot product a plain loop in the same order.
+
+**Checked.** The serialised scene is byte-identical (SHA-256) to `main` on the populated and mixed
+fixtures; typecheck, the fast suite (581 tests), the slow suite (14) and `test:drawing-pixels` pass.
+Cold builds in rotating pairs against `main` (Node, separate processes): populated, ten pairs, mean
+4,913 ms before and 4,139 ms after (about 16% less, every pair faster); mixed, five pairs, 3,238 ms and
+2,932 ms (about 9% less).
