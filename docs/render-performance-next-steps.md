@@ -140,4 +140,167 @@ untouched, and they are the only route to a faster first picture now that a stan
 | — | Option 1 | Rejected by the owner as a workaround (§78) |
 | 1 | Option 2 at 64 lines (done; §77) | One constant and existing checks, plus the fixes it exposed |
 | 2 | The fit's own cost: overhead with identical results (done; §80, §81) | Free: no picture change |
-| 3 | The fit's own cost: fewer rounds, passes or measurements | What still bounds the picture; judged by §76 |
+| 3 | Task A: a robust paired benchmark | Every later decision depends on it (§82) |
+| 4 | Task B: test each complexity-adding change on its own | Keep only changes that pay for their complexity |
+| 5 | Task C: retest promising changes that were rejected for no gain | They may have been measured wrongly |
+| 6 | The fit's own cost: fewer rounds, passes or measurements | What still bounds the picture; judged by §76 |
+
+## Tasks A–C: measure reliably, then re-judge past changes
+
+Do these three tasks in order, A, then B, then C, because B and C both use the tool that A builds.
+Each task ends in its own commit and its own DECISIONS entry. Read DECISIONS §82 before you start.
+
+Some rules apply to every task:
+- Never compare timings taken on different days, or from one run per variant.
+- Never change what a scene contains while doing B or C, except where C explicitly says so.
+- If a check fails and you do not understand why, stop and report it. Do not loosen the check.
+
+### Task A: a paired benchmark that gives a confidence interval
+
+**Why.** On this container, run times move by about 10% within a batch and by over a third between
+days. The five-pair comparisons used so far cannot detect differences under about 3–4%. Task B needs
+to detect 0.5%.
+
+**What to build.** Build a script, `scripts/perf-compare.ts`, and add it to `package.json` as
+`perf:compare`. It compares two source trees. The usual inputs are a git worktree of the base commit
+and the working tree.
+
+**How it measures.**
+- Each sample is one fresh Node process running
+  `scripts/render-construction-profile.ts --sample --root <tree> --edits 0 --kind <kind>`, which
+  prints JSON containing `cold.ms` and `hash`.
+- Before timing, run each tree once and check that the two hashes are equal. If they differ, stop and
+  report the difference unless `--allow-different` is passed.
+- Do two warm-up samples per tree and discard them. This loads tsx caches and the disk cache.
+- Run N pairs; the default is 30 and `--pairs` sets it. Alternate the order: base first in odd pairs,
+  new first in even pairs.
+- For each pair, record the ratio new ÷ base.
+
+**What it reports.**
+- The median ratio.
+- A 95% bootstrap confidence interval of the median ratio: resample the pair ratios with replacement
+  10,000 times and take the 2.5th and 97.5th percentiles of the medians.
+- The minimum and maximum ratio.
+- The base and new medians in ms, as context only.
+- A one-word verdict:
+  - `faster` if the upper end of the interval is below 1;
+  - `slower` if the lower end is above 1;
+  - `unresolved` otherwise.
+
+Print a short table, and write the full sample list to `work/perf-compare/<timestamp>.json`.
+
+**Reducing noise.** Optionally also record, per sample, the process's CPU time from
+`process.cpuUsage()` around the build, and report the same statistics for it. CPU time is usually
+steadier than wall time on a shared machine. If you add it, the sample script must print it; add it
+to `render-construction-profile.ts` in the `run` function beside `ms`. Report both measures, and say
+in the DECISIONS entry which one varied less.
+
+**Check that the tool works.**
+- Compare the working tree against itself (`--root` pointing to the same tree for both sides) with 30
+  pairs. The interval must contain 1.00 and should be narrower than ±1.5%. Record its width.
+- Then add a known slowdown: insert a busy loop of about 1% of a build's time at the start of
+  `buildStaticScene`, in a scratch copy only, and confirm the tool reports `slower` at about 1.01.
+  Remove the loop.
+- If the self-comparison interval is wider than ±0.5%, then 0.5% changes cannot be resolved. Raise
+  `--pairs` until it is narrower, up to 100, and record how many pairs that needed. If even 100 is
+  not enough, say so in the entry and continue with the narrowest you can get.
+
+**Deliver.** The script, the `package.json` entry, a DECISIONS entry (§83) recording the
+self-comparison widths, and an amendment to §82 that points to the tool.
+
+### Task B: test each complexity-adding change separately (threshold 0.5%)
+
+**Why.** DECISIONS §80 and §81 made several changes that make the code harder to read. They were only
+timed together, so nobody knows whether each one pays for itself. The owner's rule: keep such a
+change only if removing it makes the build at least 0.5% slower, judged by Task A's tool.
+
+**The changes to test**, one at a time:
+1. `NumberBuffer` in `src/render/footprint.ts`, the shared, reused scratch buffers `runStarts`,
+   `runEnds` and `crossingXs`. To undo it, give each scanline its own new arrays
+   (`Float64Array.from(list).sort()`) and delete the class.
+2. The flat band bins and the flat 8-number stroke `poly` in `src/render/footprint.ts`. To undo
+   them, store edges as `[a, b]` tuples and the ink quadrilateral as an array of four points.
+3. The `mark` field with the `lists` generation counter in `src/render/componentCoast.ts`. To undo
+   it, use a `Set` to skip repeats, keeping first-seen order.
+4. The typed-array spline `support` in `src/render/coastArea.ts`, which uses `Int32Array` and
+   `Float64Array` indexed `4*j..4*j+3`. To undo it, use an array of four `[index, weight]` tuples
+   per point.
+5. The `bends` `Int32Array` in `src/render/coastArea.ts`. To undo it, use the plain `bendList`.
+
+Use `git log -p` on the branch to find the exact earlier code for each change. The commits that
+introduced them are referenced by §80 and §81.
+
+**Steps, for each change on its own:**
+1. Make a git worktree of the current head at `/tmp/perf-base`.
+2. In the working tree, undo only that one change.
+3. Run `npm run typecheck` and `npm test`. Both must pass.
+4. Run `npm run perf:compare -- --base /tmp/perf-base --pairs 30` (or the pair count Task A found
+   necessary). The hashes must be equal; if they are not, your undo is wrong, so fix it.
+5. Repeat step 4 with `--kind mixed`.
+6. Decide:
+   - If, on the populated fixture, the undo is `slower` and its median ratio is at least 1.005, the
+     change earns its place: restore it.
+   - Otherwise, keep the undo, which means the simpler code. Commit it as "Remove <change>: no
+     measurable gain (median ratio x.xxx, interval a–b)".
+7. Delete the worktree, and recreate it from the new head before testing the next change, so that
+   each test is against the current code.
+
+**After all five,** run the full gates: `npm run typecheck`, `npm test`, `npm run test:slow` and
+`npm run test:drawing-pixels` (it needs `CHROMIUM_PATH=/opt/pw-browsers/chromium`). Confirm the
+scene hashes still equal those of the original head.
+
+**Deliver.**
+- One commit per removed change.
+- A DECISIONS entry (§84) with a table giving, for each change, the median ratio, the interval, the
+  verdict and whether it was kept.
+- One-line notes in §80 and §81 pointing to §84.
+
+### Task C: retest changes that were rejected for showing no gain
+
+**Why.** Some past attempts were rejected because they showed no gain. That may have been because
+the measurement was too noisy, or measured the wrong thing (for example, total time when only one
+part changed). Retest only the ones that, before measurement, looked likely to save 2.5% or more.
+
+**Step 1: assessment** (write it before running anything). Go through DECISIONS §70 onwards and
+this file, and list every performance change that was tried and not adopted. For each, record:
+- what it was meant to speed up;
+- the evidence used to reject it (how many runs, paired or not, which timing);
+- whether, before measuring, it was a strong candidate, meaning the work it removed was at least
+  2.5% of the timing being judged;
+- whether the rejection could plausibly be a measurement problem: few or unpaired runs, an effect
+  smaller than the noise, or the wrong timing measured.
+
+Retest only the attempts that are both strong candidates and plausibly mismeasured. Do not retest
+attempts rejected for a structural reason or by a large, clear margin.
+
+My own reading, as a starting point to check rather than copy:
+- **Band-line thinning (§75).** Retest. Its in-page paint fell from 246 to 198 ms, about 20%, but two
+  production-worker pairs showed no reliable gain. Two pairs cannot resolve that.
+  - It was also rejected because inner band edges moved by up to 32 levels at 1×. That was judged
+    before §76 relaxed the criterion to no visible change, so make before/after images and judge
+    them by §76 as well.
+- **Composited layers for realm border groups (§75).** Probably do not retest. They were slower in
+  every run (281–348 against 246 ms).
+- **Batching same-style fills (§74).** Do not retest. It was about ten times slower in one case.
+- **Partial repaint (§72).** Do not retest. It was rejected for structural reasons, and the owner
+  has also ruled it out.
+- **96 against 64 measuring lines (§77, and the table above).** Not a failure, but the pilot figures
+  came from single runs. Retest only if Task A shows the pilot was badly off.
+
+The batch timings during §81, which showed almost no gain from the third and fourth changes, are
+covered by Task B, so do not retest them here.
+
+**Step 2: retest.** For each attempt you selected, rebuild it from the description in DECISIONS.
+Then measure it with the timing the change actually affects:
+- Paint changes: in the browser, through `npm run perf:interaction` or `npm run perf:opening`, with
+  many alternating pairs, using the same ratio and bootstrap-interval method as Task A. Extend
+  `perf:compare` or write a browser equivalent.
+- Build changes: with `perf:compare`.
+
+Adopt an attempt only if it is `faster` by at least 0.5% and passes the picture gates,
+`test:drawing-pixels` plus a §76 visual judgement.
+
+**Deliver.**
+- A DECISIONS entry (§85) with the assessment table and the retest results.
+- The code of any attempt that is now adopted, as its own commit.
+- Amendments to the earlier entries whose conclusions changed.
