@@ -13,8 +13,12 @@ compares them, gives a pilot measurement for each of the first two, and sets the
 - **Picture checks:** the scripts now judge pictures by visible change (§76).
 
 What remains is the last section, the fit's own cost. Its first step, removing overhead without
-changing any result, is done (DECISIONS §80 and §81): cold builds about 10% and then a further 16%
-faster, scenes byte-identical.
+changing any result, is done (DECISIONS §80 and §81), scenes byte-identical. In paired runs each step
+cut the populated cold build by a median of 11% and 16% respectively.
+
+**Measurement caveat (DECISIONS §82).** Timings on this container vary by over a third between
+sessions and about 10% within a batch. Every absolute time below was taken on 27 October, mostly from
+one run per variant; compare only paired before/after ratios from a single session.
 
 The rest of this brief is the plan as written.
 
@@ -30,7 +34,8 @@ Gates that measure geometry rather than pixels stay as they are: the land-share 
 ## Where the time goes
 
 Pilot: Node, cold build, geography layer only, the 40×40 `populated` fixture
-(`scripts/render-profile-input.ts`), one run per variant. The variants were made with temporary hooks,
+(`scripts/render-profile-input.ts`), one run per variant, so differences under about half a second are
+within run-to-run noise (§82). The variants were made with temporary hooks,
 since reverted:
 - the line count at `src/render/coastArea.ts:167`;
 - an early return in `cachedCoastFit` (`src/render/scene.ts`);
@@ -124,7 +129,7 @@ bands) that every local change reaches, not the exactness work.
 
 ## What remains
 
-With option 2 the exact opening still costs about 7 s on the pilot. The solver (about 2.8 s), the
+With option 2 the exact opening still cost about 7 s on the pilot (27 October timings; see the caveat above). The solver (about 2.8 s), the
 global passes (about 1.15 s) and the fixed setup of each coverage measurement (about 1.3 s) are
 untouched, and they are the only route to a faster first picture now that a stand-in is ruled out.
 
