@@ -275,9 +275,10 @@ export function fitCoastAreas(geometry: CoastGeometry, targets: ReadonlyMap<numb
     const spacing = size * 0.5;
     const controls: Array<{ base: number; count: number; closed: boolean }> = [];
     let unknowns = 0;
-    const support = current.map((ring, k) => {
+    // Point j of ring k is moved by controls index[4j..4j+3], weighted by weight[4j..4j+3].
+    const support = current.map((ring, k): { index: Int32Array; weight: Float64Array } => {
       const count = ring.length;
-      if (count < 3) { controls.push({ base: unknowns, count: 0, closed: closed[k]! }); return []; }
+      if (count < 3) { controls.push({ base: unknowns, count: 0, closed: closed[k]! }); return { index: new Int32Array(0), weight: new Float64Array(0) }; }
       const arcs = [0];
       for (let j = 1; j < count; j++) arcs.push(arcs[j - 1]! + Math.hypot(ring[j]!.x - ring[j - 1]!.x, ring[j]!.y - ring[j - 1]!.y));
       const total = arcs[count - 1]! || 1;
@@ -285,13 +286,16 @@ export function fitCoastAreas(geometry: CoastGeometry, targets: ReadonlyMap<numb
       controls.push({ base: unknowns, count: m, closed: closed[k]! });
       const base = unknowns;
       unknowns += m;
-      return arcs.map(a => {
+      const index = new Int32Array(count * 4), weight = new Float64Array(count * 4);
+      arcs.forEach((a, j) => {
         // Uniform cubic B-spline: an open coast's controls run one past each end.
         const t = closed[k] ? (a / total) * m : (a / total) * (m - 3);
         const cell = Math.min(Math.floor(t), closed[k] ? m - 1 : m - 4), u = t - cell;
-        const w = [(1 - u) ** 3 / 6, (3 * u ** 3 - 6 * u * u + 4) / 6, (-3 * u ** 3 + 3 * u * u + 3 * u + 1) / 6, u ** 3 / 6];
-        return w.map((weight, q): [number, number] => [base + (closed[k] ? (cell + q - 1 + m) % m : cell + q), weight]);
+        weight[4 * j] = (1 - u) ** 3 / 6; weight[4 * j + 1] = (3 * u ** 3 - 6 * u * u + 4) / 6;
+        weight[4 * j + 2] = (-3 * u ** 3 + 3 * u * u + 3 * u + 1) / 6; weight[4 * j + 3] = u ** 3 / 6;
+        for (let q = 0; q < 4; q++) index[4 * j + q] = base + (closed[k] ? (cell + q - 1 + m) % m : cell + q);
       });
+      return { index, weight };
     });
     // Rows of M (area change of hex g per unit of each control), by the length of coast
     // each point stands for in the hex it lies in.
@@ -302,7 +306,8 @@ export function fitCoastAreas(geometry: CoastGeometry, targets: ReadonlyMap<numb
       if (g === undefined) return;
       let row = matrix.get(g);
       if (!row) { row = new Map(); matrix.set(g, row); }
-      for (const [i, w] of support[k]![j]!) row.set(i, (row.get(i) ?? 0) + w * s.length);
+      const { index: at, weight } = support[k]!;
+      for (let q = 4 * j; q < 4 * j + 4; q++) row.set(at[q]!, (row.get(at[q]!) ?? 0) + weight[q]! * s.length);
     }));
     // Least squares with a small penalty on the controls and a larger one on how sharply
     // they bend, by conjugate gradients on the normal equations: the smallest smooth
@@ -378,7 +383,8 @@ export function fitCoastAreas(geometry: CoastGeometry, targets: ReadonlyMap<numb
         const s = samples[k]![j]!;
         if (!s.reach) return p;
         let d = 0;
-        for (const [i, w] of support[k]![j]!) d += w * x[i]! * factor[i]!;
+        const { index: at, weight } = support[k]!;
+        for (let q = 4 * j; q < 4 * j + 4; q++) d += weight[q]! * x[at[q]!]! * factor[at[q]!]!;
         d = Math.max(-s.reach, Math.min(s.reach, d));
         return { x: p.x + s.n.x * d, y: p.y + s.n.y * d };
       });
@@ -396,7 +402,10 @@ export function fitCoastAreas(geometry: CoastGeometry, targets: ReadonlyMap<numb
       if (!faults.length) { next = trial; break; }
       // A control shared by several faulty points is halved once, not once per point.
       const hit = new Set<number>();
-      for (const [k, j] of faults) for (const [i] of support[k]?.[j] ?? []) hit.add(i);
+      for (const [k, j] of faults) {
+        const at = support[k]?.index;
+        if (at && 4 * j < at.length) for (let q = 4 * j; q < 4 * j + 4; q++) hit.add(at[q]!);
+      }
       for (const i of hit) factor[i] = attempt < 4 ? factor[i]! * 0.5 : 0;
     }
     if (!next) break;
@@ -448,7 +457,8 @@ function distorts(before: Point[][], after: Point[][], span: number): Array<[num
 function newCrossings(before: Point[][], after: Point[][], closed: boolean[], size: number): Array<[number, number]> {
   const faults: Array<[number, number]> = [];
   const cell = size / 2;
-  const grid = new Map<string, Array<[number, number]>>();
+  // Each cell lists its segments as flat (ring, index) pairs under a numeric key.
+  const grid = new Map<number, number[]>();
   const cross = (a: Point, b: Point, c: Point) => (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
   const crosses = (rs: Point[][], k: number, j: number, m: number, i: number) => {
     const a = rs[k]![j]!, b = rs[k]![j + 1]!, c = rs[m]![i]!, d = rs[m]![i + 1]!;
@@ -466,15 +476,16 @@ function newCrossings(before: Point[][], after: Point[][], closed: boolean[], si
       const y0 = Math.floor(Math.min(a.y, b.y) / cell), y1 = Math.floor(Math.max(a.y, b.y) / cell);
       const mine = moved(k, j);
       for (let x = x0; x <= x1; x++) for (let y = y0; y <= y1; y++) {
-        const key = `${x},${y}`;
-        const list = grid.get(key) ?? [];
-        for (const [m, i] of list) {
+        const key = (x + 1048576) * 2097152 + (y + 1048576);
+        let list = grid.get(key);
+        if (!list) { list = []; grid.set(key, list); }
+        for (let n = 0; n < list.length; n += 2) {
+          const m = list[n]!, i = list[n + 1]!;
           if (m === k && (Math.abs(i - j) <= 1 || (closed[k] && Math.abs(i - j) >= ring.length - 2))) continue;
           if (!mine && !moved(m, i)) continue;
           if (crosses(after, k, j, m, i) && !crosses(before, k, j, m, i)) faults.push([k, j], [m, i]);
         }
-        list.push([k, j]);
-        grid.set(key, list);
+        list.push(k, j);
       }
     }
   }

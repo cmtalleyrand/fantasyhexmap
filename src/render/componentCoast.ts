@@ -16,6 +16,8 @@ export function coastClearance(chains: CoastChain[], size: number) {
     length: number;
     x0: number; y0: number; x1: number; y1: number;
     dx: number; dy: number; length2: number;
+    /** The candidate list last given this entry; an edge spanning several bins is listed once. */
+    mark: number;
   };
   const bins = new Map<number, Map<number, Entry[]>>();
   const lengths = new Map<CoastChain, number>();
@@ -26,7 +28,7 @@ export function coastClearance(chains: CoastChain[], size: number) {
       const dx = edge.to.x - edge.from.x, dy = edge.to.y - edge.from.y;
       // Fixed while this spatial index is in use; all queries share these bounds
       // and projection coefficients. Rebuild the index when a fit moves the rings.
-      const entry = { edge, chain, arc, length, dx, dy, length2: dx * dx + dy * dy || 1,
+      const entry = { edge, chain, arc, length, dx, dy, length2: dx * dx + dy * dy || 1, mark: -1,
         x0: Math.min(edge.from.x, edge.to.x), x1: Math.max(edge.from.x, edge.to.x),
         y0: Math.min(edge.from.y, edge.to.y), y1: Math.max(edge.from.y, edge.to.y) };
       for (let x = Math.floor(Math.min(edge.from.x, edge.to.x) / size); x <= Math.floor(Math.max(edge.from.x, edge.to.x) / size); x++)
@@ -42,6 +44,7 @@ export function coastClearance(chains: CoastChain[], size: number) {
     lengths.set(chain, arc);
   }
   const candidates = new Map<number, Map<number, Entry[]>>();
+  let lists = 0;
   const measure = (p: Point, chain: CoastChain, arc: number, otherComponentsOnly = false) => {
     let nearest = size * 3;
     const x = Math.floor(p.x / size), y = Math.floor(p.y / size);
@@ -49,27 +52,37 @@ export function coastClearance(chains: CoastChain[], size: number) {
     if (!column) { column = new Map(); candidates.set(x, column); }
     let entries = column.get(y);
     if (!entries) {
-      const nearby = new Set<Entry>();
-      for (let dx = -3; dx <= 3; dx++) for (let dy = -3; dy <= 3; dy++) {
-        for (const entry of bins.get(x + dx)?.get(y + dy) ?? []) nearby.add(entry);
+      // First occurrences in bin order, as a Set would keep them.
+      const list = lists++, nearby: Entry[] = [];
+      for (let dx = -3; dx <= 3; dx++) {
+        const near = bins.get(x + dx);
+        if (!near) continue;
+        for (let dy = -3; dy <= 3; dy++) {
+          for (const entry of near.get(y + dy) ?? []) if (entry.mark !== list) { entry.mark = list; nearby.push(entry); }
+        }
       }
-      entries = [...nearby]; column.set(y, entries);
+      entries = nearby; column.set(y, entries);
     }
+    // Compare squared distances and take one root at the end: the nearest
+    // segment is the same, and this loop runs for every silhouette point.
+    const total = chain.closed ? lengths.get(chain)! : 0;
+    let nearest2 = nearest * nearest, nx = 0, ny = 0, found = false;
     for (const e of entries) {
       if (e.chain === chain) {
         if (otherComponentsOnly) continue;
         let gap = Math.abs(arc - (e.arc + e.length / 2));
-        if (chain.closed) gap = Math.min(gap, lengths.get(chain)! - gap);
+        if (chain.closed) gap = Math.min(gap, total - gap);
         if (gap < size * 2 + e.length / 2) continue;
       }
       const a = e.edge.from;
       const bx = Math.max(0, e.x0 - p.x, p.x - e.x1);
       const by = Math.max(0, e.y0 - p.y, p.y - e.y1);
-      if (bx * bx + by * by > nearest * nearest) continue;
+      if (bx * bx + by * by > nearest2) continue;
       const t = Math.max(0, Math.min(1, ((p.x - a.x) * e.dx + (p.y - a.y) * e.dy) / e.length2));
-      nearest = Math.min(nearest, Math.hypot(p.x - (a.x + e.dx * t), p.y - (a.y + e.dy * t)));
+      const dx = p.x - (a.x + e.dx * t), dy = p.y - (a.y + e.dy * t), d2 = dx * dx + dy * dy;
+      if (d2 < nearest2) { nearest2 = d2; nx = dx; ny = dy; found = true; }
     }
-    return nearest;
+    return found ? Math.min(nearest, Math.hypot(nx, ny)) : nearest;
   };
   // A fitting pass can move one coast while leaving distant components alone.
   // Include every edge that their clearance queries could inspect so cached

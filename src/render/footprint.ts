@@ -1574,25 +1574,33 @@ export function coverageOf(rings: CoverageRing[], strokeSegments: (visit: (a: Po
       if (bin) bin.push(stroke); else inkBins.set(y, [stroke]);
     }
   }
-  const scanlines = new Map<number, Array<[number, number]>>();
+  const scanlines = new Map<number, Float64Array>();
   let cachedEntries = 0;
-  const scanlineAt = (y: number): Array<[number, number]> => {
+  // The union of land and ink on one measuring line, as sorted, disjoint
+  // [from, to) pairs laid out flat; runs that touch are joined.
+  const scanlineAt = (y: number): Float64Array => {
     const hit = scanlines.get(y);
     if (hit) return hit;
-    const runs: Array<[number, number]> = [], crossings: number[] = [];
-    const addPairs = (xs: number[]) => {
-      xs.sort((a, b) => a - b);
-      for (let k = 0; k + 1 < xs.length; k += 2) runs.push([xs[k]!, xs[k + 1]!]);
-    };
+    const starts: number[] = [], ends: number[] = [];
+    const run = (lo: number, hi: number) => { if (hi > lo) { starts.push(lo); ends.push(hi); } };
+    const row = Math.floor(y / band);
+    const crossings: number[] = [];
     for (const ring of prepared) {
-      const xs: number[] = [];
-      for (const [a, b] of ring.bins.get(Math.floor(y / band)) ?? []) {
+      // Even-odd fill pairs every crossing on the line, so collect them in one list.
+      const xs: number[] = options.evenOdd ? crossings : [];
+      for (const [a, b] of ring.bins.get(row) ?? []) {
         if (a.y <= y !== b.y <= y) xs.push(a.x + (y - a.y) / (b.y - a.y) * (b.x - a.x));
       }
-      if (options.evenOdd) crossings.push(...xs); else addPairs(xs);
+      if (!options.evenOdd) {
+        xs.sort((u, v) => u - v);
+        for (let k = 0; k + 1 < xs.length; k += 2) run(xs[k]!, xs[k + 1]!);
+      }
     }
-    if (options.evenOdd) addPairs(crossings);
-    for (const stroke of inkBins.get(Math.floor(y / band)) ?? []) {
+    if (options.evenOdd) {
+      const xs = Float64Array.from(crossings).sort();
+      for (let k = 0; k + 1 < xs.length; k += 2) run(xs[k]!, xs[k + 1]!);
+    }
+    for (const stroke of inkBins.get(row) ?? []) {
       if (y < stroke.box[1]! || y > stroke.box[3]!) continue;
       let lo = Infinity, hi = -Infinity;
       for (let k = 0; k < 4; k++) {
@@ -1602,34 +1610,40 @@ export function coverageOf(rings: CoverageRing[], strokeSegments: (visit: (a: Po
           lo = Math.min(lo, x); hi = Math.max(hi, x);
         }
       }
-      if (hi > lo) runs.push([lo, hi]);
-      for (const p of [stroke.a, stroke.b]) {
+      run(lo, hi);
+      for (let end = 0; end < 2; end++) {
+        const p = end ? stroke.b : stroke.a;
         const dy = y - p.y;
         if (Math.abs(dy) >= radius) continue;
         const dx = Math.sqrt(radius * radius - dy * dy);
-        runs.push([p.x - dx, p.x + dx]);
+        run(p.x - dx, p.x + dx);
       }
     }
-    runs.sort((a, b) => a[0] - b[0]);
-    const merged: Array<[number, number]> = [];
-    for (const [lo, hi] of runs) {
-      const last = merged.at(-1);
-      if (last && lo <= last[1]) last[1] = Math.max(last[1], hi);
-      else if (hi > lo) merged.push([lo, hi]);
+    // A union's pieces begin where cover rises from none and end where it
+    // falls back, so starts and ends can be sorted apart, natively. A start
+    // equal to an end comes first, joining runs that touch.
+    const from = Float64Array.from(starts).sort(), to = Float64Array.from(ends).sort();
+    const pieces: number[] = [];
+    for (let i = 0, j = 0, depth = 0; j < to.length;) {
+      if (i < from.length && from[i]! <= to[j]!) { if (depth++ === 0) pieces.push(from[i]!); i++; }
+      else { if (--depth === 0) pieces.push(to[j]!); j++; }
     }
+    const merged = Float64Array.from(pieces);
     if (scanlines.size >= 8192 || cachedEntries >= 131072) { scanlines.clear(); cachedEntries = 0; }
-    scanlines.set(y, merged); cachedEntries += merged.length * 2;
+    scanlines.set(y, merged); cachedEntries += merged.length;
     return merged;
   };
   return (clip, lines = 96) => {
-    const top = Math.min(...clip.map((p) => p.y));
-    const bottom = Math.max(...clip.map((p) => p.y));
+    let top = Infinity, bottom = -Infinity, x0 = Infinity, x1 = -Infinity;
+    for (const p of clip) {
+      top = Math.min(top, p.y); bottom = Math.max(bottom, p.y);
+      x0 = Math.min(x0, p.x); x1 = Math.max(x1, p.x);
+    }
     const step = (bottom - top) / lines;
-    const x0 = Math.min(...clip.map(p => p.x)), x1 = Math.max(...clip.map(p => p.x));
     const nearbyStroke = options.reuseScanlines ? [] : strokes.filter(s => s.box[2]! >= x0 && s.box[0]! <= x1 && s.box[3]! >= top && s.box[1]! <= bottom);
     // Preserve all ray crossings (including those outside the clip), but discard
     // rings outside its bounds and edges that cannot cross any measuring line.
-    const relevant = prepared.filter(({ box }) => !(box[2]! < x0 || box[0]! > x1 || box[3]! < top || box[1]! > bottom));
+    const relevant = options.reuseScanlines ? [] : prepared.filter(({ box }) => !(box[2]! < x0 || box[0]! > x1 || box[3]! < top || box[1]! > bottom));
     let total = 0;
     for (let n = 0; n < lines; n++) {
       const y = top + (n + 0.5) * step;
@@ -1647,7 +1661,16 @@ export function coverageOf(rings: CoverageRing[], strokeSegments: (visit: (a: Po
       }
       if (!(right > left)) continue;
       if (options.reuseScanlines) {
-        for (const [lo, hi] of scanlineAt(y)) {
+        // Runs are sorted and disjoint: skip, by bisection, those ending left of
+        // the clip, which add nothing, instead of walking the whole map row.
+        const merged = scanlineAt(y);
+        let first = 0, last = merged.length >> 1;
+        while (first < last) {
+          const mid = (first + last) >> 1;
+          if (merged[2 * mid + 1]! <= left) first = mid + 1; else last = mid;
+        }
+        for (let r = 2 * first; r < merged.length; r += 2) {
+          const lo = merged[r]!, hi = merged[r + 1]!;
           if (lo >= right) break;
           const width = Math.min(right, hi) - Math.max(left, lo);
           if (width > 0) total += width * step;
