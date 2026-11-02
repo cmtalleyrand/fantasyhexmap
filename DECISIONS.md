@@ -1666,3 +1666,64 @@ means. Absolute milliseconds are given only as context for that session. With fi
 under about 3–4% are not resolved; a change claimed below that needs many more pairs or a
 machine-independent measure of work. Earlier figures recorded from single runs (the 27 October pilot
 in the performance plan, including its line-count table) are indicative only.
+
+**Tool.** T1 is implemented by `npm run perf:compare -- --base /path/to/base --root .`.
+It uses alternating fresh-process pairs and reports a 95% bootstrap confidence interval of the
+median new/base ratio for wall and process CPU time. See §83 for calibration and precision limits.
+
+## 83. Paired construction comparisons with bootstrap confidence intervals (T1)
+
+**Chosen.** `npm run perf:compare -- --base /path/to/base --root .` compares two source trees using
+one fresh Node process per sample, through the current construction runner. It checks scene hashes
+before warm-up, discards two warm-ups per tree, and runs 30 measured pairs by default (`--pairs`
+changes that). Odd pairs run base first; even pairs run new first. `--kind mixed` selects the smaller
+fixture. `--allow-different` permits intentional differences between trees; a changing hash within
+either tree still fails. Failed samples stop the run and preserve the samples and error collected so far.
+
+The table reports the median new/base ratio, a 95% percentile bootstrap interval from 10,000 resamples
+of the pair ratios, their minimum and maximum, context-only base/new millisecond medians, and
+`faster`, `slower` or `unresolved`. The bootstrap seed is fixed at 131 so saved samples reproduce the
+statistics. Reports retain preflight, warm-up and measured samples, chronological order and measured
+pair ratios in `work/perf-compare/<timestamp>.json`.
+
+The construction runner also records `cpuMs` from user plus system `process.cpuUsage()` around the
+build, excluding serialization, beside wall `ms`. Both measures receive the same statistical analysis.
+The npm command uses `node --import tsx`; subprocess output uses temporary files, since this sandbox
+blocks the sockets used by the tsx CLI and child-process pipes.
+
+**Calibration, 2 November 2026.** Node v24.19.0, populated fixture, the construction runner's default
+options, workspace renderer at `04388cc`, no concurrent tests or profiling. Each batch ran serially in
+one session, with fresh processes and the prescribed preflight, warm-ups and alternating order.
+
+| Comparison | Pairs | Measure | Median ratio | 95% interval | Full interval width / half-width | Verdict |
+|---|---:|---|---:|---|---|---|
+| Working tree against itself | 30 | Wall | 1.0037 | 0.9831–1.0182 | 3.511% / 1.756% | unresolved |
+| Working tree against itself | 30 | CPU | 1.0068 | 0.9902–1.0234 | 3.319% / 1.660% | unresolved |
+| Working tree against itself | 100 | Wall | 1.0020 | 0.9942–1.0112 | 1.692% / 0.846% | unresolved |
+| Working tree against itself | 100 | CPU | 0.9985 | 0.9899–1.0090 | 1.909% / 0.954% | unresolved |
+| Scratch copy with busy loop | 100 | Wall | 1.0206 | 1.0094–1.0341 | 2.469% / 1.235% | slower |
+| Scratch copy with busy loop | 100 | CPU | 1.0278 | 1.0175–1.0401 | 2.265% / 1.132% | slower |
+
+Both self-comparison intervals contain 1.00. Thirty pairs did not reach even the suggested ±1.5%
+width, so the pair count was raised directly to the brief's limit of 100. That gave the narrowest
+self-comparison interval tested, but **100 pairs did not establish precision sufficient for 0.5%
+changes**. No pair count up to that limit is claimed to resolve them here. CPU time was slightly
+steadier at 30 pairs, but wall time was steadier at 100; CPU did not consistently reduce noise.
+These interval half-widths describe width, not symmetric bounds around 1.00.
+
+For the positive control, only a scratch copy of `buildStaticScene` received a busy loop at its start,
+lasting 31.903 ms (1% of the 100-pair self-comparison's 3190.3 ms base median). The measured wall
+slowdown was 2.06%; its interval includes the intended 1.01 ratio and excludes 1.00, so the tool detects
+the slowdown. CPU also reports slower. All scene hashes matched throughout all three batches. The
+loop and scratch copy were removed; no renderer change is part of T1. This calibration supports the
+direction verdict, not a claim that the injected loop's cost was estimated exactly.
+
+**Raw samples** (local, ignored by git, as the brief specifies):
+- 30-pair self-comparison: `work/perf-compare/2026-11-02T12-01-30-173Z.json`.
+- 100-pair self-comparison: `work/perf-compare/2026-11-02T12-05-35-078Z.json`.
+- 100-pair slowdown: `work/perf-compare/2026-11-02T12-18-18-286Z.json`.
+
+**Checked.** Client/server typecheck and explicit script/test typecheck pass. All 585 Node tests pass
+with `--test-isolation=none` so the restricted subprocess pipes do not hide the individual results.
+Tests cover statistics, argument validation, actual subprocess ordering and discarded phases, hash
+mismatches, intentional differences, nondeterministic scenes and child failures.

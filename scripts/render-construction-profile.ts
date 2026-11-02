@@ -31,12 +31,13 @@ if (!process.argv.includes('--sample')) {
   const map = fixture(arg('--kind', 'populated')), opts = options();
   if (arg('--kind', 'populated') !== 'populated') { opts.labels = false; opts.visible = { base: true } as typeof opts.visible; }
   const run = () => {
-    profileApi?.beginRenderProfile(); const start = performance.now();
+    profileApi?.beginRenderProfile(); const cpuStart = process.cpuUsage(); const start = performance.now();
     const scene = buildStaticScene(map, opts), ms = performance.now() - start;
+    const cpu = process.cpuUsage(cpuStart), cpuMs = (cpu.user + cpu.system) / 1000;
     const profile = profileApi?.endRenderProfile();
     // Serialization is outside the construction timer.
     const json = JSON.stringify(scene);
-    return { ms, hash: createHash('sha256').update(json).digest('hex'), sceneBytes: Buffer.byteLength(json), compromises: scene.compromises ?? [], ...(profile ? { profile } : {}) };
+    return { ms, cpuMs, hash: createHash('sha256').update(json).digest('hex'), sceneBytes: Buffer.byteLength(json), compromises: scene.compromises ?? [], ...(profile ? { profile } : {}) };
   };
   const cold = run(), edits = [];
   const original = [...map.layers.base.data!];
