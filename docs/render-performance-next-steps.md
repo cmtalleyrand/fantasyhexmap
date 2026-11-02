@@ -231,6 +231,11 @@ Some rules apply to every task:
 
 ### T1. A paired benchmark that gives a confidence interval
 
+**Implemented (DECISIONS §83).** Run `npm run perf:compare -- --base /path/to/base --root .`.
+Both wall and CPU time are reported. The 100-pair self-comparison contains 1.00, and an approximately
+1% injected delay is detected, but this session did not reach the precision needed to resolve 0.5%
+changes. See §83 for the intervals and saved sample paths. The original brief follows.
+
 **Why.** On this container, run times move by about 10% within a batch and by over a third between
 days. The five-pair comparisons used so far cannot detect differences under about 3–4%. T2 needs
 to detect 0.5%.
