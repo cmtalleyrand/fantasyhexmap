@@ -140,23 +140,99 @@ untouched, and they are the only route to a faster first picture now that a stan
 | — | Option 1 | Rejected by the owner as a workaround (§78) |
 | 1 | Option 2 at 64 lines (done; §77) | One constant and existing checks, plus the fixes it exposed |
 | 2 | The fit's own cost: overhead with identical results (done; §80, §81) | Free: no picture change |
-| 3 | Task A: a robust paired benchmark | Every later decision depends on it (§82) |
-| 4 | Task B: retest the strong candidates whose gain is unproven | Keep complexity only where it pays; recover wrongly rejected gains |
-| 5 | Steps D–G: changes that can move the dial | The route towards about 1 s for a cold build and a steady coast on edits |
+| 3 | Group 1, step 1: one solve instead of repeated passes | Largest likely gain on a cold build |
+| 4 | Group 1, steps 2–4 | In rank order; see below |
+| — | Group 2: T1 (paired benchmark) before any step is measured; T2 (re-judge past changes) alongside | Every decision depends on T1 (§82) |
 
-## Tasks A and B: measure reliably, then re-judge past changes
+## Group 1: improvements, ranked by likely impact
 
-Do Task A first, because Task B uses the tool it builds. Each task ends in its own commit and its own DECISIONS entry. Read DECISIONS §82 before you start.
+The target is a cold build of about 1 s (about 4–5 s now) and edits that feel quick. Steps are ranked
+by their expected gain; the estimates are mine, from profiles, and must be checked by measurement.
+Every step that changes the coast is judged by §76 with before/after images on the gallery fixtures,
+and must keep `test:drawing-sweeps` (the same failing cases as `main`, none worse) and
+`test/coastFitDistortion.test.ts` passing. Measure each with T1's `perf:compare` (pass
+`--allow-different` where the coast changes).
+
+### 1. Fit a coast once, not by repeated passes and rebuilt fields (cold build; estimate 30–50%)
+
+**Why.** A fit traces the coast, runs global share passes (about 0.65 s) that adjust it towards the
+land shares one pass at a time, then runs about ten solver rounds, each rebuilding the control field
+from scratch and solving again. Most of that repeats work whose inputs barely changed.
+
+**Do, in this order, measuring each part separately:**
+1. Replace the global share passes with a better first solve: one solve with the share targets as
+   constraints, starting from the trace.
+2. Build the control field once per fit, and in later rounds update only the parts near points the
+   previous round moved.
+3. Stop the rounds when every hex meets the share tolerance, instead of after a fixed count. Record the
+   round counts on the populated and mixed fixtures before and after.
+
+### 2. Rewrite the two hot kernels on flat typed arrays (cold build and edits; estimate 20–35%, no picture change)
+
+**Why.** Most of what remains is coverage measurement (`areaCoverage` in `src/render/footprint.ts`)
+and the solver round (field, conjugate-gradient solve, move and check in `src/render/coastArea.ts`),
+plus about 0.75 s of garbage collection. A rewrite keeps all per-round state in preallocated typed
+arrays: coordinates as `x,y` pairs, edges and bins as index arrays, no objects or tuples in a round.
+
+**Do.** Rewrite each kernel behind its existing function signature, one kernel per commit. The scene
+hash must stay identical: same arithmetic, same order. If step 1 has landed, rewrite the kernels as
+they are after it.
+
+### 3. Make edits refit only the coast they change (edits; estimate large, unknown until measured)
+
+This is a different kind of change from step 1. Step 1 changes how any fit is computed; this step
+changes how much is fitted after an edit, and needs the previous fit's state, a rule for which part of
+the coast an edit affects, and a seam where the refitted part meets the kept part.
+
+**Do, in this order:**
+1. Measure the real wait for an edit. The figure of 70–120 ms in earlier notes is the scene build in
+   Node only; an edit's wait also includes the worker transfer and the paint (paint alone was about
+   300–500 ms in §73–§74), and edits are reported to feel longer than that. Using
+   `npm run perf:interaction` in the browser, record for ten edits of different kinds (terrain at the
+   coast, terrain inland, ownership, a city) the time from input to sharp frame, split into build (and
+   within it the coast fit), transfer and paint. Write the table into a DECISIONS entry. If the coast
+   fit is not the largest part, report that and re-rank this step before going further.
+2. Check how far a refit reaches. For one edit, record which coast groups are refitted and how far each
+   moves. A coast should be refitted only when the edit touches it or reaches it through a chain of
+   hexes with land in them. If unconnected groups are refitted or moved, fix that first, and add a test
+   that an edit leaves unconnected coast groups byte-identical.
+3. Within a group, refit only the affected region. Start the solve from the previous fit's control
+   points, free the control points of the hexes whose inputs changed plus one ring of neighbours, and
+   hold the rest fixed. Report the edit's coast-fit time and its wait from step 1 before and after.
+   Judge the result by §76 on the edited maps, comparing with a full refit; the kept region will differ
+   slightly from what a full refit would draw, and that is acceptable if not visible.
+
+### 4. Fit independent coast groups in parallel at opening (cold build; depends on the map)
+
+**Why.** Groups not linked through land-bearing hexes (see step 3.2) are independent, so they can be
+fitted in a pool of workers, one group per task. With four or more cores a map with several sizeable
+groups gains close to the core count on the fit; a single large continent gains nothing. Rank it last
+for that reason, and report the gain per fixture.
+
+**Do.** Move `fitCoastAreas` for one group into a worker entry point that takes and returns typed
+arrays. The final scene must equal the serial build byte for byte.
+
+### Not planned
+
+**WebAssembly.** Consider it only if a profile after steps 1 and 2 shows the remaining fit time is pure
+arithmetic: it adds a toolchain and a copy boundary, and typically gives 1.5–3× over well-written
+typed-array JavaScript.
+
+**Caching the fit across sessions.** Ruled out by the owner: it does not make building faster.
+
+## Group 2: testing and review
+
+Do T1 first, because T2 and every improvement in group 1 are measured with the tool it builds. Each task ends in its own commit and its own DECISIONS entry. Read DECISIONS §82 before you start.
 
 Some rules apply to every task:
 - Never compare timings taken on different days, or from one run per variant.
-- Never change what a scene contains while doing B, except for band-line thinning (B2), which says so.
+- Never change what a scene contains while doing T2, except for band-line thinning (B2), which says so.
 - If a check fails and you do not understand why, stop and report it. Do not loosen the check.
 
-### Task A: a paired benchmark that gives a confidence interval
+### T1. A paired benchmark that gives a confidence interval
 
 **Why.** On this container, run times move by about 10% within a batch and by over a third between
-days. The five-pair comparisons used so far cannot detect differences under about 3–4%. Task B needs
+days. The five-pair comparisons used so far cannot detect differences under about 3–4%. T2 needs
 to detect 0.5%.
 
 **What to build.** Build a script, `scripts/perf-compare.ts`, and add it to `package.json` as
@@ -206,14 +282,14 @@ in the DECISIONS entry which one varied less.
 **Deliver.** The script, the `package.json` entry, a DECISIONS entry (§83) recording the
 self-comparison widths, and an amendment to §82 that points to the tool.
 
-### Task B: retest the strong candidates whose gain is unproven (threshold 0.5%)
+### T2. Retest the strong candidates whose gain is unproven (threshold 0.5%)
 
 **Why.** There are two kinds of change whose effect was never measured properly:
 - changes from §80 and §81 that make the code harder to read, which were only ever timed together;
 - attempts that were rejected for "no gain" on too few runs.
 
 The same rule applies to both. A change is worth testing only if, before any measurement, it looked
-able to save at least 2.5% of the timing it affects. Strong candidates are measured with Task A's
+able to save at least 2.5% of the timing it affects. Strong candidates are measured with T1's
 tool and kept only if they save at least 0.5%. A complexity-adding change that was never a strong
 candidate is not worth its complexity, so undo it without timing it.
 
@@ -253,7 +329,7 @@ For each change:
 1. Make a git worktree of the current head at `/tmp/perf-base`.
 2. In the working tree, undo only that change.
 3. Run `npm run typecheck` and `npm test`. Both must pass.
-4. Run `npm run perf:compare -- --base /tmp/perf-base` with the pair count Task A found necessary,
+4. Run `npm run perf:compare -- --base /tmp/perf-base` with the pair count T1 found necessary,
    on the populated fixture and then with `--kind mixed`. The hashes must be equal; if they are not,
    your undo is wrong, so fix it.
 5. Decide:
@@ -266,7 +342,7 @@ For each change:
 **B2: retest band-line thinning.**
 1. Rebuild it from §75: Douglas–Peucker at 0.006 hex sizes on the realm band lines.
 2. Measure paint, which is the timing it changes, not build time. Use the production worker through
-   `npm run perf:interaction`, with at least 30 alternating pairs analysed by Task A's
+   `npm run perf:interaction`, with at least 30 alternating pairs analysed by T1's
    median-ratio-and-bootstrap method. Extend `perf:compare` with a `--browser` mode or write a small
    equivalent.
 3. Make before/after images at whole-map, 1× and 2× and judge them by §76.
@@ -282,87 +358,3 @@ hashes equal those of the original head; B2 is a paint change and does not alter
 - A DECISIONS entry (§84) containing the table above with the measured ratio, interval and outcome
   added.
 - One-line pointers to §84 in §75, §80 and §81.
-
-## Steps D–G: changes that can move the dial
-
-Tasks A and B tidy up, and at most recover a few percent. The target is a cold build of about 1 s
-(about 4–5 s now) and edits that do not visibly jiggle the coast. Only the steps below can approach
-that. All of them except E change the coast, so each must be judged by §76 with before/after images,
-and must keep `test:drawing-sweeps` (the same failing cases as `main`, none worse) and
-`test/coastFitDistortion.test.ts` passing. Measure every step with `perf:compare --allow-different`.
-
-### D. Check how far an edit's refit reaches (do first; small)
-
-**Why.** Edits visibly jiggle the coast. A coast should be refitted only if the edit touches it, or
-reaches it through a chain of hexes with land in them. If unconnected coasts move, that is a bug, and
-fixing it removes jiggle and work together.
-
-**Do.**
-1. Build the populated fixture. Make one terrain edit far from a second coast group, and rebuild with
-   caches on.
-2. For every coast group, record whether it was refitted, and the largest point movement in hex
-   sizes.
-3. Report:
-   - groups that were refitted although they share no land-bearing hex chain with the edit;
-   - groups that moved without being refitted.
-
-**Deliver.** Both lists in a DECISIONS entry, and a fix if either list is not empty. Add a test
-asserting that an edit leaves unconnected coast groups byte-identical.
-
-### E. Rewrite the two hot kernels on flat typed arrays (no picture change)
-
-**Why.** The profile puts most of the fit in coverage measurement (`areaCoverage` in
-`src/render/footprint.ts`) and in the solver round (field, conjugate-gradient solve, move and check
-in `src/render/coastArea.ts`), with about 0.75 s of garbage collection on top. §80 and §81 nibbled
-at both. A rewrite keeps all per-round state in preallocated typed arrays: coordinates as `x,y`
-pairs, edges and bins as index arrays, no objects or tuples inside a round.
-
-**Do.**
-- Rewrite each kernel behind its existing function signature.
-- The scene hash must stay identical: same arithmetic, same order.
-- Expected gain: 20–35% of a cold build, mostly garbage collection and object setup. Treat this as
-  an estimate to be checked by measurement.
-
-**Deliver.** One kernel per commit, each measured with `perf:compare`.
-
-### F. Stop rebuilding the fit from scratch: reuse the field and warm-start the solve
-
-**Why.** This is the main lever, for both opening and jiggle.
-- Each of the roughly ten solver rounds rebuilds the control field and the global share passes
-  (about 0.65 s) start from the raw trace.
-- Each edit re-solves from a fresh start, so small input changes settle on slightly different
-  coastlines even where the edit changed nothing. This is the likely cause of the jiggle.
-
-**Do, in this order, measuring each part separately:**
-1. Build the field once per fit and update it only where the previous round moved points.
-2. Replace the global share passes with a better initial solve: one solve with the share targets as
-   constraints, instead of repeated trace-and-adjust passes.
-3. On edits, start the solve from the previous fit's control points, and hold fixed every control
-   point outside the hexes whose inputs changed, plus one ring of neighbours.
-4. Cap the solver at the round count that, on the populated and mixed fixtures, already meets the
-   share tolerance, instead of a fixed count.
-
-**Success criteria.**
-- Cold build down by 30–50% on top of E.
-- For a single edit, the largest coast movement outside the edited hexes plus one ring is below 0.002
-  hex sizes. Add this as a test; the current value will fail it.
-- No visible change on the gallery fixtures except in edited regions.
-
-### G. Fit independent coast groups in parallel at opening (after E and F)
-
-**Why.** At opening, every coast group must be fitted. Groups not linked through land-bearing hexes
-(see D) are independent, so they can be fitted in a pool of workers, one group per task. On a
-machine with four or more cores, a map with several sizeable groups gains close to the core count on
-the fit. A single large continent gains nothing, so do this last and report the gain per fixture.
-
-**Do.**
-- Move `fitCoastAreas` for one group into a worker entry point that takes and returns typed arrays.
-- The final scene must equal the serial build byte for byte.
-
-### Not planned
-
-**WebAssembly.** Consider it only if a profile after E and F shows the remaining fit time is pure
-arithmetic. It adds a toolchain and a copy boundary, and typically gives 1.5–3× over well-written
-typed-array JavaScript.
-
-**Caching the fit across sessions.** Ruled out by the owner: it does not make building faster.
