@@ -141,18 +141,16 @@ untouched, and they are the only route to a faster first picture now that a stan
 | 1 | Option 2 at 64 lines (done; §77) | One constant and existing checks, plus the fixes it exposed |
 | 2 | The fit's own cost: overhead with identical results (done; §80, §81) | Free: no picture change |
 | 3 | Task A: a robust paired benchmark | Every later decision depends on it (§82) |
-| 4 | Task B: test each complexity-adding change on its own | Keep only changes that pay for their complexity |
-| 5 | Task C: retest promising changes that were rejected for no gain | They may have been measured wrongly |
-| 6 | The fit's own cost: fewer rounds, passes or measurements | What still bounds the picture; judged by §76 |
+| 4 | Task B: retest the strong candidates whose gain is unproven | Keep complexity only where it pays; recover wrongly rejected gains |
+| 5 | Steps D–G: changes that can move the dial | The route towards about 1 s for a cold build and a steady coast on edits |
 
-## Tasks A–C: measure reliably, then re-judge past changes
+## Tasks A and B: measure reliably, then re-judge past changes
 
-Do these three tasks in order, A, then B, then C, because B and C both use the tool that A builds.
-Each task ends in its own commit and its own DECISIONS entry. Read DECISIONS §82 before you start.
+Do Task A first, because Task B uses the tool it builds. Each task ends in its own commit and its own DECISIONS entry. Read DECISIONS §82 before you start.
 
 Some rules apply to every task:
 - Never compare timings taken on different days, or from one run per variant.
-- Never change what a scene contains while doing B or C, except where C explicitly says so.
+- Never change what a scene contains while doing B, except for band-line thinning (B2), which says so.
 - If a check fails and you do not understand why, stop and report it. Do not loosen the check.
 
 ### Task A: a paired benchmark that gives a confidence interval
@@ -208,99 +206,163 @@ in the DECISIONS entry which one varied less.
 **Deliver.** The script, the `package.json` entry, a DECISIONS entry (§83) recording the
 self-comparison widths, and an amendment to §82 that points to the tool.
 
-### Task B: test each complexity-adding change separately (threshold 0.5%)
+### Task B: retest the strong candidates whose gain is unproven (threshold 0.5%)
 
-**Why.** DECISIONS §80 and §81 made several changes that make the code harder to read. They were only
-timed together, so nobody knows whether each one pays for itself. The owner's rule: keep such a
-change only if removing it makes the build at least 0.5% slower, judged by Task A's tool.
+**Why.** There are two kinds of change whose effect was never measured properly:
+- changes from §80 and §81 that make the code harder to read, which were only ever timed together;
+- attempts that were rejected for "no gain" on too few runs.
 
-**The changes to test**, one at a time:
-1. `NumberBuffer` in `src/render/footprint.ts`, the shared, reused scratch buffers `runStarts`,
-   `runEnds` and `crossingXs`. To undo it, give each scanline its own new arrays
-   (`Float64Array.from(list).sort()`) and delete the class.
-2. The flat band bins and the flat 8-number stroke `poly` in `src/render/footprint.ts`. To undo
-   them, store edges as `[a, b]` tuples and the ink quadrilateral as an array of four points.
-3. The `mark` field with the `lists` generation counter in `src/render/componentCoast.ts`. To undo
-   it, use a `Set` to skip repeats, keeping first-seen order.
-4. The typed-array spline `support` in `src/render/coastArea.ts`, which uses `Int32Array` and
-   `Float64Array` indexed `4*j..4*j+3`. To undo it, use an array of four `[index, weight]` tuples
-   per point.
-5. The `bends` `Int32Array` in `src/render/coastArea.ts`. To undo it, use the plain `bendList`.
+The same rule applies to both. A change is worth testing only if, before any measurement, it looked
+able to save at least 2.5% of the timing it affects. Strong candidates are measured with Task A's
+tool and kept only if they save at least 0.5%. A complexity-adding change that was never a strong
+candidate is not worth its complexity, so undo it without timing it.
 
-Use `git log -p` on the branch to find the exact earlier code for each change. The commits that
-introduced them are referenced by §80 and §81.
+**The assessment is already done.** Do not redo it. It covers DECISIONS §70 onwards and this file.
 
-**Steps, for each change on its own:**
+| Change | Strong candidate? | Action |
+|---|---|---|
+| `NumberBuffer` scratch buffers (§81, `src/render/footprint.ts`) | Yes: removes an allocation per scanline across every coverage measurement | B1: test |
+| Flat band bins and flat 8-number stroke `poly` (§81, `footprint.ts`) | Yes: per-edge and per-segment objects in every measurement's setup, its largest cost | B1: test |
+| `mark` field and `lists` counter in clearance (§80, `src/render/componentCoast.ts`) | Yes: replaced a `Set` per candidate list in the clearance query, a hot path | B1: test |
+| Typed-array spline `support` (§80, `src/render/coastArea.ts`) | Yes: four tuples per coast point per solver round | B1: test |
+| `bends` as an `Int32Array` (§81, `coastArea.ts`) | No: built once per round, tiny | Undo without timing |
+| Band-line thinning (§75) | Yes: in-page paint fell about 20% (246 → 198 ms) | B2: retest; rejected on two pairs, and on pixels before §76 |
+| Composited layers for realm border groups (§75) | — | Do not retest: slower in every run (281–348 against 246 ms) |
+| Batching same-style fills (§74) | — | Do not retest: ten times slower in one case |
+| Partial repaint (§72) | — | Do not retest: structural reasons, and ruled out by the owner |
+| 96 against 64 measuring lines (§77) | — | Not a rejection; leave it |
+
+**B0: undo `bends`.** In `src/render/coastArea.ts`, use the plain `bendList` array where the
+`Int32Array` `bends` is used, and delete the conversion. Then:
+- Run `npm run typecheck` and `npm test`.
+- Run `perf:compare` once to confirm the hashes are equal. Do not judge its timing.
+- Commit it as "Use the plain bend list".
+
+**B1: test the four strong complexity-adding changes**, one at a time, in the order of the table.
+How to undo each:
+- `NumberBuffer`: give each scanline its own new arrays (`Float64Array.from(list).sort()`) and delete
+  the class.
+- Flat bins and `poly`: store edges as `[a, b]` tuples and the ink quadrilateral as an array of four
+  points.
+- `mark`: use a `Set` to skip repeats, keeping first-seen order.
+- `support`: use an array of four `[index, weight]` tuples per point.
+
+To find the exact earlier code, run `git log -p` on the files named in the table.
+
+For each change:
 1. Make a git worktree of the current head at `/tmp/perf-base`.
-2. In the working tree, undo only that one change.
+2. In the working tree, undo only that change.
 3. Run `npm run typecheck` and `npm test`. Both must pass.
-4. Run `npm run perf:compare -- --base /tmp/perf-base --pairs 30` (or the pair count Task A found
-   necessary). The hashes must be equal; if they are not, your undo is wrong, so fix it.
-5. Repeat step 4 with `--kind mixed`.
-6. Decide:
-   - If, on the populated fixture, the undo is `slower` and its median ratio is at least 1.005, the
-     change earns its place: restore it.
-   - Otherwise, keep the undo, which means the simpler code. Commit it as "Remove <change>: no
-     measurable gain (median ratio x.xxx, interval a–b)".
-7. Delete the worktree, and recreate it from the new head before testing the next change, so that
-   each test is against the current code.
+4. Run `npm run perf:compare -- --base /tmp/perf-base` with the pair count Task A found necessary,
+   on the populated fixture and then with `--kind mixed`. The hashes must be equal; if they are not,
+   your undo is wrong, so fix it.
+5. Decide:
+   - If the undo is `slower` on the populated fixture with a median ratio of at least 1.005, restore
+     the change, and add a one-line comment above it naming the gain and §84.
+   - Otherwise, commit the undo as "Remove <change>: no measurable gain (median ratio x.xxx,
+     interval a–b)".
+6. Delete the worktree, and recreate it from the new head before the next change.
 
-**After all five,** run the full gates: `npm run typecheck`, `npm test`, `npm run test:slow` and
-`npm run test:drawing-pixels` (it needs `CHROMIUM_PATH=/opt/pw-browsers/chromium`). Confirm the
-scene hashes still equal those of the original head.
+**B2: retest band-line thinning.**
+1. Rebuild it from §75: Douglas–Peucker at 0.006 hex sizes on the realm band lines.
+2. Measure paint, which is the timing it changes, not build time. Use the production worker through
+   `npm run perf:interaction`, with at least 30 alternating pairs analysed by Task A's
+   median-ratio-and-bootstrap method. Extend `perf:compare` with a `--browser` mode or write a small
+   equivalent.
+3. Make before/after images at whole-map, 1× and 2× and judge them by §76.
+4. Adopt it only if paint or edit-to-sharp-frame is `faster` by at least 0.5% and the images show no
+   visible change.
 
-**Deliver.**
-- One commit per removed change.
-- A DECISIONS entry (§84) with a table giving, for each change, the median ratio, the interval, the
-  verdict and whether it was kept.
-- One-line notes in §80 and §81 pointing to §84.
-
-### Task C: retest changes that were rejected for showing no gain
-
-**Why.** Some past attempts were rejected because they showed no gain. That may have been because
-the measurement was too noisy, or measured the wrong thing (for example, total time when only one
-part changed). Retest only the ones that, before measurement, looked likely to save 2.5% or more.
-
-**Step 1: assessment** (write it before running anything). Go through DECISIONS §70 onwards and
-this file, and list every performance change that was tried and not adopted. For each, record:
-- what it was meant to speed up;
-- the evidence used to reject it (how many runs, paired or not, which timing);
-- whether, before measuring, it was a strong candidate, meaning the work it removed was at least
-  2.5% of the timing being judged;
-- whether the rejection could plausibly be a measurement problem: few or unpaired runs, an effect
-  smaller than the noise, or the wrong timing measured.
-
-Retest only the attempts that are both strong candidates and plausibly mismeasured. Do not retest
-attempts rejected for a structural reason or by a large, clear margin.
-
-My own reading, as a starting point to check rather than copy:
-- **Band-line thinning (§75).** Retest. Its in-page paint fell from 246 to 198 ms, about 20%, but two
-  production-worker pairs showed no reliable gain. Two pairs cannot resolve that.
-  - It was also rejected because inner band edges moved by up to 32 levels at 1×. That was judged
-    before §76 relaxed the criterion to no visible change, so make before/after images and judge
-    them by §76 as well.
-- **Composited layers for realm border groups (§75).** Probably do not retest. They were slower in
-  every run (281–348 against 246 ms).
-- **Batching same-style fills (§74).** Do not retest. It was about ten times slower in one case.
-- **Partial repaint (§72).** Do not retest. It was rejected for structural reasons, and the owner
-  has also ruled it out.
-- **96 against 64 measuring lines (§77, and the table above).** Not a failure, but the pilot figures
-  came from single runs. Retest only if Task A shows the pilot was badly off.
-
-The batch timings during §81, which showed almost no gain from the third and fourth changes, are
-covered by Task B, so do not retest them here.
-
-**Step 2: retest.** For each attempt you selected, rebuild it from the description in DECISIONS.
-Then measure it with the timing the change actually affects:
-- Paint changes: in the browser, through `npm run perf:interaction` or `npm run perf:opening`, with
-  many alternating pairs, using the same ratio and bootstrap-interval method as Task A. Extend
-  `perf:compare` or write a browser equivalent.
-- Build changes: with `perf:compare`.
-
-Adopt an attempt only if it is `faster` by at least 0.5% and passes the picture gates,
-`test:drawing-pixels` plus a §76 visual judgement.
+**After B0–B2,** run the full gates: `npm run typecheck`, `npm test`, `npm run test:slow` and
+`npm run test:drawing-pixels` (with `CHROMIUM_PATH=/opt/pw-browsers/chromium`). Confirm the build
+hashes equal those of the original head; B2 is a paint change and does not alter them.
 
 **Deliver.**
-- A DECISIONS entry (§85) with the assessment table and the retest results.
-- The code of any attempt that is now adopted, as its own commit.
-- Amendments to the earlier entries whose conclusions changed.
+- One commit per undo, plus one for B2 if it is adopted.
+- A DECISIONS entry (§84) containing the table above with the measured ratio, interval and outcome
+  added.
+- One-line pointers to §84 in §75, §80 and §81.
+
+## Steps D–G: changes that can move the dial
+
+Tasks A and B tidy up, and at most recover a few percent. The target is a cold build of about 1 s
+(about 4–5 s now) and edits that do not visibly jiggle the coast. Only the steps below can approach
+that. All of them except E change the coast, so each must be judged by §76 with before/after images,
+and must keep `test:drawing-sweeps` (the same failing cases as `main`, none worse) and
+`test/coastFitDistortion.test.ts` passing. Measure every step with `perf:compare --allow-different`.
+
+### D. Check how far an edit's refit reaches (do first; small)
+
+**Why.** Edits visibly jiggle the coast. A coast should be refitted only if the edit touches it, or
+reaches it through a chain of hexes with land in them. If unconnected coasts move, that is a bug, and
+fixing it removes jiggle and work together.
+
+**Do.**
+1. Build the populated fixture. Make one terrain edit far from a second coast group, and rebuild with
+   caches on.
+2. For every coast group, record whether it was refitted, and the largest point movement in hex
+   sizes.
+3. Report:
+   - groups that were refitted although they share no land-bearing hex chain with the edit;
+   - groups that moved without being refitted.
+
+**Deliver.** Both lists in a DECISIONS entry, and a fix if either list is not empty. Add a test
+asserting that an edit leaves unconnected coast groups byte-identical.
+
+### E. Rewrite the two hot kernels on flat typed arrays (no picture change)
+
+**Why.** The profile puts most of the fit in coverage measurement (`areaCoverage` in
+`src/render/footprint.ts`) and in the solver round (field, conjugate-gradient solve, move and check
+in `src/render/coastArea.ts`), with about 0.75 s of garbage collection on top. §80 and §81 nibbled
+at both. A rewrite keeps all per-round state in preallocated typed arrays: coordinates as `x,y`
+pairs, edges and bins as index arrays, no objects or tuples inside a round.
+
+**Do.**
+- Rewrite each kernel behind its existing function signature.
+- The scene hash must stay identical: same arithmetic, same order.
+- Expected gain: 20–35% of a cold build, mostly garbage collection and object setup. Treat this as
+  an estimate to be checked by measurement.
+
+**Deliver.** One kernel per commit, each measured with `perf:compare`.
+
+### F. Stop rebuilding the fit from scratch: reuse the field and warm-start the solve
+
+**Why.** This is the main lever, for both opening and jiggle.
+- Each of the roughly ten solver rounds rebuilds the control field and the global share passes
+  (about 0.65 s) start from the raw trace.
+- Each edit re-solves from a fresh start, so small input changes settle on slightly different
+  coastlines even where the edit changed nothing. This is the likely cause of the jiggle.
+
+**Do, in this order, measuring each part separately:**
+1. Build the field once per fit and update it only where the previous round moved points.
+2. Replace the global share passes with a better initial solve: one solve with the share targets as
+   constraints, instead of repeated trace-and-adjust passes.
+3. On edits, start the solve from the previous fit's control points, and hold fixed every control
+   point outside the hexes whose inputs changed, plus one ring of neighbours.
+4. Cap the solver at the round count that, on the populated and mixed fixtures, already meets the
+   share tolerance, instead of a fixed count.
+
+**Success criteria.**
+- Cold build down by 30–50% on top of E.
+- For a single edit, the largest coast movement outside the edited hexes plus one ring is below 0.002
+  hex sizes. Add this as a test; the current value will fail it.
+- No visible change on the gallery fixtures except in edited regions.
+
+### G. Fit independent coast groups in parallel at opening (after E and F)
+
+**Why.** At opening, every coast group must be fitted. Groups not linked through land-bearing hexes
+(see D) are independent, so they can be fitted in a pool of workers, one group per task. On a
+machine with four or more cores, a map with several sizeable groups gains close to the core count on
+the fit. A single large continent gains nothing, so do this last and report the gain per fixture.
+
+**Do.**
+- Move `fitCoastAreas` for one group into a worker entry point that takes and returns typed arrays.
+- The final scene must equal the serial build byte for byte.
+
+### Not planned
+
+**WebAssembly.** Consider it only if a profile after E and F shows the remaining fit time is pure
+arithmetic. It adds a toolchain and a copy boundary, and typically gives 1.5–3× over well-written
+typed-array JavaScript.
+
+**Caching the fit across sessions.** Ruled out by the owner: it does not make building faster.
