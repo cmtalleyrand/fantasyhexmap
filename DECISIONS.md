@@ -1747,9 +1747,13 @@ below are undo / optimized; neither absolute times nor different ablations are c
 |---|---|---:|---|---:|---|---|
 | NumberBuffer scratch buffers | populated | 1.0181 | 1.0102–1.0272 (slower) | 1.0064 | 0.9962–1.0256 (unresolved) | Retain optimization |
 | NumberBuffer scratch buffers | mixed | 1.0318 | 1.0128–1.0392 (slower) | 1.0339 | 1.0140–1.0415 (slower) | Retain optimization |
+| Flat band bins and stroke quadrilaterals | populated | 1.0564 | 1.0455–1.0750 (slower) | 1.0537 | 1.0396–1.0643 (slower) | Retain optimization |
+| Flat band bins and stroke quadrilaterals | mixed | 1.0332 | 1.0168–1.0417 (slower) | 1.0399 | 1.0165–1.0505 (slower) | Retain optimization |
 
 <!-- B1 results end -->
 
 B2 paint comparison is pending.
 
 **NumberBuffer scratch buffers samples:** `work/perf-compare/2026-11-03T10-57-36-164Z.json`, `work/perf-compare/2026-11-03T11-09-15-994Z.json`.
+
+**Flat band bins and stroke quadrilaterals samples:** `work/perf-compare/2026-11-03T12-04-26-199Z.json`, `work/perf-compare/2026-11-03T12-16-29-022Z.json`.
