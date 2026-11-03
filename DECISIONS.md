@@ -1751,6 +1751,8 @@ below are undo / optimized; neither absolute times nor different ablations are c
 | Flat band bins and stroke quadrilaterals | mixed | 1.0332 | 1.0168–1.0417 (slower) | 1.0399 | 1.0165–1.0505 (slower) | Retain optimization |
 | Clearance candidate marks | populated | 1.0240 | 1.0101–1.0359 (slower) | 1.0183 | 1.0069–1.0266 (slower) | Retain optimization |
 | Clearance candidate marks | mixed | 1.0127 | 1.0022–1.0267 (slower) | 1.0087 | 0.9971–1.0246 (unresolved) | Retain optimization |
+| Typed-array spline support | populated | 1.0225 | 1.0136–1.0306 (slower) | 1.0185 | 1.0108–1.0273 (slower) | Retain optimization |
+| Typed-array spline support | mixed | 1.0396 | 1.0211–1.0483 (slower) | 1.0406 | 1.0228–1.0488 (slower) | Retain optimization |
 
 <!-- B1 results end -->
 
@@ -1761,3 +1763,5 @@ B2 paint comparison is pending.
 **Flat band bins and stroke quadrilaterals samples:** `work/perf-compare/2026-11-03T12-04-26-199Z.json`, `work/perf-compare/2026-11-03T12-16-29-022Z.json`.
 
 **Clearance candidate marks samples:** `work/perf-compare/2026-11-03T12-26-41-971Z.json`, `work/perf-compare/2026-11-03T12-38-21-145Z.json`.
+
+**Typed-array spline support samples:** `work/perf-compare/2026-11-03T12-48-36-854Z.json`, `work/perf-compare/2026-11-03T13-00-44-859Z.json`.

@@ -275,6 +275,7 @@ export function fitCoastAreas(geometry: CoastGeometry, targets: ReadonlyMap<numb
     const spacing = size * 0.5;
     const controls: Array<{ base: number; count: number; closed: boolean }> = [];
     let unknowns = 0;
+    // Retained: undo was 2.2% slower in 100 paired populated builds (DECISIONS §84).
     // Point j of ring k is moved by controls index[4j..4j+3], weighted by weight[4j..4j+3].
     const support = current.map((ring, k): { index: Int32Array; weight: Float64Array } => {
       const count = ring.length;
