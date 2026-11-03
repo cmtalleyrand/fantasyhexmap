@@ -1652,6 +1652,8 @@ Cold builds in rotating pairs against `main` (Node, separate processes): populat
 (median 16%); mixed, five pairs, 3,238 ms and 2,932 ms (about 9% less). These figures are for the six
 changes together: intermediate batches did not resolve their separate effects (§82).
 
+**Follow-up.** T2/B0 removes the bend-list typed-array conversion; see §84.
+
 ## 82. How rendering performance is measured and reported
 
 **Problem.** Cold builds of the same code on the same container varied between sessions by over a
@@ -1727,3 +1729,20 @@ direction verdict, not a claim that the injected loop's cost was estimated exact
 with `--test-isolation=none` so the restricted subprocess pipes do not hide the individual results.
 Tests cover statistics, argument validation, actual subprocess ordering and discarded phases, hash
 mismatches, intentional differences, nondeterministic scenes and child failures.
+
+## 84. Use the plain bend list (T2/B0)
+
+**Chosen.** The assessment in the render performance plan identifies the conversion of the solver's
+flat bend list to an `Int32Array` as too small to justify added complexity. The solver now reads
+`bendList` directly, retaining its consecutive control triples, traversal order and arithmetic.
+The conversion is removed without judging its timing, as B0 requires.
+
+**Checked, 3 November 2026.** `npm run typecheck` and `npm test` pass (74 test files, no failures).
+`npm run perf:compare -- --base /tmp/perf-base --root . --pairs 1` against the original head
+`6786e81` confirms equal populated-fixture scene hashes throughout all eight samples (preflight,
+warm-up and measured): `c8fc4d6ecc57aa05ff877637c5c98a90e8e14ee2cdfd4961079de7cbda7b9ae5`.
+The single pair is an output-equality check only; no performance conclusion is drawn.
+Raw samples are saved locally in the ignored file
+`work/perf-compare/2026-11-03T23-38-05-415Z.json`.
+
+**Next.** T2/B1's four individual ablations and T2/B2's band-line thinning retest remain open.

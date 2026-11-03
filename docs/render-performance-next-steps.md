@@ -313,7 +313,9 @@ candidate is not worth its complexity, so undo it without timing it.
 | Partial repaint (§72) | — | Do not retest: structural reasons, and ruled out by the owner |
 | 96 against 64 measuring lines (§77) | — | Not a rejection; leave it |
 
-**B0: undo `bends`.** In `src/render/coastArea.ts`, use the plain `bendList` array where the
+**B0: implemented (DECISIONS §84).** The solver uses the plain bend list directly; the original brief follows.
+
+In `src/render/coastArea.ts`, use the plain `bendList` array where the
 `Int32Array` `bends` is used, and delete the conversion. Then:
 - Run `npm run typecheck` and `npm test`.
 - Run `perf:compare` once to confirm the hashes are equal. Do not judge its timing.
