@@ -1749,6 +1749,8 @@ below are undo / optimized; neither absolute times nor different ablations are c
 | NumberBuffer scratch buffers | mixed | 1.0318 | 1.0128–1.0392 (slower) | 1.0339 | 1.0140–1.0415 (slower) | Retain optimization |
 | Flat band bins and stroke quadrilaterals | populated | 1.0564 | 1.0455–1.0750 (slower) | 1.0537 | 1.0396–1.0643 (slower) | Retain optimization |
 | Flat band bins and stroke quadrilaterals | mixed | 1.0332 | 1.0168–1.0417 (slower) | 1.0399 | 1.0165–1.0505 (slower) | Retain optimization |
+| Clearance candidate marks | populated | 1.0240 | 1.0101–1.0359 (slower) | 1.0183 | 1.0069–1.0266 (slower) | Retain optimization |
+| Clearance candidate marks | mixed | 1.0127 | 1.0022–1.0267 (slower) | 1.0087 | 0.9971–1.0246 (unresolved) | Retain optimization |
 
 <!-- B1 results end -->
 
@@ -1757,3 +1759,5 @@ B2 paint comparison is pending.
 **NumberBuffer scratch buffers samples:** `work/perf-compare/2026-11-03T10-57-36-164Z.json`, `work/perf-compare/2026-11-03T11-09-15-994Z.json`.
 
 **Flat band bins and stroke quadrilaterals samples:** `work/perf-compare/2026-11-03T12-04-26-199Z.json`, `work/perf-compare/2026-11-03T12-16-29-022Z.json`.
+
+**Clearance candidate marks samples:** `work/perf-compare/2026-11-03T12-26-41-971Z.json`, `work/perf-compare/2026-11-03T12-38-21-145Z.json`.
