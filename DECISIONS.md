@@ -1727,3 +1727,15 @@ direction verdict, not a claim that the injected loop's cost was estimated exact
 with `--test-isolation=none` so the restricted subprocess pipes do not hide the individual results.
 Tests cover statistics, argument validation, actual subprocess ordering and discarded phases, hash
 mismatches, intentional differences, nondeterministic scenes and child failures.
+
+## 84. Review the complexity added to the coast fit (T2)
+
+**B0.** Use the plain numeric `bendList` directly in the solver, removing its conversion to an
+`Int32Array`. This is the cleanup prescribed by the performance plan; no timing gain is claimed.
+Client/server typecheck, the Node suite (74 files) and slow suite (3 files) pass. A one-pair
+`perf:compare` against `120cba6` confirms equal populated scene hashes; a separate cold sample confirms
+equal mixed scene hashes. The one-pair timing is deliberately not used as evidence of performance.
+Samples: `work/perf-compare/2026-11-03T02-38-03-038Z.json`.
+
+The four B1 ablations and B2 paint comparison are pending. Each must be measured independently using
+the calibrated 100-pair construction comparison (§83), or at least 30 browser pairs for B2.
