@@ -319,7 +319,7 @@ candidate is not worth its complexity, so undo it without timing it.
 - Run `perf:compare` once to confirm the hashes are equal. Do not judge its timing.
 - Commit it as "Use the plain bend list".
 
-Implemented in DECISIONS §84; B1 and B2 remain to be measured.
+B0 is implemented in DECISIONS §84. B1 results are recorded there as each ablation completes; B2 is pending.
 
 **B1: test the four strong complexity-adding changes**, one at a time, in the order of the table.
 How to undo each:

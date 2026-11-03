@@ -1737,5 +1737,19 @@ Client/server typecheck, the Node suite (74 files) and slow suite (3 files) pass
 equal mixed scene hashes. The one-pair timing is deliberately not used as evidence of performance.
 Samples: `work/perf-compare/2026-11-03T02-38-03-038Z.json`.
 
-The four B1 ablations and B2 paint comparison are pending. Each must be measured independently using
-the calibrated 100-pair construction comparison (§83), or at least 30 browser pairs for B2.
+**B1.** Each ablation compares one undo against a fresh worktree of the preceding commit.
+Both fixtures use 100 alternating fresh-process pairs with two discarded warm-ups per tree; scene
+hashes agree. Wall time decides retention under the plan’s rule: keep an optimization only if its
+undo is `slower` on populated with median ratio ≥1.005. CPU time is reported separately. Ratios
+below are undo / optimized; neither absolute times nor different ablations are compared.
+
+| Change undone | Fixture | Wall median | Wall 95% interval | CPU median | CPU 95% interval | Outcome |
+|---|---|---:|---|---:|---|---|
+| NumberBuffer scratch buffers | populated | 1.0181 | 1.0102–1.0272 (slower) | 1.0064 | 0.9962–1.0256 (unresolved) | Retain optimization |
+| NumberBuffer scratch buffers | mixed | 1.0318 | 1.0128–1.0392 (slower) | 1.0339 | 1.0140–1.0415 (slower) | Retain optimization |
+
+<!-- B1 results end -->
+
+B2 paint comparison is pending.
+
+**NumberBuffer scratch buffers samples:** `work/perf-compare/2026-11-03T10-57-36-164Z.json`, `work/perf-compare/2026-11-03T11-09-15-994Z.json`.

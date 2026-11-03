@@ -1536,6 +1536,7 @@ export interface CoverageRing {
  * none of its measuring lines, may be left out without changing the result.
  */
 /** A reusable, growing list of numbers that sorts natively in place. */
+// Retained: undo was 1.8% slower in 100 paired populated builds (DECISIONS §84).
 class NumberBuffer {
   private data = new Float64Array(256);
   length = 0;
