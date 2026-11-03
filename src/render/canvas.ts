@@ -4,6 +4,7 @@ import type { Scene } from './scene.js';
 import { MAP_COLOURS } from './palette.js';
 import type { GrainTile } from './texture.js';
 import { boundsOf, intersects, type Bounds } from './bounds.js';
+import { paintBandLine } from './bandLines.js';
 
 type Ctx = CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
 const compositeSurfaces: OffscreenCanvas[] = [];
@@ -85,7 +86,7 @@ function tileSource(tile: GrainTile): HTMLCanvasElement | OffscreenCanvas | null
 function drawPrim(ctx: Ctx, prim: Prim, viewport?: Bounds, compositeClips = false): void {
   switch (prim.kind) {
     case 'path': {
-      const path = tracePath(ctx, prim.d);
+      const path = tracePath(ctx, paintBandLine(prim));
       if (prim.fill) {
         ctx.fillStyle = prim.fill;
         if (path) ctx.fill(path, prim.fillRule ?? 'nonzero');

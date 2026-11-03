@@ -12,6 +12,12 @@ compares them, gives a pilot measurement for each of the first two, and sets the
 - **Option 3:** stays rejected.
 - **Picture checks:** the scripts now judge pictures by visible change (§76).
 
+**T2 completed, 3 November 2026 (DECISIONS §84).** The bend-list conversion is removed. All four
+strong existing optimizations are retained after independent 100-pair comparisons on each fixture.
+Band-line thinning is adopted after a 30-pair production-worker comparison: median paint ratio
+0.9510, 95% interval 0.9235–0.9858, with no visible picture change. Serialized scenes are unchanged.
+The next improvement is Group 1, step 1 below: replace the repeated global share passes.
+
 What remains is the last section, the fit's own cost. Its first step, removing overhead without
 changing any result, is done (DECISIONS §80 and §81), scenes byte-identical. In paired runs each step
 cut the populated cold build by a median of 11% and 16% respectively.
@@ -319,7 +325,7 @@ candidate is not worth its complexity, so undo it without timing it.
 - Run `perf:compare` once to confirm the hashes are equal. Do not judge its timing.
 - Commit it as "Use the plain bend list".
 
-B0 is implemented in DECISIONS §84. B1 results are recorded there as each ablation completes; B2 is pending.
+B0, B1 and B2 are implemented in DECISIONS §84. The instructions below record the original brief.
 
 **B1: test the four strong complexity-adding changes**, one at a time, in the order of the table.
 How to undo each:
@@ -347,6 +353,15 @@ For each change:
 6. Delete the worktree, and recreate it from the new head before the next change.
 
 **B2: retest band-line thinning.**
+
+**Adopted (§84).** `npm run perf:paint-compare -- --base /path/to/base --root .` measures paint and
+input-to-sharp-frame through the production worker, alternates 30 pairs by default, discards two
+warm-up edits per side, and saves raw samples and before/after images at fit, 1× and 2×. Use
+`CHROMIUM_PATH` for a preinstalled browser. A bounded invocation on Linux is
+`timeout 300s env CHROMIUM_PATH=/usr/bin/chromium npm run perf:paint-compare -- --base /path/to/base`.
+Each frame also has a 120-second timeout. Paint is faster; the final edit-to-sharp-frame interval
+includes 1.00, so no improvement in that total is claimed.
+
 1. Rebuild it from §75: Douglas–Peucker at 0.006 hex sizes on the realm band lines.
 2. Measure paint, which is the timing it changes, not build time. Use the production worker through
    `npm run perf:interaction`, with at least 30 alternating pairs analysed by T1's

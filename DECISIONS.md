@@ -1507,6 +1507,8 @@ but two paired production-worker runs showed no reliable gain (paint medians 236
 outlines are already shared and cached across edits (§74). It also moved inner band edges by up
 to 32 levels at 1×, so it was not adopted.
 
+**Paired retest.** Band-line thinning was later adopted under §76 after the paired review in §84.
+
 ## 76. Pictures are held to no visible change, not byte identity
 
 **Chosen.** The owner's criterion for pictures is no visible change. `scripts/visible-change.mjs`
@@ -1629,6 +1631,8 @@ see §82.
 passes' traces, ten solver rounds and their measurements, and the clearance queries. Further gains need
 fewer rounds or measurements, which can change the coast and must be judged by §76.
 
+**Per-change review.** See §84 for the independent clearance-mark and spline-support ablations.
+
 ## 81. The coast fit's setup and checks made cheaper, results unchanged
 
 **Problem.** After §80 a cold build still spent time on work that does not affect its result. Each trace
@@ -1651,6 +1655,8 @@ Cold builds in rotating pairs against `main` (Node, separate processes): populat
 4,913 ms before and 4,139 ms after, every pair faster, the per-pair reduction ranging from 6% to 23%
 (median 16%); mixed, five pairs, 3,238 ms and 2,932 ms (about 9% less). These figures are for the six
 changes together: intermediate batches did not resolve their separate effects (§82).
+
+**Per-change review.** See §84 for the scanline-buffer and flat-bin ablations and bend-list cleanup.
 
 ## 82. How rendering performance is measured and reported
 
@@ -1754,9 +1760,48 @@ below are undo / optimized; neither absolute times nor different ablations are c
 | Typed-array spline support | populated | 1.0225 | 1.0136–1.0306 (slower) | 1.0185 | 1.0108–1.0273 (slower) | Retain optimization |
 | Typed-array spline support | mixed | 1.0396 | 1.0211–1.0483 (slower) | 1.0406 | 1.0228–1.0488 (slower) | Retain optimization |
 
-<!-- B1 results end -->
+**B2: adopted.** Realm band strokes use Douglas–Peucker at 0.006 hex sizes when compiled for
+canvas paint. `bandLines.ts` marks only band primitives in a `WeakMap`; their original commands stay
+in the scene. This matters because command arrays are shared with earlier scenes and can have other
+uses. A clip, fill or unmarked stroke sharing an array stays unchanged. The thinned commands are
+cached by original array and tolerance; curves, subpath ends and closures are retained. Serialized
+scenes and SVG export retain the original commands.
 
-B2 paint comparison is pending.
+`npm run perf:paint-compare -- --base /path/to/base --root .` uses the production worker through a
+common `ScenePainter` harness on the 50×50 interaction fixture. Both sides start with a cold build,
+then discard two warm-up ownership edits. Thirty edit pairs alternate base-first/new-first. The
+worker reports paint time; the harness records input-to-sharp-bitmap time, excluding React. It waits
+for the previous overview before the next edit, so two workers do not paint concurrently. The same
+T1 statistics give the median new/base ratio and 10,000-resample 95% bootstrap interval.
+
+| Comparison | Measure | Median ratio | 95% interval | Verdict |
+|---|---|---:|---|---|
+| Review-only trial, 30 pairs | Paint | 0.9189 | 0.8513–0.9472 | faster |
+| Review-only trial, 30 pairs | Edit to sharp frame | 0.9375 | 0.8768–0.9823 | faster |
+| Production implementation against `c08e241`, 30 pairs | Paint | 0.9510 | 0.9235–0.9858 | faster |
+| Production implementation against `c08e241`, 30 pairs | Edit to sharp frame | 0.9773 | 0.9283–1.0392 | unresolved |
+
+The production comparison supports a **4.9% paint saving**, clearing the 0.5% threshold. It does not
+establish an improvement in the complete edit wait. Absolute production paint medians were 246.2
+and 236.3 ms, context only; the gain is the median of paired ratios, not their quotient. The two
+batches are independent comparisons, not a pooled estimate. The one-pair small-fixture self-check
+is functional evidence only: it produced identical pictures at all three zooms.
+
+**Pictures.** Reviewed before/after images at fit, 1× and 2× show no visible change. The production
+closeups focus a realm boundary (hex 706), rather than the empty sea at the scene centre. All pass
+§76 unchanged: fit/1×/2× have 0 strong pixels, and 5/1/0 weak pixels out of 1,260,000. Raw changed
+pixel counts are 4,259/2,089/2,642. The command geometry remains in the serialized scene; no coast
+fit or share tolerance changes.
+
+**B2 samples and images:** `work/t2-review/paint-thin/results.json` and
+`work/t2-review/paint-production/results.json`; PNG pairs are in those directories. The trial can be
+repeated with `--root` pointing to the pre-B2 tree and `--thin`. Launches fail normally on sandbox
+socket restrictions; no automatic escalation or permission retry is built into the tool.
+
+**Interrupted runs.** A host connection loss discarded an unfinished flat-bin batch. Its timings
+were not used; that comparison was restarted with fresh pairs. `perf:compare` now checkpoints each
+completed sample outside the construction timer, so a host loss leaves diagnostic samples even
+when its finalizer cannot run. Saved progress is not a license to combine sessions into one batch.
 
 **NumberBuffer scratch buffers samples:** `work/perf-compare/2026-11-03T10-57-36-164Z.json`, `work/perf-compare/2026-11-03T11-09-15-994Z.json`.
 
@@ -1765,3 +1810,13 @@ B2 paint comparison is pending.
 **Clearance candidate marks samples:** `work/perf-compare/2026-11-03T12-26-41-971Z.json`, `work/perf-compare/2026-11-03T12-38-21-145Z.json`.
 
 **Typed-array spline support samples:** `work/perf-compare/2026-11-03T12-48-36-854Z.json`, `work/perf-compare/2026-11-03T13-00-44-859Z.json`.
+
+**Final checks.** Client/server typecheck, all 589 Node tests (including four band-path tests),
+all 14 slow tests, the production build and `test:drawing-pixels` pass. The Node suites were also
+run with `--test-isolation=none` to expose every assertion in this environment. The populated and
+mixed scene hashes match the original `120cba6` output:
+`c8fc4d6ecc57aa05ff877637c5c98a90e8e14ee2cdfd4961079de7cbda7b9ae5` and
+`4ba1a9a25d5ceff9ee599d164f8218d6001f78731f9b7b53513920029589285f`, respectively.
+Tests cover keeping original serialized commands, retaining curves and subpath boundaries, marking
+primitives when command arrays are shared, cache reuse after edits, and distinct size tolerances.
+No check or threshold was weakened. T2 is complete; Group 1's solver redesign remains the next step.
