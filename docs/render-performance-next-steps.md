@@ -16,6 +16,7 @@ compares them, gives a pilot measurement for each of the first two, and sets the
 strong existing optimizations are retained after independent 100-pair comparisons on each fixture.
 Band-line thinning is adopted after a 30-pair production-worker comparison: median paint ratio
 0.9510, 95% interval 0.9235–0.9858, with no visible picture change. Serialized scenes are unchanged.
+The complete edit-to-sharp-frame result is unresolved (ratio 0.9773, interval 0.9283–1.0392).
 The next improvement is Group 1, step 1 below: replace the repeated global share passes.
 
 What remains is the last section, the fit's own cost. Its first step, removing overhead without
@@ -146,9 +147,28 @@ untouched, and they are the only route to a faster first picture now that a stan
 | — | Option 1 | Rejected by the owner as a workaround (§78) |
 | 1 | Option 2 at 64 lines (done; §77) | One constant and existing checks, plus the fixes it exposed |
 | 2 | The fit's own cost: overhead with identical results (done; §80, §81) | Free: no picture change |
-| 3 | Group 1, step 1: one solve instead of repeated passes | Largest likely gain on a cold build |
-| 4 | Group 1, steps 2–4 | In rank order; see below |
-| — | Group 2: T1 (paired benchmark) before any step is measured; T2 (re-judge past changes) alongside | Every decision depends on T1 (§82) |
+| 3 — next | Group 1, step 1.1: an initial constrained solve starting from the trace | Largest likely gain on a cold build |
+| 4 | Group 1, steps 1.2–1.3, then steps 2–4 | Measure each part separately, in rank order |
+| Done | Group 2: T1 paired benchmark (§83) and T2 review (§84) | Use these tools and retained optimizations as the baseline for future work |
+
+## Next task: the initial coast solve
+
+Implement Group 1, step 1.1: replace the global share passes with one initial solve using the share
+targets as constraints, starting from the trace. Field reuse and the round stopping rule follow as
+separate changes in steps 1.2 and 1.3.
+
+- Start from the completed T2 renderer. Record the populated and mixed fixtures' current global-pass,
+  measurement, solver-iteration and round counts before changing the fit.
+- Compare the initial-solve change against its parent using `perf:compare --allow-different`, with
+  alternating pairs in one session. Report wall and CPU median ratios and confidence intervals,
+  together with the before/after work counts.
+- Review gallery pictures under §76 and run `perf:coast`, the Node and slow suites,
+  `test:drawing-pixels`, `test:drawing-sweeps` and `test/coastFitDistortion.test.ts`. Keep the known
+  sweep failures at the same cases, none worse, and preserve cached/uncached scene equality.
+- Deliver this part in its own commit and DECISIONS entry before proceeding to field reuse.
+
+The T2 paint saving does not establish a faster cold coast build or a faster complete edit wait.
+Use fresh paired measurements for both claims.
 
 ## Group 1: improvements, ranked by likely impact
 
@@ -295,6 +315,12 @@ self-comparison widths, and an amendment to §82 that points to the tool.
 
 ### T2. Retest the strong candidates whose gain is unproven (threshold 0.5%)
 
+**Complete (§84).** B0 removed the bend-list conversion. B1 retained all four strong candidates after
+100 pairs on each fixture per candidate. B2 adopted band-line thinning after the production-worker
+paint comparison and picture review. Typecheck, build, 589 Node tests, 14 slow tests and drawing
+pixel checks pass; populated and mixed scene hashes match the original head. The assessment and
+instructions below are retained as the record of the brief; their outcome column is current.
+
 **Why.** There are two kinds of change whose effect was never measured properly:
 - changes from §80 and §81 that make the code harder to read, which were only ever timed together;
 - attempts that were rejected for "no gain" on too few runs.
@@ -306,14 +332,14 @@ candidate is not worth its complexity, so undo it without timing it.
 
 **The assessment is already done.** Do not redo it. It covers DECISIONS §70 onwards and this file.
 
-| Change | Strong candidate? | Action |
+| Change | Strong candidate? | Outcome (§84) |
 |---|---|---|
-| `NumberBuffer` scratch buffers (§81, `src/render/footprint.ts`) | Yes: removes an allocation per scanline across every coverage measurement | B1: test |
-| Flat band bins and flat 8-number stroke `poly` (§81, `footprint.ts`) | Yes: per-edge and per-segment objects in every measurement's setup, its largest cost | B1: test |
-| `mark` field and `lists` counter in clearance (§80, `src/render/componentCoast.ts`) | Yes: replaced a `Set` per candidate list in the clearance query, a hot path | B1: test |
-| Typed-array spline `support` (§80, `src/render/coastArea.ts`) | Yes: four tuples per coast point per solver round | B1: test |
-| `bends` as an `Int32Array` (§81, `coastArea.ts`) | No: built once per round, tiny | Undo without timing |
-| Band-line thinning (§75) | Yes: in-page paint fell about 20% (246 → 198 ms) | B2: retest; rejected on two pairs, and on pixels before §76 |
+| `NumberBuffer` scratch buffers (§81, `src/render/footprint.ts`) | Yes: removes an allocation per scanline across every coverage measurement | Retained: populated undo ratio 1.0181, interval 1.0102–1.0272 |
+| Flat band bins and flat 8-number stroke `poly` (§81, `footprint.ts`) | Yes: per-edge and per-segment objects in every measurement's setup, its largest cost | Retained: populated undo ratio 1.0564, interval 1.0455–1.0750 |
+| `mark` field and `lists` counter in clearance (§80, `src/render/componentCoast.ts`) | Yes: replaced a `Set` per candidate list in the clearance query, a hot path | Retained: populated undo ratio 1.0240, interval 1.0101–1.0359 |
+| Typed-array spline `support` (§80, `src/render/coastArea.ts`) | Yes: four tuples per coast point per solver round | Retained: populated undo ratio 1.0225, interval 1.0136–1.0306 |
+| `bends` as an `Int32Array` (§81, `coastArea.ts`) | No: built once per round, tiny | Removed conversion; hashes unchanged; no speed claim |
+| Band-line thinning (§75) | Yes: in-page paint fell about 20% (246 → 198 ms) | Adopted: production paint ratio 0.9510, interval 0.9235–0.9858; no visible change |
 | Composited layers for realm border groups (§75) | — | Do not retest: slower in every run (281–348 against 246 ms) |
 | Batching same-style fills (§74) | — | Do not retest: ten times slower in one case |
 | Partial repaint (§72) | — | Do not retest: structural reasons, and ruled out by the owner |
