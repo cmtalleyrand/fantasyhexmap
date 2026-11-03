@@ -1536,6 +1536,7 @@ export interface CoverageRing {
  * none of its measuring lines, may be left out without changing the result.
  */
 /** A reusable, growing list of numbers that sorts natively in place. */
+// Retained: undo was 1.8% slower in 100 paired populated builds (DECISIONS §84).
 class NumberBuffer {
   private data = new Float64Array(256);
   length = 0;
@@ -1555,6 +1556,7 @@ export function coverageOf(rings: CoverageRing[], strokeSegments: (visit: (a: Po
   const region = options.within ? boxOf(options.within) : null;
   const prepared = rings.map(({ box, edges }) => {
     // Each band lists its edges as consecutive (from, to) points.
+    // Retained: undo was 5.6% slower in 100 paired populated builds (DECISIONS §84).
     const bins = new Map<number, Point[]>();
     if (!region || !(box[2]! < region[0] || box[0]! > region[2] || box[3]! < region[1] || box[1]! > region[3])) edges((a, b) => {
       if (a.y === b.y) return;

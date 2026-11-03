@@ -44,6 +44,7 @@ export function coastClearance(chains: CoastChain[], size: number) {
     lengths.set(chain, arc);
   }
   const candidates = new Map<number, Map<number, Entry[]>>();
+  // Retained: undo was 2.4% slower in 100 paired populated builds (DECISIONS §84).
   let lists = 0;
   const measure = (p: Point, chain: CoastChain, arc: number, otherComponentsOnly = false) => {
     let nearest = size * 3;

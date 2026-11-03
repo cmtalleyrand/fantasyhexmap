@@ -275,6 +275,7 @@ export function fitCoastAreas(geometry: CoastGeometry, targets: ReadonlyMap<numb
     const spacing = size * 0.5;
     const controls: Array<{ base: number; count: number; closed: boolean }> = [];
     let unknowns = 0;
+    // Retained: undo was 2.2% slower in 100 paired populated builds (DECISIONS §84).
     // Point j of ring k is moved by controls index[4j..4j+3], weighted by weight[4j..4j+3].
     const support = current.map((ring, k): { index: Int32Array; weight: Float64Array } => {
       const count = ring.length;
@@ -339,6 +340,7 @@ export function fitCoastAreas(geometry: CoastGeometry, targets: ReadonlyMap<numb
     const lambda = (size * 0.05) ** 2, mu = size ** 2;
     // Scale the residual by the system's diagonal and stop relative to the original
     // residual, rather than requiring each iteration to improve by eight orders.
+    // Each bend is three consecutive controls (a, b, d).
     const bendList: number[] = [];
     const diagonal = new Float64Array(unknowns).fill(lambda);
     for (const { indices, values } of matrixRows) for (let j = 0; j < indices.length; j++) {
@@ -349,8 +351,6 @@ export function fitCoastAreas(geometry: CoastGeometry, targets: ReadonlyMap<numb
       bendList.push(a, b, d);
       diagonal[a] = diagonal[a]! + mu; diagonal[b] = diagonal[b]! + 4 * mu; diagonal[d] = diagonal[d]! + mu;
     }
-    // Each bend is three consecutive controls (a, b, d).
-    const bends = Int32Array.from(bendList);
     const rhs = Float64Array.from(timesT(Float64Array.from(hexes, h => short.get(h)! * (targets.has(h) ? 1 : 0.5))));
     const x = new Float64Array(unknowns);
     const r = Float64Array.from(rhs), dir = Float64Array.from(r, (v, j) => v / diagonal[j]!);
@@ -360,8 +360,8 @@ export function fitCoastAreas(geometry: CoastGeometry, targets: ReadonlyMap<numb
       profileCount('fit.solverIterations');
       const q = timesT(times(dir));
       for (let j = 0; j < unknowns; j++) q[j] = q[j]! + lambda * dir[j]!;
-      for (let n = 0; n < bends.length; n += 3) {
-        const a = bends[n]!, b = bends[n + 1]!, d = bends[n + 2]!;
+      for (let n = 0; n < bendList.length; n += 3) {
+        const a = bendList[n]!, b = bendList[n + 1]!, d = bendList[n + 2]!;
         const second = mu * (dir[a]! - 2 * dir[b]! + dir[d]!);
         q[a] = q[a]! + second; q[b] = q[b]! - 2 * second; q[d] = q[d]! + second;
       }

@@ -1,3 +1,4 @@
+import { markBandLine } from './bandLines.js';
 import { coastPaintGeometry, type CoastPaintGeometry } from './coastPaintGeometry.js';
 import { IslandDrawingCache, type DrawnIsle as Isle } from './islandDrawingCache.js';
 import { BoundedMemo, renderCachesEnabled, withRenderCaches } from './cache.js';
@@ -2827,16 +2828,16 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
                   kind: 'group' as const,
                   clip: ground(owner, (regions.get(owner) ?? []).some(i => base?.[i] === 'Glacier')
                     ? (regions.get(owner) ?? []).filter(i => base?.[i] !== 'Glacier') : regions.get(owner) ?? []),
-                  prims: [{ kind: 'path' as const, d: [...loops, ...shores], stroke: evenGround, strokeWidth: band.width * 2, round: true }],
+                  prims: [markBandLine({ kind: 'path' as const, d: [...loops, ...shores], stroke: evenGround, strokeWidth: band.width * 2, round: true }, size)],
                 }]
               : []),
-            {
+            markBandLine({
               kind: 'path',
               d: [...loops, ...shores],
               stroke: solid ?? (band.alpha < 1 ? withAlpha(colour, band.alpha) : colour),
               strokeWidth: band.width * 2,
               round: true,
-            },
+            }, size),
         ])),
       });
     }
