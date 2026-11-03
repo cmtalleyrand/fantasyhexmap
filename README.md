@@ -69,7 +69,7 @@ Other scripts: `npm run typecheck` (client and server), `npm run build` (product
 Run `npm test` for the Node suite; no browser, API key or app server is needed.
 It uses Node's test runner with the `tsx` loader, and runs in CI before the build.
 `npm run test:slow` runs the slow tier in `test/slow/`: the remaining lake strait cases and
-the whole chain of incremental edits, of which `npm test` keeps one case per kind. CI runs both.
+the whole chain of incremental edits, of which `npm test` keeps one case per kind. CI runs the default suite for code changes and the slow tier for rendering-related changes.
 For a focused run, pass a file and optional name filter directly to Node:
 
 ```bash
@@ -98,12 +98,29 @@ On Linux machines missing browser system libraries, use `npm run test:browser:in
 These tests need neither an API key nor a running app server. They write evidence under `work/`.
 For managed environments with an existing browser, set `CHROMIUM_PATH=/path/to/chromium`, or pass
 `-- --chromium /path/to/chromium`; an optional `--driver /path/to/playwright-core/index.mjs` also works.
-Normal checkouts do not need either override. CI installs Chromium and runs both commands.
+Normal checkouts do not need either override. CI installs Chromium only for rendering-related
+changes and runs pixel checks and sweeps as independent jobs, so either failure still leaves the
+other suite's evidence.
+
+CI scope is defined in `.github/scripts/test-scope.mjs` and shared by both workflows:
+
+| Changes | Checks |
+| --- | --- |
+| Documentation only (`docs/`, Markdown, text files) | Scope regression tests only |
+| Generation/API, app components, state, or ordinary Node tests | Default Node suite, typecheck, build |
+| Renderer, shared map code, drawing scripts, fixtures/helpers, slow tests | Above, plus slow Node rendering tests, browser pixels and full sweeps |
+| Dependencies, CI/configuration, or unknown paths | All checks |
+
+Representative scene regression tests remain in `npm test`. Tests are not removed or weakened.
+Weekly scheduled runs and manual dispatch run every tier regardless of changed paths; scheduled
+runs do not deploy. PRs compare against their merge base; pushes compare the complete pushed range.
+Deletions and both sides of renames count. Missing history falls back to every tier.
+Run `node --test .github/scripts/test-scope.test.mjs` to check selection without installing dependencies.
 
 ## Deployment
 
 A GitHub Actions workflow (`.github/workflows/deploy.yml`) typechecks, builds and publishes to
-GitHub Pages on every push to `main`. Enable it once, under **Settings → Pages → Build and
+GitHub Pages on code pushes to `main` (documentation-only changes skip the build). Enable it once, under **Settings → Pages → Build and
 deployment → Source: GitHub Actions**. Pull requests build without deploying.
 
 ### First, the thing you cannot do

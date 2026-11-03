@@ -5,6 +5,8 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+  schedule:
+    - cron: '23 4 * * 1'
 
 # The deploy job needs these; the build job does not.
 permissions:
@@ -15,7 +17,35 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  changes:
+    uses: ./.github/workflows/test-scope.yml
+
+  scope-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node --test .github/scripts/test-scope.test.mjs
+
+  slow-rendering:
+    needs: changes
+    if: needs.changes.outputs.rendering == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run test:slow
+
   build:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -33,9 +63,6 @@ jobs:
       - name: Node tests
         run: npm test
 
-      - name: Node tests (slow tier)
-        run: npm run test:slow
-
       - name: Build
         env:
           # Serves the site from https://<owner>.github.io/<repo>/
@@ -51,14 +78,19 @@ jobs:
         run: npm run build
 
       - name: Upload Pages artifact
-        if: github.ref == 'refs/heads/main'
+        if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
         uses: actions/upload-pages-artifact@v3
         with:
           path: dist
 
   deploy:
-    needs: build
-    if: github.ref == 'refs/heads/main'
+    needs: [build, slow-rendering, scope-tests]
+    if: >-
+      always() && needs.build.result == 'success' &&
+      needs.scope-tests.result == 'success' &&
+      (needs.slow-rendering.result == 'success' || needs.slow-rendering.result == 'skipped') &&
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-latest
     permissions:
       pages: write

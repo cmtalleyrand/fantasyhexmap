@@ -1,0 +1,28 @@
+name: Test scope
+
+on:
+  workflow_call:
+    outputs:
+      code:
+        value: ${{ jobs.changes.outputs.code }}
+      rendering:
+        value: ${{ jobs.changes.outputs.rendering }}
+
+permissions:
+  contents: read
+
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      code: ${{ steps.scope.outputs.code }}
+      rendering: ${{ steps.scope.outputs.rendering }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - id: scope
+        run: node .github/scripts/test-scope.mjs
