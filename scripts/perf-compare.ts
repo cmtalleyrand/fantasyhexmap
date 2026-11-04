@@ -89,6 +89,8 @@ async function main() {
   const take = async (tree: 'base' | 'new', phase: string, pair?: number) => {
     const result = await sample(tree === 'base' ? config.base : config.root, config.kind);
     samples.push({ phase, pair, tree, sample: result });
+    // Preserve completed samples if the host disappears before finally can run.
+    writeFileSync(output, JSON.stringify(report, null, 2) + '\n');
     if (hashes[tree] && hashes[tree] !== result.hash) throw Error(`${tree} scene changed during the benchmark: ${hashes[tree]} → ${result.hash}`);
     hashes[tree] = result.hash;
     return result;
