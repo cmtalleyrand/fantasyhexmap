@@ -1,6 +1,7 @@
 /**
  * Baseline/candidate scenes and browser pixels, including maximum-zoom coast crops. Pictures
- * must show no visible change (§76); `--exact-scene` also requires equal scenes.
+ * are saved for qualitative review (§86). `--review` permits intentional visible changes;
+ * the default still screens for visible change, and `--exact-scene` requires equal scenes.
  */
 import { buildSync } from 'esbuild';
 import { readFileSync, writeFileSync, mkdirSync, cpSync, symlinkSync, existsSync } from 'node:fs';
@@ -19,7 +20,7 @@ mkdirSync(archived, { recursive: true });
 execFileSync('tar', ['-x', '-C', archived], { input: execFileSync('git', ['archive', sha], { maxBuffer: 64 * 1024 * 1024 }) });
 if (!existsSync(resolve(archived, 'node_modules'))) symlinkSync(resolve('node_modules'), resolve(archived, 'node_modules'), 'dir');
 // Both renderers receive exactly the same current, frozen test inputs and diagnostic API.
-for (const file of ['scripts/render-profile-fixture.ts', 'scripts/render-profile-input.ts', 'scripts/coast-gallery-fixtures.ts', 'scripts/coastFeatureFixture.ts', 'test/fixtures/populated-40.json', 'src/render/profile.ts']) {
+for (const file of ['scripts/render-profile-fixture.ts', 'scripts/render-profile-input.ts', 'scripts/coast-gallery-fixtures.ts', 'scripts/render-landscape-fixtures.ts', 'scripts/coastFeatureFixture.ts', 'shared/geography.ts', 'test/fixtures/populated-40.json', 'src/render/profile.ts']) {
   mkdirSync(resolve(archived, file, '..'), { recursive: true }); cpSync(file, resolve(archived, file));
 }
 }
@@ -36,12 +37,13 @@ try {
   await page.addScriptTag({ url: 'http://render.test/before.js' });
   await page.addScriptTag({ url: 'http://render.test/after.js' });
   await page.addScriptTag({ content: `window.visibleChange = ${visibleChange}` });
-  const names = await page.evaluate(() => ['populated', 'feature', ...afterApi.coastGallery().map(f => f.name)]);
+  const names = await page.evaluate(() => ['populated', 'feature', ...afterApi.coastGallery().map(f => f.name), ...afterApi.landscapeGallery().map(f => f.name)]);
   const only = arg('--only', '').split(',').filter(Boolean);
   if (only.some(name => !names.includes(name))) throw Error('Unknown fixture in --only');
   for (const name of names.filter(name => !only.length || only.includes(name))) for (const edited of [false, true]) {
     const result = await page.evaluate(async ({ name, edited }) => {
-      const map = name === 'populated' || name === 'feature' ? afterApi.fixture(name) : afterApi.coastGallery().find(f => f.name === name).map;
+      const map = name === 'populated' || name === 'feature' ? afterApi.fixture(name)
+        : [...afterApi.coastGallery(), ...afterApi.landscapeGallery()].find(f => f.name === name).map;
       if (edited) {
         const base = map.layers.base.data;
         const hex = base.findIndex((v, i) => (v === 'Land' || v === 'Land') && (base[i - 1] === 'Sea' || base[i + 1] === 'Sea'));
@@ -111,4 +113,6 @@ try {
 const report = { baseline: sha, fixtureSha256: createHash('sha256').update(readFileSync('test/fixtures/populated-40.json')).digest('hex'), records };
 writeFileSync(resolve(output, 'results.json'), JSON.stringify(report, null, 2));
 const exactScene = process.argv.includes('--exact-scene');
-if (records.some(r => (exactScene && !r.identicalScene) || r.images.some(i => i.visible || (i.mode === 'coast' && i.coastInkPixels === 0)))) throw Error('Coast geometry or same-compositor pixels changed visibly');
+const review = process.argv.includes('--review');
+if (records.some(r => (exactScene && !r.identicalScene) || r.images.some(i => (!review && i.visible) || (i.mode === 'coast' && i.coastInkPixels === 0)))) throw Error('Coast geometry or same-compositor pixels changed visibly');
+if (review) console.log('Review mode: inspect the saved before/after pictures for undesirable changes; topology and share tests remain required.');

@@ -1820,3 +1820,279 @@ mixed scene hashes match the original `120cba6` output:
 Tests cover keeping original serialized commands, retaining curves and subpath boundaries, marking
 primitives when command arrays are shared, cache reuse after edits, and distinct size tolerances.
 No check or threshold was weakened. T2 is complete; Group 1's solver redesign remains the next step.
+
+## 85. Initial coast solve: two trials rejected, step 1.1 remains open
+
+**Review correction (§86).** Visible differences alone did not justify rejecting these trials.
+The owner expects the new method to change the picture; assess whether it makes the drawing worse.
+The land-piece loss and share misses below are specific defects to fix, not a reason to abandon
+the initial-solve approach. The original investigation follows.
+
+**Baseline, 4 November 2026.** Start from the completed T2 renderer, merged from `e2a532d`
+into local `f3fe485`; its renderer is identical to main. T2 is complete. This investigation is
+Group 1, step 1.1, not another T2 ablation. Neither trial below is adopted.
+
+**Direct handoff.** Skip the three global share passes for smooth coasts and pass the original
+trace to the existing coupled fit. Unsmooth styles retain their passes, and explicit passage
+bracketing, fine-detail application and the final fit remain. The populated fixture then reports
+19 land-share compromises rather than the baseline's one. Several target hexes are fully land:
+their coast lies outside the hex, so the solver's nearest-hex area rows cannot request an inward
+correction there. This cannot be fixed merely by deleting the passes.
+
+**Shoreline-position first solve.** In the first pre-detail round, replace each unsatisfied,
+non-passage target's area row with a position constraint on the nearest movable coast sample.
+Clip the hex against the sample's land-facing half-plane and bisect its offset to reach the target
+share, allowing for ink. Put that offset on the sample's existing cubic-spline controls, then use
+the existing conjugate-gradient solve, deformation and crossing limits, acceptance test and later
+area rounds. This can request movement even where a target has no coast samples inside it.
+It leaves only one populated share compromise, but that is **0% instead of 30% land at hex 728**,
+a mainland-and-islands hex; the baseline instead has 93% instead of 90% at hex 520. On mixed it
+also introduces a new ordinary-shore miss at hex 304 (86% instead of 80%). Width-constrained
+passage compromises remain. These outcomes fail the unchanged share requirements.
+
+**Work counts.** Separate cold profiles, with the same runner and options, before timing the
+paired batches. These are counts, not timing estimates. The initial-solve trial changes the first
+round only; it does not implement field reuse or a new round stopping rule.
+
+| Fixture / variant | Traces | Global passes | Fit measurements | Hex measurements | Fit rounds | Solver iterations | Geometry trials |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| Populated / baseline | 3 | 3 | 12 | 4,389 | 10 | 789 | 33 |
+| Populated / direct handoff | 1 | 0 | 8 | 2,918 | 7 | 480 | 24 |
+| Populated / position constraints | 1 | 0 | 9 | 3,301 | 8 | 519 | 29 |
+| Mixed / baseline | 32 | 3 | 8 | 1,290 | 7 | 480 | 17 |
+| Mixed / direct handoff | 28 | 0 | 8 | 1,324 | 7 | 480 | 19 |
+| Mixed / position constraints | 28 | 0 | 8 | 1,321 | 7 | 480 | 21 |
+
+Mixed still traces repeatedly to bracket explicitly fitted passages; removing global passes does
+not remove that separate work.
+
+**Paired timings of the rejected position-constraint trial.** Node v24.19.0, 30 alternating
+fresh-process pairs per fixture in one session, two discarded warm-ups per tree, `perf:compare
+--allow-different` against `/tmp/render-solve-base` at `f3fe485`. No tests or browser runs overlapped
+these batches. Ratios are trial / baseline; both wall and CPU intervals exclude 1. These are
+cost measurements of an unacceptable picture, not a production performance improvement.
+
+| Fixture | Wall median | Wall 95% interval | CPU median | CPU 95% interval |
+|---|---:|---|---:|---|
+| Populated | 0.7473 | 0.7379–0.7617 | 0.7878 | 0.7785–0.7937 |
+| Mixed | 0.8847 | 0.8700–0.9064 | 0.9046 | 0.8848–0.9222 |
+
+**Pictures.** `perf:coast` against the baseline fails for both trials on populated and
+`peninsula-Ragged`, before and after a coastal edit. The position-constraint trial has 8,528 strong
+and 14,061 weak changed pixels on populated at fit/1× DPR, and 13,023 strong / 13,935 weak on the
+peninsula (each image is 1000×800). Both greatly exceed §76's unchanged thresholds. Inspection of
+the peninsula before/after confirms visibly reshaped bays and capes, including changed fine detail.
+The trace's per-hex cuts determine the source perimeter, arc-length samples, silhouette and feature
+profiles in `componentCoast`; a later point-displacement solve does not reproduce those inputs.
+Solving shares alone therefore does not establish picture equivalence.
+
+**Validation and disposition.** Client/server typecheck and `coastFitDistortion.test.ts` pass for
+the position-constraint trial, but passing that distortion bound does not compensate for its lost
+mainland or changed pictures. Full Node/slow suites, drawing pixels and drawing sweeps were not
+run for adoption after these decisive failures. Both experimental renderer changes are removed;
+`src`, `shared`, `scripts` and `test` match main (`e2a532d`). No threshold was loosened. The plan
+still names step 1.1 as next: its replacement must account for absent area rows, keep mainland
+fragments and preserve the shaped trace's detail. These trials do not prove that replacement
+impossible, and do not justify silently moving on to step 1.2.
+
+**Local evidence** (ignored by git):
+- Profiles: `work/initial-solve/{base,trial,position}-{populated,mixed}.json`.
+- Paired samples: `work/perf-compare/2026-11-04T14-22-39-475Z.json` (populated),
+  `work/perf-compare/2026-11-04T14-25-31-489Z.json` (mixed).
+- Pictures and results: `work/initial-solve/trial-pictures/` and
+  `work/initial-solve/position-pictures/` (each includes `results.json`).
+- Exact position-constraint trial patch: `work/initial-solve/position-solve.patch`, applicable to
+  `f3fe485`; setting `initialSolve` false at the first fit reproduces the direct-handoff variant.
+
+## 86. Review intentional coast changes for undesirable effects, with pictures
+
+**Input correction (§87).** Hex 728 has no neighbouring mainland. Preserving its detached blob
+is not a valid mainland-connection requirement, and the earlier comparison did not establish
+that the new solver broke an existing mainland attachment. The fixture itself is malformed there.
+
+**Owner clarification, 4 November 2026.** A new coast-fitting method is expected to produce visibly
+different images. The question is whether those differences are meaningful and undesirable.
+Show before/after images and assess geography and drawing quality. The §76 pixel screen remains
+useful for locating changes, but its visible-change flag alone is not a rejection criterion for
+an intentional fit change. Byte equality remains required for cached/uncached correctness; share
+tolerances, distortion limits and connectivity requirements are not relaxed.
+
+**Correction to §85.** The different bays and capes in the peninsula comparison do not show an
+obvious loss of quality. Rejecting the entire approach from those pixel changes was premature.
+The populated fixture does show a specific defect at hex 728: its large land piece disappears while
+its smaller, separately drawn islands remain. The report of 0% land measures the fitted coast,
+not all independently drawn islands; describing the whole hex as having lost all land would be
+incorrect. A constrained close-up confirms the difference instead of inferring it from the report.
+
+Before/after pictures are in `work/initial-solve/position-pictures/`; the labelled close-up is
+`work/initial-solve/hex-728-comparison.png` (before left, trial right, same hex outlined).
+A follow-up trial retains the enclosed piece's measured-area row instead of replacing it with a
+tangent half-plane constraint. That preserves the piece, but its reported share is still 22%
+against 30%. Its patch is saved in `work/initial-solve/enclosed-position-solve.patch`. It is not an
+accepted implementation or a completed task; step 1.1 still needs that area error fixed and review
+of the broader gallery for undesirable changes. Production rendering remains unchanged.
+
+## 87. Mainland attachment and representative continent/lake fixtures
+
+**Owner clarification.** A Mainland and islands hex requires adjoining mainland: its mainland
+part extends that landmass into the hex, and its islands are separate. A detached extra island
+does not become mainland merely because it occupies the requested percentage. Review the actual
+connection, not just the area, in the baseline as well as the trial.
+
+**Hex 728.** The frozen populated fixture requests 40% total land: the map's 30% mainland share
+plus the default two small islands at 5% each. It has no per-hex override. The fit's 0%-versus-30%
+report counts only the coast-fitted mainland portion, excluding the independent islands; it is
+not a measurement of total land in the picture. More fundamentally, its six neighbours are three
+Sea and three Islands hexes, with no adjoining mainland at all. Both the baseline's detached
+blob and the trial are unsuitable evidence of a correct Mainland and islands rendering. That
+invalid input must not be used to require reproducing the blob or to reject the initial-solve
+approach for failing to preserve it.
+
+**Fixture audit.** The 40×40 populated mock map contains zero Lake hexes. Its enclosed water
+features are Sea/Islands cells, not representative lake inputs. The 30×30 mixed fixture has one
+substantial connected land-bearing component of 357 hexes, but only four lakes of 2, 2, 1 and
+1 hexes. Larger lakes exist in small artificial regression cases, not in the main visual maps.
+Retain these frozen inputs for comparable historical timings; they are insufficient on their
+own for geography and picture-quality review.
+
+**Added.** `scripts/render-landscape-fixtures.ts` supplies `continent-large-lakes`: a 48×36 map
+with a connected 875-hex mainland, two coastal bays and three inland lakes of 51, 44 and 17 water
+hexes. Only the western lake contains an island, a deliberate connected three-hex landmass.
+A Mainland and islands example at hex 867 shares its eastern edge with the continent, so the
+attachment requirement can actually be exercised. It is included in `perf:coast` visual comparisons
+without changing either historical timing fixture or expanding the fast incremental gallery.
+
+**Checked.** Client/server typecheck and a separate strict typecheck of the fixture pass.
+`CHROMIUM_PATH=/usr/bin/chromium npm run perf:coast -- --only continent-large-lakes` passes before
+and after a coastal edit, against HEAD: serialized scenes match, images match, and neither build
+reports a land-share compromise. Reviewed the whole-map image: the continent and three lakes
+are clear, with one island in the western lake. Results and pictures are in
+`work/initial-solve/landscape-check/`; this is fixture validation, not a solver performance claim.
+
+## 88. Validate neighbouring types and drawn geography
+
+**Superseded by §89.** Adding a user-facing geography-checking workflow did not correct incoherent
+inputs. That workflow and its live violation notes have been removed. Generation and the positive
+fixtures are corrected instead; the checks remain internal regression gates.
+
+**Owner's revised categories.** For geography topology, water is Sea, Lake, Sea Ice and Islands;
+land is Land, Glacier, Mainland and islands, Isthmus and Strait. This does not change elevation,
+settlement or other layer eligibility: a Strait still has water and land banks rather than becoming
+an ordinary dry-land hex.
+
+- Land and Glacier can be anywhere.
+- Isthmus and Strait require exactly two land neighbours and four water neighbours. Off-map and
+  empty cells do not stand in for water, so a passage cannot meet this rule at the map edge.
+- Mainland and islands requires at least one land neighbour and one water neighbour. Its mainland
+  must attach to neighbouring land; its offshore islands must remain detached.
+- Islands must not connect land across a hex boundary. Any land in Sea, Lake or Sea Ice must connect
+  to land in a neighbouring hex rather than form a detached island.
+
+**Input checks.** `shared/geography.ts` implements the categories and structured errors with hex
+indices and coordinates. Generated and pasted base responses carry these errors through the common
+decoder. The reducer refreshes base-layer validation notes on load, base edits, resizing, generation,
+undo and redo, removing stale geography errors while preserving unrelated notes. The base inspector
+shows the notes in manual as well as AI mode. Prompts and type descriptions state the same rules.
+The checks flag invalid geography without guessing repairs or silently changing the user's data.
+
+**Drawn checks.** File → Export image → Check geography builds the base with the current style,
+regardless of which export layers are visible, and reports actual land connections as well as input
+errors. `geographyAudit.ts` samples the scene's dry-land predicate and finds connected land pieces
+within each constrained hex. It checks mainland attachment, detached offshore islands, islands
+crossing hex boundaries, detached land in water, connected isthmus necks and strait banks reaching
+both land neighbours. The separate island predicate identifies an offshore island joined to mainland
+even if another island is still detached. These predicates travel with framed/copied scenes outside
+their serialized data. Audit results clear when geography or its drawing settings change.
+
+The drawing check is an on-demand screen at one twentieth of a hex radius, with intermediate probes
+between neighbouring samples to detect small water gaps. It is not a proof for arbitrarily small
+geometry; picture review remains necessary. It does not add a raster audit to scene construction
+or painting. Input neighbour counts are exact.
+
+**Predicate bug exposed.** The old dry-land predicate skipped all offshore islands belonging to a
+split Mainland and islands hex, although those islands were painted. Removing that skip makes
+placement and audits recognise the same dry ground. A real-continent regression now checks both
+the attached mainland and its detached islands. Mainland share compromise messages explicitly say
+that the percentage excludes offshore islands, rather than presenting it as the hex's total land.
+
+**Checked.** Client/server typecheck, production build, all 599 Node tests, 14 slow tests and
+`test:drawing-pixels` pass. The 10 new geography tests cover both row parities, every land/water
+category, exact counts, edges, generation, warning freshness, undo/redo, detached water land, island
+attachment, a sub-sample water gap, merged offshore islands and real drawing predicates. After the
+message-label clarification, the 19 focused geography/shoreline/page-edge tests also pass.
+Production-browser checks exercise the new button on valid and invalid maps, and verify manual-mode
+validation notes on load; neither case produces a browser error. The representative continent passes
+both checks. On the legacy populated map at size 26, the audit reports eight input errors and 48
+sampled drawing issues, including both the missing land neighbour and missing mainland connection
+at hex 728. This reports existing problems; it does not assert that the old renderer meets the new
+rules or that the initial coast solve is finished.
+
+**Local evidence:** `work/geography/{tests,full-tests,slow-tests,drawing-pixels,build,final-focused}.log`,
+`work/geography/fixture-audit.json`, `work/geography/ui-results.json` and `ui-valid.png`/`ui-invalid.png`.
+
+## 89. Correct generated geography and the positive fixtures, instead of asking the user to validate them
+
+**Correction to §88.** The requirement is for maps that make sense and a renderer tested against
+coherent inputs. A user-facing checker and violation notes did not accomplish that. They are removed,
+including the export button and live reducer warnings. The topology functions are internal test
+tools, not a task the user must perform to obtain a sensible map.
+
+**Generation.** `correctBaseGeography` repairs generated base grids before they are applied:
+unsupported Mainland and islands becomes Islands, an inland instance becomes Land, and invalid
+passage labels become the ordinary land/water their neighbours support. A cluster of mainland
+fragments cannot supply its own missing mainland anchor. Corrections converge without changing
+already coherent grids or inventing banks to justify a label. Base generation and pasted base
+responses share the corrected decoder. This does not silently rewrite existing saved or hand-edited
+maps. Offline generation now builds continuous landmasses first, puts offshore islands across a
+water gap, places mainland-and-islands only on a coast, and deliberately creates multi-hex inland
+lakes. It also handles small maps with fewer land cells than requested polity seeds without looping.
+
+**Positive fixtures.** The frozen populated map is regenerated from that coherent generator. It has
+two 19-hex lakes, offshore islands and attached mainland-and-islands, rather than random inland
+Sea/Islands holes and unsupported mainland blobs. The mixed benchmark has coherent coast shares,
+two multi-hex lake basins, an explicitly constructed isthmus joining the continent to an offshore
+landmass, and a short lake strait between two separate land banks. Tests require it to retain all
+these feature types; removing the challenging types is not a way to pass. The separate 48×36 large
+continent with three substantial lakes remains part of review.
+
+Strait, isthmus and lake-passage galleries now have two real land neighbours and four water
+neighbours. Mainland-and-islands share fixtures leave a nonzero allocation for their configured
+offshore islands: the old 40% total against a 40% mainland allocation asked for no islands at all.
+The frontier regression formerly tied to hexes 87 and 794 of the incoherent mock map now uses a
+small coherent map with an attached mainland, detached islands and two realms, checking both a
+thin strip and a broad sector. Lake-passage geometry assertions use the corrected two bank edges;
+no tolerance is relaxed. Deliberately incoherent inputs remain only in correction/negative tests.
+
+**Rendering defects exposed by the coherent inputs.** Shore land preserves its join to an Isthmus
+as well as a Strait, so a real neck cannot be cut off by fitting the neighbouring coast. Decorative
+skerries are kept within their hex and clear of mainland instead of creating stray land bridges.
+The internal sampled topology audit follows oblique land connections, with intermediate probes
+and a width check to distinguish a real diagonal shore from a point contact; this removes a false
+disconnected-sliver report without ignoring genuine land loss.
+
+**Enforced by tests.** The fast fixture test checks every performance, gallery, edit, drawing and
+lake-passage input before rendering, including island share allocations. A slow portfolio test
+checks the actual drawn mainland connections, detached islands and passage joins on the populated,
+mixed, large-continent and every coast gallery map. The generated maps at 5×5, 12×12, 30×30 and
+40×40 also pass the input rules. These are correctness gates on our inputs and output, not warnings
+delegating repair to the user.
+
+**Validation.** Client/server and rendering-fixture typechecks, production build, 602 fast tests,
+15 slow tests, drawing pixels (including 400 river cases), and the full drawing sweeps (150 coverage,
+200 island and 600 enclosed-water cases) pass at unchanged thresholds. Production-browser smoke
+loads the corrected map and verifies the manual checking workflow is gone, with no browser errors.
+Before/after images on the same corrected isthmus input show the old broken land join restored;
+Fractured mainland/island images were also reviewed. `perf:coast -- --review` saves intentional
+changes without rejecting them solely for being visible; scene equality and blank-coast checks
+remain available, and the topology/share tests remain mandatory.
+
+**Measurements.** The corrected populated fixture's SHA-256 is
+`18eb3209264f51b75f7900959b4b52a4949abf7637f6c9e0bb8cb1b0b06d81cc`. Its workload differs from
+the retired mock fixture. Old timings cannot establish a speedup from this change; future paired
+comparisons must feed the same corrected inputs to both renderer versions. This correction does
+not claim to finish the initial-solve performance task.
+
+**Local evidence:** `work/geography/verified-{full,slow,typecheck,fixture-types,build}.log`,
+`corrected-drawing-{pixels,sweeps}.log`, `positive-fixtures.log`, `final-bank-tests.log`,
+`final-bank-slow.log`, `corrected-ui-results.json`, `corrected-input.png`, `large-continent.png`,
+and the before/after images in `work/geography/connection-review/`.

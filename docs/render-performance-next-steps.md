@@ -10,7 +10,10 @@ compares them, gives a pilot measurement for each of the first two, and sets the
 - **Option 2: implemented** (DECISIONS §77). It needed fixes to how frontiers meet the coast and how
   rivers bow round city icons first.
 - **Option 3:** stays rejected.
-- **Picture checks:** the scripts now judge pictures by visible change (§76).
+- **Picture checks:** review intentional changes for meaningful, undesirable effects (§86).
+- **Inputs corrected (§89):** the populated fixture, mixed fixture and coast galleries now describe
+  coherent geography. The old malformed mock map is retired. Its timing figures are historical;
+  measure future changes with paired runs using the same corrected inputs on both sides.
 
 **T2 completed, 3 November 2026 (DECISIONS §84).** The bend-list conversion is removed. All four
 strong existing optimizations are retained after independent 100-pair comparisons on each fixture.
@@ -31,7 +34,15 @@ The rest of this brief is the plan as written.
 
 ## Quality criterion
 
-The owner's criterion is no visible change, not byte identity. Byte equality is a convenient check
+**Owner clarification, 4 November 2026 (DECISIONS §86).** A new fitting method is expected to
+produce visibly different images. Judge whether the differences are meaningful and undesirable,
+using before/after images shown to the owner. Pixel thresholds identify changes to inspect; they
+do not decide whether a changed coast is worse. Lost land pieces, broken connections, inaccurate
+shares and poorer drawing need fixing; a different bay or cape alone does not justify rejection.
+The geometric gates and cached/uncached equality requirements remain unchanged.
+
+The earlier criterion below required no visible change. It is superseded by this clarification
+for intentional fitting changes. Byte equality is a convenient check
 where it happens to hold, but it is not required. Chromium's 2D raster already varies between repaints
 (DECISIONS §72), so a change that moves single antialiased edge pixels, or moves a coastline by a
 small fraction of a pixel, is acceptable when before/after images show no visible difference (§73).
@@ -152,6 +163,24 @@ untouched, and they are the only route to a faster first picture now that a stan
 | Done | Group 2: T1 paired benchmark (§83) and T2 review (§84) | Use these tools and retained optimizations as the baseline for future work |
 
 ## Next task: the initial coast solve
+
+**First trials rejected (DECISIONS §85).** Passing the initial trace directly to the existing
+coupled fit leaves extra share misses. Adding shoreline-position constraints for the first solve
+reduces those misses but loses a mainland fragment and visibly changes bays and capes. Neither
+trial is adopted; step 1.1 remains open. The image-based rejection was premature: see the owner's
+clarification in §86. Its replacement must handle target hexes without coast samples, retain land
+pieces and drawing quality, and meet the share gates; it need not reproduce the old bays and capes.
+Hex 728 is invalid input for a mainland-attachment test: none of its neighbours is mainland (§87).
+Do not use preserving its detached blob as a correctness requirement. Include the new
+`continent-large-lakes` case in visual review; it supplies a large connected continent, three
+multi-hex lakes and a Mainland and islands hex actually adjoining mainland. Check the drawn
+attachment as well as land share. The populated and mixed inputs have been corrected (§89),
+rather than preserving malformed input for timing comparisons.
+The fast `geographyFixtures` tests require coherent input, and the slow `geographyFixtures` test
+requires connected mainland, detached islands and connected passages in the rendered portfolio.
+These are internal correctness gates, not a checking task delegated to the user. Use
+`perf:coast -- --review` to save intentional before/after changes for qualitative judgement;
+an unchanged land percentage does not establish correct geography.
 
 Implement Group 1, step 1.1: replace the global share passes with one initial solve using the share
 targets as constraints, starting from the trace. Field reuse and the round stopping rule follow as

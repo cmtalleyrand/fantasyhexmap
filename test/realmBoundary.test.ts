@@ -57,18 +57,28 @@ test('a frontier ending on the coast keeps its wander when the coast moves sligh
 
 test('a thin coastal strip of a mainland-with-islands hex is drawn as the realm it lies along', async () => {
   const { buildStaticScene } = await import('../src/render/scene.ts');
-  const { fixture, options } = await import('../scripts/render-profile-input.ts');
-  const opts = options(), scene = buildStaticScene(fixture('populated'), opts);
-  const vertices: Array<[number, number]> = [];
-  const walk = (prims: typeof scene.prims): void => prims.forEach(p => p.kind === 'group' ? walk(p.prims)
-    : p.kind === 'path' && p.stroke === opts.style!.palette.frontier ? p.d.forEach(c => { if (c.length === 3) vertices.push([c[1], c[2]]); }) : undefined);
-  walk(scene.prims);
-  const passes = (hex: number) => {
-    const c = hexCenter(hex % 40, Math.floor(hex / 40), opts.size);
+  const { createMapState } = await import('./seededMap.ts');
+  const { checkBaseGeography } = await import('../shared/geography.ts');
+  const { resolveStyle } = await import('../src/render/styles.ts');
+  const passes = (mainland: number) => {
+    const map = createMapState('A thin mainland strip', 7, 7); map.id = 'realm-strip';
+    const base = map.layers.base.data = Array.from({ length: 49 }, (_, i) => i % 7 <= 2 ? 'Land' as const : 'Sea' as const) as import('../shared/types.ts').BaseGeo[];
+    base[17] = 'Land'; base[24] = 'Mainland and islands';
+    map.hexDimensions.mainlandPercent = mainland;
+    map.islandSpecs = { '24': { large: 0, small: 2 } };
+    map.layers.polities.data = { polities: [{ id: 'a', name: 'A', colour: '#aa0000' }, { id: 'b', name: 'B', colour: '#0000aa' }],
+      owner: base.map((v, i) => v === 'Sea' ? null : Math.floor(i / 7) <= 2 || i === 24 ? 'b' : 'a') };
+    assert.deepEqual(checkBaseGeography(base, 7, 7), []);
+    const opts = { size: 26, visible: { base: true, polities: true } as import('../src/render/scene.ts').VisibleLayers,
+      labels: false, style: resolveStyle({ preset: 'parchment', overrides: { coast: 'smooth' } }) };
+    const scene = buildStaticScene(map, opts), vertices: Array<[number, number]> = [];
+    const walk = (prims: typeof scene.prims): void => prims.forEach(p => p.kind === 'group' ? walk(p.prims)
+      : p.kind === 'path' && p.stroke === opts.style.palette.frontier ? p.d.forEach(c => { if (c.length === 3) vertices.push([c[1], c[2]]); }) : undefined);
+    walk(scene.prims);
+    const c = hexCenter(3, 3, opts.size);
     return vertices.some(([x, y]) => Math.hypot(x - c.x, y - c.y) < 1e-6);
   };
-  // Hex 87's land facing realm J's hex 46 is a strip along the coast: the border runs through its centre.
-  assert.ok(passes(87));
-  // Hex 794's land facing realm A is most of its sector: the border keeps to the hex edges.
-  assert.ok(!passes(794));
+  // The mainland meets its own realm to the NW and another realm to the W.
+  assert.ok(passes(10), 'a thin strip facing the other realm moves its frontier through the centre');
+  assert.ok(!passes(40), 'a broad mainland sector keeps its frontier on the shared edge');
 });

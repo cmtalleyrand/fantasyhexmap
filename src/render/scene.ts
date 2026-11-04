@@ -224,6 +224,8 @@ export interface FurniturePlacement {
  * picks the test up again through `withLandOf`.
  */
 const landTests = new WeakMap<object, (p: Point) => boolean>();
+/** The independent island shapes, kept separate so audits can detect one merging into mainland. */
+const islandTests = new WeakMap<object, (p: Point) => boolean>();
 
 /** A symbol drawn on the land (relief, vegetation, an elevation mark): its hex and the points along its drawing. */
 export interface SymbolTrace {
@@ -254,10 +256,16 @@ export function landTestOf(scene: Scene): ((p: Point) => boolean) | undefined {
   return landTests.get(scene);
 }
 
+export function islandTestOf(scene: Scene): ((p: Point) => boolean) | undefined {
+  return islandTests.get(scene);
+}
+
 /** `scene`, a copy or extension of `source`, answering the same land questions. */
 export function withLandOf<T extends Scene>(scene: T, source: Scene): T {
   const test = landTests.get(source);
   if (test) landTests.set(scene, test);
+  const islands = islandTests.get(source);
+  if (islands) islandTests.set(scene, islands);
   const symbols = symbolTraces.get(source);
   if (symbols) symbolTraces.set(scene, symbols);
   return scene;
@@ -532,7 +540,7 @@ function cachedCoast(
       // Whole hexes of land are cut back from the sea; a strait drawn whole is all water.
       const keepJoins = shore[i] === true && [0, 1, 2, 3, 4, 5].some(e => {
         const n = neighbourOf(i % cols, Math.floor(i / cols), e);
-        return inBounds(cols, rows, n.col, n.row) && base[hexIndex(cols, n.col, n.row)] === 'Strait';
+        return inBounds(cols, rows, n.col, n.row) && (base[hexIndex(cols, n.col, n.row)] === 'Strait' || base[hexIndex(cols, n.col, n.row)] === 'Isthmus');
       });
       targets.set(i, { share: aimed, kind: 'inset', keepJoins, joinShare: keepJoins ? share : undefined, concentrationSide: shape.concentrationSide, concentration: shape.concentration,
         bankBias: Array.from({ length: 6 }, (_, e) => 0.8 + unit(seed, 'coast-cut', i, e) * 0.4) });
@@ -1064,7 +1072,7 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
     if (Math.abs(wanted - shown) <= LAND_SHARE_TOLERANCE) continue;
     compromises.push({
       hexes: [i],
-      what: `${Math.round(shown * 100)}% land drawn instead of ${Math.round(wanted * 100)}%`,
+      what: `${base?.[i] === 'Mainland and islands' ? 'Mainland portion (offshore islands excluded): ' : ''}${Math.round(shown * 100)}% land drawn instead of ${Math.round(wanted * 100)}%`,
       why: base?.[i] === 'Strait' || base?.[i] === 'Isthmus'
         ? 'the chosen passage width and connected shores limit how much land fits; change the width or land percentage'
         : 'the coastline could not reach this percentage while fitting the neighbouring shores',
@@ -2179,7 +2187,15 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
           const a = sub(2000 + n) * Math.PI * 2;
           const r = size * (0.035 + 0.035 * sub(2100 + n));
           const out = 1.25 + 0.35 * sub(2200 + n);
-          skerries.push(...blobPath({ x: isle.c.x + Math.cos(a) * rx * out, y: isle.c.y + Math.sin(a) * ry * out }, r * 1.3, r, sub(2300 + n) * Math.PI, (q) => sub(2400 + n * 17 + q), 8, 0.2));
+          const skerry = blobPath({ x: isle.c.x + Math.cos(a) * rx * out, y: isle.c.y + Math.sin(a) * ry * out }, r * 1.3, r, sub(2300 + n) * Math.PI, (q) => sub(2400 + n * 17 + q), 8, 0.2);
+          const centre = hexCenter(i % cols, Math.floor(i / cols), size);
+          const near = base![i] === 'Mainland and islands' ? mainlandNear(i) : null;
+          // Decorative skerries obey the same water gap and hex boundary as their
+          // parent islands; they must not grow a bridge to mainland or another hex.
+          const gap = 2 * inkReach + size * .03, apothem = Math.sqrt(3) * size / 2 - inkReach;
+          if (pathPolylines(skerry, 8).every(ring => ring.every(p =>
+            (!near || near(p).dist >= gap) && Array.from({ length: 6 }, (_, e) => e * Math.PI / 3)
+              .every(angle => (p.x - centre.x) * Math.cos(angle) + (p.y - centre.y) * Math.sin(angle) < apothem)))) skerries.push(...skerry);
         }
       }
       return [...body, ...skerries];
@@ -2299,7 +2315,9 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
     for (const { col, row } of near) {
       if (!inBounds(cols, rows, col, row)) continue;
       const j = row * cols + col;
-      if (!isIslandType(base[j]) || terrain?.split.has(j)) continue;
+      // Split mainland-and-islands hexes still paint independent offshore islands.
+      // Those are dry ground too; the split excludes them only from the coast fit.
+      if (!isIslandType(base[j])) continue;
       let contains = isleMemo.get(j);
       if (!contains) {
         // Test the irregular outline actually painted, including skerries, rather than
@@ -3625,6 +3643,7 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
   phase();
   profileCount('scene.primitives', prims.length);
   landTests.set(scene, landAt);
+  islandTests.set(scene, isleAt);
   symbolTraces.set(scene, traces);
   if (realmArea) realmAreas.set(scene, realmArea);
   return scene;

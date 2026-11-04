@@ -58,7 +58,12 @@ export function cases() {
     const map = coastMap(20, `investigation-${kind}`);
     map.layers.base.data![12] = kind;
     map.hexShapes = { '12': { type: kind, land: 10, width: 'Very narrow', irregular: 'Fractured' } };
-    if (kind === 'Strait' || kind === 'Isthmus') map.layers.base.data![11] = map.layers.base.data![13] = 'Land';
+    if (kind === 'Strait' || kind === 'Isthmus') {
+      // Two broad land banks with one tip each meeting the passage; all four other neighbours are water.
+      map.layers.base.data = Array.from({ length: 20 }, (_, i) => i % 5 === 0 || i % 5 === 4 || i === 11 || i === 13 ? 'Land' : 'Sea');
+      map.layers.base.data[12] = kind;
+      map.layers.elevation.data = map.layers.base.data.map(v => v === 'Land' || v === 'Isthmus' ? 'Hills' : null);
+    }
     if (kind === 'Islands') map.islandSpecs = { '12': { large: 1, small: 2 } };
     out.push({ name: kind.toLowerCase(), map, opts: options() });
   }
@@ -77,6 +82,7 @@ export function cases() {
   for(const width of ['Very narrow','Normal'] as const) {
     const map=createMapState('Strait ink',7,7);map.id='strait-ink';
     map.layers.base.data=Array.from({length:49},(_,i)=>i%7===3?'Sea':'Land');map.layers.base.data[24]='Strait';
+    map.layers.base.data[2*7+4]=map.layers.base.data[4*7+4]='Sea';
     map.hexShapes={'24':{type:'Strait',width}};
     const opts=options();opts.labels=false;
     out.push({name:`strait-${width==='Normal'?'normal':'very-narrow'}`,map,opts});

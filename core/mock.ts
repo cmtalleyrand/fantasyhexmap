@@ -22,6 +22,7 @@ import type {
   Vegetation,
 } from '../shared/types.js';
 import { isIslandType } from '../shared/types.js';
+import { correctBaseGeography, geographyCategory } from '../shared/geography.js';
 import type { PromptContext } from './prompts.js';
 
 function makeRng(seed: string) {
@@ -47,6 +48,7 @@ function buildBase(ctx: PromptContext): BaseGeo[] {
     r: (0.18 + rng() * 0.22) * Math.max(cols, rows),
   }));
   const data: BaseGeo[] = new Array(cols * rows).fill('Sea');
+  const phase = rng() * Math.PI * 2;
   for (let row = 0; row < rows; row++) {
     for (let col = 0; col < cols; col++) {
       let land = 0;
@@ -54,12 +56,39 @@ function buildBase(ctx: PromptContext): BaseGeo[] {
         const d = Math.hypot(col - b.x, (row - b.y) * 1.15);
         land += Math.max(0, 1 - d / b.r);
       }
-      land += (rng() - 0.5) * 0.35;
+      // Broad coherent coast variation, rather than independent per-hex holes
+      // and randomly labelled mainland fragments in the interior or open sea.
+      land += Math.sin(col / 3.7 + phase) * Math.cos(row / 4.1 - phase) * 0.045;
       const i = hexIndex(cols, col, row);
-      if (land > 0.55) data[i] = 'Land';
-      else if (land > 0.42) data[i] = rng() < 0.35 ? (rng() < 0.5 ? 'Mainland and islands' : 'Islands') : 'Land';
-      else if (land > 0.33 && rng() < 0.25) data[i] = 'Islands';
+      if (land > 0.42) data[i] = 'Land';
     }
+  }
+  const neighbours = (i: number) => Array.from({ length: 6 }, (_, e) => {
+    const n = neighbourOf(i % cols, Math.floor(i / cols), e);
+    return inBounds(cols, rows, n.col, n.row) ? hexIndex(cols, n.col, n.row) : -1;
+  }).filter(i => i >= 0);
+  // Fill accidental enclosed sea holes. Inland water is deliberately laid out as lakes below.
+  const ocean = new Set<number>(), queue: number[] = [];
+  for (let i = 0; i < data.length; i++) if (data[i] === 'Sea'
+    && (i % cols === 0 || i % cols === cols - 1 || i < cols || i >= (rows - 1) * cols)) {
+    ocean.add(i); queue.push(i);
+  }
+  for (let at = 0; at < queue.length; at++) for (const i of neighbours(queue[at]!)) {
+    if (data[i] === 'Sea' && !ocean.has(i)) { ocean.add(i); queue.push(i); }
+  }
+  for (let i = 0; i < data.length; i++) if (data[i] === 'Sea' && !ocean.has(i)) data[i] = 'Land';
+  // Multi-hex inland lakes, chosen from deep mainland and kept apart from the sea.
+  for (let k = 0; k < Math.max(1, Math.round(cols * rows / 700)); k++) {
+    const distances = distanceToWater(data, cols, rows);
+    let centre = -1, clearance = 0;
+    for (let i = 0; i < data.length; i++) if (data[i] === 'Land') {
+      const room = Math.min(distances[i]!, i % cols, cols - 1 - i % cols, Math.floor(i / cols), rows - 1 - Math.floor(i / cols));
+      if (room > clearance) { centre = i; clearance = room; }
+    }
+    if (centre < 0 || clearance < 3) break;
+    const radius = Math.min(3, clearance - 1);
+    for (let i = 0; i < data.length; i++) if (data[i] === 'Land'
+      && hexDistance({ col: i % cols, row: Math.floor(i / cols) }, { col: centre % cols, row: Math.floor(centre / cols) }) < radius) data[i] = 'Lake';
   }
   // Polar ice caps.
   const capRows = Math.max(1, Math.round(rows * 0.06));
@@ -69,21 +98,23 @@ function buildBase(ctx: PromptContext): BaseGeo[] {
         const i = hexIndex(cols, col, row);
         if (rng() >= 0.75) continue;
         // Ice over land is a glacier; over water, pack ice.
-        data[i] = data[i] === 'Land' ? 'Glacier' : 'Sea Ice';
+        if (data[i] === 'Land') data[i] = 'Glacier';
+        else if (data[i] === 'Sea') data[i] = 'Sea Ice';
       }
     }
   }
-  // A few inland lakes.
-  for (let n = 0; n < Math.max(1, Math.round((cols * rows) / 300)); n++) {
-    const col = 1 + Math.floor(rng() * (cols - 2));
-    const row = 1 + Math.floor(rng() * (rows - 2));
-    const enclosed = [0, 1, 2, 3, 4, 5].every((e) => {
-      const nb = neighbourOf(col, row, e);
-      return inBounds(cols, rows, nb.col, nb.row) && data[hexIndex(cols, nb.col, nb.row)] === 'Land';
-    });
-    if (enclosed) data[hexIndex(cols, col, row)] = 'Lake';
+  const ordinary = [...data];
+  for (let i = 0; i < data.length; i++) {
+    const around = neighbours(i);
+    if (ordinary[i] === 'Land' && around.some(h => ordinary[h] === 'Sea') && rng() < .12) {
+      data[i] = 'Mainland and islands';
+    } else if (ordinary[i] === 'Sea' && around.every(h => geographyCategory(ordinary[h]) === 'water')
+      && around.some(h => neighbours(h).some(j => ordinary[j] === 'Land')) && rng() < .12) {
+      // Offshore islands have a full water gap, rather than being random holes in a continent.
+      data[i] = 'Islands';
+    }
   }
-  return data;
+  return correctBaseGeography(data, cols, rows);
 }
 
 function distanceToWater(base: BaseGeo[], cols: number, rows: number): number[] {
@@ -345,7 +376,8 @@ function buildPolities(ctx: PromptContext) {
   const { cols, rows } = ctx;
   const base = ctx.base!;
   const rng = makeRng('pol' + ctx.description);
-  const count = Math.max(3, Math.min(10, Math.round((cols * rows) / 200) + 3));
+  // Small/coastal maps may have fewer land hexes than the requested number of realms.
+  const count = Math.min(base.filter(isLandLike).length, Math.max(3, Math.min(10, Math.round((cols * rows) / 200) + 3)));
   const keys = 'ABCDEFGHIJ'.slice(0, count).split('');
   const colours = ['#b5533c', '#3f7a8c', '#7a6cae', '#5c8a4a', '#c08a2e', '#8c4f6d', '#4a6f9c', '#9c7b4a', '#5e8f7e', '#a2493f'];
   const seeds: number[] = [];

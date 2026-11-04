@@ -32,7 +32,9 @@ test('west and east lake junction selections move the rendered passage', () => {
   // mouth widths (which also depend on the channel's angle).
   assert.ok(west.water(westThroat), 'western junction lies in water');
   assert.ok(east.water(eastThroat), 'eastern junction lies in water');
-  assert.equal(landTestOf(west.scene)?.({ x: c.x, y: c.y - size * 0.75 }), true, 'expanded lake bank is available for land placement');
+  const northBank = hexCenter(3, 2, size);
+  const bankPoint = { x: c.x + (northBank.x - c.x) * .4, y: c.y + (northBank.y - c.y) * .4 };
+  assert.equal(landTestOf(west.scene)?.(bankPoint), true, 'expanded lake bank is available for land placement');
   assert.equal(landTestOf(east.scene)?.(eastThroat), false, 'moved channel is water for placement too');
   // The representative Normal/side=3 and Normal/side=0 cases check connectivity.
 });
@@ -53,7 +55,7 @@ test('natural lake straits are short gaps between tips, opening rapidly on both 
   const c = hexCenter(3, 3, size), corners = hexCorners(3, 3, size);
   for (const irregular of ['Smooth', 'Ragged', 'Fractured'] as const) {
     const draw = render(fixture('Narrow', undefined, undefined, irregular));
-    const frame = lakeStraitFrame(corners, c, [2, 4, 5], .15 * Math.sqrt(3) * size)!;
+    const frame = lakeStraitFrame(corners, c, [2, 4], .15 * Math.sqrt(3) * size)!;
     const normal = frame.normal, tangent = { x: normal.y, y: -normal.x };
     const gap = (u: number) => {
       const at = (v: number) => ({ x: frame.centre.x + tangent.x * u + normal.x * v,
