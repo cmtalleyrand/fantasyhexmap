@@ -1,3 +1,4 @@
+import { validateHexDefinitions } from '../../shared/hexValidation.js';
 import { withValidParents } from '../../shared/polityTree.js';
 import { LAYER_ORDER, type MapState } from '../../shared/types.js';
 import { withMigratedGeoNames } from '../../shared/geoNames.js';
@@ -56,5 +57,6 @@ export function prepareLoadedMap(map: MapState): MapState {
     layer.warnings ??= [];
     layer.version ??= 0;
   }
+  map.layers.base.warnings = [...map.layers.base.warnings.filter(w => !w.startsWith('Hex definition (')), ...validateHexDefinitions(map)];
   return map;
 }

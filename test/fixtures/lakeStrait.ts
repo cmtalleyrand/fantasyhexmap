@@ -14,6 +14,7 @@ export function lakeStraitFixture({ width, side, land, irregular }: LakeStraitCa
   // The northern shore spans NW/NE; the peninsula reaches the SW edge.
   for (let y = 0; y <= 2; y++) for (let x = 0; x < 7; x++) base[y * 7 + x] = 'Land';
   for (let y = 4; y < 7; y++) for (let x = 0; x <= (y % 2 ? 2 : 3); x++) base[y * 7 + x] = 'Land';
+  base[2 * 7 + 4] = 'Lake'; // Exactly one northern land neighbour and one southern bank.
   map.hexShapes = { '24': { type: 'Strait', width, straitJunctionSide: side, land, irregular } };
   map.defaultLakeIrregularity = irregular;
   return map;

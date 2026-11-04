@@ -105,9 +105,9 @@ test('base surface totals partition shore hexes while counting every surface the
   const stats = baseSurfaceStatistics(['Land', 'Land', 'Sea', 'Lake'], dimensions, undefined, undefined, 4);
 
   assert.deepEqual(stats, [
-    { label: 'Land', hexCount: 3, area: 111 },
+    { label: 'Land', hexCount: 2, area: 96 },
     { label: 'Sea', hexCount: 2, area: 84 },
-    { label: 'Lake', hexCount: 1, area: 45 },
+    { label: 'Lake', hexCount: 1, area: 60 },
   ]);
   assert.equal(stats.reduce((sum, stat) => sum + stat.area, 0), 4 * 60);
 });

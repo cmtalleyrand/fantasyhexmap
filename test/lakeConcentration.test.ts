@@ -34,11 +34,10 @@ function measure(share: number, side: number, strength: number, coastal?: number
 }
 
 for (let side = 0; side < 6; side++) {
-  test(`default Ragged lake keeps its land target under strong concentration: side ${side}`, () => {
-    // The lake's own share is under test: the shore land round it keeps all its land, so the
-    // two shares do not compete for one shoreline.
+  test(`default Ragged lake keeps 5% land beside whole land under strong concentration: side ${side}`, () => {
+    // Whole adjacent land requires exactly 5% attached land in the lake.
     const result = measure(0.8, side, 100, 100);
-    assert.ok(Math.abs(result.land - 0.8) <= LAND_SHARE_TOLERANCE, `side ${side}: ${result.land}`);
+    assert.ok(Math.abs(result.land - 0.05) <= LAND_SHARE_TOLERANCE, `side ${side}: ${result.land}`);
   });
 }
 

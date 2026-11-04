@@ -44,7 +44,7 @@ export function throat(draw: ReturnType<typeof render>, extent = 1) {
     let group = 0;
     for (let at = 0; at < queue.length; at++) {
       const k = queue[at]!, p = pointAt(k), x = k % nx, y = Math.floor(k / nx);
-      for (const e of [2, 4, 5]) if (segmentDistance(p, corners[e]!, corners[(e + 1) % 6]!) < step * 1.6) group |= e === 2 ? 2 : 1;
+      for (const e of [2, 4]) if (segmentDistance(p, corners[e]!, corners[(e + 1) % 6]!) < step * 1.6) group |= e === 2 ? 2 : 1;
       for (const [dx, dy] of [[-1, 0], [1, 0], [0, -1], [0, 1]]) {
         const xx = x + dx!, yy = y + dy!, j = yy * nx + xx;
         if (xx < 0 || xx >= nx || yy < 0 || yy >= ny || labels[j] !== -1) continue;

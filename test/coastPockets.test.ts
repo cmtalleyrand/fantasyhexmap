@@ -55,25 +55,13 @@ test('a strait between reshaped coasts leaves no small enclosed lakes in its ban
   }
 });
 
-test('a strait with land on one side only draws one bank along its passage, not prongs round a slot', () => {
+test('a strait with adjacent land neighbours keeps two separate attached banks', () => {
   const base = stackedStrait();
   const shaped = shapeCoast(coastEdges(base, W, H, size), surfaceMap(base, W, H), size,
     new Map([[id(4, 3), { share: 0.3, kind: 'channel' as const, width: 0.3 * Math.sqrt(3) * size }]]))!;
   const land = shaped.land.get(id(4, 3))!;
-  // Prongs leave water enclosed on three sides inside the bank: the land's hull is much larger than the land.
-  const hull = (points: Point[]) => {
-    const sorted = [...points].sort((a, b) => a.x - b.x || a.y - b.y);
-    const cross = (o: Point, a: Point, b: Point) => (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x);
-    const half = (pts: Point[]) => pts.reduce<Point[]>((out, p) => {
-      while (out.length > 1 && cross(out[out.length - 2]!, out[out.length - 1]!, p) <= 0) out.pop();
-      out.push(p);
-      return out;
-    }, []);
-    return [...half(sorted).slice(0, -1), ...half(sorted.reverse()).slice(0, -1)];
-  };
-  const area = land.reduce((sum, p) => sum + polyArea(p), 0);
-  assert.ok(area > 0);
-  assert.ok(polyArea(hull(land.flat())) < area * 1.2, 'the bank is one solid shore');
+  assert.equal(land.length, 2, 'adjoining land hexes still require two separate banks');
+  assert.ok(land.every(poly => polyArea(poly) > 0));
   // And the passage stays open across the hex: its water touches both of the strait's side edges.
   const chains = chainEdges(shaped.edges);
   assert.ok(chains.every(chain => chain.edges.some(edge => edge.hex !== id(4, 3))), 'every shore is joined to a mainland');

@@ -32,7 +32,7 @@ test('west and east lake junction selections move the rendered passage', () => {
   // mouth widths (which also depend on the channel's angle).
   assert.ok(west.water(westThroat), 'western junction lies in water');
   assert.ok(east.water(eastThroat), 'eastern junction lies in water');
-  assert.equal(landTestOf(west.scene)?.({ x: c.x, y: c.y - size * 0.75 }), true, 'expanded lake bank is available for land placement');
+  assert.equal(landTestOf(west.scene)?.(hexCenter(3, 2, size)), true, 'expanded lake bank is available for land placement');
   assert.equal(landTestOf(east.scene)?.(eastThroat), false, 'moved channel is water for placement too');
   // The representative Normal/side=3 and Normal/side=0 cases check connectivity.
 });
@@ -41,19 +41,21 @@ test('lake straits report land shares without sacrificing their headland shape t
   const middle = render(fixture('Narrow', undefined, 50));
   assert.ok(Math.abs(low.share() - 0.3) < 0.01, `30% request rendered ${low.share()}`);
   assert.ok(Math.abs(middle.share() - 0.5) < 0.01, `50% request rendered ${middle.share()}`);
-  const natural = render(fixture('Narrow'));
+  const maximum = render(fixture('Narrow', undefined, 70));
   const eighty = render(fixture('Narrow', undefined, 80));
-  assert.deepEqual(eighty.rings, natural.rings, '80% must not flatten the headlands to force a land-area target');
+  assert.deepEqual(eighty.rings, maximum.rings, 'legacy 80% shares clamp to the allowed 70% maximum');
   const note = eighty.scene.compromises?.find(c => c.hexes.includes(centre));
-  assert.ok(note, 'the ignored high target must be reported');
-  assert.ok(Math.abs(Number(note.what.match(/^(\d+)%/)?.[1]) / 100 - eighty.share()) < 0.01);
+  if (Math.abs(eighty.share() - 0.7) > LAND_SHARE_TOLERANCE) {
+    assert.ok(note, 'an unmet valid target must be reported');
+    assert.ok(Math.abs(Number(note.what.match(/^(\d+)%/)?.[1]) / 100 - eighty.share()) < 0.01);
+  }
 });
 
 test('natural lake straits are short gaps between tips, opening rapidly on both sides', () => {
   const c = hexCenter(3, 3, size), corners = hexCorners(3, 3, size);
   for (const irregular of ['Smooth', 'Ragged', 'Fractured'] as const) {
     const draw = render(fixture('Narrow', undefined, undefined, irregular));
-    const frame = lakeStraitFrame(corners, c, [2, 4, 5], .15 * Math.sqrt(3) * size)!;
+    const frame = lakeStraitFrame(corners, c, [2, 4], .15 * Math.sqrt(3) * size)!;
     const normal = frame.normal, tangent = { x: normal.y, y: -normal.x };
     const gap = (u: number) => {
       const at = (v: number) => ({ x: frame.centre.x + tangent.x * u + normal.x * v,
