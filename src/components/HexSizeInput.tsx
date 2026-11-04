@@ -35,9 +35,6 @@ const LAND_SHARES: Array<[keyof HexDimensions, string]> = [
 
 /** What a map-wide extreme becomes where whole land meets water with no land (`withShoreSlack`). */
 function slackNote(field: keyof HexDimensions, percent: number): string {
-  if ((field === 'coastalLandPercent' || field === 'glacierPercent') && percent === 100) {
-    return ` (${100 - SHORE_SLACK * 100}% beside 0% water)`;
-  }
   if ((field === 'seaLandPercent' || field === 'lakeLandPercent') && percent === 0) {
     return ` (${SHORE_SLACK * 100}% beside 100% land)`;
   }
@@ -252,7 +249,7 @@ export default function HexSizeInput({
               value={value[field] as number}
               onChange={(e) => onChange({ ...value, [field]: Number(e.target.value) })}
             >
-              {(field === 'smallIslandPercent' ? SMALL_ISLAND_PERCENT_OPTIONS : LAND_PERCENT_OPTIONS).map((p) => (
+              {(field === 'smallIslandPercent' ? SMALL_ISLAND_PERCENT_OPTIONS : field === 'largeIslandPercent' ? LAND_PERCENT_OPTIONS.slice(1) : LAND_PERCENT_OPTIONS).map((p) => (
                 <option key={p} value={p}>
                   {p}%{slackNote(field, p)}
                 </option>
@@ -261,7 +258,7 @@ export default function HexSizeInput({
           </div>
         ))}
         <p className="hint" style={{ gridColumn: '1 / -1' }}>
-          Shores keep {SHORE_SLACK * 100}% either side.
+          Water beside 100% land contains at least {SHORE_SLACK * 100}% attached shore land. Water without adjacent land contains none.
         </p>
         {([['isthmusWidth', 'isthmusPercent', 'Isthmus'], ['straitWidth', 'straitPercent', 'Strait']] as const).map(([field, shareField, label]) => (
           <div key={field}>
@@ -287,7 +284,7 @@ export default function HexSizeInput({
               }}
             >
               <option value="natural">Natural (from the width)</option>
-              {LAND_PERCENT_OPTIONS.map((p) => (
+              {LAND_PERCENT_OPTIONS.filter(p => label === 'Isthmus' ? p >= 15 && p <= 80 : p >= 10 && p <= 70).map((p) => (
                 <option key={p} value={p}>
                   {p}%
                 </option>

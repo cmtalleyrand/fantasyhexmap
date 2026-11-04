@@ -1,3 +1,4 @@
+import { boundedLandShare } from './hexCategories.js';
 /**
  * Core data model for the fantasy hex map.
  *
@@ -95,14 +96,14 @@ export function isSplitType(value: BaseGeo | null | undefined): boolean {
 /** What each base type means, for the sidebar and the legend. */
 export const BASE_DESCRIPTIONS: Record<BaseGeo, string> = {
   Land: 'Dry land. Where it meets sea or lake its shore is drawn in from the water automatically, at the map\'s coastal land share.',
-  Sea: 'Open salt water.',
-  Lake: 'Fresh water enclosed by land.',
+  Sea: 'Salt water. Any shore land connects to adjacent land; without a land neighbour the land share is 0%. Beside 100% land it is at least 5%.',
+  Lake: 'Fresh water. Any shore land connects to adjacent land; without a land neighbour the land share is 0%. Beside 100% land it is at least 5%.',
   Glacier: 'Land under permanent ice: it has elevation and the rest of the land layers, and shows the ice over the relief.',
-  'Sea Ice': 'Frozen sea: pack ice floating on salt water.',
-  Islands: 'Sea holding up to two large islands and six small ones.',
-  'Mainland and islands': 'Part mainland coast, part sea with islands off the shore.',
-  Isthmus: 'A narrow neck of land joining two land masses, with water either side.',
-  Strait: 'A narrow channel of water joining two seas or lakes, with land either side.',
+  'Sea Ice': 'Frozen water with attached shore land only: 0% without a land neighbour, at least 5% beside 100% land.',
+  Islands: 'Water with isolated islands: at least 2.5% land per small island and 5% per large island. No connection to adjacent land; cannot adjoin 100% land.',
+  'Mainland and islands': '10–90% land: connected mainland and separate offshore islands. Requires both a land and a water neighbour.',
+  Isthmus: '15–80% connected land joining adjacent land hexes, with at least two separate land groups and two separate water groups (2–4 water neighbours).',
+  Strait: '10–70% land in two separate banks, each joining adjacent land, with at least two separate land groups and two separate water groups (2–4 water neighbours).',
 };
 
 /** Hex types that carry land-only layer values (elevation, climate, vegetation, population). */
@@ -206,12 +207,12 @@ export function isShapedType(value: BaseGeo | null | undefined): boolean {
 }
 
 /**
- * Types with a land share: every shaped type but Sea Ice, plus Sea and Lake.
+ * Types with a land share: every shaped type, plus Sea and Lake.
  * Water hexes can grow shore land from their land-facing edges. Sea inherits shore
  * irregularity from land; Lake also supports its own override and map default.
  */
 export function hasLandShare(value: BaseGeo | null | undefined): boolean {
-  return value === 'Sea' || value === 'Lake' || (isShapedType(value) && value !== 'Sea Ice');
+  return value === 'Sea' || value === 'Lake' || isShapedType(value);
 }
 
 /** Types whose land can be biased towards one edge without changing its total share. */
@@ -287,7 +288,7 @@ export function hexShapeFor(
   const irregular = fallback ?? (value ? DEFAULT_IRREGULARITY[value] : 'Smooth');
   if (!value || !stored || stored.type !== value || !(isShapedType(value) || hasLandShare(value))) return { irregular };
   const land = hasLandShare(value) && typeof stored.land === 'number' && Number.isFinite(stored.land)
-    ? Math.max(0, Math.min(100, stored.land))
+    ? boundedLandShare(value, stored.land)
     : undefined;
   const width = hasChannelWidth(value) && CHANNEL_WIDTH_VALUES.includes(stored.width as ChannelWidth) ? (stored.width as ChannelWidth) : undefined;
   const straitJunctionSide = value === 'Strait' && Number.isInteger(stored.straitJunctionSide) && stored.straitJunctionSide! >= 0 && stored.straitJunctionSide! < 6

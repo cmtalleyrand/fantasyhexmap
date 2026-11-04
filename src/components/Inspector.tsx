@@ -1,3 +1,4 @@
+import { HEX_CATEGORIES, landShareRange } from '../../shared/hexCategories.js';
 import { hexCount } from './selectionText.js';
 import { useMemo, useState } from 'react';
 import { hexIndex, indexToOffset, neighbourOf } from '../../shared/hex.js';
@@ -528,7 +529,7 @@ type SubProps = InspectorProps & { selected: number[] };
 function valueOptions(layer: LayerId): { value: string; label: string }[] {
   switch (layer) {
     case 'base':
-      return BASE_GEO_VALUES.map((v) => ({ value: v, label: v }));
+      return BASE_GEO_VALUES.map((v) => ({ value: v, label: `${HEX_CATEGORIES[v][0]}: ${v}` }));
     case 'elevation':
       return [{ value: '', label: '(none)' }, ...ELEVATION_VALUES.map((v) => ({ value: v, label: v }))];
     case 'climate':
@@ -695,7 +696,7 @@ const IRREGULARITY_HINTS: Record<Irregularity, string> = {
   Fractured: 'Deeply broken: jagged shores, many skerries, floes and icebergs.',
 };
 
-const LAND_SHARE_STEPS = Array.from({ length: 21 }, (_, n) => n * 5);
+const LAND_SHARE_STEPS = Array.from({ length: 41 }, (_, n) => n * 2.5);
 
 /** The land share and irregularity of the selected shaped hexes (coast, islands, isthmus, strait, ice). */
 function HexShapePanel(props: SubProps) {
@@ -743,7 +744,7 @@ function HexShapePanel(props: SubProps) {
   const concentration = sharedOf(concentrated.map((i) => String(hexShapeFor(base![i], map.hexShapes?.[String(i)]).concentration ?? 0)));
   const landValue = Number(land);
   // The shares the shore slack allows on every selected hex: no option outside them is offered.
-  const lowest = Math.max(0, ...landHexes.map((i) => Math.round(slack(i, 0) * 100)));
+  const lowest = Math.max(0, ...landHexes.map((i) => Math.max(slack(i, 0) * 100, landShareRange(base![i], isIslandType(base![i]) ? islandSpecFor(base![i], map.islandSpecs?.[String(i)]) : undefined)[0])));
   const highest = Math.min(100, ...landHexes.map((i) => Math.round(slack(i, 1) * 100)));
   return (
     <div className="stack" style={{ marginTop: 8 }}>
@@ -773,8 +774,8 @@ function HexShapePanel(props: SubProps) {
             {landHexes.some((i) => hasDerivedShore(base![i]))
               ? ' Land and glacier are cut back from the edges they share with sea or lake; inland they are always whole.'
               : ''}
-            {highest < 100 ? ` Max ${highest}% beside 0% water.` : ''}
-            {lowest > 0 ? ` Min ${lowest}% beside 100% land.` : ''}
+            {highest < 100 ? ` Maximum ${highest}% for this selection.` : ''}
+            {lowest > 0 ? ` Minimum ${lowest}% for this selection.` : ''}
             {landHexes.some((i) => base![i] === 'Lake')
               ? ' In a lake hex this is land drawn in from the edges it shares with land (the lake keeps the rest); 0% leaves the lake as it is.'
               : ''}

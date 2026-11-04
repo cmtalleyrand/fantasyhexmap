@@ -25,6 +25,11 @@ export function featureFixture(deps: { createMapState: any; neighbourOf: any; in
     const n = neighbourOf(i % N, Math.floor(i / N), e);
     return inBounds(N, N, n.col, n.row) ? hexIndex(N, n.col, n.row) : -1;
   });
+  const passage = (i: number) => {
+    const ring = neighbours(i).map(j => j >= 0 ? ['Land', 'Glacier', 'Mainland and islands', 'Isthmus', 'Strait'].includes(base[j]!) ? 'land' : 'water' : null);
+    const groups = (side: string) => ring.filter((v, e) => v === side && ring[(e + 5) % 6] !== side).length;
+    return groups('land') >= 2 && groups('water') >= 2;
+  };
   const shapes: Record<string, object> = {}, islandSpecs: Record<string, object> = {};
   const original = [...base];
   for (let i = 0; i < N * N; i++) {
@@ -32,9 +37,11 @@ export function featureFixture(deps: { createMapState: any; neighbourOf: any; in
     if (original[i] === 'Land' && around.some(j => j >= 0 && original[j] === 'Sea')) {
       const r = random();
       if (layout === 'plain') { base[i] = 'Land'; continue; }
-      if (r < 0.06) { base[i] = 'Strait'; shapes[i] = { type: 'Strait', land: 40 }; }
-      else if (r < 0.10) { base[i] = 'Isthmus'; shapes[i] = { type: 'Isthmus', land: 50 }; }
-      else if (r < 0.16) { base[i] = 'Mainland and islands'; islandSpecs[i] = { count: 2 }; }
+      const landCount = around.filter(j => j >= 0 && ['Land', 'Glacier', 'Mainland and islands', 'Isthmus', 'Strait'].includes(base[j]!)).length;
+      const waterCount = around.filter(j => j >= 0 && ['Sea', 'Lake', 'Sea Ice', 'Islands'].includes(base[j]!)).length;
+      if (r < 0.06 && landCount >= 2 && waterCount >= 2 && waterCount <= 4 && passage(i)) { base[i] = 'Strait'; shapes[i] = { type: 'Strait', land: 40 }; }
+      else if (r < 0.10 && landCount >= 2 && waterCount >= 2 && waterCount <= 4 && passage(i)) { base[i] = 'Isthmus'; shapes[i] = { type: 'Isthmus', land: 50 }; }
+      else if (r < 0.16 && landCount > 0 && waterCount > 0) { base[i] = 'Mainland and islands'; islandSpecs[i] = { large: 0, small: 2 }; }
       else {
         base[i] = 'Land';
         if (r < 0.7) shapes[i] = { type: 'Land', land: 30 + Math.round(random() * 60),
@@ -42,8 +49,18 @@ export function featureFixture(deps: { createMapState: any; neighbourOf: any; in
       }
     } else if (original[i] === 'Sea' && around.some(j => j >= 0 && original[j] === 'Land') && random() < 0.08 && layout !== 'plain') {
       base[i] = 'Islands';
-      islandSpecs[i] = { count: 1 + Math.floor(random() * 3) };
+      islandSpecs[i] = { large: 0, small: 1 + Math.floor(random() * 3) };
     }
+  }
+  // Keep both passage types represented without inventing invalid coast topology.
+  if (layout !== 'plain') for (const type of ['Strait', 'Isthmus']) {
+    if (base.includes(type)) continue;
+    const index = base.findIndex((value, i) => {
+      const dry = neighbours(i).filter(j => j >= 0 && ['Land', 'Glacier', 'Mainland and islands', 'Isthmus', 'Strait'].includes(base[j]!));
+      return value === 'Land' && dry.length === 2 && !neighbours(dry[0]!).includes(dry[1]!) &&
+        neighbours(i).filter(j => j >= 0 && ['Sea', 'Lake', 'Sea Ice', 'Islands'].includes(base[j]!)).length === 4;
+    });
+    if (index >= 0) { base[index] = type; shapes[index] = { type, land: 45 }; }
   }
   map.layers.base.data = base;
   map.hexShapes = shapes;

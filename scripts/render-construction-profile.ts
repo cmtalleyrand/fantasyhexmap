@@ -1,3 +1,4 @@
+import { validateHexDefinitions } from '../shared/hexValidation.ts';
 /** Node-only construction diagnostic. Browser opening/transfer timings use the separate app runner. */
 import { createHash } from 'node:crypto';
 import { readFileSync, writeFileSync, mkdirSync, openSync, closeSync } from 'node:fs';
@@ -30,6 +31,8 @@ if (!process.argv.includes('--sample')) {
   const profileApi = profiling ? await import(pathToFileURL(resolve(root, 'src/render/profile.ts')).href) : null;
   const map = fixture(arg('--kind', 'populated')), opts = options();
   if (arg('--kind', 'populated') !== 'populated') { opts.labels = false; opts.visible = { base: true } as typeof opts.visible; }
+  const definitionErrors = validateHexDefinitions(map);
+  if (definitionErrors.length) throw Error(`Invalid performance fixture:\n${definitionErrors.join('\n')}`);
   const run = () => {
     profileApi?.beginRenderProfile(); const cpuStart = process.cpuUsage(); const start = performance.now();
     const scene = buildStaticScene(map, opts), ms = performance.now() - start;

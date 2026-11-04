@@ -89,7 +89,7 @@ test('incremental rebuilds equal uncached rebuilds after merges, splits, setting
   const cases = editCases().filter(c => !c.name.includes('-Fractured/'));
   const island = cases.find(c => c.name === 'placement/islands')!.map;
   const more = cases.find(c => c.name === 'placement/island-count')!.map;
-  assert.notDeepEqual(islandSpecFor('Islands', island.islandSpecs!['51']), islandSpecFor('Islands', more.islandSpecs!['51']));
+  assert.notDeepEqual(islandSpecFor('Islands', island.islandSpecs!['27']), islandSpecFor('Islands', more.islandSpecs!['27']));
   for (const c of cases) assertRebuildMatchesUncached(c.map, c.options, c.name);
 });
 test('unchanged placement inputs reuse every search, while marker, font and terrain changes invalidate correctly', () => {

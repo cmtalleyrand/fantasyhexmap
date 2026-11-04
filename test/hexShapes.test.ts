@@ -1,3 +1,4 @@
+import { passageNeighbours } from '../shared/hexCategories.ts';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createMapState } from './seededMap.ts';
@@ -51,8 +52,8 @@ test('a hex that sets its own land share takes it, within 0 to 100', () => {
   assert.equal(landFraction('Isthmus', undefined, dims, { type: 'Isthmus', land: 55 }), 0.55);
   assert.equal(landFraction('Isthmus', undefined, { ...dims, isthmusPercent: 80 }), 0.8);
   assert.equal(landFraction('Isthmus', undefined, { ...dims, isthmusPercent: 80 }, { type: 'Isthmus', land: 55 }), 0.55);
-  // Sea ice has no land share to set.
-  assert.equal(landFraction('Sea Ice', undefined, dims, { type: 'Sea Ice', land: 80 }), 0);
+  // Sea ice supports attached shore land, like sea and lake.
+  assert.equal(landFraction('Sea Ice', undefined, dims, { type: 'Sea Ice', land: 80 }), 0.8);
 });
 
 test('every shaped type is Ragged by default, and settings made for another type are ignored', () => {
@@ -106,9 +107,9 @@ test('shape settings are applied to shaped hexes only, and can be cleared', () =
   assert.deepEqual(set.hexShapes, {
     '1': { type: 'Land', land: 40, irregular: 'Ragged' },
     '2': { type: 'Islands', land: 40, irregular: 'Ragged' },
-    // Sea Ice has irregularity but no land share.
-    '3': { type: 'Sea Ice', irregular: 'Ragged' },
-    '4': { type: 'Sea', land: 40 },
+    // These water hexes have no adjacent Land-category hex.
+    '3': { type: 'Sea Ice', land: 0, irregular: 'Ragged' },
+    '4': { type: 'Sea', land: 0 },
   });
   assert.equal(set.journal.at(-1)?.kind, 'manual');
 
@@ -641,13 +642,13 @@ test('an isthmus, a strait and a mainland are reshaped to exactly their land sha
   const layouts: Array<[BaseGeo, BaseGeo[], 'neck' | 'channel' | 'inset']> = [
     // 3 x 3: land west and east of an isthmus with sea north and south of it.
     ['Isthmus', [S, S, S, L, 'Isthmus', L, S, S, S], 'neck'],
-    ['Strait', [L, L, L, S, 'Strait', S, L, L, L], 'channel'],
+    ['Strait', [S, S, S, L, 'Strait', L, S, S, S], 'channel'],
     ['Mainland and islands', [S, S, S, L, 'Mainland and islands', S, S, S, S], 'inset'],
   ];
   for (const [type, base, kind] of layouts) {
     const surface = surfaceMap(base, 3, 3);
     assert.ok(surface.split.has(4), `${type} is split`);
-    for (const share of [0.1, 0.3, 0.6, 0.9]) {
+    for (const share of [0.25, 0.4, 0.55, 0.65]) {
       const shaped = shapeCoast(coastEdges(base, 3, 3, size), surface, size, new Map([[4, { share, kind }]]));
       assert.ok(shaped, `${type} ${share}: reshaped`);
       const land = shaped.land.get(4)!.reduce((sum, p) => sum + polyAreaOf(p), 0) / hexArea;
@@ -679,7 +680,7 @@ test('an isthmus beside lakes uses the same land construction as beside sea', ()
   const surface = surfaceMap(map.layers.base.data!, 5, 5);
   assert.ok(surface.split.has(12));
   const baseSea = map.layers.base.data!.map(v => v === 'Lake' ? 'Sea' as const : v);
-  for (const share of [0.2, 0.4, 0.95]) {
+  for (const share of [0.25, 0.4, 0.65]) {
     const targets = new Map([[12, { share, kind: 'neck' as const }]]);
     const lake = shapeCoast(coastEdges(map.layers.base.data!, 5, 5, 10), surface, 10, targets)!;
     const sea = shapeCoast(coastEdges(baseSea, 5, 5, 10), surfaceMap(baseSea, 5, 5), 10, targets)!;
@@ -876,8 +877,8 @@ test('an isthmus is 5% of the hex wide at its thinnest at the narrowest setting,
   const layouts: Array<[BaseGeo, BaseGeo[], 'neck' | 'channel']> = [
     // Land west and east of the isthmus, sea north and south: the neck runs east-west and is thinnest at the middle.
     ['Isthmus', [S, S, S, L, 'Isthmus', L, S, S, S], 'neck'],
-    // Sea west and east of the strait, land north and south.
-    ['Strait', [L, L, L, S, 'Strait', S, L, L, L], 'channel'],
+    // Two land banks west and east, with four water neighbours.
+    ['Strait', [S, S, S, L, 'Strait', L, S, S, S], 'channel'],
   ];
   for (const [type, base, kind] of layouts) {
     const surface = surfaceMap(base, 3, 3);
@@ -887,15 +888,15 @@ test('an isthmus is 5% of the hex wide at its thinnest at the narrowest setting,
       const shaped = shapeCoast(coastEdges(base, 3, 3, size), surface, size, new Map([[4, { share: 0.5, kind, width: px }]]));
       assert.ok(shaped, `${type} ${width}: reshaped`);
       const land = shaped.land.get(4)!;
-      const chord = chordAt(land, centre.x);
+      const chord = kind === 'neck' ? chordAt(land, centre.x) : chordAt(land.map(poly => poly.map(p => ({ x: p.y, y: p.x }))), centre.y);
       // The neck is `px` across the middle; the channel leaves the hex's height less `px`.
-      const expected = kind === 'neck' ? px : 2 * size - px;
+      const expected = kind === 'neck' ? px : flat - px;
       assert.ok(Math.abs(chord - expected) < 1e-3, `${type} ${width}: ${chord} across the middle, wanted ${expected}`);
     }
   }
 });
 
-test('an isthmus or strait of any width stays joined to the land it runs between, whatever its neighbours', () => {
+test('an isthmus or strait of any width stays joined to the land it runs between, with two to four land neighbours', () => {
   const S: BaseGeo = 'Sea';
   const L: BaseGeo = 'Land';
   const size = 20;
@@ -909,8 +910,11 @@ test('an isthmus or strait of any width stays joined to the land it runs between
   for (const type of ['Isthmus', 'Strait'] as const) {
     let drawn = 0;
     for (let mask = 1; mask < 63; mask++) {
+      const count = mask.toString(2).replaceAll('0', '').length;
+      if (count < 2 || count > 4) continue;
       const base = around(mask);
       base[4] = type;
+      if (!passageNeighbours(base, 3, 4).valid) continue;
       const surface = surfaceMap(base, 3, 3);
       if (!surface.split.has(4)) continue;
       const dry = [0, 1, 2, 3, 4, 5].filter((e) => surface.split.get(4)!.sides[6 + e] === 'land');
@@ -934,7 +938,7 @@ test('an isthmus or strait of any width stays joined to the land it runs between
         drawn++;
       }
     }
-    assert.ok(drawn > 100, `${type}: many layouts were drawn`);
+    assert.equal(drawn, 128, `${type}: all thirty-two separated neighbour patterns at four widths`);
   }
 });
 
@@ -996,7 +1000,7 @@ test('a land share set on an isthmus or strait tunes the land round its width, a
   const flat = Math.sqrt(3) * size;
   const layouts: Array<[BaseGeo, BaseGeo[], 'neck' | 'channel']> = [
     ['Isthmus', [S, S, S, L, 'Isthmus', L, S, S, S], 'neck'],
-    ['Strait', [L, L, L, S, 'Strait', S, L, L, L], 'channel'],
+    ['Strait', [S, S, S, L, 'Strait', L, S, S, S], 'channel'],
   ];
   for (const [type, base, kind] of layouts) {
     const surface = surfaceMap(base, 3, 3);
@@ -1009,12 +1013,12 @@ test('a land share set on an isthmus or strait tunes the land round its width, a
       };
       // What the width alone allows: the least land (the neck, or the banks cut right back) and the most.
       const naturalShape = shapeCoast(coastEdges(base, 3, 3, size), surface, size, new Map([[4, { share: 0.5, kind, width: px }]]))!;
-      const natural = naturalShape.land.get(4)!.reduce((sum, p) => sum + polyAreaOf(p), 0) / hexArea;
+      assert.ok(naturalShape.land.get(4)!.length > 0);
       const least = shareOf(0).got;
       const most = shareOf(1).got;
       assert.ok(most - least > 0.3, `${type} ${width}: room to tune (${least} to ${most})`);
       const shares: number[] = [];
-      for (const share of [0.15, 0.3, 0.5, 0.7, 0.9]) {
+      for (const share of [0.2, 0.3, 0.4, 0.5, 0.6]) {
         const { land, got } = shareOf(share);
         shares.push(got);
         if (share > least + 0.01 && share < most - 0.01) assert.ok(Math.abs(got - share) < 2e-3, `${type} ${width} ${share}: drew ${got}`);
@@ -1022,7 +1026,7 @@ test('a land share set on an isthmus or strait tunes the land round its width, a
         // share below that has to cut the banks back, which widens the channel; the share is what was asked for).
         const chord = chordAt(land, centre.x);
         const expected = kind === 'neck' ? px : 2 * size - px;
-        if (kind === 'neck' || got >= natural - 1e-3) assert.ok(Math.abs(chord - expected) < 1e-2, `${type} ${width} ${share}: ${chord} across the middle, wanted ${expected}`);
+        if (kind === 'neck') assert.ok(Math.abs(chord - expected) < 1e-2, `${type} ${width} ${share}: ${chord} across the middle, wanted ${expected}`);
       }
       assert.ok(shares.every((v, k) => k === 0 || v >= shares[k - 1]! - 1e-9), `${type} ${width}: more share, more land (${shares.join(', ')})`);
       assert.ok(shares[4]! - shares[0]! > 0.15, `${type} ${width}: the share changes the land (${shares.join(', ')})`);

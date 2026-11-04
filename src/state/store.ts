@@ -1,3 +1,5 @@
+import { validateHexDefinitions } from '../../shared/hexValidation.js';
+import { boundedLandShare } from '../../shared/hexCategories.js';
 /**
  * Map state reducer.
  *
@@ -507,6 +509,8 @@ function reconcile(map: MapState): MapState {
   const rivers = map.layers.rivers.data?.rivers ?? null;
   const allow = map.allowUnderwater === true;
   let layers = map.layers;
+  const warnings = [...layers.base.warnings.filter(w => !w.startsWith('Hex definition (')), ...validateHexDefinitions(map)];
+  if (warnings.join('\n') !== layers.base.warnings.join('\n')) layers = { ...layers, base: { ...layers.base, warnings } };
 
   const cities = layers.cities.data;
   if (cities) {
@@ -738,11 +742,15 @@ function reduceMap(map: MapState, action: Action): MapState {
       };
 
     case 'setHexDimensions':
-      return {
+      return reconcile({
         ...map,
-        hexDimensions: { ...action.hexDimensions },
+        hexDimensions: {
+          ...action.hexDimensions,
+          smallIslandPercent: Math.max(2.5, action.hexDimensions.smallIslandPercent),
+          largeIslandPercent: Math.max(5, action.hexDimensions.largeIslandPercent),
+        },
         updatedAt: Date.now(),
-      };
+      });
 
     case 'setPlan': {
       const next = normaliseSelection(action.layers);
@@ -1383,7 +1391,7 @@ function reduceMap(map: MapState, action: Action): MapState {
       }
       if (changed === 0) return map;
       return journal(
-        { ...map, islandSpecs: specs, updatedAt: Date.now() },
+        reconcile({ ...map, islandSpecs: specs, updatedAt: Date.now() }),
         manualEntry('base', `Changed the islands of ${changed} hex${changed === 1 ? '' : 'es'} by hand.`),
       );
     }
@@ -1405,8 +1413,8 @@ function reduceMap(map: MapState, action: Action): MapState {
         else {
           if (change.land === null) delete next.land;
           // An extreme the shore slack rules out is held to the nearest share allowed (`withShoreSlack`).
-          else if (change.land !== undefined && hasLandShare(value)) next.land = Math.round(100 * withShoreSlack(base, map.cols, i,
-            Math.max(0, Math.min(100, Math.round(change.land))) / 100, normaliseHexDimensions(map.hexDimensions), map.hexShapes));
+          else if (change.land !== undefined && hasLandShare(value)) next.land = (100 * withShoreSlack(base, map.cols, i,
+            boundedLandShare(value, change.land, isIslandType(value) ? islandSpecFor(value, map.islandSpecs?.[key]) : undefined) / 100, normaliseHexDimensions(map.hexDimensions), map.hexShapes));
           if (change.width === null) delete next.width;
           else if (change.width !== undefined && hasChannelWidth(value) && CHANNEL_WIDTH_VALUES.includes(change.width)) next.width = change.width;
           if (value === 'Strait') {
@@ -1429,7 +1437,7 @@ function reduceMap(map: MapState, action: Action): MapState {
       }
       if (changed === 0) return map;
       return journal(
-        { ...map, hexShapes: shapes, updatedAt: Date.now() },
+        reconcile({ ...map, hexShapes: shapes, updatedAt: Date.now() }),
         manualEntry('base', `Changed the land share or irregularity of ${changed} hex${changed === 1 ? '' : 'es'} by hand.`),
       );
     }

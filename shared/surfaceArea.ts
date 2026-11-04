@@ -1,3 +1,4 @@
+import { adjacentHexes, boundedLandShare, isCategoryLand } from './hexCategories.js';
 import { holdersOf } from './polityShares.js';
 import {
   CHANNEL_WIDTH_PERCENT,
@@ -5,6 +6,7 @@ import {
   DEFAULT_HEX_DIMENSIONS,
   hexShapeFor,
   islandSpecFor,
+  isIslandType,
   type BaseData,
   type BaseGeo,
   type GeoNameKind,
@@ -47,6 +49,7 @@ export function normaliseHexDimensions(value?: StoredHexDimensions): HexDimensio
     }
   }
   out.smallIslandPercent = Math.max(2.5, out.smallIslandPercent);
+  out.largeIslandPercent = Math.max(5, out.largeIslandPercent);
   out.seaLandPercent = Number.isFinite(out.seaLandPercent) ? Math.max(0, Math.min(100, out.seaLandPercent)) : 0;
   return out;
 }
@@ -78,7 +81,7 @@ export function channelShareSet(
   const own = hexShapeFor(value, shape).land;
   const mapWide = value === 'Isthmus' ? dimensions.isthmusPercent : dimensions.straitPercent;
   const percent = own ?? mapWide;
-  return percent === undefined ? null : Math.min(100, Math.max(0, percent)) / 100;
+  return percent === undefined ? null : boundedLandShare(value, percent) / 100;
 }
 
 /**
@@ -106,18 +109,19 @@ export function landFraction(
 ): number {
   if ((value === 'Land' || value === 'Glacier') && !shore) return 1;
   const set = hexShapeFor(value, shape).land;
-  if (set !== undefined) return set / 100;
-  const percent = (n: number) => Math.min(100, Math.max(0, n)) / 100;
+  if (set !== undefined) return boundedLandShare(value, set, isIslandType(value) ? islandSpecFor(value, stored) : stored) / 100;
+  const percent = (n: number) => boundedLandShare(value, n, stored) / 100;
   // With no share set, an isthmus or strait counts the share of a straight neck or channel of its width.
   const mapWide = value === 'Isthmus' ? dimensions.isthmusPercent : value === 'Strait' ? dimensions.straitPercent : undefined;
   if (mapWide !== undefined) return percent(mapWide);
   const width = channelWidthFraction(value, dimensions, shape);
-  if (width !== null) return value === 'Isthmus' ? channelAreaFraction(width) : 1 - channelAreaFraction(width);
+  if (width !== null) return percent(100 * (value === 'Isthmus' ? channelAreaFraction(width) : 1 - channelAreaFraction(width)));
   switch (value) {
     case 'Land':
       return percent(dimensions.coastalLandPercent);
     case 'Glacier':
       return percent(dimensions.glacierPercent);
+    case 'Sea Ice':
     case 'Sea':
       return percent(dimensions.seaLandPercent ?? 0);
     case 'Lake':
@@ -142,49 +146,35 @@ export function landFractionAt(
   base: BaseData, index: number, dimensions: HexDimensions,
   specs?: Record<string, IslandSpec>, shapes?: Record<string, HexShape>, cols?: number,
 ): number {
-  if (base[index] === 'Sea' && cols !== undefined) {
-    const rows = base.length / cols;
-    const shore = [0, 1, 2, 3, 4, 5].some(e => {
-      const n = neighbourOf(index % cols, Math.floor(index / cols), e);
-      if (!inBounds(cols, rows, n.col, n.row)) return false;
-      const v = base[n.row * cols + n.col];
-      return v === 'Land' || v === 'Glacier';
-    });
-    if (!shore) return 0;
+  if (cols !== undefined && (base[index] === 'Sea' || base[index] === 'Lake' || base[index] === 'Sea Ice')) {
+    if (!adjacentHexes(base, cols, index).some(j => isCategoryLand(base[j]))) return 0;
   }
   const shore = cols !== undefined && isShoreLand(base, cols, index);
   const own = landFraction(base[index], specs?.[String(index)], dimensions, shapes?.[String(index)], shore);
   return cols === undefined ? own : withShoreSlack(base, cols, index, own, dimensions, shapes);
 }
 
-/**
- * How much of a hex either side of a shore always keeps for the other: water beside land that is
- * whole has at least this much land, and land beside water that has none at most one minus it.
- * A roughened coast wanders either side of the hex edge it follows, so a whole land hex beside
- * landless water asks for a shoreline that cannot exist; this leaves it room on both sides.
- */
+/** The attached shore land required in a water hex beside a 100% land hex. */
 export const SHORE_SLACK = 0.05;
 
 /** Whole hexes a shore runs between: land that can be cut back, and water that can grow land. */
 const SHORE_LAND: ReadonlySet<BaseGeo> = new Set(['Land', 'Glacier']);
-const SHORE_WATER: ReadonlySet<BaseGeo> = new Set(['Sea', 'Lake']);
+const SHORE_WATER: ReadonlySet<BaseGeo> = new Set(['Sea', 'Lake', 'Sea Ice']);
 
-/**
- * `share`, the land share hex `index` has of its own, held to the shore slack (`SHORE_SLACK`): a Sea
- * or Lake hex beside a whole Land or Glacier hex has at least that much land, and a Land or Glacier
- * hex beside a landless Sea or Lake hex at most one minus it. Each side judges its neighbour by the
- * neighbour's own share, so the two rules never feed one another.
- */
+/** Apply shore constraints. Type bounds apply to total shares, never a mixed hex's mainland-only share. */
 export function withShoreSlack(
   base: ReadonlyArray<BaseGeo | null | undefined>, cols: number, index: number, share: number,
   dimensions: HexDimensions, shapes?: Record<string, HexShape>,
+  scope: 'total' | 'mainland' = 'total',
 ): number {
   const value = base[index];
   const land = value !== null && value !== undefined && SHORE_LAND.has(value);
   const water = value !== null && value !== undefined && SHORE_WATER.has(value);
+  if (scope === 'total' || value !== 'Mainland and islands') share = boundedLandShare(value, share * 100) / 100;
+  if (water && !adjacentHexes(base, cols, index).some(j => isCategoryLand(base[j]))) return 0;
   if (!land && !water) return share;
   const rows = Math.floor(base.length / cols);
-  let floor = 0, ceiling = 1;
+  let floor = 0;
   for (let e = 0; e < 6; e++) {
     const n = neighbourOf(index % cols, Math.floor(index / cols), e);
     if (!inBounds(cols, rows, n.col, n.row)) continue;
@@ -193,16 +183,14 @@ export function withShoreSlack(
     // The neighbour's own share: Land beside this water is on a shore by definition.
     const theirs = () => landFraction(v, undefined, dimensions, shapes?.[String(j)], v === 'Land' || v === 'Glacier');
     if (water && SHORE_LAND.has(v) && theirs() >= 1) floor = SHORE_SLACK;
-    if (land && SHORE_WATER.has(v) && theirs() <= 0) ceiling = 1 - SHORE_SLACK;
   }
-  return Math.min(ceiling, Math.max(floor, share));
+  return Math.max(floor, share);
 }
 
 /**
  * How much of a hex the coast draws as land, from 0 to 1: its share, except that
  * a Mainland and islands hex draws only its mainland there (its islands are drawn
- * separately, from the rest of the share), and a share set below the mainland's
- * leaves the mainland all of it. Null for a type with no share to draw, inland Land among them.
+ * separately, from the rest of the share). Its total always reserves space for islands. Null for a type with no share to draw, inland Land among them.
  */
 export function drawnLandFraction(
   value: BaseGeo | null | undefined,
@@ -210,6 +198,7 @@ export function drawnLandFraction(
   shape?: HexShape,
   /** Whether a Land hex meets water (`isShoreLand`). */
   shore = false,
+  spec?: IslandSpec,
 ): number | null {
   switch (value) {
     case 'Land':
@@ -219,9 +208,11 @@ export function drawnLandFraction(
     case 'Strait':
       return landFraction(value, undefined, dimensions, shape);
     case 'Mainland and islands': {
-      const set = hexShapeFor(value, shape).land;
       const mainland = Math.min(100, Math.max(0, dimensions.mainlandPercent));
-      return (set === undefined ? mainland : Math.min(mainland, set)) / 100;
+      const islands = islandSpecFor(value, spec);
+      const total = landFraction(value, spec, dimensions, shape) * 100;
+      const minimum = Math.min(islands.large * 5 + islands.small * 2.5, total - 2.5);
+      return Math.max(0, Math.min(Math.max(2.5, mainland), total - minimum)) / 100;
     }
     default:
       return null;

@@ -77,15 +77,15 @@ export function editCases(): EditCase[] {
   map.geoNames![0]!.name = 'The Northern Passage'; append('placement/water-name', map, options);
   map.layers.base.data![5 * 12 + 7] = 'Lake'; append('placement/lake', map, options);
   map.defaultLakeIrregularity = 'Fractured'; append('placement/lake-irregularity', map, options);
-  map.layers.base.data![4 * 12 + 3] = 'Islands'; map.islandSpecs = { [4 * 12 + 3]: { large: 1, small: 0 } }; append('placement/islands', map, options);
-  map.islandSpecs[4 * 12 + 3] = { large: 1, small: 2 }; append('placement/island-count', map, options);
+  map.layers.base.data![2 * 12 + 3] = 'Mainland and islands'; map.islandSpecs = { [2 * 12 + 3]: { large: 1, small: 0 } }; append('placement/islands', map, options);
+  map.islandSpecs[2 * 12 + 3] = { large: 1, small: 2 }; append('placement/island-count', map, options);
   map.layers.polities.data!.polities.push({ id: 'child', name: 'Southmark', colour: '#5577aa', parentId: 'realm' });
   for (let i = 72; i < 120; i++) map.layers.polities.data!.owner[i] = 'child'; append('placement/hierarchy', map, options);
   map.layers.polities.data!.polities[1]!.name = 'Southern Marches'; append('placement/hierarchy-name', map, options);
   options = { ...options, style: { ...options.style!, knobs: { ...options.style!.knobs, lettering: 'oldprint' } } }; append('placement/font', map, options);
   options = { ...options, visible: { ...options.visible, cities: false } }; append('placement/hide-obstacles', map, options);
   options = { ...options, size: 31 }; append('placement/scale', map, options);
-  map.cols = 10; map.rows = 12; append('placement/dimensions', map, options);
+  map.cols = 10; map.rows = 12; map.layers.base.data![2 * 12 + 3] = 'Land'; map.islandSpecs = {}; append('placement/dimensions', map, options);
   map.id += '-replacement'; append('placement/map-replacement', map, options);
   append('placement/switch-back', placementFixture());
   return out;

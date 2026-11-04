@@ -462,6 +462,12 @@ function fixedLandOf(hex: FixedHex, width: number, kind: 'strait' | 'isthmus'): 
       // Averaging edge midpoints lies inside the hex and can leave a water hole.
       mouths.push(Number.isInteger(middle) ? mid(run[middle]!) : outline[run[Math.ceil(middle)]!]!);
     }
+    // Keep a drawable fallback for legacy straits with adjoining land neighbours.
+    // Validation flags their single land group; a corner arm separates their banks.
+    if (dry.length === 2) {
+      const first = dry.find(e => dry.includes((e + 1) % 6));
+      if (first !== undefined) mouths.push(outline[(first + 1) % 6]!);
+    }
     const dryRuns = dry.filter(e => !dry.includes((e + 5) % 6)).map(e => {
       const run = [e];
       while (dry.includes((run[run.length - 1]! + 1) % 6)) run.push((run[run.length - 1]! + 1) % 6);
@@ -1057,7 +1063,7 @@ export function shapeCoast(
     const split = surface.split.get(i);
     const corners = hexCorners(col, row, size);
     if (kind === 'water') {
-      const against = shoreEdges.filter(e => e.across === i && e.hex !== undefined && surface.whole[e.hex] === 'land' && !surface.split.has(e.hex));
+      const against = shoreEdges.filter(e => e.across === i && e.hex !== undefined && (surface.whole[e.hex] === 'land' || surface.split.has(e.hex)));
       if (!against.length || share <= 0) return null;
       if (share >= 1) {
         return { strips: [], grown: [{ poly: corners, donor: against[0]!.land }], water: [],
