@@ -1820,3 +1820,81 @@ mixed scene hashes match the original `120cba6` output:
 Tests cover keeping original serialized commands, retaining curves and subpath boundaries, marking
 primitives when command arrays are shared, cache reuse after edits, and distinct size tolerances.
 No check or threshold was weakened. T2 is complete; Group 1's solver redesign remains the next step.
+
+## 85. Initial coast solve: two trials rejected, step 1.1 remains open
+
+**Baseline, 4 November 2026.** Start from the completed T2 renderer, merged from `e2a532d`
+into local `f3fe485`; its renderer is identical to main. T2 is complete. This investigation is
+Group 1, step 1.1, not another T2 ablation. Neither trial below is adopted.
+
+**Direct handoff.** Skip the three global share passes for smooth coasts and pass the original
+trace to the existing coupled fit. Unsmooth styles retain their passes, and explicit passage
+bracketing, fine-detail application and the final fit remain. The populated fixture then reports
+19 land-share compromises rather than the baseline's one. Several target hexes are fully land:
+their coast lies outside the hex, so the solver's nearest-hex area rows cannot request an inward
+correction there. This cannot be fixed merely by deleting the passes.
+
+**Shoreline-position first solve.** In the first pre-detail round, replace each unsatisfied,
+non-passage target's area row with a position constraint on the nearest movable coast sample.
+Clip the hex against the sample's land-facing half-plane and bisect its offset to reach the target
+share, allowing for ink. Put that offset on the sample's existing cubic-spline controls, then use
+the existing conjugate-gradient solve, deformation and crossing limits, acceptance test and later
+area rounds. This can request movement even where a target has no coast samples inside it.
+It leaves only one populated share compromise, but that is **0% instead of 30% land at hex 728**,
+a mainland-and-islands hex; the baseline instead has 93% instead of 90% at hex 520. On mixed it
+also introduces a new ordinary-shore miss at hex 304 (86% instead of 80%). Width-constrained
+passage compromises remain. These outcomes fail the unchanged share requirements.
+
+**Work counts.** Separate cold profiles, with the same runner and options, before timing the
+paired batches. These are counts, not timing estimates. The initial-solve trial changes the first
+round only; it does not implement field reuse or a new round stopping rule.
+
+| Fixture / variant | Traces | Global passes | Fit measurements | Hex measurements | Fit rounds | Solver iterations | Geometry trials |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| Populated / baseline | 3 | 3 | 12 | 4,389 | 10 | 789 | 33 |
+| Populated / direct handoff | 1 | 0 | 8 | 2,918 | 7 | 480 | 24 |
+| Populated / position constraints | 1 | 0 | 9 | 3,301 | 8 | 519 | 29 |
+| Mixed / baseline | 32 | 3 | 8 | 1,290 | 7 | 480 | 17 |
+| Mixed / direct handoff | 28 | 0 | 8 | 1,324 | 7 | 480 | 19 |
+| Mixed / position constraints | 28 | 0 | 8 | 1,321 | 7 | 480 | 21 |
+
+Mixed still traces repeatedly to bracket explicitly fitted passages; removing global passes does
+not remove that separate work.
+
+**Paired timings of the rejected position-constraint trial.** Node v24.19.0, 30 alternating
+fresh-process pairs per fixture in one session, two discarded warm-ups per tree, `perf:compare
+--allow-different` against `/tmp/render-solve-base` at `f3fe485`. No tests or browser runs overlapped
+these batches. Ratios are trial / baseline; both wall and CPU intervals exclude 1. These are
+cost measurements of an unacceptable picture, not a production performance improvement.
+
+| Fixture | Wall median | Wall 95% interval | CPU median | CPU 95% interval |
+|---|---:|---|---:|---|
+| Populated | 0.7473 | 0.7379–0.7617 | 0.7878 | 0.7785–0.7937 |
+| Mixed | 0.8847 | 0.8700–0.9064 | 0.9046 | 0.8848–0.9222 |
+
+**Pictures.** `perf:coast` against the baseline fails for both trials on populated and
+`peninsula-Ragged`, before and after a coastal edit. The position-constraint trial has 8,528 strong
+and 14,061 weak changed pixels on populated at fit/1× DPR, and 13,023 strong / 13,935 weak on the
+peninsula (each image is 1000×800). Both greatly exceed §76's unchanged thresholds. Inspection of
+the peninsula before/after confirms visibly reshaped bays and capes, including changed fine detail.
+The trace's per-hex cuts determine the source perimeter, arc-length samples, silhouette and feature
+profiles in `componentCoast`; a later point-displacement solve does not reproduce those inputs.
+Solving shares alone therefore does not establish picture equivalence.
+
+**Validation and disposition.** Client/server typecheck and `coastFitDistortion.test.ts` pass for
+the position-constraint trial, but passing that distortion bound does not compensate for its lost
+mainland or changed pictures. Full Node/slow suites, drawing pixels and drawing sweeps were not
+run for adoption after these decisive failures. Both experimental renderer changes are removed;
+`src`, `shared`, `scripts` and `test` match main (`e2a532d`). No threshold was loosened. The plan
+still names step 1.1 as next: its replacement must account for absent area rows, keep mainland
+fragments and preserve the shaped trace's detail. These trials do not prove that replacement
+impossible, and do not justify silently moving on to step 1.2.
+
+**Local evidence** (ignored by git):
+- Profiles: `work/initial-solve/{base,trial,position}-{populated,mixed}.json`.
+- Paired samples: `work/perf-compare/2026-11-04T14-22-39-475Z.json` (populated),
+  `work/perf-compare/2026-11-04T14-25-31-489Z.json` (mixed).
+- Pictures and results: `work/initial-solve/trial-pictures/` and
+  `work/initial-solve/position-pictures/` (each includes `results.json`).
+- Exact position-constraint trial patch: `work/initial-solve/position-solve.patch`, applicable to
+  `f3fe485`; setting `initialSolve` false at the first fit reproduces the direct-handoff variant.

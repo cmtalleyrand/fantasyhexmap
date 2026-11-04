@@ -153,6 +153,12 @@ untouched, and they are the only route to a faster first picture now that a stan
 
 ## Next task: the initial coast solve
 
+**First trials rejected (DECISIONS §85).** Passing the initial trace directly to the existing
+coupled fit leaves extra share misses. Adding shoreline-position constraints for the first solve
+reduces those misses but loses a mainland fragment and visibly changes bays and capes. Neither
+trial is adopted; step 1.1 remains open. Its replacement must handle target hexes without coast
+samples and preserve the detail generated from the shaped trace, as well as meet the share gates.
+
 Implement Group 1, step 1.1: replace the global share passes with one initial solve using the share
 targets as constraints, starting from the trace. Field reuse and the round stopping rule follow as
 separate changes in steps 1.2 and 1.3.
