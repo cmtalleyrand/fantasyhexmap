@@ -1823,6 +1823,11 @@ No check or threshold was weakened. T2 is complete; Group 1's solver redesign re
 
 ## 85. Initial coast solve: two trials rejected, step 1.1 remains open
 
+**Review correction (§86).** Visible differences alone did not justify rejecting these trials.
+The owner expects the new method to change the picture; assess whether it makes the drawing worse.
+The land-piece loss and share misses below are specific defects to fix, not a reason to abandon
+the initial-solve approach. The original investigation follows.
+
 **Baseline, 4 November 2026.** Start from the completed T2 renderer, merged from `e2a532d`
 into local `f3fe485`; its renderer is identical to main. T2 is complete. This investigation is
 Group 1, step 1.1, not another T2 ablation. Neither trial below is adopted.
@@ -1898,3 +1903,27 @@ impossible, and do not justify silently moving on to step 1.2.
   `work/initial-solve/position-pictures/` (each includes `results.json`).
 - Exact position-constraint trial patch: `work/initial-solve/position-solve.patch`, applicable to
   `f3fe485`; setting `initialSolve` false at the first fit reproduces the direct-handoff variant.
+
+## 86. Review intentional coast changes for undesirable effects, with pictures
+
+**Owner clarification, 4 November 2026.** A new coast-fitting method is expected to produce visibly
+different images. The question is whether those differences are meaningful and undesirable.
+Show before/after images and assess geography and drawing quality. The §76 pixel screen remains
+useful for locating changes, but its visible-change flag alone is not a rejection criterion for
+an intentional fit change. Byte equality remains required for cached/uncached correctness; share
+tolerances, distortion limits and connectivity requirements are not relaxed.
+
+**Correction to §85.** The different bays and capes in the peninsula comparison do not show an
+obvious loss of quality. Rejecting the entire approach from those pixel changes was premature.
+The populated fixture does show a specific defect at hex 728: its large land piece disappears while
+its smaller, separately drawn islands remain. The report of 0% land measures the fitted coast,
+not all independently drawn islands; describing the whole hex as having lost all land would be
+incorrect. A constrained close-up confirms the difference instead of inferring it from the report.
+
+Before/after pictures are in `work/initial-solve/position-pictures/`; the labelled close-up is
+`work/initial-solve/hex-728-comparison.png` (before left, trial right, same hex outlined).
+A follow-up trial retains the enclosed piece's measured-area row instead of replacing it with a
+tangent half-plane constraint. That preserves the piece, but its reported share is still 22%
+against 30%. Its patch is saved in `work/initial-solve/enclosed-position-solve.patch`. It is not an
+accepted implementation or a completed task; step 1.1 still needs that area error fixed and review
+of the broader gallery for undesirable changes. Production rendering remains unchanged.

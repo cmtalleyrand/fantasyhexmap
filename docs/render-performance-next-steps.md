@@ -31,7 +31,15 @@ The rest of this brief is the plan as written.
 
 ## Quality criterion
 
-The owner's criterion is no visible change, not byte identity. Byte equality is a convenient check
+**Owner clarification, 4 November 2026 (DECISIONS §86).** A new fitting method is expected to
+produce visibly different images. Judge whether the differences are meaningful and undesirable,
+using before/after images shown to the owner. Pixel thresholds identify changes to inspect; they
+do not decide whether a changed coast is worse. Lost land pieces, broken connections, inaccurate
+shares and poorer drawing need fixing; a different bay or cape alone does not justify rejection.
+The geometric gates and cached/uncached equality requirements remain unchanged.
+
+The earlier criterion below required no visible change. It is superseded by this clarification
+for intentional fitting changes. Byte equality is a convenient check
 where it happens to hold, but it is not required. Chromium's 2D raster already varies between repaints
 (DECISIONS §72), so a change that moves single antialiased edge pixels, or moves a coastline by a
 small fraction of a pixel, is acceptable when before/after images show no visible difference (§73).
@@ -156,8 +164,9 @@ untouched, and they are the only route to a faster first picture now that a stan
 **First trials rejected (DECISIONS §85).** Passing the initial trace directly to the existing
 coupled fit leaves extra share misses. Adding shoreline-position constraints for the first solve
 reduces those misses but loses a mainland fragment and visibly changes bays and capes. Neither
-trial is adopted; step 1.1 remains open. Its replacement must handle target hexes without coast
-samples and preserve the detail generated from the shaped trace, as well as meet the share gates.
+trial is adopted; step 1.1 remains open. The image-based rejection was premature: see the owner's
+clarification in §86. Its replacement must handle target hexes without coast samples, retain land
+pieces and drawing quality, and meet the share gates; it need not reproduce the old bays and capes.
 
 Implement Group 1, step 1.1: replace the global share passes with one initial solve using the share
 targets as constraints, starting from the trace. Field reuse and the round stopping rule follow as
