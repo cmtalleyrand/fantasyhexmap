@@ -96,10 +96,10 @@ export function isSplitType(value: BaseGeo | null | undefined): boolean {
 /** What each base type means, for the sidebar and the legend. */
 export const BASE_DESCRIPTIONS: Record<BaseGeo, string> = {
   Land: 'Dry land. Where it meets sea or lake its shore is drawn in from the water automatically, at the map\'s coastal land share.',
-  Sea: 'Salt water. Any shore land connects to adjacent land; without a land neighbour the land share is 0%. Beside 100% land it is exactly 5%.',
-  Lake: 'Fresh water. Any shore land connects to adjacent land; without a land neighbour the land share is 0%. Beside 100% land it is exactly 5%.',
+  Sea: 'Salt water. Any shore land connects to adjacent land; without a land neighbour the land share is 0%. Beside 100% land it is at least 5%.',
+  Lake: 'Fresh water. Any shore land connects to adjacent land; without a land neighbour the land share is 0%. Beside 100% land it is at least 5%.',
   Glacier: 'Land under permanent ice: it has elevation and the rest of the land layers, and shows the ice over the relief.',
-  'Sea Ice': 'Frozen water with attached shore land only: 0% without a land neighbour, exactly 5% beside 100% land.',
+  'Sea Ice': 'Frozen water with attached shore land only: 0% without a land neighbour, at least 5% beside 100% land.',
   Islands: 'Water with isolated islands: at least 2.5% land per small island and 5% per large island. No connection to adjacent land; cannot adjoin 100% land.',
   'Mainland and islands': '10–90% land: connected mainland and separate offshore islands. Requires both a land and a water neighbour.',
   Isthmus: '15–80% connected land joining exactly two adjacent land hexes, with four water neighbours.',

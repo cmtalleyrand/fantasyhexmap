@@ -258,7 +258,7 @@ export default function HexSizeInput({
           </div>
         ))}
         <p className="hint" style={{ gridColumn: '1 / -1' }}>
-          Water beside 100% land contains exactly {SHORE_SLACK * 100}% attached shore land. Water without adjacent land contains none.
+          Water beside 100% land contains at least {SHORE_SLACK * 100}% attached shore land. Water without adjacent land contains none.
         </p>
         {([['isthmusWidth', 'isthmusPercent', 'Isthmus'], ['straitWidth', 'straitPercent', 'Strait']] as const).map(([field, shareField, label]) => (
           <div key={field}>

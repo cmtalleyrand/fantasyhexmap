@@ -380,7 +380,7 @@ function basePrompt(ctx: PromptContext): BuiltPrompt {
       'Islands and Mainland and islands are the island types. Wherever a rule below says "island", it means either.',
       'Categories: Water = Sea, Lake, Sea Ice, Islands. Land = Land, Glacier, Mainland and islands, Isthmus, Strait. These categories determine adjacency, independently of which hexes receive land-only layers.',
       'Sea, Lake and Sea Ice have 0% land without an adjacent Land-category hex; any shore land must connect to adjacent land. Islands stay disconnected and require at least 2.5% land per small island and 5% per large island; they cannot adjoin 100% land.',
-      'Land and Glacier surrounded only by Land or Glacier are 100% land. Any water neighbour of a 100% land hex must be Sea, Lake or Sea Ice with exactly 5% land.',
+      'Land and Glacier surrounded only by Land or Glacier are 100% land. Any water neighbour of a 100% land hex must be Sea, Lake or Sea Ice with at least 5% land.',
       'Mainland and islands must have both a land and a water neighbour and 10–90% land, with a connected mainland and disconnected islands.',
     ]),
     '',

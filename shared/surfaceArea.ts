@@ -161,7 +161,7 @@ export const SHORE_SLACK = 0.05;
 const SHORE_LAND: ReadonlySet<BaseGeo> = new Set(['Land', 'Glacier']);
 const SHORE_WATER: ReadonlySet<BaseGeo> = new Set(['Sea', 'Lake', 'Sea Ice']);
 
-/** Apply type bounds, zero isolated water, and exactly 5% water-side land beside whole land. */
+/** Apply type bounds, zero isolated water, and at least 5% water-side land beside whole land. */
 export function withShoreSlack(
   base: ReadonlyArray<BaseGeo | null | undefined>, cols: number, index: number, share: number,
   dimensions: HexDimensions, shapes?: Record<string, HexShape>,
@@ -183,7 +183,7 @@ export function withShoreSlack(
     const theirs = () => landFraction(v, undefined, dimensions, shapes?.[String(j)], v === 'Land' || v === 'Glacier');
     if (water && SHORE_LAND.has(v) && theirs() >= 1) floor = SHORE_SLACK;
   }
-  return floor === SHORE_SLACK ? SHORE_SLACK : share;
+  return Math.max(floor, share);
 }
 
 /**

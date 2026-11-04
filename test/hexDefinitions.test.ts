@@ -50,14 +50,21 @@ test('island minima are per island and retain half-percent precision in edits', 
   assert.equal(landFraction('Islands', map.islandSpecs['24'], dims, { type: 'Islands', land: 0 }), .125);
   assert.equal(normaliseHexDimensions({ largeIslandPercent: 0 }).largeIslandPercent, 5);
 });
-test('every plain water subtype has no detached land and exactly 5% beside whole land', () => {
+test('every plain water subtype has no detached land and at least 5% beside whole land', () => {
   for (const type of ['Sea', 'Lake', 'Sea Ice'] as const) {
     const base = Array<BaseGeo>(49).fill(type);
     const shapes: Record<string, HexShape> = { '24': { type, land: 80 } };
     assert.equal(landFractionAt(base, 24, dims, undefined, shapes, 7), 0);
     base[25] = 'Land';
     shapes['25'] = { type: 'Land', land: 100 };
-    assert.equal(landFractionAt(base, 24, dims, undefined, shapes, 7), .05);
+    for (const percent of [0, 2.5, 5, 20, 80]) {
+      shapes['24'] = { type, land: percent };
+      const expected = Math.max(5, percent);
+      assert.equal(landFractionAt(base, 24, dims, undefined, shapes, 7), expected / 100);
+      const map = mapWith(type); map.layers.base.data = base; map.hexShapes = shapes;
+      const edited = reducer(map, { type: 'setHexShape', indices: [24], change: { land: percent } });
+      assert.equal(edited.hexShapes?.['24']?.land, expected);
+    }
   }
 });
 test('channel topology requires all six neighbours and exactly two in the Land category', () => {
