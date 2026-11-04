@@ -99,10 +99,10 @@ export const BASE_DESCRIPTIONS: Record<BaseGeo, string> = {
   Lake: 'Fresh water enclosed by land.',
   Glacier: 'Land under permanent ice: it has elevation and the rest of the land layers, and shows the ice over the relief.',
   'Sea Ice': 'Frozen sea: pack ice floating on salt water.',
-  Islands: 'Sea holding up to two large islands and six small ones.',
-  'Mainland and islands': 'Part mainland coast, part sea with islands off the shore.',
-  Isthmus: 'A narrow neck of land joining two land masses, with water either side.',
-  Strait: 'A narrow channel of water joining two seas or lakes, with land either side.',
+  Islands: 'Water holding up to two large islands and six small ones. Its islands stay detached from land in neighbouring hexes.',
+  'Mainland and islands': 'Mainland connected to neighbouring land, with detached islands offshore. Requires at least one land neighbour and one water neighbour.',
+  Isthmus: 'A narrow neck of land joining two land masses. Requires exactly two land neighbours and four water neighbours.',
+  Strait: 'A narrow channel of water with land on either bank. Requires exactly two land neighbours and four water neighbours.',
 };
 
 /** Hex types that carry land-only layer values (elevation, climate, vegetation, population). */

@@ -449,6 +449,14 @@ known, it also gives a rough cost; the change history keeps the same figures.
 
 ## Exports
 
+- **Geography checks.** Base-layer validation reports invalid neighbours after generation, import,
+  loading and manual edits, including undo/redo. For these rules, Land, Glacier, Mainland and islands,
+  Isthmus and Strait are land; Sea, Lake, Sea Ice and Islands are water. Passages require exactly two
+  land neighbours and four water neighbours. Mainland and islands requires at least one of each.
+  **File → Export image → Check geography** also inspects the drawn land: mainland must attach,
+  islands must remain detached, and land in a water hex must connect to land in another hex.
+  This drawing check samples geometry, so very small features still need visual review. Problems
+  include hex coordinates; the checks do not change the map's geography.
 - **Image** (File → Export image). Any single layer on its own, or a composite of whichever layers are currently toggled
   visible, as **PNG** or **SVG**, with a toggle for city and polity name labels. Single-layer
   exports keep base geography as a substrate — a land-only layer is unreadable without knowing where

@@ -224,6 +224,8 @@ export interface FurniturePlacement {
  * picks the test up again through `withLandOf`.
  */
 const landTests = new WeakMap<object, (p: Point) => boolean>();
+/** The independent island shapes, kept separate so audits can detect one merging into mainland. */
+const islandTests = new WeakMap<object, (p: Point) => boolean>();
 
 /** A symbol drawn on the land (relief, vegetation, an elevation mark): its hex and the points along its drawing. */
 export interface SymbolTrace {
@@ -254,10 +256,16 @@ export function landTestOf(scene: Scene): ((p: Point) => boolean) | undefined {
   return landTests.get(scene);
 }
 
+export function islandTestOf(scene: Scene): ((p: Point) => boolean) | undefined {
+  return islandTests.get(scene);
+}
+
 /** `scene`, a copy or extension of `source`, answering the same land questions. */
 export function withLandOf<T extends Scene>(scene: T, source: Scene): T {
   const test = landTests.get(source);
   if (test) landTests.set(scene, test);
+  const islands = islandTests.get(source);
+  if (islands) islandTests.set(scene, islands);
   const symbols = symbolTraces.get(source);
   if (symbols) symbolTraces.set(scene, symbols);
   return scene;
@@ -1064,7 +1072,7 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
     if (Math.abs(wanted - shown) <= LAND_SHARE_TOLERANCE) continue;
     compromises.push({
       hexes: [i],
-      what: `${Math.round(shown * 100)}% land drawn instead of ${Math.round(wanted * 100)}%`,
+      what: `${base?.[i] === 'Mainland and islands' ? 'Mainland portion (offshore islands excluded): ' : ''}${Math.round(shown * 100)}% land drawn instead of ${Math.round(wanted * 100)}%`,
       why: base?.[i] === 'Strait' || base?.[i] === 'Isthmus'
         ? 'the chosen passage width and connected shores limit how much land fits; change the width or land percentage'
         : 'the coastline could not reach this percentage while fitting the neighbouring shores',
@@ -2299,7 +2307,9 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
     for (const { col, row } of near) {
       if (!inBounds(cols, rows, col, row)) continue;
       const j = row * cols + col;
-      if (!isIslandType(base[j]) || terrain?.split.has(j)) continue;
+      // Split mainland-and-islands hexes still paint independent offshore islands.
+      // Those are dry ground too; the split excludes them only from the coast fit.
+      if (!isIslandType(base[j])) continue;
       let contains = isleMemo.get(j);
       if (!contains) {
         // Test the irregular outline actually painted, including skerries, rather than
@@ -3625,6 +3635,7 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
   phase();
   profileCount('scene.primitives', prims.length);
   landTests.set(scene, landAt);
+  islandTests.set(scene, isleAt);
   symbolTraces.set(scene, traces);
   if (realmArea) realmAreas.set(scene, realmArea);
   return scene;

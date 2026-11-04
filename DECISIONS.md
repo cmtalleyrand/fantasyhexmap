@@ -1968,3 +1968,60 @@ and after a coastal edit, against HEAD: serialized scenes match, images match, a
 reports a land-share compromise. Reviewed the whole-map image: the continent and three lakes
 are clear, with one island in the western lake. Results and pictures are in
 `work/initial-solve/landscape-check/`; this is fixture validation, not a solver performance claim.
+
+## 88. Validate neighbouring types and drawn geography
+
+**Owner's revised categories.** For geography topology, water is Sea, Lake, Sea Ice and Islands;
+land is Land, Glacier, Mainland and islands, Isthmus and Strait. This does not change elevation,
+settlement or other layer eligibility: a Strait still has water and land banks rather than becoming
+an ordinary dry-land hex.
+
+- Land and Glacier can be anywhere.
+- Isthmus and Strait require exactly two land neighbours and four water neighbours. Off-map and
+  empty cells do not stand in for water, so a passage cannot meet this rule at the map edge.
+- Mainland and islands requires at least one land neighbour and one water neighbour. Its mainland
+  must attach to neighbouring land; its offshore islands must remain detached.
+- Islands must not connect land across a hex boundary. Any land in Sea, Lake or Sea Ice must connect
+  to land in a neighbouring hex rather than form a detached island.
+
+**Input checks.** `shared/geography.ts` implements the categories and structured errors with hex
+indices and coordinates. Generated and pasted base responses carry these errors through the common
+decoder. The reducer refreshes base-layer validation notes on load, base edits, resizing, generation,
+undo and redo, removing stale geography errors while preserving unrelated notes. The base inspector
+shows the notes in manual as well as AI mode. Prompts and type descriptions state the same rules.
+The checks flag invalid geography without guessing repairs or silently changing the user's data.
+
+**Drawn checks.** File → Export image → Check geography builds the base with the current style,
+regardless of which export layers are visible, and reports actual land connections as well as input
+errors. `geographyAudit.ts` samples the scene's dry-land predicate and finds connected land pieces
+within each constrained hex. It checks mainland attachment, detached offshore islands, islands
+crossing hex boundaries, detached land in water, connected isthmus necks and strait banks reaching
+both land neighbours. The separate island predicate identifies an offshore island joined to mainland
+even if another island is still detached. These predicates travel with framed/copied scenes outside
+their serialized data. Audit results clear when geography or its drawing settings change.
+
+The drawing check is an on-demand screen at one twentieth of a hex radius, with intermediate probes
+between neighbouring samples to detect small water gaps. It is not a proof for arbitrarily small
+geometry; picture review remains necessary. It does not add a raster audit to scene construction
+or painting. Input neighbour counts are exact.
+
+**Predicate bug exposed.** The old dry-land predicate skipped all offshore islands belonging to a
+split Mainland and islands hex, although those islands were painted. Removing that skip makes
+placement and audits recognise the same dry ground. A real-continent regression now checks both
+the attached mainland and its detached islands. Mainland share compromise messages explicitly say
+that the percentage excludes offshore islands, rather than presenting it as the hex's total land.
+
+**Checked.** Client/server typecheck, production build, all 599 Node tests, 14 slow tests and
+`test:drawing-pixels` pass. The 10 new geography tests cover both row parities, every land/water
+category, exact counts, edges, generation, warning freshness, undo/redo, detached water land, island
+attachment, a sub-sample water gap, merged offshore islands and real drawing predicates. After the
+message-label clarification, the 19 focused geography/shoreline/page-edge tests also pass.
+Production-browser checks exercise the new button on valid and invalid maps, and verify manual-mode
+validation notes on load; neither case produces a browser error. The representative continent passes
+both checks. On the legacy populated map at size 26, the audit reports eight input errors and 48
+sampled drawing issues, including both the missing land neighbour and missing mainland connection
+at hex 728. This reports existing problems; it does not assert that the old renderer meets the new
+rules or that the initial coast solve is finished.
+
+**Local evidence:** `work/geography/{tests,full-tests,slow-tests,drawing-pixels,build,final-focused}.log`,
+`work/geography/fixture-audit.json`, `work/geography/ui-results.json` and `ui-valid.png`/`ui-invalid.png`.

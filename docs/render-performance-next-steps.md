@@ -172,6 +172,10 @@ Do not use preserving its detached blob as a correctness requirement. Include th
 `continent-large-lakes` case in visual review; it supplies a large connected continent, three
 multi-hex lakes and a Mainland and islands hex actually adjoining mainland. Check the drawn
 attachment as well as land share. The old populated and mixed maps remain timing references.
+Before judging a fit, run `checkBaseGeography` on the input and `auditGeographyExport` on the
+candidate (the same check as File → Export image → Check geography). These implement the owner's
+revised categories and connection rules (§88). Distinguish malformed input from drawing failures;
+an unchanged land percentage does not establish correct geography.
 
 Implement Group 1, step 1.1: replace the global share passes with one initial solve using the share
 targets as constraints, starting from the trace. Field reuse and the round stopping rule follow as
