@@ -2,9 +2,9 @@ import { coastEdges, surfaceMap } from '../src/render/coast.ts';
 import { shapeCoast } from '../src/render/footprint.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { HEX_CATEGORIES, adjacentHexes, boundedLandShare, isCategoryLand } from '../shared/hexCategories.ts';
+import { HEX_CATEGORIES, adjacentHexes, boundedLandShare, isCategoryLand, passageNeighbours } from '../shared/hexCategories.ts';
 import { validateHexDefinitions } from '../shared/hexValidation.ts';
-import { landFraction, landFractionAt, normaliseHexDimensions } from '../shared/surfaceArea.ts';
+import { drawnLandFraction, landFraction, landFractionAt, normaliseHexDimensions } from '../shared/surfaceArea.ts';
 import { createMapState } from './seededMap.ts';
 import { DEFAULT_HEX_DIMENSIONS, type HexShape, type BaseGeo } from '../shared/types.ts';
 import { reducer } from '../src/state/store.ts';
@@ -67,15 +67,33 @@ test('every plain water subtype has no detached land and at least 5% beside whol
     }
   }
 });
-test('channel topology requires all six neighbours and exactly two in the Land category', () => {
-  for (const type of ['Isthmus', 'Strait'] as const) {
-    const map = mapWith(type);
-    assert.deepEqual(validateHexDefinitions(map), []);
-    map.layers.base.data![17] = 'Land';
-    assert.ok(validateHexDefinitions(map).some(w => w.includes('exactly two')));
-    map.layers.base.data![0] = type;
-    assert.ok(validateHexDefinitions(map).some(w => w.includes('(0,0)')));
+test('passages require separated land and water groups, across all 64 neighbour patterns', () => {
+  for (const type of ['Isthmus', 'Strait'] as const) for (let mask = 0; mask < 64; mask++) {
+    const map = mapWith(type), base = map.layers.base.data!;
+    adjacentHexes(base, 7, 24).forEach((j, side) => { base[j] = mask & (1 << side) ? 'Land' : 'Sea'; });
+    const bits = Array.from({ length: 6 }, (_, side) => !!(mask & (1 << side)));
+    const transitions = bits.filter((v, side) => v !== bits[(side + 5) % 6]).length;
+    assert.equal(validateHexDefinitions(map).length === 0, transitions >= 4, `${type}: mask ${mask}`);
   }
+});
+test('passages may reach a map edge when the required land and water neighbours exist', () => {
+  for (const type of ['Isthmus', 'Strait'] as const) {
+    const map = mapWith(type), base = map.layers.base.data!;
+    base[24] = 'Sea'; base[3] = type;
+    const neighbours = adjacentHexes(base, 7, 3);
+    neighbours.forEach((j, index) => { base[j] = index % 2 === 0 ? 'Land' : 'Sea'; });
+    assert.equal(neighbours.length, 4);
+    assert.deepEqual(validateHexDefinitions(map), []);
+  }
+});
+test('mixed mainland and islands retains the stated 10–90% range for any island count', () => {
+  const spec = { large: 2, small: 6 };
+  assert.equal(boundedLandShare('Mainland and islands', 10, spec), 10);
+  const map = mapWith('Mainland and islands'); map.islandSpecs = { '24': spec };
+  const changed = reducer(map, { type: 'setHexShape', indices: [24], change: { land: 10 } });
+  assert.equal(changed.hexShapes?.['24']?.land, 10);
+  const mainland = drawnLandFraction('Mainland and islands', dims, changed.hexShapes?.['24'], true, spec)!;
+  assert.ok(mainland >= .025 && mainland < .1, 'the 10% share contains both mainland and islands');
 });
 test('mixed hexes need land and water, and islands cannot adjoin whole land', () => {
   const map = mapWith('Mainland and islands');
@@ -92,11 +110,14 @@ test('render performance maps and every edit state obey hex definitions', () => 
   for (const { name, map } of maps) assert.deepEqual(validateHexDefinitions(map), [], name);
 });
 
-test('a strait draws two separate banks for all fifteen pairs of land neighbours', () => {
+test('a strait draws two separate banks for all nine separated pairs of land neighbours', () => {
   for (let a = 0; a < 6; a++) for (let b = a + 1; b < 6; b++) {
     const map = createMapState('Two banks', 7, 7);
     const base = map.layers.base.data = Array<BaseGeo>(49).fill('Sea'); base[24] = 'Strait';
     for (const side of [a, b]) { const n = neighbourOf(3, 3, side); base[n.row * 7 + n.col] = 'Land'; }
+    if (!passageNeighbours(base, 7, 24).valid) {
+      assert.ok(validateHexDefinitions(map).length > 0); continue;
+    }
     assert.deepEqual(validateHexDefinitions(map), []);
     const drawn = shapeCoast(coastEdges(base, 7, 7, 30), surfaceMap(base, 7, 7), 30,
       new Map([[24, { share: .4, kind: 'channel', width: .3 * Math.sqrt(3) * 30, fit: true }]]))!;

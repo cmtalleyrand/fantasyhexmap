@@ -25,6 +25,11 @@ export function featureFixture(deps: { createMapState: any; neighbourOf: any; in
     const n = neighbourOf(i % N, Math.floor(i / N), e);
     return inBounds(N, N, n.col, n.row) ? hexIndex(N, n.col, n.row) : -1;
   });
+  const passage = (i: number) => {
+    const ring = neighbours(i).map(j => j >= 0 ? ['Land', 'Glacier', 'Mainland and islands', 'Isthmus', 'Strait'].includes(base[j]!) ? 'land' : 'water' : null);
+    const groups = (side: string) => ring.filter((v, e) => v === side && ring[(e + 5) % 6] !== side).length;
+    return groups('land') >= 2 && groups('water') >= 2;
+  };
   const shapes: Record<string, object> = {}, islandSpecs: Record<string, object> = {};
   const original = [...base];
   for (let i = 0; i < N * N; i++) {
@@ -34,8 +39,8 @@ export function featureFixture(deps: { createMapState: any; neighbourOf: any; in
       if (layout === 'plain') { base[i] = 'Land'; continue; }
       const landCount = around.filter(j => j >= 0 && ['Land', 'Glacier', 'Mainland and islands', 'Isthmus', 'Strait'].includes(base[j]!)).length;
       const waterCount = around.filter(j => j >= 0 && ['Sea', 'Lake', 'Sea Ice', 'Islands'].includes(base[j]!)).length;
-      if (r < 0.06 && landCount === 2 && waterCount === 4) { base[i] = 'Strait'; shapes[i] = { type: 'Strait', land: 40 }; }
-      else if (r < 0.10 && landCount === 2 && waterCount === 4) { base[i] = 'Isthmus'; shapes[i] = { type: 'Isthmus', land: 50 }; }
+      if (r < 0.06 && landCount >= 2 && waterCount >= 2 && waterCount <= 4 && passage(i)) { base[i] = 'Strait'; shapes[i] = { type: 'Strait', land: 40 }; }
+      else if (r < 0.10 && landCount >= 2 && waterCount >= 2 && waterCount <= 4 && passage(i)) { base[i] = 'Isthmus'; shapes[i] = { type: 'Isthmus', land: 50 }; }
       else if (r < 0.16 && landCount > 0 && waterCount > 0) { base[i] = 'Mainland and islands'; islandSpecs[i] = { large: 0, small: 2 }; }
       else {
         base[i] = 'Land';

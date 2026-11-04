@@ -1,4 +1,4 @@
-import { adjacentHexes, isCategoryLand, isCategoryWater, landShareRange } from './hexCategories.js';
+import { adjacentHexes, isCategoryLand, isCategoryWater, landShareRange, passageNeighbours } from './hexCategories.js';
 import { landFractionAt, normaliseHexDimensions } from './surfaceArea.js';
 import { isIslandType, islandSpecFor, type MapState } from './types.js';
 
@@ -14,8 +14,8 @@ export function validateHexDefinitions(map: MapState): string[] {
     const land = adjacent.filter(j => isCategoryLand(base[j]));
     const water = adjacent.filter(j => isCategoryWater(base[j]));
     const problems: string[] = [];
-    if ((value === 'Strait' || value === 'Isthmus') && (land.length !== 2 || water.length !== 4))
-      problems.push('requires exactly two land and four water neighbours');
+    if ((value === 'Strait' || value === 'Isthmus') && !passageNeighbours(base, map.cols, i).valid)
+      problems.push('requires at least two separate land groups and two separate water groups (2–4 water neighbours)');
     if (value === 'Mainland and islands' && (!land.length || !water.length))
       problems.push('requires a land and a water neighbour');
     if (value === 'Islands' && land.some(j => share(j) >= 100))

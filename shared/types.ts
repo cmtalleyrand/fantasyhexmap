@@ -102,8 +102,8 @@ export const BASE_DESCRIPTIONS: Record<BaseGeo, string> = {
   'Sea Ice': 'Frozen water with attached shore land only: 0% without a land neighbour, at least 5% beside 100% land.',
   Islands: 'Water with isolated islands: at least 2.5% land per small island and 5% per large island. No connection to adjacent land; cannot adjoin 100% land.',
   'Mainland and islands': '10–90% land: connected mainland and separate offshore islands. Requires both a land and a water neighbour.',
-  Isthmus: '15–80% connected land joining exactly two adjacent land hexes, with four water neighbours.',
-  Strait: '10–70% land in two separate banks, each joining one of exactly two land neighbours, with four water neighbours.',
+  Isthmus: '15–80% connected land joining adjacent land hexes, with at least two separate land groups and two separate water groups (2–4 water neighbours).',
+  Strait: '10–70% land in two separate banks, each joining adjacent land, with at least two separate land groups and two separate water groups (2–4 water neighbours).',
 };
 
 /** Hex types that carry land-only layer values (elevation, climate, vegetation, population). */

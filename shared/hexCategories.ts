@@ -23,11 +23,24 @@ export function adjacentHexes(base: ReadonlyArray<BaseGeo | null | undefined>, c
   }
   return out;
 }
+/** Count groups around the six sides; missing neighbours are neither land nor water. */
+export function passageNeighbours(base: ReadonlyArray<BaseGeo | null | undefined>, cols: number, index: number) {
+  const ring = Array.from({ length: 6 }, (_, side) => {
+    const n = neighbourOf(index % cols, Math.floor(index / cols), side);
+    return inBounds(cols, base.length / cols, n.col, n.row) ? base[n.row * cols + n.col] : undefined;
+  });
+  const groups = (matches: (value: BaseGeo | null | undefined) => boolean) =>
+    ring.every(matches) ? 1 : ring.filter((value, side) => matches(value) && !matches(ring[(side + 5) % 6])).length;
+  const land = ring.filter(isCategoryLand).length, water = ring.filter(isCategoryWater).length;
+  const landGroups = groups(isCategoryLand), waterGroups = groups(isCategoryWater);
+  return { land, water, landGroups, waterGroups,
+    valid: land >= 2 && water >= 2 && water <= 4 && landGroups >= 2 && waterGroups >= 2 };
+}
 export function landShareRange(value: BaseGeo | null | undefined, spec?: IslandSpec): readonly [number, number] {
   switch (value) {
     case 'Isthmus': return [15, 80];
     case 'Strait': return [10, 70];
-    case 'Mainland and islands': return [Math.max(10, (spec?.large ?? 0) * 5 + (spec?.small ?? 0) * 2.5 + 2.5), 90];
+    case 'Mainland and islands': return [10, 90];
     case 'Islands': return [Math.max(2.5, (spec?.small ?? 0) * 2.5 + (spec?.large ?? 0) * 5), 100];
     default: return [0, 100];
   }

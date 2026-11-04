@@ -1,3 +1,4 @@
+import { passageNeighbours } from '../shared/hexCategories.ts';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createMapState } from './seededMap.ts';
@@ -895,7 +896,7 @@ test('an isthmus is 5% of the hex wide at its thinnest at the narrowest setting,
   }
 });
 
-test('an isthmus or strait of any width stays joined to the land it runs between, with exactly two land neighbours', () => {
+test('an isthmus or strait of any width stays joined to the land it runs between, with two to four land neighbours', () => {
   const S: BaseGeo = 'Sea';
   const L: BaseGeo = 'Land';
   const size = 20;
@@ -909,9 +910,11 @@ test('an isthmus or strait of any width stays joined to the land it runs between
   for (const type of ['Isthmus', 'Strait'] as const) {
     let drawn = 0;
     for (let mask = 1; mask < 63; mask++) {
-      if (mask.toString(2).replaceAll('0', '').length !== 2) continue;
+      const count = mask.toString(2).replaceAll('0', '').length;
+      if (count < 2 || count > 4) continue;
       const base = around(mask);
       base[4] = type;
+      if (!passageNeighbours(base, 3, 4).valid) continue;
       const surface = surfaceMap(base, 3, 3);
       if (!surface.split.has(4)) continue;
       const dry = [0, 1, 2, 3, 4, 5].filter((e) => surface.split.get(4)!.sides[6 + e] === 'land');
@@ -935,7 +938,7 @@ test('an isthmus or strait of any width stays joined to the land it runs between
         drawn++;
       }
     }
-    assert.equal(drawn, 60, `${type}: all fifteen valid neighbour pairs at four widths`);
+    assert.equal(drawn, 128, `${type}: all thirty-two separated neighbour patterns at four widths`);
   }
 });
 

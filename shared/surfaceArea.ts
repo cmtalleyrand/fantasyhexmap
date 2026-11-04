@@ -209,8 +209,8 @@ export function drawnLandFraction(
     case 'Mainland and islands': {
       const mainland = Math.min(100, Math.max(0, dimensions.mainlandPercent));
       const islands = islandSpecFor(value, spec);
-      const minimum = islands.large * 5 + islands.small * 2.5;
       const total = landFraction(value, spec, dimensions, shape) * 100;
+      const minimum = Math.min(islands.large * 5 + islands.small * 2.5, total - 2.5);
       return Math.max(0, Math.min(Math.max(2.5, mainland), total - minimum)) / 100;
     }
     default:

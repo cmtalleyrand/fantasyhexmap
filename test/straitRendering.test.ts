@@ -1,3 +1,4 @@
+import { passageNeighbours } from '../shared/hexCategories.ts';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { chainEdges, coastEdges, evenOddTest, surfaceMap } from '../src/render/coast.ts';
@@ -27,8 +28,10 @@ test('non-opposite strait banks grow to 50% and 60% without creating the reporte
 });
 test('every strait land component reaches a mainland across neighbour patterns, widths and shares', () => {
   for (let mask = 1; mask < 63; mask++) for (const width of [0.05, 0.15, 0.3, 0.5]) for (const share of [0.25, 0.45, 0.6]) {
-    if (mask.toString(2).replaceAll('0', '').length !== 2) continue;
+    const count = mask.toString(2).replaceAll('0', '').length;
+      if (count < 2 || count > 4) continue;
     const base = layout(mask);
+    if (!passageNeighbours(base, cols, centre).valid) continue;
     const shaped = shapeCoast(coastEdges(base, cols, cols, size), surfaceMap(base, cols, cols), size,
       new Map([[centre, { share, kind: 'channel', width: width * Math.sqrt(3) * size, fit: true,
         bankBias: [0.81, 1.13, 0.96, 1.19, 0.88, 1.07] }]]))!;

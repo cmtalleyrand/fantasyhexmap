@@ -1,3 +1,4 @@
+import { validateHexDefinitions } from '../shared/hexValidation.ts';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { chainEdges, coastEdges, surfaceMap } from '../src/render/coast.ts';
@@ -55,12 +56,15 @@ test('a strait between reshaped coasts leaves no small enclosed lakes in its ban
   }
 });
 
-test('a strait with adjacent land neighbours keeps two separate attached banks', () => {
+test('a legacy strait with only one land group is flagged while retaining a drawable fallback', () => {
   const base = stackedStrait();
+  base[id(4, 4)] = 'Sea';
+  const map = createMapState('Legacy one-sided passage', W, H); map.layers.base.data = base;
+  assert.ok(validateHexDefinitions(map).some(w => w.includes('separate land groups')));
   const shaped = shapeCoast(coastEdges(base, W, H, size), surfaceMap(base, W, H), size,
     new Map([[id(4, 3), { share: 0.3, kind: 'channel' as const, width: 0.3 * Math.sqrt(3) * size }]]))!;
   const land = shaped.land.get(id(4, 3))!;
-  assert.equal(land.length, 2, 'adjoining land hexes still require two separate banks');
+  assert.equal(land.length, 2, 'the fallback remains drawable until the invalid geography is edited');
   assert.ok(land.every(poly => polyArea(poly) > 0));
   // And the passage stays open across the hex: its water touches both of the strait's side edges.
   const chains = chainEdges(shaped.edges);

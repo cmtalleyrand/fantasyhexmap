@@ -462,8 +462,8 @@ function fixedLandOf(hex: FixedHex, width: number, kind: 'strait' | 'isthmus'): 
       // Averaging edge midpoints lies inside the hex and can leave a water hole.
       mouths.push(Number.isInteger(middle) ? mid(run[middle]!) : outline[run[Math.ceil(middle)]!]!);
     }
-    // Even adjoining land neighbours have separate banks inside a strait.
-    // Open a water arm through their shared corner so the banks cannot merge.
+    // Keep a drawable fallback for legacy straits with adjoining land neighbours.
+    // Validation flags their single land group; a corner arm separates their banks.
     if (dry.length === 2) {
       const first = dry.find(e => dry.includes((e + 1) % 6));
       if (first !== undefined) mouths.push(outline[(first + 1) % 6]!);
