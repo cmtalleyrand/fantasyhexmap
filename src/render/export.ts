@@ -17,11 +17,9 @@ import {
   VEGETATION_VALUES,
 } from '../../shared/types.js';
 import { straitSharers } from '../../shared/straits.js';
-import { type GeographyIssue } from '../../shared/geography.js';
-import { auditGeography } from './geographyAudit.js';
 import { legendSections, type LegendOptions } from './legend.js';
 import { auditScene, type AuditIssue } from './audit.js';
-import { buildStaticScene, islandTestOf, landTestOf, singleLayerVisibility, type VisibleLayers } from './scene.js';
+import { singleLayerVisibility, type VisibleLayers } from './scene.js';
 import { buildExportScene, type ExportOptions } from './exportScene.js';
 import { sceneToSvg } from './svg.js';
 import { CLASSIC_STYLE, type ElevationStyle, type MapStyle } from './styles.js';
@@ -57,15 +55,6 @@ export async function auditExport(map: MapState, visible: VisibleLayers, opts: E
   const fonts = await import('./fontFiles.js');
   await fonts.loadLettering((opts.style ?? CLASSIC_STYLE).knobs.lettering);
   return auditScene(map, buildExportScene(map, visible, opts), opts.size ?? 32);
-}
-
-/** Geography has its own check, with the base visible regardless of export layer selection. */
-export function auditGeographyExport(map: MapState, opts: ExportOptions): GeographyIssue[] {
-  const base = map.layers.base.data;
-  if (!base) return [];
-  const size = opts.size ?? 32;
-  const scene = buildStaticScene(map, { size, visible: singleLayerVisibility('base'), labels: false, style: opts.style ?? CLASSIC_STYLE });
-  return auditGeography(base, map.cols, map.rows, size, landTestOf(scene)!, islandTestOf(scene));
 }
 
 async function emit(

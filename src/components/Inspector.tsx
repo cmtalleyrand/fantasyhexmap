@@ -350,9 +350,9 @@ export default function Inspector(props: InspectorProps) {
         </div>
       )}
 
-      {(ai || activeLayer === 'base') && aboutCount > 0 && (
+      {ai && aboutCount > 0 && (
         <div className="section">
-          <h2>{activeLayer === 'base' ? 'Geography checks' : 'About this layer'}</h2>
+          <h2>About this layer</h2>
           <Warnings
             warnings={shownWarnings}
             onDismiss={() => setDismissed(warningsKey)}

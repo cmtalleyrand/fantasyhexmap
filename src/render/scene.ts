@@ -540,7 +540,7 @@ function cachedCoast(
       // Whole hexes of land are cut back from the sea; a strait drawn whole is all water.
       const keepJoins = shore[i] === true && [0, 1, 2, 3, 4, 5].some(e => {
         const n = neighbourOf(i % cols, Math.floor(i / cols), e);
-        return inBounds(cols, rows, n.col, n.row) && base[hexIndex(cols, n.col, n.row)] === 'Strait';
+        return inBounds(cols, rows, n.col, n.row) && (base[hexIndex(cols, n.col, n.row)] === 'Strait' || base[hexIndex(cols, n.col, n.row)] === 'Isthmus');
       });
       targets.set(i, { share: aimed, kind: 'inset', keepJoins, joinShare: keepJoins ? share : undefined, concentrationSide: shape.concentrationSide, concentration: shape.concentration,
         bankBias: Array.from({ length: 6 }, (_, e) => 0.8 + unit(seed, 'coast-cut', i, e) * 0.4) });
@@ -2187,7 +2187,15 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
           const a = sub(2000 + n) * Math.PI * 2;
           const r = size * (0.035 + 0.035 * sub(2100 + n));
           const out = 1.25 + 0.35 * sub(2200 + n);
-          skerries.push(...blobPath({ x: isle.c.x + Math.cos(a) * rx * out, y: isle.c.y + Math.sin(a) * ry * out }, r * 1.3, r, sub(2300 + n) * Math.PI, (q) => sub(2400 + n * 17 + q), 8, 0.2));
+          const skerry = blobPath({ x: isle.c.x + Math.cos(a) * rx * out, y: isle.c.y + Math.sin(a) * ry * out }, r * 1.3, r, sub(2300 + n) * Math.PI, (q) => sub(2400 + n * 17 + q), 8, 0.2);
+          const centre = hexCenter(i % cols, Math.floor(i / cols), size);
+          const near = base![i] === 'Mainland and islands' ? mainlandNear(i) : null;
+          // Decorative skerries obey the same water gap and hex boundary as their
+          // parent islands; they must not grow a bridge to mainland or another hex.
+          const gap = 2 * inkReach + size * .03, apothem = Math.sqrt(3) * size / 2 - inkReach;
+          if (pathPolylines(skerry, 8).every(ring => ring.every(p =>
+            (!near || near(p).dist >= gap) && Array.from({ length: 6 }, (_, e) => e * Math.PI / 3)
+              .every(angle => (p.x - centre.x) * Math.cos(angle) + (p.y - centre.y) * Math.sin(angle) < apothem)))) skerries.push(...skerry);
         }
       }
       return [...body, ...skerries];

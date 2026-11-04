@@ -1,9 +1,8 @@
-import { useEffect, useRef, useState } from 'react';
-import type { GeographyIssue } from '../../shared/geography.js';
+import { useRef, useState } from 'react';
 import { LAYER_META, plannedLayers } from '../../shared/layers.js';
 import { type LayerId, type MapState } from '../../shared/types.js';
 import type { AuditIssue } from '../render/audit.js';
-import { auditExport, auditGeographyExport, exportComposite, exportFeatureAreas, exportLayer, exportLegendText } from '../render/export.js';
+import { auditExport, exportComposite, exportFeatureAreas, exportLayer, exportLegendText } from '../render/export.js';
 import { geoNamesOf } from '../../shared/geoNames.js';
 import type { PolityNameMin } from '../render/labels.js';
 import { DEFAULT_LEGEND_OPTIONS, legendLayers } from '../render/legend.js';
@@ -84,9 +83,6 @@ export default function ExportPanel({
   // Off to begin with, so an export is the bare map until furniture is asked for.
   const [furniture, setFurniture] = useState<MarginaliaOptions>({ frame: false, title: false, scaleBar: false, compass: false });
   const [overlaps, setOverlaps] = useState<AuditIssue[] | null>(null);
-  const [geography, setGeography] = useState<GeographyIssue[] | null>(null);
-  useEffect(() => { setGeography(null); }, [map.id, map.layers.base.data, map.cols, map.rows,
-    map.hexShapes, map.islandSpecs, map.hexDimensions, map.defaultIrregularity, map.defaultLakeIrregularity, mapStyle]);
   const [error, setError] = useState<string | null>(null);
   const running = useRef(false);
   const [busy, setBusy] = useState(false);
@@ -325,24 +321,7 @@ export default function ExportPanel({
           )}
         </div>
 
-        <div>
-          <button disabled={!map.layers.base.data} onClick={() => run(async () => {
-            setGeography(null);
-            await new Promise<void>(resolve => setTimeout(resolve, 0));
-            setGeography(auditGeographyExport(map, opts));
-          })}>Check geography</button>
-          <p className="hint" style={{ marginTop: 4 }}>Check neighbouring hex types, mainland connections and detached islands.</p>
-          {geography && <div className={geography.length ? 'notice warn' : 'hint'} style={{ marginTop: 4 }} role="status">
-            {geography.length === 0 ? 'No geography problems found in the neighbour and drawing checks.' : <details open>
-              <summary>{geography.length} geography problem{geography.length === 1 ? '' : 's'}</summary>
-              <ul style={{ margin: '4px 0 0', paddingLeft: 18 }}>
-                {geography.map((issue, i) => <li key={`${issue.hex}:${issue.kind}:${i}`}>{issue.message}</li>)}
-              </ul>
-            </details>}
-          </div>}
-        </div>
-
-        {busy && <div className="hint" role="status">Preparing export or checks…</div>}
+        {busy && <div className="hint" role="status">Preparing export…</div>}
         {error && <div className="notice error" role="alert">{error}</div>}
       </fieldset>
     </div>

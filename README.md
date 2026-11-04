@@ -42,6 +42,11 @@ Mock mode swaps Claude for an offline procedural generator that returns the same
 model is asked for, so it flows through the identical decode-validate-render path. It is there to
 exercise the application end to end (and to develop the UI) without spending tokens.
 
+Generated base grids are corrected before they become maps: unsupported mainland fragments become
+islands, inland mainland-and-islands cells become land, and passage labels must fit their banks.
+The rendering and performance fixtures follow the same geography rules; incoherent inputs belong
+only in tests of correction, not in reference maps the renderer is expected to reproduce.
+
 ### Configuration
 
 | Variable | Default | Meaning |
@@ -227,24 +232,25 @@ assumed — because nothing later will correct it.
 
 | Layer | Values | Applies to |
 | --- | --- | --- |
-| Base Geography | Land, Coastal Land, Glacier, Sea, Sea Ice, Lake, Islands, Mainland and islands, Isthmus, Strait | every hex |
-| Elevation / Ruggedness | Lowland, Rolling, Hills, Highland, Mountains, Plateau | Land, Coastal Land, Glacier, Island |
-| Climate | full Köppen (Af…EF, 21 codes) | Land, Coastal Land, Glacier, Island |
-| Vegetation | 19 leaf categories in four groups | Land, Coastal Land, Glacier, Island |
-| Rivers | edge-to-edge paths, navigability per segment | Land, Coastal Land, Island |
-| Cities | name, population, river and coastal-edge references | Land, Coastal Land, Island |
-| Polities | strict partition: one owner per land hex, or none | Land, Coastal Land, Island |
-| Population | one integer per hex (rural, excludes city populations) | Land, Coastal Land, Island |
+| Base Geography | Land, Glacier, Sea, Sea Ice, Lake, Islands, Mainland and islands, Isthmus, Strait | every hex |
+| Elevation / Ruggedness | Lowland, Rolling, Hills, Highland, Mountains, Plateau | Land, Glacier, Islands, Mainland and islands, Isthmus |
+| Climate | full Köppen (Af…EF, 21 codes) | same land types as elevation |
+| Vegetation | 19 leaf categories in four groups | same land types as elevation |
+| Rivers | edge-to-edge paths, navigability per segment | land routes, with water endpoints |
+| Cities | name, population, river and coastal-edge references | land types and Strait; underwater placement is optional |
+| Polities | strict partition: one owner per land hex, or none | land types and Strait; underwater claims are optional |
+| Population | one integer per hex (rural, excludes city populations) | same land types as elevation |
 
 Two modelling points worth stating plainly, because they are easy to get wrong:
 
-**`Island` is a predominantly sea hex with a small landmass inside it.** It is drawn as a land dot
-on a sea hex. There is no mixed land+lake value. Island hexes take land-only layer values, and their
-interior defaults to `Lowland` elevation.
+**`Islands` is water containing detached islands.** Its islands must not connect land across hex
+boundaries. Mainland and islands has a mainland portion attached to neighbouring land and detached
+offshore islands. Both types can occur beside sea or lake, and receive land-only layer values.
 
-**`Coastal Land` marks a shoreline crossing a predominantly dry hex.** It behaves as land for
-elevation, climate, vegetation, settlement, polity and population data, while remaining visually
-distinct from ordinary inland `Land` in the base grid.
+**Shorelines are derived from neighbouring hexes.** Land and Glacier remain their ordinary types
+at a shore; the retired Coastal Land type is no longer used. Isthmus and Strait each need exactly
+two land neighbours and four water neighbours. For these adjacency rules, land includes Land,
+Glacier, Mainland and islands, Isthmus and Strait; water includes Sea, Lake, Sea Ice and Islands.
 
 **Hexes with a shoreline or an ice edge carry a land share and an irregularity.** Select Coastal Land,
 Islands, Mainland and islands, Isthmus, Strait, Glacier or Sea Ice hexes on the Base layer and the
@@ -449,14 +455,6 @@ known, it also gives a rough cost; the change history keeps the same figures.
 
 ## Exports
 
-- **Geography checks.** Base-layer validation reports invalid neighbours after generation, import,
-  loading and manual edits, including undo/redo. For these rules, Land, Glacier, Mainland and islands,
-  Isthmus and Strait are land; Sea, Lake, Sea Ice and Islands are water. Passages require exactly two
-  land neighbours and four water neighbours. Mainland and islands requires at least one of each.
-  **File → Export image → Check geography** also inspects the drawn land: mainland must attach,
-  islands must remain detached, and land in a water hex must connect to land in another hex.
-  This drawing check samples geometry, so very small features still need visual review. Problems
-  include hex coordinates; the checks do not change the map's geography.
 - **Image** (File → Export image). Any single layer on its own, or a composite of whichever layers are currently toggled
   visible, as **PNG** or **SVG**, with a toggle for city and polity name labels. Single-layer
   exports keep base geography as a substrate — a land-only layer is unreadable without knowing where

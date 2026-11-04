@@ -27,6 +27,13 @@ export function auditGeography(base: BaseData, cols: number, rows: number, size:
   const connects = (a: number, b: number): boolean => {
     const from = point(a), to = point(b);
     for (const t of [.25, .5, .75]) if (!landAt({ x: from.x + (to.x - from.x) * t, y: from.y + (to.y - from.y) * t })) return false;
+    // Diagonal samples can follow a real oblique shore, but a point-only corner
+    // contact is not a land bridge: there must be width on both sides of its middle.
+    if (from.x !== to.x && from.y !== to.y) {
+      const x = (from.x + to.x) / 2, y = (from.y + to.y) / 2;
+      const dx = (to.y - from.y) * .02, dy = (from.x - to.x) * .02;
+      if (!landAt({ x: x + dx, y: y + dy }) || !landAt({ x: x - dx, y: y - dy })) return false;
+    }
     return true;
   };
   const pieces = new Map<number, Array<{ touches: Set<number>; island: boolean }>>();
@@ -43,7 +50,9 @@ export function auditGeography(base: BaseData, cols: number, rows: number, size:
       const p = queue[head++]!, x = p % width, y = Math.floor(p / width);
       if (type === 'Mainland and islands' && islandAt && !island) island = islandAt(point(p));
       const neighbours = [x > 0 ? p - 1 : -1, x + 1 < width ? p + 1 : -1,
-        y > 0 ? p - width : -1, y + 1 < height ? p + width : -1];
+        y > 0 ? p - width : -1, y + 1 < height ? p + width : -1,
+        x > 0 && y > 0 ? p - width - 1 : -1, x + 1 < width && y > 0 ? p - width + 1 : -1,
+        x > 0 && y + 1 < height ? p + width - 1 : -1, x + 1 < width && y + 1 < height ? p + width + 1 : -1];
       for (const n of neighbours) {
         if (n < 0 || !land[n]) continue;
         if (owner[n] === hex) {

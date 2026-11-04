@@ -14,7 +14,6 @@
  */
 
 import { recomputeCityFacts, canHoldSettlement, hasDerivedShore, isShoreLand } from '../../shared/derive.js';
-import { checkBaseGeography, GEOGRAPHY_WARNING_PREFIX } from '../../shared/geography.js';
 import { CHANNEL_WIDTH_VALUES, hasChannelWidth, hasLandConcentration, hasLandShare, isIslandType, isShapedType, islandSpecFor, type ChannelWidth, type HexShape, type IslandSpec, type Irregularity } from '../../shared/types.js';
 import { mergeGeneratedIslandSettings } from '../../shared/generatedIslands.js';
 import { migrateMap } from '../../shared/islandMigration.js';
@@ -690,19 +689,7 @@ function mapSnapshot(map: MapState): MapHistorySnapshot {
 }
 
 function restores(snapshot: MapHistorySnapshot, history: NonNullable<MapState['history']>): MapState {
-  return withGeographyWarnings({ ...snapshot, history, updatedAt: Date.now() });
-}
-
-/** Recompute topology notes without retaining stale errors or altering the user's geography. */
-function withGeographyWarnings(map: MapState): MapState {
-  const layer = map.layers.base;
-  const previous = layer.warnings ?? [];
-  const warnings = [
-    ...previous.filter(w => !w.startsWith(GEOGRAPHY_WARNING_PREFIX)),
-    ...(layer.data ? checkBaseGeography(layer.data, map.cols, map.rows).map(issue => issue.message) : []),
-  ];
-  if (warnings.length === previous.length && warnings.every((w, i) => w === previous[i])) return map;
-  return { ...map, layers: { ...map.layers, base: { ...layer, warnings } } };
+  return { ...snapshot, history, updatedAt: Date.now() };
 }
 
 /**
@@ -729,9 +716,7 @@ export function reducer(map: MapState, action: Action): MapState {
     });
   }
 
-  const changed = reduceMap(map, action);
-  const next = action.type === 'load' || changed.layers.base.data !== map.layers.base.data
-    || changed.cols !== map.cols || changed.rows !== map.rows ? withGeographyWarnings(changed) : changed;
+  const next = reduceMap(map, action);
   if (action.type === 'load') {
     return { ...next, history: next.history ?? { past: [], future: [] } };
   }

@@ -10,7 +10,10 @@ compares them, gives a pilot measurement for each of the first two, and sets the
 - **Option 2: implemented** (DECISIONS §77). It needed fixes to how frontiers meet the coast and how
   rivers bow round city icons first.
 - **Option 3:** stays rejected.
-- **Picture checks:** the scripts now judge pictures by visible change (§76).
+- **Picture checks:** review intentional changes for meaningful, undesirable effects (§86).
+- **Inputs corrected (§89):** the populated fixture, mixed fixture and coast galleries now describe
+  coherent geography. The old malformed mock map is retired. Its timing figures are historical;
+  measure future changes with paired runs using the same corrected inputs on both sides.
 
 **T2 completed, 3 November 2026 (DECISIONS §84).** The bend-list conversion is removed. All four
 strong existing optimizations are retained after independent 100-pair comparisons on each fixture.
@@ -171,10 +174,12 @@ Hex 728 is invalid input for a mainland-attachment test: none of its neighbours 
 Do not use preserving its detached blob as a correctness requirement. Include the new
 `continent-large-lakes` case in visual review; it supplies a large connected continent, three
 multi-hex lakes and a Mainland and islands hex actually adjoining mainland. Check the drawn
-attachment as well as land share. The old populated and mixed maps remain timing references.
-Before judging a fit, run `checkBaseGeography` on the input and `auditGeographyExport` on the
-candidate (the same check as File → Export image → Check geography). These implement the owner's
-revised categories and connection rules (§88). Distinguish malformed input from drawing failures;
+attachment as well as land share. The populated and mixed inputs have been corrected (§89),
+rather than preserving malformed input for timing comparisons.
+The fast `geographyFixtures` tests require coherent input, and the slow `geographyFixtures` test
+requires connected mainland, detached islands and connected passages in the rendered portfolio.
+These are internal correctness gates, not a checking task delegated to the user. Use
+`perf:coast -- --review` to save intentional before/after changes for qualitative judgement;
 an unchanged land percentage does not establish correct geography.
 
 Implement Group 1, step 1.1: replace the global share passes with one initial solve using the share

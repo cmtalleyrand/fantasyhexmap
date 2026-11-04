@@ -3,7 +3,7 @@ import test from 'node:test';
 import { contextFromMap } from '../core/context.ts';
 import { decodeLayer } from '../core/decode.ts';
 import { encodeBase } from '../shared/codec.ts';
-import { checkBaseGeography, geographyCategory, GEOGRAPHY_WARNING_PREFIX } from '../shared/geography.ts';
+import { checkBaseGeography, correctBaseGeography, geographyCategory } from '../shared/geography.ts';
 import { hexCenter, neighbourOf, pixelToOffset, type Point } from '../shared/hex.ts';
 import { createMapState } from './seededMap.ts';
 import type { BaseGeo } from '../shared/types.ts';
@@ -60,25 +60,37 @@ test('mainland-and-islands needs both categories; missing map-edge neighbours ar
   assert.equal(checkBaseGeography(['Land', 'Glacier', 'Islands'], 3, 1).length, 0);
 });
 
-test('generation reports invalid geography without changing it; load, edits, undo and redo refresh the notes', () => {
+test('generation corrects incoherent geography before applying it, without asking the user to fix violations', () => {
   const f = ring('Mainland and islands');
   const map = createMapState('Geography validation', f.cols, f.rows);
   const result = decodeLayer('base', { rows: encodeBase(f.base, f.cols, f.rows) }, contextFromMap(map, null));
-  assert.deepEqual(result.data, f.base);
-  assert.ok(result.warnings.some(w => w.startsWith(GEOGRAPHY_WARNING_PREFIX) && w.includes('3,2')));
-  map.layers.base.data = f.base;
-  map.layers.base.warnings = ['Keep this unrelated note.'];
-  const loaded = reducer(map, { type: 'load', map });
-  assert.equal(loaded.layers.base.warnings.length, 2);
-  const generated = reducer(loaded, { type: 'applyGeneration', layer: 'base', ...result });
-  assert.equal(generated.layers.base.warnings.filter(w => w.startsWith(GEOGRAPHY_WARNING_PREFIX)).length, 1);
-  const fixed = reducer(loaded, { type: 'setHexValues', layer: 'base', indices: [f.neighbours[0]!], value: 'Land' });
-  assert.deepEqual(fixed.layers.base.warnings, ['Keep this unrelated note.']);
-  const undo = reducer(fixed, { type: 'undo', layer: 'base' });
-  assert.equal(undo.layers.base.warnings.length, 2);
-  const redo = reducer(undo, { type: 'redo', layer: 'base' });
-  assert.deepEqual(redo.layers.base.warnings, ['Keep this unrelated note.']);
-  assert.deepEqual(reducer(loaded, { type: 'load', map: loaded }).layers.base.warnings, loaded.layers.base.warnings);
+  const data = result.data as BaseGeo[];
+  assert.equal(data[f.hex], 'Islands', 'there is no mainland here to attach to');
+  assert.deepEqual(checkBaseGeography(data, f.cols, f.rows), []);
+  assert.deepEqual(result.warnings, []);
+  assert.equal(f.base[f.hex], 'Mainland and islands', 'the response/input is not mutated');
+  const generated = reducer(map, { type: 'applyGeneration', layer: 'base', ...result });
+  assert.deepEqual(generated.layers.base.data, data);
+  assert.deepEqual(reducer(generated, { type: 'undo', layer: 'base' }).layers.base.data, null);
+  assert.deepEqual(reducer(reducer(generated, { type: 'undo', layer: 'base' }), { type: 'redo', layer: 'base' }).layers.base.data, data);
+});
+
+test('generated corrections converge, preserve coherent geography, and do not manufacture mainland anchors', () => {
+  for (const type of ['Mainland and islands', 'Strait', 'Isthmus'] as const) {
+    for (let count = 0; count <= 6; count++) {
+      const f = ring(type);
+      f.neighbours.slice(0, count).forEach(h => { f.base[h] = 'Land'; });
+      const fixed = correctBaseGeography(f.base, f.cols, f.rows);
+      assert.deepEqual(checkBaseGeography(fixed, f.cols, f.rows), []);
+      assert.deepEqual(correctBaseGeography(fixed, f.cols, f.rows), fixed);
+      if (checkBaseGeography(f.base, f.cols, f.rows).length === 0) assert.deepEqual(fixed, f.base);
+    }
+  }
+  const f = ring('Mainland and islands');
+  f.base[f.neighbours[0]!] = 'Mainland and islands';
+  const fixed = correctBaseGeography(f.base, f.cols, f.rows);
+  assert.equal(fixed[f.hex], 'Islands');
+  assert.equal(fixed[f.neighbours[0]!], 'Islands');
 });
 
 function drawing(type: BaseGeo, leftLand = false) {

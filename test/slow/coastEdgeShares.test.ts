@@ -10,8 +10,8 @@ test('the populated map keeps its land shares where the coast meets the page edg
   const map = migrateMap(structuredClone(frozen) as MapState);
   const scene = buildScene(map, { size: 30, style: resolveStyle(NEW_USER_STYLE_CHOICE),
     visible: defaultVisibility(), labels: false, cache: 'off' });
-  // The final detail fit used to leave edge hex 520 above tolerance. Its repair
-  // must also preserve the neighbouring shares, rather than move the miss elsewhere.
+  // The finishing fit must satisfy the page-edge shares without moving a miss
+  // into another hex of the coherent generated map.
   const misses = scene.compromises?.filter(c => c.what.includes('land drawn')) ?? [];
   assert.deepEqual(misses, []);
 });

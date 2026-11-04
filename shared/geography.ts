@@ -47,3 +47,42 @@ export function checkBaseGeography(base: BaseData, cols: number, rows: number): 
   }
   return issues;
 }
+
+/**
+ * Correct generated geography before it becomes a map. An unsupported mainland becomes
+ * islands, an inland mainland-and-islands hex becomes ordinary land, and an invalid
+ * passage becomes the ordinary land/water its surroundings support. Never invent banks
+ * or a land bridge just to justify a special type.
+ */
+export function correctBaseGeography(base: BaseData, cols: number, rows: number): BaseData {
+  const data = [...base];
+  const neighbours = (hex: number) => Array.from({ length: 6 }, (_, edge) => {
+    const n = neighbourOf(hex % cols, Math.floor(hex / cols), edge);
+    return inBounds(cols, rows, n.col, n.row) ? n.row * cols + n.col : -1;
+  }).filter(h => h >= 0);
+  // A group of mainland fragments cannot supply its own missing mainland. It needs
+  // actual Land or Glacier somewhere in its connected land-bearing component.
+  const seen = new Set<number>();
+  for (let hex = 0; hex < data.length; hex++) {
+    if (geographyCategory(data[hex]) !== 'land' || seen.has(hex)) continue;
+    const group = [hex]; seen.add(hex);
+    for (let at = 0; at < group.length; at++) for (const h of neighbours(group[at]!)) {
+      if (!seen.has(h) && geographyCategory(data[h]) === 'land') { seen.add(h); group.push(h); }
+    }
+    if (!group.some(h => data[h] === 'Land' || data[h] === 'Glacier')) {
+      for (const h of group) if (data[h] === 'Mainland and islands') data[h] = 'Islands';
+    }
+  }
+  for (;;) {
+    const invalid = checkBaseGeography(data, cols, rows);
+    if (!invalid.length) return data;
+    for (const { hex } of invalid) {
+      const around = neighbours(hex).map(h => data[h]);
+      const land = around.filter(v => geographyCategory(v) === 'land').length;
+      if (data[hex] === 'Mainland and islands') data[hex] = land > 0 ? 'Land' : 'Islands';
+      else if (land >= 2) data[hex] = 'Land';
+      else if (data[hex] === 'Isthmus') data[hex] = 'Islands';
+      else data[hex] = around.includes('Lake') && !around.includes('Sea') && !around.includes('Sea Ice') ? 'Lake' : 'Sea';
+    }
+  }
+}

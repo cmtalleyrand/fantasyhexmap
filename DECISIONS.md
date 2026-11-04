@@ -1971,6 +1971,10 @@ are clear, with one island in the western lake. Results and pictures are in
 
 ## 88. Validate neighbouring types and drawn geography
 
+**Superseded by §89.** Adding a user-facing geography-checking workflow did not correct incoherent
+inputs. That workflow and its live violation notes have been removed. Generation and the positive
+fixtures are corrected instead; the checks remain internal regression gates.
+
 **Owner's revised categories.** For geography topology, water is Sea, Lake, Sea Ice and Islands;
 land is Land, Glacier, Mainland and islands, Isthmus and Strait. This does not change elevation,
 settlement or other layer eligibility: a Strait still has water and land banks rather than becoming
@@ -2025,3 +2029,70 @@ rules or that the initial coast solve is finished.
 
 **Local evidence:** `work/geography/{tests,full-tests,slow-tests,drawing-pixels,build,final-focused}.log`,
 `work/geography/fixture-audit.json`, `work/geography/ui-results.json` and `ui-valid.png`/`ui-invalid.png`.
+
+## 89. Correct generated geography and the positive fixtures, instead of asking the user to validate them
+
+**Correction to §88.** The requirement is for maps that make sense and a renderer tested against
+coherent inputs. A user-facing checker and violation notes did not accomplish that. They are removed,
+including the export button and live reducer warnings. The topology functions are internal test
+tools, not a task the user must perform to obtain a sensible map.
+
+**Generation.** `correctBaseGeography` repairs generated base grids before they are applied:
+unsupported Mainland and islands becomes Islands, an inland instance becomes Land, and invalid
+passage labels become the ordinary land/water their neighbours support. A cluster of mainland
+fragments cannot supply its own missing mainland anchor. Corrections converge without changing
+already coherent grids or inventing banks to justify a label. Base generation and pasted base
+responses share the corrected decoder. This does not silently rewrite existing saved or hand-edited
+maps. Offline generation now builds continuous landmasses first, puts offshore islands across a
+water gap, places mainland-and-islands only on a coast, and deliberately creates multi-hex inland
+lakes. It also handles small maps with fewer land cells than requested polity seeds without looping.
+
+**Positive fixtures.** The frozen populated map is regenerated from that coherent generator. It has
+two 19-hex lakes, offshore islands and attached mainland-and-islands, rather than random inland
+Sea/Islands holes and unsupported mainland blobs. The mixed benchmark has coherent coast shares,
+two multi-hex lake basins, an explicitly constructed isthmus joining the continent to an offshore
+landmass, and a short lake strait between two separate land banks. Tests require it to retain all
+these feature types; removing the challenging types is not a way to pass. The separate 48×36 large
+continent with three substantial lakes remains part of review.
+
+Strait, isthmus and lake-passage galleries now have two real land neighbours and four water
+neighbours. Mainland-and-islands share fixtures leave a nonzero allocation for their configured
+offshore islands: the old 40% total against a 40% mainland allocation asked for no islands at all.
+The frontier regression formerly tied to hexes 87 and 794 of the incoherent mock map now uses a
+small coherent map with an attached mainland, detached islands and two realms, checking both a
+thin strip and a broad sector. Lake-passage geometry assertions use the corrected two bank edges;
+no tolerance is relaxed. Deliberately incoherent inputs remain only in correction/negative tests.
+
+**Rendering defects exposed by the coherent inputs.** Shore land preserves its join to an Isthmus
+as well as a Strait, so a real neck cannot be cut off by fitting the neighbouring coast. Decorative
+skerries are kept within their hex and clear of mainland instead of creating stray land bridges.
+The internal sampled topology audit follows oblique land connections, with intermediate probes
+and a width check to distinguish a real diagonal shore from a point contact; this removes a false
+disconnected-sliver report without ignoring genuine land loss.
+
+**Enforced by tests.** The fast fixture test checks every performance, gallery, edit, drawing and
+lake-passage input before rendering, including island share allocations. A slow portfolio test
+checks the actual drawn mainland connections, detached islands and passage joins on the populated,
+mixed, large-continent and every coast gallery map. The generated maps at 5×5, 12×12, 30×30 and
+40×40 also pass the input rules. These are correctness gates on our inputs and output, not warnings
+delegating repair to the user.
+
+**Validation.** Client/server and rendering-fixture typechecks, production build, 602 fast tests,
+15 slow tests, drawing pixels (including 400 river cases), and the full drawing sweeps (150 coverage,
+200 island and 600 enclosed-water cases) pass at unchanged thresholds. Production-browser smoke
+loads the corrected map and verifies the manual checking workflow is gone, with no browser errors.
+Before/after images on the same corrected isthmus input show the old broken land join restored;
+Fractured mainland/island images were also reviewed. `perf:coast -- --review` saves intentional
+changes without rejecting them solely for being visible; scene equality and blank-coast checks
+remain available, and the topology/share tests remain mandatory.
+
+**Measurements.** The corrected populated fixture's SHA-256 is
+`18eb3209264f51b75f7900959b4b52a4949abf7637f6c9e0bb8cb1b0b06d81cc`. Its workload differs from
+the retired mock fixture. Old timings cannot establish a speedup from this change; future paired
+comparisons must feed the same corrected inputs to both renderer versions. This correction does
+not claim to finish the initial-solve performance task.
+
+**Local evidence:** `work/geography/verified-{full,slow,typecheck,fixture-types,build}.log`,
+`corrected-drawing-{pixels,sweeps}.log`, `positive-fixtures.log`, `final-bank-tests.log`,
+`final-bank-slow.log`, `corrected-ui-results.json`, `corrected-input.png`, `large-continent.png`,
+and the before/after images in `work/geography/connection-review/`.

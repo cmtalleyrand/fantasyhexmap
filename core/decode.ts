@@ -16,7 +16,7 @@
  */
 
 import { withValidParents } from '../shared/polityTree.js';
-import { checkBaseGeography } from '../shared/geography.js';
+import { correctBaseGeography } from '../shared/geography.js';
 import { pruneShares } from '../shared/polityShares.js';
 import { applyAutoShade } from '../shared/polityShade.js';
 import {
@@ -217,7 +217,7 @@ export function decodeLayer(
       const r = parsed as BaseResponse;
       const decoded = decodeBase(r.rows, cols, rows);
       warnings.push(...decoded.warnings);
-      warnings.push(...checkBaseGeography(decoded.data, cols, rows).map(issue => issue.message));
+      decoded.data = correctBaseGeography(decoded.data, cols, rows);
       data = decoded.data;
       geoNames = decodeGeoNames(r.names, decoded.data, ctx.geoNames ?? [], cols, rows, warnings);
       const seen = new Set<number>();
