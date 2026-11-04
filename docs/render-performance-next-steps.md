@@ -167,6 +167,11 @@ reduces those misses but loses a mainland fragment and visibly changes bays and 
 trial is adopted; step 1.1 remains open. The image-based rejection was premature: see the owner's
 clarification in §86. Its replacement must handle target hexes without coast samples, retain land
 pieces and drawing quality, and meet the share gates; it need not reproduce the old bays and capes.
+Hex 728 is invalid input for a mainland-attachment test: none of its neighbours is mainland (§87).
+Do not use preserving its detached blob as a correctness requirement. Include the new
+`continent-large-lakes` case in visual review; it supplies a large connected continent, three
+multi-hex lakes and a Mainland and islands hex actually adjoining mainland. Check the drawn
+attachment as well as land share. The old populated and mixed maps remain timing references.
 
 Implement Group 1, step 1.1: replace the global share passes with one initial solve using the share
 targets as constraints, starting from the trace. Field reuse and the round stopping rule follow as

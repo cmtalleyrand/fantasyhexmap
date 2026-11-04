@@ -1906,6 +1906,10 @@ impossible, and do not justify silently moving on to step 1.2.
 
 ## 86. Review intentional coast changes for undesirable effects, with pictures
 
+**Input correction (§87).** Hex 728 has no neighbouring mainland. Preserving its detached blob
+is not a valid mainland-connection requirement, and the earlier comparison did not establish
+that the new solver broke an existing mainland attachment. The fixture itself is malformed there.
+
 **Owner clarification, 4 November 2026.** A new coast-fitting method is expected to produce visibly
 different images. The question is whether those differences are meaningful and undesirable.
 Show before/after images and assess geography and drawing quality. The §76 pixel screen remains
@@ -1927,3 +1931,40 @@ tangent half-plane constraint. That preserves the piece, but its reported share 
 against 30%. Its patch is saved in `work/initial-solve/enclosed-position-solve.patch`. It is not an
 accepted implementation or a completed task; step 1.1 still needs that area error fixed and review
 of the broader gallery for undesirable changes. Production rendering remains unchanged.
+
+## 87. Mainland attachment and representative continent/lake fixtures
+
+**Owner clarification.** A Mainland and islands hex requires adjoining mainland: its mainland
+part extends that landmass into the hex, and its islands are separate. A detached extra island
+does not become mainland merely because it occupies the requested percentage. Review the actual
+connection, not just the area, in the baseline as well as the trial.
+
+**Hex 728.** The frozen populated fixture requests 40% total land: the map's 30% mainland share
+plus the default two small islands at 5% each. It has no per-hex override. The fit's 0%-versus-30%
+report counts only the coast-fitted mainland portion, excluding the independent islands; it is
+not a measurement of total land in the picture. More fundamentally, its six neighbours are three
+Sea and three Islands hexes, with no adjoining mainland at all. Both the baseline's detached
+blob and the trial are unsuitable evidence of a correct Mainland and islands rendering. That
+invalid input must not be used to require reproducing the blob or to reject the initial-solve
+approach for failing to preserve it.
+
+**Fixture audit.** The 40×40 populated mock map contains zero Lake hexes. Its enclosed water
+features are Sea/Islands cells, not representative lake inputs. The 30×30 mixed fixture has one
+substantial connected land-bearing component of 357 hexes, but only four lakes of 2, 2, 1 and
+1 hexes. Larger lakes exist in small artificial regression cases, not in the main visual maps.
+Retain these frozen inputs for comparable historical timings; they are insufficient on their
+own for geography and picture-quality review.
+
+**Added.** `scripts/render-landscape-fixtures.ts` supplies `continent-large-lakes`: a 48×36 map
+with a connected 875-hex mainland, two coastal bays and three inland lakes of 51, 44 and 17 water
+hexes. Only the western lake contains an island, a deliberate connected three-hex landmass.
+A Mainland and islands example at hex 867 shares its eastern edge with the continent, so the
+attachment requirement can actually be exercised. It is included in `perf:coast` visual comparisons
+without changing either historical timing fixture or expanding the fast incremental gallery.
+
+**Checked.** Client/server typecheck and a separate strict typecheck of the fixture pass.
+`CHROMIUM_PATH=/usr/bin/chromium npm run perf:coast -- --only continent-large-lakes` passes before
+and after a coastal edit, against HEAD: serialized scenes match, images match, and neither build
+reports a land-share compromise. Reviewed the whole-map image: the continent and three lakes
+are clear, with one island in the western lake. Results and pictures are in
+`work/initial-solve/landscape-check/`; this is fixture validation, not a solver performance claim.
