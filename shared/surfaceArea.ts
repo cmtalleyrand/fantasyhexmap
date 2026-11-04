@@ -161,15 +161,16 @@ export const SHORE_SLACK = 0.05;
 const SHORE_LAND: ReadonlySet<BaseGeo> = new Set(['Land', 'Glacier']);
 const SHORE_WATER: ReadonlySet<BaseGeo> = new Set(['Sea', 'Lake', 'Sea Ice']);
 
-/** Apply type bounds, zero isolated water, and at least 5% water-side land beside whole land. */
+/** Apply shore constraints. Type bounds apply to total shares, never a mixed hex's mainland-only share. */
 export function withShoreSlack(
   base: ReadonlyArray<BaseGeo | null | undefined>, cols: number, index: number, share: number,
   dimensions: HexDimensions, shapes?: Record<string, HexShape>,
+  scope: 'total' | 'mainland' = 'total',
 ): number {
   const value = base[index];
   const land = value !== null && value !== undefined && SHORE_LAND.has(value);
   const water = value !== null && value !== undefined && SHORE_WATER.has(value);
-  share = boundedLandShare(value, share * 100) / 100;
+  if (scope === 'total' || value !== 'Mainland and islands') share = boundedLandShare(value, share * 100) / 100;
   if (water && !adjacentHexes(base, cols, index).some(j => isCategoryLand(base[j]))) return 0;
   if (!land && !water) return share;
   const rows = Math.floor(base.length / cols);

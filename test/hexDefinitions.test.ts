@@ -4,7 +4,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { HEX_CATEGORIES, adjacentHexes, boundedLandShare, isCategoryLand, passageNeighbours } from '../shared/hexCategories.ts';
 import { validateHexDefinitions } from '../shared/hexValidation.ts';
-import { drawnLandFraction, landFraction, landFractionAt, normaliseHexDimensions } from '../shared/surfaceArea.ts';
+import { drawnLandFraction, landFraction, landFractionAt, normaliseHexDimensions, withShoreSlack } from '../shared/surfaceArea.ts';
 import { createMapState } from './seededMap.ts';
 import { DEFAULT_HEX_DIMENSIONS, type HexShape, type BaseGeo } from '../shared/types.ts';
 import { reducer } from '../src/state/store.ts';
@@ -122,5 +122,26 @@ test('a strait draws two separate banks for all nine separated pairs of land nei
     const drawn = shapeCoast(coastEdges(base, 7, 7, 30), surfaceMap(base, 7, 7), 30,
       new Map([[24, { share: .4, kind: 'channel', width: .3 * Math.sqrt(3) * 30, fit: true }]]))!;
     assert.equal(drawn.land.get(24)!.length, 2, `land neighbours on sides ${a},${b}`);
+  }
+});
+
+test('shore slack preserves the mainland-only share after bounding and splitting a mixed hex total', () => {
+  const map = mapWith('Mainland and islands');
+  const base = map.layers.base.data!, spec = { large: 2, small: 6 };
+  map.islandSpecs = { '24': spec };
+  for (const requested of [0, 10, 15, 40, 90, 100]) {
+    const shape: HexShape = { type: 'Mainland and islands', land: requested };
+    const total = landFraction(base[24], spec, dims, shape);
+    const mainland = drawnLandFraction(base[24], dims, shape, true, spec)!;
+    const islands = total - mainland;
+    const target = withShoreSlack(base, 7, 24, mainland, dims, { '24': shape }, 'mainland');
+    assert.equal(target, mainland, `mainland portion at ${requested}% total`);
+    assert.ok(Math.abs(target + islands - total) < 1e-12);
+    assert.equal(withShoreSlack(base, 7, 24, requested / 100, dims), total, 'total-share bounds still apply');
+    if (requested <= 10) {
+      assert.equal(target, .025);
+      assert.ok(Math.abs(islands - .075) < 1e-12);
+      assert.ok(Math.abs(target + islands - .1) < 1e-12);
+    }
   }
 });

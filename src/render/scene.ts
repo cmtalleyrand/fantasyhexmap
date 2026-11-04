@@ -506,7 +506,8 @@ function cachedCoast(
     const own = base[i] === 'Lake' || base[i] === 'Sea' || base[i] === 'Sea Ice'
       ? landFraction(base[i], undefined, dimensions, shapes?.[String(i)])
       : drawnLandFraction(base[i], dimensions, shapes?.[String(i)], shore[i], islandSpecs?.[String(i)]);
-    return own === null ? null : withShoreSlack(base, cols, i, own, dimensions, shapes);
+    return own === null ? null : withShoreSlack(base, cols, i, own, dimensions, shapes,
+      base[i] === 'Mainland and islands' ? 'mainland' : 'total');
   };
   for (let i = 0; i < base.length; i++) {
     const shape = hexShapeFor(base[i], shapes?.[String(i)], defaultIrregularity);
