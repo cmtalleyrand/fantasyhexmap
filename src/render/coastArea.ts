@@ -208,10 +208,13 @@ export function fitCoastAreas(geometry: CoastGeometry, targets: ReadonlyMap<numb
     const chains: CoastChain[] = current.map((ring, k) => ({ closed: closed[k]!, points: ring,
       edges: ring.slice(0, -1).map((p, j) => ({ from: p, to: ring[j + 1]!, land: -1, water: -1 })) }));
     const clearance = coastClearance(chains, size);
-    type Sample = { n: Point; reach: number; length: number };
-    const samples: Sample[][] = current.map((ring, k) => {
+    // Per ring, for each point: its unit direction to the sea, how far it may move, and the
+    // length of coast it stands for. Flat arrays: this runs for every point every round.
+    type Samples = { nx: Float64Array; ny: Float64Array; reach: Float64Array; length: Float64Array };
+    const none: Samples = { nx: new Float64Array(0), ny: new Float64Array(0), reach: new Float64Array(0), length: new Float64Array(0) };
+    const samples: Samples[] = current.map((ring, k) => {
       const count = ring.length;
-      if (count < 3) return [];
+      if (count < 3) return none;
       // A closed ring repeats its first point last; treat that pair as one point.
       const span = closed[k] && ring[0]!.x === ring[count - 1]!.x && ring[0]!.y === ring[count - 1]!.y ? count - 1 : count;
       let votes = 0;
@@ -225,48 +228,52 @@ export function fitCoastAreas(geometry: CoastGeometry, targets: ReadonlyMap<numb
       // Length-weighted segment normals summed over `window` of coast either side (by
       // prefix sums over the ring laid out three times, for a closed ring's wrap).
       const laps = closed[k] ? 3 : 1, segments = closed[k] ? span : count - 1;
-      const sum = [{ x: 0, y: 0 }], arcs = [0];
+      const prefix = segments * laps + 1;
+      const sumX = new Float64Array(prefix), sumY = new Float64Array(prefix), arcs = new Float64Array(prefix);
       for (let j = 0; j < segments * laps; j++) {
-        const a = at(j), b = at(j + 1), last = sum[j]!;
-        sum.push({ x: last.x + sign * (b.y - a.y), y: last.y - sign * (b.x - a.x) });
-        arcs.push(arcs[j]! + Math.hypot(b.x - a.x, b.y - a.y));
+        const a = at(j), b = at(j + 1);
+        sumX[j + 1] = sumX[j]! + sign * (b.y - a.y);
+        sumY[j + 1] = sumY[j]! - sign * (b.x - a.x);
+        arcs[j + 1] = arcs[j]! + Math.hypot(b.x - a.x, b.y - a.y);
       }
-      const total = closed[k] ? arcs[segments]! : arcs.at(-1)!;
+      const total = closed[k] ? arcs[segments]! : arcs[prefix - 1]!;
       const window = size * 0.4;
       const below = (value: number) => { // the first index with arcs[i] >= value
-        let lo = 0, hi = arcs.length - 1;
+        let lo = 0, hi = prefix - 1;
         while (lo < hi) { const mid = (lo + hi) >> 1; if (arcs[mid]! < value) lo = mid + 1; else hi = mid; }
         return lo;
       };
       let arc = 0;
-      const rooms = new Map<number, number>();
-      const out: Sample[] = [];
+      const rooms = new Float64Array(count);
+      const out: Samples = { nx: new Float64Array(count), ny: new Float64Array(count), reach: new Float64Array(count), length: new Float64Array(count) };
       for (let j = 0; j < count; j++) {
         const p = ring[j]!;
         const centre = (closed[k] ? segments : 0) + Math.min(j, segments);
         const from = below(arcs[centre]! - window), to = below(arcs[centre]! + window);
-        const nx = sum[to]!.x - sum[from]!.x, ny = sum[to]!.y - sum[from]!.y;
+        const nx = sumX[to]! - sumX[from]!, ny = sumY[to]! - sumY[from]!;
         const nl = Math.hypot(nx, ny) || 1;
         const before = j ? Math.hypot(p.x - ring[j - 1]!.x, p.y - ring[j - 1]!.y) : 0;
         const after = j + 1 < count ? Math.hypot(ring[j + 1]!.x - p.x, ring[j + 1]!.y - p.y) : 0;
         arc += before;
         const ends = closed[k] ? 1 : Math.min(1, arc / size, (total - arc) / size);
-        if (j % 4 === 0 || j === count - 1) rooms.set(j, clearance(p, chains[k]!, arc));
-        out.push({ n: { x: nx / nl, y: ny / nl }, reach: ends * passageFade(p), length: (before + after) / 2 });
+        if (j % 4 === 0 || j === count - 1) rooms[j] = clearance(p, chains[k]!, arc);
+        out.nx[j] = nx / nl; out.ny[j] = ny / nl;
+        out.reach[j] = ends * passageFade(p);
+        out.length[j] = (before + after) / 2;
       }
       // The clearance, found at every fourth point, eased between them; then lowered where
       // needed so it changes by at most half the length of coast it changes over, so a
       // point beside a narrow inlet does not hold still while its neighbours move.
-      const reach = out.map((s, j) => {
+      const { reach, length } = out;
+      for (let j = 0; j < count; j++) {
         const a = j - j % 4, b = Math.min(a + 4, count - 1), t = b > a ? (j - a) / (b - a) : 0;
-        return s.reach * ((1 - t) * rooms.get(a)! + t * rooms.get(b)!) / 3;
-      });
+        reach[j] = reach[j]! * ((1 - t) * rooms[a]! + t * rooms[b]!) / 3;
+      }
       for (let pass = 0; pass < (closed[k] ? 2 : 1); pass++) {
-        for (let j = 1; j < count; j++) reach[j] = Math.min(reach[j]!, reach[j - 1]! + out[j]!.length * 0.5);
-        for (let j = count - 2; j >= 0; j--) reach[j] = Math.min(reach[j]!, reach[j + 1]! + out[j]!.length * 0.5);
+        for (let j = 1; j < count; j++) reach[j] = Math.min(reach[j]!, reach[j - 1]! + length[j]! * 0.5);
+        for (let j = count - 2; j >= 0; j--) reach[j] = Math.min(reach[j]!, reach[j + 1]! + length[j]! * 0.5);
         if (closed[k]) { reach[0] = reach[count - 1] = Math.min(reach[0]!, reach[count - 1]!); }
       }
-      out.forEach((s, j) => { s.reach = reach[j]!; });
       return out;
     });
     // The correction is a smooth field along each coast, not one amount per hex: control
@@ -301,15 +308,18 @@ export function fitCoastAreas(geometry: CoastGeometry, targets: ReadonlyMap<numb
     // Rows of M (area change of hex g per unit of each control), by the length of coast
     // each point stands for in the hex it lies in.
     const matrix = new Map<number, Map<number, number>>();
-    current.forEach((ring, k) => samples[k]!.forEach((s, j) => {
-      if (!s.reach || (closed[k] && j === ring.length - 1)) return;
-      const g = index.get(nearestHex(ring[j]!, cols, rows, size, centres));
-      if (g === undefined) return;
-      let row = matrix.get(g);
-      if (!row) { row = new Map(); matrix.set(g, row); }
-      const { index: at, weight } = support[k]!;
-      for (let q = 4 * j; q < 4 * j + 4; q++) row.set(at[q]!, (row.get(at[q]!) ?? 0) + weight[q]! * s.length);
-    }));
+    current.forEach((ring, k) => {
+      const { reach, length } = samples[k]!;
+      for (let j = 0; j < reach.length; j++) {
+        if (!reach[j] || (closed[k] && j === ring.length - 1)) continue;
+        const g = index.get(nearestHex(ring[j]!, cols, rows, size, centres));
+        if (g === undefined) continue;
+        let row = matrix.get(g);
+        if (!row) { row = new Map(); matrix.set(g, row); }
+        const { index: at, weight } = support[k]!;
+        for (let q = 4 * j; q < 4 * j + 4; q++) row.set(at[q]!, (row.get(at[q]!) ?? 0) + weight[q]! * length[j]!);
+      }
+    });
     // Least squares with a small penalty on the controls and a larger one on how sharply
     // they bend, by conjugate gradients on the normal equations: the smallest smooth
     // correction that brings every hex to its share.
@@ -384,14 +394,15 @@ export function fitCoastAreas(geometry: CoastGeometry, targets: ReadonlyMap<numb
     const factor = new Float64Array(unknowns).fill(1);
     const moveBy = () => current.map((ring, k) => {
       if (ring.length < 3) return ring;
+      const { nx, ny, reach } = samples[k]!;
+      const { index: at, weight } = support[k]!;
       const moved = ring.map((p, j) => {
-        const s = samples[k]![j]!;
-        if (!s.reach) return p;
+        const limit = reach[j]!;
+        if (!limit) return p;
         let d = 0;
-        const { index: at, weight } = support[k]!;
         for (let q = 4 * j; q < 4 * j + 4; q++) d += weight[q]! * x[at[q]!]! * factor[at[q]!]!;
-        d = Math.max(-s.reach, Math.min(s.reach, d));
-        return { x: p.x + s.n.x * d, y: p.y + s.n.y * d };
+        d = Math.max(-limit, Math.min(limit, d));
+        return { x: p.x + nx[j]! * d, y: p.y + ny[j]! * d };
       });
       // Keep closed rings closed on their first point.
       if (closed[k]) moved[moved.length - 1] = moved[0]!;
