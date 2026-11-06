@@ -2,8 +2,9 @@ import { coastEdges, surfaceMap } from '../src/render/coast.ts';
 import { shapeCoast } from '../src/render/footprint.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { HEX_CATEGORIES, adjacentHexes, boundedLandShare, isCategoryLand, passageNeighbours } from '../shared/hexCategories.ts';
+import { HEX_CATEGORIES, adjacentHexes, boundedLandShare, isCategoryLand, landPercent, passageNeighbours } from '../shared/hexCategories.ts';
 import { validateHexDefinitions } from '../shared/hexValidation.ts';
+import { prepareLoadedMap } from '../src/state/import.ts';
 import { drawnLandFraction, landFraction, landFractionAt, normaliseHexDimensions, withShoreSlack } from '../shared/surfaceArea.ts';
 import { createMapState } from './seededMap.ts';
 import { DEFAULT_HEX_DIMENSIONS, type HexShape, type BaseGeo } from '../shared/types.ts';
@@ -144,4 +145,22 @@ test('shore slack preserves the mainland-only share after bounding and splitting
       assert.ok(Math.abs(target + islands - .1) < 1e-12);
     }
   }
+});
+test('half-step land shares are stored and shown exactly, without floating-point residue', () => {
+  for (const type of ['Isthmus', 'Strait', 'Mainland and islands'] as const) {
+    const [min, max] = boundedLandShare(type, 0) === 0 ? [0, 100] : [boundedLandShare(type, 0), boundedLandShare(type, 100)];
+    for (let percent = min; percent <= max; percent += 2.5) {
+      const changed = reducer(mapWith(type), { type: 'setHexShape', indices: [24], change: { land: percent } });
+      assert.equal(changed.hexShapes?.['24']?.land, percent, `${type} ${percent}%`);
+    }
+  }
+  assert.equal(landPercent(.575), 57.5);
+  assert.equal(landPercent(.025), 2.5);
+  assert.equal(landPercent(.07), 7);
+});
+test('an unrecognised base value in a loaded map is neither land nor water and does not abort loading', () => {
+  const map = mapWith('Isthmus');
+  (map.layers.base.data as unknown as string[])[25] = 'Coast';
+  assert.equal(isCategoryLand('Coast' as BaseGeo), false);
+  assert.doesNotThrow(() => prepareLoadedMap(map));
 });
