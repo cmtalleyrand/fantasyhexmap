@@ -2023,7 +2023,7 @@ which cut work rather than speed it up.
 
 ## 89. What an edit waits for, and how far a coast edit reaches (Group 1, steps 3.1 and 3.2)
 
-**3.1, the wait.** `node scripts/render-edit-wait.mjs` (new) drives the production worker through
+**3.1, the wait.** `npm run perf:edit-wait` (`scripts/render-edit-wait.mjs`, new) drives the production worker through
 `ScenePainter` on the 50×50 all-layer map (§85). It makes one cold build, then ten edits in
 sequence, each waited out to its sharp frame and overview before the next. The phases come from the
 build's profile. The rest is the sharp-frame time less build and paint: transfer both ways,
