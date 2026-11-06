@@ -30,8 +30,15 @@ The next improvement is Group 1, step 1 below: replace the repeated global share
   Without the passes the populated map misses 13–15 shares instead of 1.
 - **Step 1.2, clearance reuse, removed (§87).** It was exact, but no faster in wall time, and 3–5%
   slower in CPU time.
-- **Next: Group 1, step 2**, the typed-array rewrite of the field and solver round, judged by wall
-  and CPU time. The work counts to compare against are in §85.
+- **Step 2, flat arrays for the field's samples, not adopted (§88).** Hashes were unchanged, but
+  it was no faster on populated.
+- **Function-level profile (§88).** Garbage collection takes 15.8% of a populated cold build. The
+  two largest functions, the fit's own loops and the per-hex coverage measure, take 5.8% each, and
+  nothing else reaches 5%. Kernel rewrites cannot deliver the 20–35% estimated below.
+- **Next:** step 3, refitting only the coast an edit changes, starting with its measurement task
+  (3.1), or step 4. Each cuts work rather than speeding up a kernel. Reducing garbage collection would
+  need a change to how coast geometry is represented. Judge any change by wall and CPU time; the work
+  counts to compare against are in §85.
 
 What remains is the last section, the fit's own cost. Its first step, removing overhead without
 changing any result, is done (DECISIONS §80 and §81), scenes byte-identical. In paired runs each step
@@ -163,7 +170,9 @@ untouched, and they are the only route to a faster first picture now that a stan
 | 2 | The fit's own cost: overhead with identical results (done; §80, §81) | Free: no picture change |
 | 3 | Group 1, step 1.1: an initial constrained solve starting from the trace | Withdrawn: dry coastal hexes have no controls (§86) |
 | 4 | Group 1, step 1.2: reuse the field across rounds | Clearance reuse exact but not faster; removed (§87) |
-| 5 — next | Group 1, step 2: typed-array kernels, then steps 1.3, 3 and 4 | The field's remaining cost is per-point arithmetic and allocation |
+| 5 | Group 1, step 2: typed-array field samples | Hashes unchanged, no gain; not adopted (§88) |
+| 6 | Function-level CPU profile (§88) | No function above 5.8%; garbage collection 15.8% |
+| 7 — next | Group 1, step 3 (edits refit only what they change), then step 4 | Cuts work; kernels cannot reach the target |
 | Done | Group 2: T1 paired benchmark (§83) and T2 review (§84) | Use these tools and retained optimizations as the baseline for future work |
 
 ## Next task: the initial coast solve

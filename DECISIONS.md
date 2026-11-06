@@ -1967,3 +1967,56 @@ objects. What remains in the field is per-point arithmetic and allocation (norma
 sums laid out three laps, a `Sample` object per point, `Map` rows for the matrix), which is the
 typed-array rewrite of step 2, not reuse. Step 2 is next. Any further reuse should be attempted
 only after it, measured by CPU time as well as wall time.
+
+## 88. Flat arrays for the fit's per-point samples: measured, not adopted (Group 1, step 2)
+
+**Built.** The per-point sample build in `fitCoastAreas` was rewritten on typed arrays, keeping the
+same arithmetic in the same order. It covers prefix sums of normals and arc length over three laps
+of a closed ring, each point's sea direction, reach and length, and the clearance points. It
+replaced a pair of `{x, y}` objects per prefix entry and an object per point. Populated and mixed
+scene hashes were unchanged and the Node suite passed. The field phase had been the largest part of
+the fit (§87).
+
+**Measured.** 60 alternating pairs per map against `ff6718b`, one session:
+
+| Map | Measure | Median ratio | 95% interval | Verdict |
+|---|---|---:|---|---|
+| populated | Wall | 0.9952 | 0.9888–1.0198 | unresolved |
+| populated | CPU | 1.0189 | 1.0098–1.0409 | slower |
+| mixed | Wall | 0.9845 | 0.9747–1.0003 | unresolved |
+| mixed | CPU | 0.9962 | 0.9859–1.0128 | unresolved |
+
+Samples: `work/perf-compare/2026-11-06T16-10-02-321Z.json` and
+`work/perf-compare/2026-11-06T16-17-17-301Z.json`.
+
+**Not adopted.** It is not faster on populated, where the plan's rule decides, and the code is
+reverted to `ff6718b`. With §87, this suggests that what remains in the field phase is mostly
+neither allocation nor the clearance query. The plan's 20–35% estimate for step 2 is not supported
+for the field kernel.
+
+**Function-level profile.** `node --cpu-prof` on an esbuild bundle of one populated cold build
+(kept names and lines; 3.08 s sampled). Self time, top entries:
+
+| Self time | Share | Where |
+|---:|---:|---|
+| 486 ms | 15.8% | garbage collector |
+| 177 ms | 5.8% | `fitCoastAreas` body (solver loops, matrix rows) |
+| 177 ms | 5.8% | `areaCoverage`'s per-hex measure (`footprint.ts`) |
+| 121 ms | 3.9% | `coastClearance` query (`componentCoast.ts`) |
+| 88 ms | 2.9% | `areaCoverage` scanline union |
+| 83 ms | 2.7% | `evenOddTest` lookup (`coast.ts`) |
+| 70 ms | 2.3% | `cachedCoastFit` itself |
+| 68 ms | 2.2% | the fit's per-point samples |
+
+No function other than the two at 5.8% reaches 5%. The rest of the time is spread thinly over
+many functions. The clearance query's 3.9% caps what §87 could ever save, which is why it did not
+show. `cachedCoastFit`'s own cost is mostly its JSON cache key: timed directly, it is 15 ms per
+cold build (strings of 1.2 and 0.57 million characters), about 0.5%, so it is left alone.
+
+**What would pay.** No single kernel rewrite is likely to reach the plan's estimates: the two
+largest functions together are 11.6% of the build. Garbage collection, at 15.8%, is the largest
+single cost, but it is spread across the coast pipeline, so reducing it means changing how coast
+geometry is represented (points as objects, paths as command arrays) across tracing, fitting
+and measuring. That is a design change, not a kernel rewrite. The other remaining routes are
+steps 3 (refit only the coast an edit changes) and 4 (fit independent coast groups in parallel),
+which cut work rather than speed it up.
