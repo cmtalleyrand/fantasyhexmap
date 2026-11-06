@@ -2020,3 +2020,69 @@ geometry is represented (points as objects, paths as command arrays) across trac
 and measuring. That is a design change, not a kernel rewrite. The other remaining routes are
 steps 3 (refit only the coast an edit changes) and 4 (fit independent coast groups in parallel),
 which cut work rather than speed it up.
+
+## 89. What an edit waits for, and how far a coast edit reaches (Group 1, steps 3.1 and 3.2)
+
+**3.1, the wait.** `node scripts/render-edit-wait.mjs` (new) drives the production worker through
+`ScenePainter` on the 50×50 all-layer map (§85). It makes one cold build, then ten edits in
+sequence, each waited out to its sharp frame and overview before the next. The phases come from the
+build's profile. The rest is the sharp-frame time less build and paint: transfer both ways,
+scheduling and the bitmap hand-back. Medians of 3 fresh-worker runs at fit zoom, headless software
+raster, one session (§82):
+
+| Edit | To sharp frame | Build | Coast | Coast fit | Paint | Rest |
+|---|---:|---:|---:|---:|---:|---:|
+| cold build | 2,839 | 2,519 | 1,657 | 858 | 263 | 58 |
+| coast: land to sea | 2,387 | 2,040 | 1,465 | 774 | 334 | 13 |
+| coast: sea to land | 2,362 | 1,927 | 1,382 | 763 | 422 | 12 |
+| coast: land share 60% | 2,585 | 2,135 | 1,553 | 649 | 290 | 159 |
+| inland: vegetation | 311 | 78 | 0 | 0 | 223 | 10 |
+| inland: elevation | 319 | 82 | 0 | 0 | 238 | −1 |
+| inland: land to lake | 2,203 | 1,701 | 1,160 | 591 | 278 | 225 |
+| ownership | 407 | 102 | 0 | 0 | 227 | 78 |
+| ownership | 320 | 93 | 0 | 0 | 222 | 6 |
+| city: add | 342 | 110 | 0 | 0 | 218 | 14 |
+| city: remove | 308 | 90 | 0 | 0 | 210 | 8 |
+
+All times in ms. Any edit that changes land or water, coastal or a new lake, costs 78–91% of a cold
+build, and the coast is 57–72% of its wait. Every other edit takes about 0.3–0.4 s, of which paint
+is about 220 ms, and the coast is reused. The earlier figure of 70–120 ms for an edit is the build
+alone for edits that leave the coast alone. The coast fit is not the largest part of a coast
+edit's wait: the rest of the coast phase (traces, global passes, coverage and lakes) costs about
+as much. Step 3 should therefore cover the whole coast phase, not only the fit.
+
+**3.2, the reach.** One edit on the populated map, a coastal Land hex (31,21) to Sea, built in
+Node after a cold build:
+
+| | Cold | After the edit |
+|---|---:|---:|
+| Coast components built | 88 | 85 |
+| Traces / global passes | 3 / 3 | 3 / 3 |
+| Fit groups built | 2 | 2 |
+| Hexes measured by the fit | 2,578 | 2,551 |
+| Coast subpaths unchanged byte for byte | — | 118 of 154 |
+
+The 36 changed subpaths are the edited coast (1.9 hexes away; it moves up to 0.039 hex) and 35
+others between 7.1 and 57.1 hexes away, on coasts the edit does not touch. Those 35 move by at most
+0.0026 px (1e-4 hex), which cannot be seen, but they are rebuilt and refitted. The whole map's
+coast is one fit group. In plan terms, unconnected groups are refitted and moved, so step 3.2's fix
+comes before 3.3.
+
+**Why every coast is coupled.** From reading the code:
+- The global share passes in `cachedCoast` measure every hex against one scanline union spanning
+  the whole map (`reuseScanlines`), so a change anywhere can alter another hex's measured share in
+  its last bits. That changes its aim, which misses the per-component trace caches.
+- The passes' stopping tests (largest movement, largest error) are taken over the whole map.
+- `fitCoastAreas` solves all rings in one system. Conjugate gradients use two scalars per iteration
+  (the step size and the direction weight) computed over all controls, so even a block-diagonal
+  system couples every ring's solution.
+- The fit accepts or stops a round on whole-map error, and `cachedCoastFit` keys one cache entry on
+  every path.
+
+**Next (the 3.2 fix).** Partition the coast into independent groups: rings linked through hexes the
+coast runs through, or within the clearance reach of three hex sizes. Then run the passes and the
+fit per group, with every other ring held fixed while measuring, so that even-odd fill and page-rim
+joins still see the whole outline. Cache each group's result on its own inputs. The test the plan
+asks for comes with it: an edit leaves unconnected coast groups byte-identical. The same partition
+is step 4's unit of parallel work. Cold-build pictures may move by float-level amounts (CG
+scalars, measurement unions), so it is judged by §76 and the share gates, not by hash.
