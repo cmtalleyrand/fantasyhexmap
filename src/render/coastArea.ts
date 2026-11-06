@@ -266,24 +266,37 @@ export function fitCoastAreas(geometry: CoastGeometry, targets: ReadonlyMap<numb
     // divided by three, and the basis is at most one), and the smoothing adds half the length it
     // steps over, so no point more than two hex sizes of that length away can lower it; three are
     // taken, and the clearance points easing each such point (up to four either side).
-    const measureAround = (k: number, j: number): boolean => {
+    const measureAround = (k: number, points: number[]): boolean => {
       const pending = provisional.get(k)!, { along, bounded } = pending, count = along.length;
       const total = along[count - 1]!, reach = size * 3;
-      const near = (i: number) => {
-        const gap = Math.abs(along[i]! - along[j]!);
-        return (closed[k] ? Math.min(gap, total - gap) : gap) <= reach;
+      const first = (value: number) => { // the first index with along[i] >= value
+        let lo = 0, hi = count;
+        while (lo < hi) { const mid = (lo + hi) >> 1; if (along[mid]! < value) lo = mid + 1; else hi = mid; }
+        return lo;
       };
+      // Point ranges near each clamped point, round a closed ring's join where they cross it.
+      const ranges: Array<[number, number]> = [];
+      for (const j of points) {
+        const from = along[j]! - reach, to = along[j]! + reach;
+        ranges.push([first(from), first(to + 1e-9) - 1]);
+        if (closed[k] && from < 0) ranges.push([first(total + from), count - 1]);
+        if (closed[k] && to > total) ranges.push([0, first(to - total + 1e-9) - 1]);
+      }
       let measured = false;
-      for (const i of [...bounded]) {
-        // The clearance point eases points i-3..i+3; it matters if any of them is near j.
-        let matters = false;
-        for (let m = Math.max(0, i - 4); m <= Math.min(count - 1, i + 4) && !matters; m++) matters = near(m);
-        if (closed[k] && !matters) for (const m of [i - 4 + count - 1, i + 4 - (count - 1)])
-          if (m >= 0 && m < count) matters ||= near(m);
-        if (!matters) continue;
-        pending.rooms.set(i, roomAt(k, i, current[k]![i]!, pending.arcs.get(i)!, true).room);
-        bounded.delete(i);
-        measured = true;
+      for (const [lo, hi] of ranges) {
+        // A clearance point eases the points up to four either side of it.
+        for (let i = Math.max(0, lo - 4); i <= Math.min(count - 1, hi + 4); i++) {
+          if (!bounded.has(i)) continue;
+          pending.rooms.set(i, roomAt(k, i, current[k]![i]!, pending.arcs.get(i)!, true).room);
+          bounded.delete(i);
+          measured = true;
+        }
+        if (closed[k] && lo - 4 < 0) for (let i = count - 1 + lo - 4; i < count; i++) if (i >= 0 && bounded.has(i)) {
+          pending.rooms.set(i, roomAt(k, i, current[k]![i]!, pending.arcs.get(i)!, true).room); bounded.delete(i); measured = true;
+        }
+        if (closed[k] && hi + 4 > count - 1) for (let i = 0; i <= hi + 4 - (count - 1); i++) if (bounded.has(i)) {
+          pending.rooms.set(i, roomAt(k, i, current[k]![i]!, pending.arcs.get(i)!, true).room); bounded.delete(i); measured = true;
+        }
       }
       if (!bounded.size) provisional.delete(k);
       if (measured) settle(k, samples[k]!, pending.basis, pending.rooms);
@@ -474,9 +487,7 @@ export function fitCoastAreas(geometry: CoastGeometry, targets: ReadonlyMap<numb
       });
       // A clamp from a bounded reach may be tighter than the exact one: measure, then move again.
       if (clamped.length && provisional.has(k)) {
-        let measured = false;
-        for (const j of clamped) if (provisional.has(k)) measured = measureAround(k, j) || measured;
-        if (measured) { profileCount('fit.remeasuredMoves'); return moveRing(ring, k); }
+        if (measureAround(k, clamped)) { profileCount('fit.remeasuredMoves'); return moveRing(ring, k); }
       }
       // Keep closed rings closed on their first point.
       if (closed[k]) moved[moved.length - 1] = moved[0]!;
