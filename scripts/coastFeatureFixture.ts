@@ -52,15 +52,29 @@ export function featureFixture(deps: { createMapState: any; neighbourOf: any; in
       islandSpecs[i] = { large: 0, small: 1 + Math.floor(random() * 3) };
     }
   }
-  // Keep both passage types represented without inventing invalid coast topology.
-  if (layout !== 'plain') for (const type of ['Strait', 'Isthmus']) {
-    if (base.includes(type)) continue;
-    const index = base.findIndex((value, i) => {
-      const dry = neighbours(i).filter(j => j >= 0 && ['Land', 'Glacier', 'Mainland and islands', 'Isthmus', 'Strait'].includes(base[j]!));
-      return value === 'Land' && dry.length === 2 && !neighbours(dry[0]!).includes(dry[1]!) &&
-        neighbours(i).filter(j => j >= 0 && ['Sea', 'Lake', 'Sea Ice', 'Islands'].includes(base[j]!)).length === 4;
-    });
-    if (index >= 0) { base[index] = type; shapes[index] = { type, land: 45 }; }
+  // A round continent's coast seldom offers the two separate land groups and two separate water
+  // groups a passage needs, so the random choice above rarely fires. Give each passage type two
+  // hexes by tying a one-hex islet to the coast: the passage hex has the mainland on one side, the
+  // islet opposite, and open sea on both flanks (two hexes each), so the requested share is one
+  // the passage can be drawn at. Only plain Land with no share of its own is tied, so no passage or
+  // mixed hex loses the neighbours it needs and the root does not starve the neck of land.
+  const tiedIslet = (c: number, e: number) => {
+    const s = neighbours(c)[e]!, t = s >= 0 ? neighbours(s)[e]! : -1;
+    if (base[c] !== 'Land' || shapes[c] || s < 0 || t < 0 || base[s] !== 'Sea' || base[t] !== 'Sea') return null;
+    if (!neighbours(t).every(j => j === s || (j >= 0 && base[j] === 'Sea'))) return null;
+    if (!neighbours(s).every(j => j === t || j === c || (j >= 0 && base[j] === 'Sea'))) return null;
+    return { s, t };
+  };
+  if (layout !== 'plain') for (const [k, type] of ['Strait', 'Isthmus', 'Strait', 'Isthmus'].entries()) {
+    const candidates = base.flatMap((_, c) => [0, 1, 2, 3, 4, 5].flatMap(e => tiedIslet(c, e) ?? []));
+    // Spread the four along the coast rather than taking the first four in scan order.
+    const pick = candidates[Math.floor(candidates.length * (2 * k + 1) / 8)];
+    if (!pick) continue;
+    base[pick.s] = type; base[pick.t] = 'Land';
+    // At Normal width such a passage cannot be drawn at every share its category allows: an isthmus
+    // needs about 54–59% land or more, and a strait holds at most about a third. Ask for shares it
+    // can reach, so the benchmark measures fitting rather than a reported miss.
+    shapes[pick.s] = { type, land: type === 'Strait' ? 30 : 60 };
   }
   map.layers.base.data = base;
   map.hexShapes = shapes;
