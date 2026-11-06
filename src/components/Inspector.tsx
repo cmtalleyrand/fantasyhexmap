@@ -1,4 +1,4 @@
-import { HEX_CATEGORIES, landShareRange } from '../../shared/hexCategories.js';
+import { HEX_CATEGORIES, landPercent, landShareRange } from '../../shared/hexCategories.js';
 import { hexCount } from './selectionText.js';
 import { useMemo, useState } from 'react';
 import { hexIndex, indexToOffset, neighbourOf } from '../../shared/hex.js';
@@ -715,7 +715,7 @@ function HexShapePanel(props: SubProps) {
   // What is drawn: the share held to the shore slack (`withShoreSlack`), not an extreme it rules out.
   const slack = (i: number, share: number) => withShoreSlack(base!, map.cols, i, share, dims, map.hexShapes);
   const percentOf = (i: number, withShape: boolean) =>
-    Math.round(slack(i, landFraction(base![i], map.islandSpecs?.[String(i)], dims, withShape ? map.hexShapes?.[String(i)] : undefined, base![i] === 'Land')) * 100);
+    landPercent(slack(i, landFraction(base![i], map.islandSpecs?.[String(i)], dims, withShape ? map.hexShapes?.[String(i)] : undefined, base![i] === 'Land')));
   const sharedOf = (values: string[]) => (new Set(values).size === 1 ? values[0]! : '');
   const landHexes = hexes.filter((i) => hasLandShare(base![i]));
   // An isthmus or a strait is drawn at a width, not to a land share.
@@ -744,8 +744,8 @@ function HexShapePanel(props: SubProps) {
   const concentration = sharedOf(concentrated.map((i) => String(hexShapeFor(base![i], map.hexShapes?.[String(i)]).concentration ?? 0)));
   const landValue = Number(land);
   // The shares the shore slack allows on every selected hex: no option outside them is offered.
-  const lowest = Math.max(0, ...landHexes.map((i) => Math.max(slack(i, 0) * 100, landShareRange(base![i], isIslandType(base![i]) ? islandSpecFor(base![i], map.islandSpecs?.[String(i)]) : undefined)[0])));
-  const highest = Math.min(100, ...landHexes.map((i) => Math.round(slack(i, 1) * 100)));
+  const lowest = Math.max(0, ...landHexes.map((i) => Math.max(landPercent(slack(i, 0)), landShareRange(base![i], isIslandType(base![i]) ? islandSpecFor(base![i], map.islandSpecs?.[String(i)]) : undefined)[0])));
+  const highest = Math.min(100, ...landHexes.map((i) => landPercent(slack(i, 1))));
   return (
     <div className="stack" style={{ marginTop: 8 }}>
       <label style={{ margin: 0 }}>Shape of {hexes.length === 1 ? 'this hex' : `these ${hexes.length} hexes`}</label>

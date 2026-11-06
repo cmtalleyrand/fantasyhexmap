@@ -1,7 +1,10 @@
 import { inBounds, neighbourOf } from './hex.js';
 import type { BaseGeo, IslandSpec } from './types.js';
 
-/** Geography categories are distinct from eligibility for settlements or land layers. */
+/**
+ * Geography categories are distinct from eligibility for settlements or land layers.
+ * Lookups tolerate unrecognised values (hand-edited or older imports), which are neither land nor water.
+ */
 export const HEX_CATEGORIES = {
   Sea: ['Water', 'Water'], Lake: ['Water', 'Water'], 'Sea Ice': ['Water', 'Water'],
   Islands: ['Water', 'Island'], Land: ['Land', 'Land'], Glacier: ['Land', 'Land'],
@@ -10,10 +13,10 @@ export const HEX_CATEGORIES = {
 } as const satisfies Record<BaseGeo, readonly [string, string]>;
 
 export function isCategoryLand(value: BaseGeo | null | undefined): boolean {
-  return !!value && HEX_CATEGORIES[value][0] === 'Land';
+  return !!value && HEX_CATEGORIES[value]?.[0] === 'Land';
 }
 export function isCategoryWater(value: BaseGeo | null | undefined): boolean {
-  return !!value && HEX_CATEGORIES[value][0] === 'Water';
+  return !!value && HEX_CATEGORIES[value]?.[0] === 'Water';
 }
 export function adjacentHexes(base: ReadonlyArray<BaseGeo | null | undefined>, cols: number, index: number): number[] {
   const out: number[] = [];
@@ -48,4 +51,8 @@ export function landShareRange(value: BaseGeo | null | undefined, spec?: IslandS
 export function boundedLandShare(value: BaseGeo | null | undefined, percent: number, spec?: IslandSpec): number {
   const [min, max] = landShareRange(value, spec);
   return Math.max(min, Math.min(max, percent));
+}
+/** A land fraction (0–1) as a percentage to 0.1%, free of floating-point residue (0.575 → 57.5, not 57.49999999999999). */
+export function landPercent(fraction: number): number {
+  return Math.round(fraction * 1000) / 10;
 }

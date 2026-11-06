@@ -1,5 +1,5 @@
 import { validateHexDefinitions } from '../../shared/hexValidation.js';
-import { boundedLandShare } from '../../shared/hexCategories.js';
+import { boundedLandShare, landPercent } from '../../shared/hexCategories.js';
 /**
  * Map state reducer.
  *
@@ -1413,7 +1413,7 @@ function reduceMap(map: MapState, action: Action): MapState {
         else {
           if (change.land === null) delete next.land;
           // An extreme the shore slack rules out is held to the nearest share allowed (`withShoreSlack`).
-          else if (change.land !== undefined && hasLandShare(value)) next.land = (100 * withShoreSlack(base, map.cols, i,
+          else if (change.land !== undefined && hasLandShare(value)) next.land = landPercent(withShoreSlack(base, map.cols, i,
             boundedLandShare(value, change.land, isIslandType(value) ? islandSpecFor(value, map.islandSpecs?.[key]) : undefined) / 100, normaliseHexDimensions(map.hexDimensions), map.hexShapes));
           if (change.width === null) delete next.width;
           else if (change.width !== undefined && hasChannelWidth(value) && CHANNEL_WIDTH_VALUES.includes(change.width)) next.width = change.width;
