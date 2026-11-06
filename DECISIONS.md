@@ -1883,3 +1883,39 @@ are single runs, context only (§82).
 |---|---:|---:|---:|---:|---:|---:|
 | populated | 2.66 s | 3 (489 ms) | 8 (2,578) | 7 | 480 | 7 |
 | mixed | 1.38 s | 3 (327 ms) | 8 (1,408) | 7 | 480 | 6 |
+
+## 86. One initial solve in place of the global share passes: tested, not adopted (Group 1, step 1.1)
+
+**Tried.** In smooth styles, the three global share passes in `cachedCoast` were dropped. The
+coupled least-squares fit (`fitCoastAreas`), which already treats every share as a target, then
+started directly from the initial trace. Unsmooth styles have no coupled fit and were not changed.
+Variants gave the first fit 4, 6 or 8 rounds, and kept two passes instead of three. Single runs on
+the corrected maps of §85; the counts, not the times, decide:
+
+| Variant | populated misses | mixed misses | populated traces | mixed traces |
+|---|---:|---:|---:|---:|
+| 3 passes, 4 rounds (current) | 1 | 0 | 3 | 3 |
+| no passes, 4 rounds | 15 | 1 | 1 | 5 |
+| no passes, 6 rounds | 14 | 1 | 1 | 5 |
+| no passes, 8 rounds | 13 | 1 | 1 | 5 |
+| 2 passes, 4 rounds | 2 | 0 | 2 | 4 |
+
+**Why it fails.** Most new misses are coastal hexes asked for 90% and drawn at 100%. On the initial
+trace each of them shows exactly 100% although 89% is aimed at: the smoothing has carried the coast
+out of the hex entirely. A hex with no coast in it has no controls in the fit's system, so no
+number of rounds, and no single solve over the controls, can reach it. The passes work by lowering
+the aim until the coast re-enters (hex 362: 100%, then 99.9%, then 92%), after which the fit can
+finish. The share shown is flat in the aim until that happens, so a solve that starts from the
+trace's sensitivities cannot replace the passes. With two passes one more hex misses, and on mixed
+the passage bracketing then needs an extra trace, so nothing is saved.
+
+The passes also converge less than their comment suggests. On populated, 121 of 219 targets are
+still outside the 2.5-point tolerance after the third pass (rms error 0.107, largest 0.41), and the
+coupled fit does the rest. Their job is mainly to put coast into every coastal hex, not to reach
+the shares.
+
+**Consequence for the plan.** Step 1.1 as written is withdrawn. A replacement would have to make
+the first trace leave coast in every hex with a share below 100%, for example by cutting dry
+coastal hexes harder in the first aim. That is a change to how coasts are shaped, judged by
+pictures, and is not attempted here. The fit's own field (step 1.2) is the largest remaining part
+of the fit and is taken next (§87).
