@@ -192,9 +192,6 @@ export function fitCoastAreas(geometry: CoastGeometry, targets: ReadonlyMap<numb
   // other hexes constrain it to preserve their areas. Stop as soon as those shares fit.
   const atEdge = (h: number) => h % cols === 0 || h % cols === cols - 1
     || Math.floor(h / cols) === 0 || Math.floor(h / cols) === rows - 1;
-  // Clearance measured exactly in an earlier round, with where the point stood and how far any
-  // point had then moved from `referenceRings` (see `roomAt`).
-  const measuredRooms = current.map(() => new Map<number, { room: number; x: number; y: number; drift: number }>());
   for (let round = 0; round < rounds + (repairEdges ? 4 : 0); round++) {
     phase('field');
     profileCount('fit.rounds');
@@ -208,100 +205,10 @@ export function fitCoastAreas(geometry: CoastGeometry, targets: ReadonlyMap<numb
     // side is land), averaged over a short stretch so the roughening's small teeth do not
     // turn it; how far it may move; and the length of coast it stands for.
     const land = evenOddTest(landRings(current), size / 8);
-    // Clearance is not re-measured every round. If a point has moved d since its clearance c was
-    // measured, and every point has moved at most D from the reference rings, then no coast is
-    // nearer than c - d - D - D', D' being that bound when c was measured. While that lower bound
-    // stays above a quarter of c it stands in for the clearance. A reach made from it is never
-    // above the exact one (easing and the smoothing below are monotone) and is zero exactly where
-    // the exact one is, and the reach is otherwise used only to clamp each point's movement. So
-    // where no point's movement exceeds it, the exact clamp would not bind either; where one does,
-    // the clearance it depends on is measured exactly before the ring moves (`moveRing`). The
-    // fit is unchanged.
-    let drift = 0;
-    current.forEach((ring, k) => ring.forEach((p, j) => {
-      const o = referenceRings[k]![j]!;
-      drift = Math.max(drift, Math.hypot(p.x - o.x, p.y - o.y));
-    }));
-    let nearby: { chains: CoastChain[]; clearance: ReturnType<typeof coastClearance> } | null = null;
-    const roomAt = (k: number, j: number, p: Point, arc: number, exact = false) => {
-      const known = exact ? undefined : measuredRooms[k]!.get(j);
-      if (known && known.room > 0) {
-        const bound = known.room - Math.hypot(p.x - known.x, p.y - known.y) - drift - known.drift;
-        if (bound >= known.room * 0.25) return { room: bound, measured: false };
-      }
-      profileCount('fit.clearanceMeasurements');
-      if (!nearby) {
-        const chains: CoastChain[] = current.map((ring, c) => ({ closed: closed[c]!, points: ring,
-          edges: ring.slice(0, -1).map((a, i) => ({ from: a, to: ring[i + 1]!, land: -1, water: -1 })) }));
-        nearby = { chains, clearance: coastClearance(chains, size) };
-      }
-      const room = nearby.clearance(p, nearby.chains[k]!, arc);
-      measuredRooms[k]!.set(j, { room, x: p.x, y: p.y, drift });
-      return { room, measured: true };
-    };
+    const chains: CoastChain[] = current.map((ring, k) => ({ closed: closed[k]!, points: ring,
+      edges: ring.slice(0, -1).map((p, j) => ({ from: p, to: ring[j + 1]!, land: -1, water: -1 })) }));
+    const clearance = coastClearance(chains, size);
     type Sample = { n: Point; reach: number; length: number };
-    // The clearance, found at every fourth point, eased between them; then lowered where
-    // needed so it changes by at most half the length of coast it changes over, so a
-    // point beside a narrow inlet does not hold still while its neighbours move.
-    const settle = (k: number, out: Sample[], basis: number[], rooms: Map<number, number>) => {
-      const count = out.length;
-      const reach = basis.map((r, j) => {
-        const a = j - j % 4, b = Math.min(a + 4, count - 1), t = b > a ? (j - a) / (b - a) : 0;
-        return r * ((1 - t) * rooms.get(a)! + t * rooms.get(b)!) / 3;
-      });
-      for (let pass = 0; pass < (closed[k] ? 2 : 1); pass++) {
-        for (let j = 1; j < count; j++) reach[j] = Math.min(reach[j]!, reach[j - 1]! + out[j]!.length * 0.5);
-        for (let j = count - 2; j >= 0; j--) reach[j] = Math.min(reach[j]!, reach[j + 1]! + out[j]!.length * 0.5);
-        if (closed[k]) { reach[0] = reach[count - 1] = Math.min(reach[0]!, reach[count - 1]!); }
-      }
-      out.forEach((s, j) => { s.reach = reach[j]!; });
-    };
-    // Rings whose reach rests on a bound somewhere, with what measuring them exactly needs:
-    // each clearance point's arc, the reach before clearance, the clearances in use, which of
-    // them are bounds, and the running sum of the lengths the smoothing steps by.
-    const provisional = new Map<number, { arcs: Map<number, number>; basis: number[]; rooms: Map<number, number>;
-      bounded: Set<number>; along: Float64Array }>();
-    // Measure exactly every clearance point that the reach at point j can depend on, and say whether
-    // any was a bound. An exact reach is at most a hex size (clearance is capped at three, then
-    // divided by three, and the basis is at most one), and the smoothing adds half the length it
-    // steps over, so no point more than two hex sizes of that length away can lower it; three are
-    // taken, and the clearance points easing each such point (up to four either side).
-    const measureAround = (k: number, points: number[]): boolean => {
-      const pending = provisional.get(k)!, { along, bounded } = pending, count = along.length;
-      const total = along[count - 1]!, reach = size * 3;
-      const first = (value: number) => { // the first index with along[i] >= value
-        let lo = 0, hi = count;
-        while (lo < hi) { const mid = (lo + hi) >> 1; if (along[mid]! < value) lo = mid + 1; else hi = mid; }
-        return lo;
-      };
-      // Point ranges near each clamped point, round a closed ring's join where they cross it.
-      const ranges: Array<[number, number]> = [];
-      for (const j of points) {
-        const from = along[j]! - reach, to = along[j]! + reach;
-        ranges.push([first(from), first(to + 1e-9) - 1]);
-        if (closed[k] && from < 0) ranges.push([first(total + from), count - 1]);
-        if (closed[k] && to > total) ranges.push([0, first(to - total + 1e-9) - 1]);
-      }
-      let measured = false;
-      for (const [lo, hi] of ranges) {
-        // A clearance point eases the points up to four either side of it.
-        for (let i = Math.max(0, lo - 4); i <= Math.min(count - 1, hi + 4); i++) {
-          if (!bounded.has(i)) continue;
-          pending.rooms.set(i, roomAt(k, i, current[k]![i]!, pending.arcs.get(i)!, true).room);
-          bounded.delete(i);
-          measured = true;
-        }
-        if (closed[k] && lo - 4 < 0) for (let i = count - 1 + lo - 4; i < count; i++) if (i >= 0 && bounded.has(i)) {
-          pending.rooms.set(i, roomAt(k, i, current[k]![i]!, pending.arcs.get(i)!, true).room); bounded.delete(i); measured = true;
-        }
-        if (closed[k] && hi + 4 > count - 1) for (let i = 0; i <= hi + 4 - (count - 1); i++) if (bounded.has(i)) {
-          pending.rooms.set(i, roomAt(k, i, current[k]![i]!, pending.arcs.get(i)!, true).room); bounded.delete(i); measured = true;
-        }
-      }
-      if (!bounded.size) provisional.delete(k);
-      if (measured) settle(k, samples[k]!, pending.basis, pending.rooms);
-      return measured;
-    };
     const samples: Sample[][] = current.map((ring, k) => {
       const count = ring.length;
       if (count < 3) return [];
@@ -332,8 +239,7 @@ export function fitCoastAreas(geometry: CoastGeometry, targets: ReadonlyMap<numb
         return lo;
       };
       let arc = 0;
-      const rooms = new Map<number, number>(), roomArcs = new Map<number, number>();
-      const bounded = new Set<number>();
+      const rooms = new Map<number, number>();
       const out: Sample[] = [];
       for (let j = 0; j < count; j++) {
         const p = ring[j]!;
@@ -345,20 +251,22 @@ export function fitCoastAreas(geometry: CoastGeometry, targets: ReadonlyMap<numb
         const after = j + 1 < count ? Math.hypot(ring[j + 1]!.x - p.x, ring[j + 1]!.y - p.y) : 0;
         arc += before;
         const ends = closed[k] ? 1 : Math.min(1, arc / size, (total - arc) / size);
-        if (j % 4 === 0 || j === count - 1) {
-          const { room, measured } = roomAt(k, j, p, arc);
-          rooms.set(j, room); roomArcs.set(j, arc);
-          if (!measured) bounded.add(j);
-        }
+        if (j % 4 === 0 || j === count - 1) rooms.set(j, clearance(p, chains[k]!, arc));
         out.push({ n: { x: nx / nl, y: ny / nl }, reach: ends * passageFade(p), length: (before + after) / 2 });
       }
-      const basis = out.map(s => s.reach);
-      settle(k, out, basis, rooms);
-      if (bounded.size) {
-        const along = new Float64Array(count);
-        for (let j = 1; j < count; j++) along[j] = along[j - 1]! + out[j]!.length;
-        provisional.set(k, { arcs: roomArcs, basis, rooms, bounded, along });
+      // The clearance, found at every fourth point, eased between them; then lowered where
+      // needed so it changes by at most half the length of coast it changes over, so a
+      // point beside a narrow inlet does not hold still while its neighbours move.
+      const reach = out.map((s, j) => {
+        const a = j - j % 4, b = Math.min(a + 4, count - 1), t = b > a ? (j - a) / (b - a) : 0;
+        return s.reach * ((1 - t) * rooms.get(a)! + t * rooms.get(b)!) / 3;
+      });
+      for (let pass = 0; pass < (closed[k] ? 2 : 1); pass++) {
+        for (let j = 1; j < count; j++) reach[j] = Math.min(reach[j]!, reach[j - 1]! + out[j]!.length * 0.5);
+        for (let j = count - 2; j >= 0; j--) reach[j] = Math.min(reach[j]!, reach[j + 1]! + out[j]!.length * 0.5);
+        if (closed[k]) { reach[0] = reach[count - 1] = Math.min(reach[0]!, reach[count - 1]!); }
       }
+      out.forEach((s, j) => { s.reach = reach[j]!; });
       return out;
     });
     // The correction is a smooth field along each coast, not one amount per hex: control
@@ -474,26 +382,21 @@ export function fitCoastAreas(geometry: CoastGeometry, targets: ReadonlyMap<numb
     // Each control's share of its amount; a spot the step would kink or make cross another
     // coast halves the controls moving it, and only those, until it is clean.
     const factor = new Float64Array(unknowns).fill(1);
-    const moveRing = (ring: Point[], k: number): Point[] => {
-      const clamped: number[] = [];
+    const moveBy = () => current.map((ring, k) => {
+      if (ring.length < 3) return ring;
       const moved = ring.map((p, j) => {
         const s = samples[k]![j]!;
         if (!s.reach) return p;
         let d = 0;
         const { index: at, weight } = support[k]!;
         for (let q = 4 * j; q < 4 * j + 4; q++) d += weight[q]! * x[at[q]!]! * factor[at[q]!]!;
-        if (Math.abs(d) > s.reach) { clamped.push(j); d = Math.max(-s.reach, Math.min(s.reach, d)); }
+        d = Math.max(-s.reach, Math.min(s.reach, d));
         return { x: p.x + s.n.x * d, y: p.y + s.n.y * d };
       });
-      // A clamp from a bounded reach may be tighter than the exact one: measure, then move again.
-      if (clamped.length && provisional.has(k)) {
-        if (measureAround(k, clamped)) { profileCount('fit.remeasuredMoves'); return moveRing(ring, k); }
-      }
       // Keep closed rings closed on their first point.
       if (closed[k]) moved[moved.length - 1] = moved[0]!;
       return moved;
-    };
-    const moveBy = () => current.map((ring, k) => ring.length < 3 ? ring : moveRing(ring, k));
+    });
     phase('moveAndCheck');
     let next: Point[][] | null = null;
     for (let attempt = 0; attempt < 6; attempt++) {

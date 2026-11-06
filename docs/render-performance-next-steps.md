@@ -19,6 +19,20 @@ Band-line thinning is adopted after a 30-pair production-worker comparison: medi
 The complete edit-to-sharp-frame result is unresolved (ratio 0.9773, interval 0.9283–1.0392).
 The next improvement is Group 1, step 1 below: replace the repeated global share passes.
 
+**6 November 2026 (DECISIONS §85–§87).**
+- **Fixtures corrected first (§85).** The maps every timing uses were not sensible. `mixed` had no
+  straits or isthmuses. The 50×50 interaction map had invalid mixed hexes, enclosed sea holes,
+  cities on glaciers and rivers over ice and open water. `populated` had the same generator faults.
+  The generator is fixed, `populated-40.json` is regenerated and the tests now guard all three maps.
+  Scene hashes changed; earlier absolute timings and hashes are not comparable.
+- **Step 1.1 withdrawn (§86).** The global passes cannot be replaced by a solve from the trace.
+  Smoothing leaves some coastal hexes with no coast in them, which the fit has no controls to reach.
+  Without the passes the populated map misses 13–15 shares instead of 1.
+- **Step 1.2, clearance reuse, removed (§87).** It was exact, but no faster in wall time, and 3–5%
+  slower in CPU time.
+- **Next: Group 1, step 2**, the typed-array rewrite of the field and solver round, judged by wall
+  and CPU time. The work counts to compare against are in §85.
+
 What remains is the last section, the fit's own cost. Its first step, removing overhead without
 changing any result, is done (DECISIONS §80 and §81), scenes byte-identical. In paired runs each step
 cut the populated cold build by a median of 11% and 16% respectively.
@@ -147,8 +161,9 @@ untouched, and they are the only route to a faster first picture now that a stan
 | — | Option 1 | Rejected by the owner as a workaround (§78) |
 | 1 | Option 2 at 64 lines (done; §77) | One constant and existing checks, plus the fixes it exposed |
 | 2 | The fit's own cost: overhead with identical results (done; §80, §81) | Free: no picture change |
-| 3 — next | Group 1, step 1.1: an initial constrained solve starting from the trace | Largest likely gain on a cold build |
-| 4 | Group 1, steps 1.2–1.3, then steps 2–4 | Measure each part separately, in rank order |
+| 3 | Group 1, step 1.1: an initial constrained solve starting from the trace | Withdrawn: dry coastal hexes have no controls (§86) |
+| 4 | Group 1, step 1.2: reuse the field across rounds | Clearance reuse exact but not faster; removed (§87) |
+| 5 — next | Group 1, step 2: typed-array kernels, then steps 1.3, 3 and 4 | The field's remaining cost is per-point arithmetic and allocation |
 | Done | Group 2: T1 paired benchmark (§83) and T2 review (§84) | Use these tools and retained optimizations as the baseline for future work |
 
 ## Next task: the initial coast solve

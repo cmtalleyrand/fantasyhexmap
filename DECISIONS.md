@@ -1919,3 +1919,51 @@ the first trace leave coast in every hex with a share below 100%, for example by
 coastal hexes harder in the first aim. That is a change to how coasts are shaped, judged by
 pictures, and is not attempted here. The fit's own field (step 1.2) is the largest remaining part
 of the fit and is taken next (§87).
+
+## 87. Reusing the fit's clearance across rounds: built, measured, removed (Group 1, step 1.2)
+
+**Where the field's time goes.** Profiled cold builds on the §85 maps, single runs: the field phase
+(`fit.field`) was the largest part of the fit (454 of 1,089 ms on populated, 306 of 746 on mixed).
+Within it, building the per-point samples took 269 ms on populated. Timers wrapped round each
+clearance query put those queries at 142 ms (18,264 queries) on populated and 76 ms (12,580) on
+mixed. Those timers proved to inflate the figure (below).
+
+**Built.** Clearance was measured exactly in each fit call's first round, then kept as a lower
+bound: a point that has moved d, while no point has moved more than D from the reference rings,
+has no coast nearer than c − d − D − D'. The reach made from that bound is never above the exact
+reach, because easing and smoothing are monotone, and it is zero exactly where the exact reach is.
+In the fit the reach is used only as a zero test when building the matrix and as the clamp on a
+point's movement. So the matrix and the solve were unchanged. Wherever some point's movement
+exceeded its bounded reach, the clearance points that reach could depend on were measured exactly
+before the ring moved. Those were the points within three hex sizes of smoothing length, plus the
+four either side that ease them. Populated and mixed scene hashes were unchanged
+(`f0c2a680…`, `6264b1b2…`). Exact queries fell from 18,264 to 6,465 on populated and from 12,580
+to 4,542 on mixed. A first version re-measured whole rings and walked every bounded sample per
+clamped point; 36 pairs of it showed no gain, and it was replaced by a binary search before this
+measurement.
+
+**Measured.** 60 alternating fresh-process pairs per map against `49ed871`, one session:
+
+| Map | Measure | Median ratio | 95% interval | Verdict |
+|---|---|---:|---|---|
+| populated | Wall | 1.0058 | 0.9888–1.0179 | unresolved |
+| populated | CPU | 1.0472 | 1.0320–1.0578 | slower |
+| mixed | Wall | 1.0011 | 0.9958–1.0173 | unresolved |
+| mixed | CPU | 1.0333 | 1.0156–1.0477 | slower |
+
+Samples: `work/perf-compare/2026-11-06T15-27-42-348Z.json` and
+`work/perf-compare/2026-11-06T15-34-43-858Z.json`.
+
+**Removed.** It is not faster, and CPU time is 3–5% higher: the bookkeeping (a record per measured
+point, sets of bounded points, rebuilt reach) costs more garbage collection than the queries save.
+The clearance index is still built in almost every round, because some points need measuring each
+round. The profile figure that motivated the change was inflated by a pair of `performance.now()`
+calls around each of the 18,264 queries. The code is reverted to `49ed871`; the commits that added
+it remain in the history.
+
+**Consequence for the plan.** Step 1.2's premise, that rebuilding the field each round is mostly
+waste, holds for clearance, but its cost there is too small to repay reuse in plain JavaScript
+objects. What remains in the field is per-point arithmetic and allocation (normals from prefix
+sums laid out three laps, a `Sample` object per point, `Map` rows for the matrix), which is the
+typed-array rewrite of step 2, not reuse. Step 2 is next. Any further reuse should be attempted
+only after it, measured by CPU time as well as wall time.
