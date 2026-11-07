@@ -2186,3 +2186,40 @@ reproduce the whole ring's features.
 **Cost of a window.** Masked builds of the geography alone took 40–130 ms at a 9-hex margin for
 smooth coasts and 150–430 ms for rough ones, against 790–1,030 ms for the whole map's geography after
 the same edit (single runs, context only).
+
+## 92. Local coast features (R1): built, then withdrawn as unnecessary; folding islands fixed
+
+**Tried.** R1 anchored each bay, cape and cut to the stretch of coast it starts on, seeded locally,
+in place of a random fraction of the whole ring's perimeter seeded once per ring. Three versions
+were built:
+- Features per source edge, in proportion to its length. Locality improved: a 9-hex window
+  matched the whole map within 1.2–1.5 px at two of three test points, against 6.5–8 px. But a
+  feature appeared or vanished whenever a moving cut took an edge across a length threshold. Lake
+  concentration then went the wrong way: at 20% land, concentrating east reduced the east half's
+  land from 0.0228 to 0.0168. Eight tests failed.
+- A fixed number of features per pair of hexes. Stable, but cuts shorten a side's coast without
+  removing the side, so a lake at 80% land carried 1.7 times the intended fine-feature density.
+  Its share then missed (0.68 for 0.8).
+- Features per pair at strengths rising continuously with the pair's coast length. Density and
+  stability were right, and concentration recovered at 40% and 80% land. Six tests still failed,
+  including strait width, component separation and a fit's share.
+
+Feature statistics were preserved in every version (coastline length and total turning within
+1–3%), but each variant moved a different set of tested behaviours, all tuned to particular
+instances of the old features.
+
+**Withdrawn.** R2 does not need R1. The costly part of a coastal edit is the share passes and the
+fit, not the trace: the edited coast can still be traced whole (under 0.3 s), with only the passes
+and fit restricted to a window and the previous fit reused outside it. With the per-ring features,
+an edit shifts the rest of its ring's features by at most about 1 px (§89). The reused part of the
+coast therefore moves by at most that, which is invisible and allowed under §91. Keeping R1 would
+redraw every existing map's coast, and destabilise several tested behaviours, for no gain. The
+roughening is unchanged.
+
+**Kept: folding islands.** A component sized as a whole (an island of plain land) is never
+fitted, and its broad bays are limited only by clearance to other coasts. On a narrow island they
+can meet the island's own opposite shore. Over 998 seeded cases (two island layouts, 499 seeds,
+60% land) 22 outlines crossed themselves. `componentCoast` now checks such an outline and, if it
+crosses, reduces the fine detail and then the broad bays (six steps) until it does not: 0 of 998
+cross. The populated and mixed scenes are unchanged, since neither had a folding island. A test
+covers eight seeds that folded before.

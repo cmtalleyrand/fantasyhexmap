@@ -166,7 +166,7 @@ test('irregularity survives the silhouette stage, grows with its level, and does
     const b = offsets[(i+1)%offsets.length]!;
     if (a*b<0) crossingArcs.push((i+a/(a-b))*step);
   });
-  assert.ok(crossingArcs.length >= 8, 'both bays and points occur around the component');
+  assert.ok(crossingArcs.length >= 8, `both bays and points occur around the component: ${crossingArcs.length}, ragged ${ragged / size}, levels ${detailLevels}`);
   const coherence = Math.hypot(
     crossingArcs.reduce((sum,arc)=>sum+Math.cos(arc/size*Math.PI*2),0),
     crossingArcs.reduce((sum,arc)=>sum+Math.sin(arc/size*Math.PI*2),0),
@@ -296,4 +296,19 @@ test('a zero component-area target produces no contour or non-finite anchors', (
   });
   assert.deepEqual(geometry.paths, [[]]);
   for (const anchor of geometry.anchors.values()) assert.ok(Number.isFinite(anchor.x) && Number.isFinite(anchor.y));
+});
+
+test('a component sized as a whole never folds across a narrow island', () => {
+  // Seeds that folded before the guard (DECISIONS §92): broad bays on opposite shores met.
+  for (const cells of [[25, 26, 27, 28, 29], [19, 27, 36]]) {
+    const base: BaseGeo[] = Array(64).fill('Sea');
+    cells.forEach(i => base[i] = 'Land');
+    const edges = coastEdges(base, cols, rows, size);
+    for (const seed of [41, 59, 99, 106, 134, 146, 150, 162]) for (const fraction of [0.9, 0.6, 0.3]) {
+      const target = cells.length * 1.5 * Math.sqrt(3) * size * size * fraction;
+      const geometry = coastGeometryOf(edges, true, { size, amplitude: () => 0.2,
+        noise: (x, y, k) => noise(x, y, k + seed * 100), componentArea: () => target });
+      assert.equal(crossings(geometry.paths.flatMap(d => pathPolylines(d, 6))), 0, `${cells.length} cells, seed ${seed}, fraction ${fraction}`);
+    }
+  }
 });

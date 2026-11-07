@@ -63,14 +63,16 @@ each states the gain it has to show.
 
 | Step | What | Expected gain | Status |
 |---|---|---|---|
-| R1 | Place rough-coast features locally: anchor each bay and cape to page position, not to a fraction of its ring's perimeter, and seed it locally | Makes rough coasts local, which R2 needs. No speed gain by itself. Redraws the fine detail of every rough coast once (same character, different bays and capes) | Needs the owner's approval: it visibly changes existing maps |
-| R2 | Windowed coastal edits: find the hexes an edit changed, rebuild the coast on the map masked to those hexes plus 9, with indices and coordinates kept, and splice it into the previous coast at seams where the two agree (§91: smooth coasts agree to under 0.5 px) | Coast part of a coastal edit, now 0.7–0.8 s, falls to about 0.05–0.15 s (window builds of 40–130 ms) | Rule relaxed (§91); after R1 for rough coasts, or now for smooth ones |
+| R1 | Local rough-coast features | Not needed by R2 | Built and withdrawn (§92); its fold fix for whole-island coasts kept |
+| R2 | Local refit after a coastal edit: trace the coast whole as today, but run the share passes and the fit only in a window round the changed hexes (plus about 9), starting outside it from the previous fit's displacement carried onto the new trace | The passes and fit, about 0.5 s of a coastal edit on populated, fall to the window's share | Rule relaxed (§91); next |
 | R3 | Keep the rest of an edit local: revalidate symbols, rebuild land fills and re-place labels only in the window | About 0.3 s of a coastal edit, now spent map-wide | After R2 |
 | R4 | Parallel cold build: fit independent coast groups (§90), and other independent stages, in a worker pool | Cold builds of multi-group maps 20–35% faster, also recovering §90's 6% | Needs the build in the paint worker to become asynchronous |
 | R5 | Measure paint on a GPU-backed browser before working on it | Paint is 0.2–0.27 s of every edit in headless software raster, which may overstate it | Measurement only |
 
-After R1–R3, a coastal edit should take about 0.5–0.65 s (paint about 0.25 s, the rest of the build
-about 0.1 s, the window 0.15–0.3 s): about three times faster than now. A cold build of 1 s is not
+After R2 and R3, a coastal edit should take about 0.7–0.9 s: tracing about 0.3 s, the windowed
+passes and fit about 0.1 s, coverage and paint geometry about 0.15 s, the rest of the build about
+0.1 s and paint about 0.25 s. That is about twice as fast as now. Reaching the earlier estimate of
+0.5–0.65 s would also need the trace windowed, which needs local features (R1, §92). A cold build of 1 s is not
 reachable on one core, because the coast alone is 1.7 s of it; R4 is the route, and its gain is
 bounded by the largest coast group.
 
