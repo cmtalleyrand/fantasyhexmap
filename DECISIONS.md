@@ -2223,3 +2223,38 @@ can meet the island's own opposite shore. Over 998 seeded cases (two island layo
 crosses, reduces the fine detail and then the broad bays (six steps) until it does not: 0 of 998
 cross. The populated and mixed scenes are unchanged, since neither had a folding island. A test
 covers eight seeds that folded before.
+
+## 93. Local refit by freezing points (R2, first form): built, measured, reverted
+
+**Built.** With a scene option set, a coast group that misses the fit cache was refitted from the
+previous fit of the same context. Each point started displaced as its nearest previous point had
+been. Points within three hex spacings of the edit moved freely, fading to fixed at four and a half.
+Only target hexes the free points ran through were aimed at. More than 40% of a group's coast
+changed meant a full fit instead. The edit was found by matching: a point more than 0.1 hex from
+its previous match, or a hex whose share changed. 0.03 hex proved too small, because an edit shifts
+the rest of its ring's features by up to about 1 px (§89), so every point counted as changed.
+
+**Measured** (populated, five coastal edits in sequence, Node, single runs; probe saved outside the
+repository):
+
+| Edit | Local refit: build (fit) | Without: build (fit) | Local against a fresh build, beyond 5 hexes |
+|---|---:|---:|---:|
+| 871 | 1,261 (202) ms | 1,534 (355) ms | max 0.00 px |
+| 553 | 2,252 (1,223) ms | 1,186 (281) ms | max 5.40 px |
+| 997 | 932 (167) ms | 1,024 (219) ms | max 5.40 px |
+| 650 | 1,486 (589) ms | 1,134 (303) ms | max 5.40 px |
+| 1253 | 1,250 (364) ms | 1,021 (218) ms | max 11.48 px |
+
+Two new share misses appeared at the window's edge (87% for 90%, 93% for 90%).
+
+**Why it does not pay.** A frozen point still belongs to a ring the fit processes whole every
+round: per-point samples, clearance, spline controls and the stretch and crossing checks all cover
+the full ring. Freezing 85% of a continent's points saves only part of the measurement and of the
+solve, and a transferred start can take more rounds to settle. The differences also accumulate
+over edits, at the window's edge where the kept coast meets the refitted coast.
+
+**What would pay.** Fit only the window: cut each ring's stretch inside the window out as an open
+segment with fixed ends (the fit already keeps open ends still), fit those segments with the rest
+of the coast fixed for measurement and clearance, and splice them back. The cost per round is then
+in proportion to the window. The window must be wide enough that the kept and refitted coast agree
+where they meet. That is a rework of `fitCoastAreas` around segments and is the next attempt at R2.

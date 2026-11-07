@@ -64,7 +64,7 @@ each states the gain it has to show.
 | Step | What | Expected gain | Status |
 |---|---|---|---|
 | R1 | Local rough-coast features | Not needed by R2 | Built and withdrawn (§92); its fold fix for whole-island coasts kept |
-| R2 | Local refit after a coastal edit: trace the coast whole as today, but run the share passes and the fit only in a window round the changed hexes (plus about 9), starting outside it from the previous fit's displacement carried onto the new trace | The passes and fit, about 0.5 s of a coastal edit on populated, fall to the window's share | Rule relaxed (§91); next |
+| R2 | Local refit after a coastal edit. Freezing points outside a window (§93) was no faster, because the fit processes whole rings each round, and drifted up to 11 px from a fresh build. Next form: cut each ring's stretch inside the window out as an open segment with fixed ends, fit only those segments, and splice them back | The fit, 0.2–0.35 s of a coastal edit in Node and about 0.4–0.5 s in the browser, falls to the window's share | First form reverted (§93); segment form next |
 | R3 | Keep the rest of an edit local: revalidate symbols, rebuild land fills and re-place labels only in the window | About 0.3 s of a coastal edit, now spent map-wide | After R2 |
 | R4 | Parallel cold build: fit independent coast groups (§90), and other independent stages, in a worker pool | Cold builds of multi-group maps 20–35% faster, also recovering §90's 6% | Needs the build in the paint worker to become asynchronous |
 | R5 | Measure paint on a GPU-backed browser before working on it | Paint is 0.2–0.27 s of every edit in headless software raster, which may overstate it | Measurement only |
