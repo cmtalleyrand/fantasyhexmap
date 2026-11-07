@@ -90,8 +90,13 @@ export function untangle(ring: Point[], closed: boolean): { ring: Point[]; joins
 export function fitCoastAreas(geometry: CoastGeometry, targets: ReadonlyMap<number, { share: number; width?: number }>,
   cols: number, rows: number, size: number, page: { width: number; height: number }, ink: number,
   /** Every strait and isthmus drawn at a set width, whether or not its share is fitted. */
-  passageHexes: Iterable<number> = [], rounds = 4, repairEdges = false): CoastGeometry {
-  if (!geometry.component || !targets.size) return geometry;
+  passageHexes: Iterable<number> = [], rounds = 4, repairEdges = false,
+  /** Fit only these rings (one independent group; see `coastFitGroups`), holding the rest still.
+   * The others are measured as they are, so even-odd fill and page-rim joins see the whole
+   * outline, but are not repaired, moved or returned: only these rings' paths and detail are. */
+  movable?: ReadonlySet<number>): CoastGeometry {
+  if (!geometry.component || (!targets.size && !movable)) return geometry;
+  const moves = (k: number) => !movable || movable.has(k);
   const phase = profilePhases('fit');
   phase('prepare');
   const hexArea = 1.5 * Math.sqrt(3) * size * size;
@@ -122,7 +127,7 @@ export function fitCoastAreas(geometry: CoastGeometry, targets: ReadonlyMap<numb
   let current: Point[][] = [];
   geometry.paths.forEach((d, k) => {
     const ring = pathPolylines(d, 8)[0] ?? [];
-    if (ring.length < 4) { current.push(ring); return; }
+    if (ring.length < 4 || !moves(k)) { current.push(ring); return; }
     const { ring: untangled, joins } = untangle(ring, closed[k]!);
     current.push(roundLoopJoins(untangled, closed[k]!, joins, size * .32, p => passageFade(p) >= 1, current));
   });
@@ -158,18 +163,26 @@ export function fitCoastAreas(geometry: CoastGeometry, targets: ReadonlyMap<numb
       return ring;
     }).filter(ring => ring.length > 1);
   };
+  // A group is measured only over its own hexes' box (with the ink's reach): exact, see `region`.
+  let region: Point[] | undefined;
   const measureAll = (rs: Point[][], hexes: Iterable<number>) => {
     profileCount('fit.measurements');
     const coverage = areaCoverage(landRings(rs),
-      { evenOdd: true, stroke: { rings: strokeRings(rs), reach: ink }, reuseScanlines: true });
+      { evenOdd: true, stroke: { rings: strokeRings(rs), reach: ink }, reuseScanlines: true, region });
     const out = new Map<number, number>();
     for (const h of hexes) { profileCount('fit.hexMeasurements'); out.set(h, coverage(cornersOf(h), FIT_COVERAGE_LINES) / hexArea); }
     return out;
   };
   // Every hex the coast runs through takes part: those with a share aim at it, the rest keep theirs.
   const touched = new Set<number>();
-  for (const ring of current) for (const p of ring) touched.add(nearestHex(p, cols, rows, size, centres));
+  current.forEach((ring, k) => { if (moves(k)) for (const p of ring) touched.add(nearestHex(p, cols, rows, size, centres)); });
   for (const h of targets.keys()) touched.add(h);
+  if (movable) {
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    for (const h of touched) for (const c of cornersOf(h)) { x0 = Math.min(x0, c.x); y0 = Math.min(y0, c.y); x1 = Math.max(x1, c.x); y1 = Math.max(y1, c.y); }
+    const pad = ink + 1;
+    region = [{ x: x0 - pad, y: y0 - pad }, { x: x1 + pad, y: y0 - pad }, { x: x1 + pad, y: y1 + pad }, { x: x0 - pad, y: y1 + pad }];
+  }
   const hexes = [...touched];
   const index = new Map(hexes.map((h, i) => [h, i]));
   const initial = profileTime('fit.measure', () => measureAll(current, touched));
@@ -211,7 +224,7 @@ export function fitCoastAreas(geometry: CoastGeometry, targets: ReadonlyMap<numb
     type Sample = { n: Point; reach: number; length: number };
     const samples: Sample[][] = current.map((ring, k) => {
       const count = ring.length;
-      if (count < 3) return [];
+      if (count < 3 || !moves(k)) return [];
       // A closed ring repeats its first point last; treat that pair as one point.
       const span = closed[k] && ring[0]!.x === ring[count - 1]!.x && ring[0]!.y === ring[count - 1]!.y ? count - 1 : count;
       let votes = 0;
@@ -279,7 +292,7 @@ export function fitCoastAreas(geometry: CoastGeometry, targets: ReadonlyMap<numb
     // Point j of ring k is moved by controls index[4j..4j+3], weighted by weight[4j..4j+3].
     const support = current.map((ring, k): { index: Int32Array; weight: Float64Array } => {
       const count = ring.length;
-      if (count < 3) { controls.push({ base: unknowns, count: 0, closed: closed[k]! }); return { index: new Int32Array(0), weight: new Float64Array(0) }; }
+      if (count < 3 || !moves(k)) { controls.push({ base: unknowns, count: 0, closed: closed[k]! }); return { index: new Int32Array(0), weight: new Float64Array(0) }; }
       const arcs = [0];
       for (let j = 1; j < count; j++) arcs.push(arcs[j - 1]! + Math.hypot(ring[j]!.x - ring[j - 1]!.x, ring[j]!.y - ring[j - 1]!.y));
       const total = arcs[count - 1]! || 1;
@@ -383,7 +396,7 @@ export function fitCoastAreas(geometry: CoastGeometry, targets: ReadonlyMap<numb
     // coast halves the controls moving it, and only those, until it is clean.
     const factor = new Float64Array(unknowns).fill(1);
     const moveBy = () => current.map((ring, k) => {
-      if (ring.length < 3) return ring;
+      if (ring.length < 3 || !moves(k)) return ring;
       const moved = ring.map((p, j) => {
         const s = samples[k]![j]!;
         if (!s.reach) return p;
@@ -422,9 +435,10 @@ export function fitCoastAreas(geometry: CoastGeometry, targets: ReadonlyMap<numb
     shown = measured;
   }
   phase('anchors');
-  const paths = pathsOf(current);
-  const detail = held ? new Map(current.flatMap((ring, k) => ring.map((p, j): [string, number] => [detailKey(p), held[k]![j]!]))) : undefined;
-  const result = { ...geometry, paths, detail, anchors: snapAnchors(geometry.anchors, paths, size) };
+  const paths = pathsOf(current).map((d, k) => moves(k) ? d : geometry.paths[k]!);
+  const detail = held ? new Map(current.flatMap((ring, k) => moves(k) ? ring.map((p, j): [string, number] => [detailKey(p), held[k]![j]!]) : [])) : undefined;
+  // A group's anchors are snapped once its result is merged with the others'.
+  const result = { ...geometry, paths, detail, anchors: movable ? geometry.anchors : snapAnchors(geometry.anchors, paths, size) };
   phase();
   return result;
 }
@@ -513,7 +527,7 @@ function newCrossings(before: Point[][], after: Point[][], closed: boolean[], si
  * Each anchor moved to the nearest point of the coast as drawn (`paths`), found from a grid
  * of the coast's segments so only those nearby are checked.
  */
-function snapAnchors(anchors: Map<string, Point>, paths: PathCmd[][], size: number): Map<string, Point> {
+export function snapAnchors(anchors: Map<string, Point>, paths: PathCmd[][], size: number): Map<string, Point> {
   const lines = paths.flatMap(d => pathPolylines(d, 8));
   const grid = new Map<number, Array<[Point, Point]>>();
   const key = (x: number, y: number) => x * 65536 + y;
@@ -573,4 +587,70 @@ export function applyCoastDetail(geometry: CoastGeometry, size: number): CoastGe
     return out;
   });
   return { ...geometry, paths, detail: undefined, anchors: snapAnchors(geometry.anchors, paths, size) };
+}
+
+/** How far apart two coasts must be to be fitted independently, in hex sizes: beyond clearance's
+ * reach (three) with a hex to spare, and so never through the same hex. */
+const GROUP_GAP = 4;
+
+/**
+ * The rings of `geometry` in independent fitting groups, each with the targets it owns. Rings
+ * within `GROUP_GAP` hex sizes of each other are in one group. A target belongs to the group of
+ * the coast nearest its centre. Groups come in order of their first ring.
+ */
+export function coastFitGroups(geometry: CoastGeometry, targets: ReadonlyMap<number, { share: number; width?: number }>,
+  cols: number, size: number): Array<{ rings: number[]; targets: Map<number, { share: number; width?: number }> }> {
+  const rings = geometry.paths.map(d => pathPolylines(d, 8)[0] ?? []);
+  const gap = GROUP_GAP * size, cell = gap;
+  const grid = new Map<number, Map<number, Point[]>>();
+  // Cells are offset so a page margin's negative coordinates still pack into one number.
+  const cellKey = (x: number, y: number) => (x + 1024) * 65536 + (y + 1024);
+  rings.forEach((ring, k) => ring.forEach(p => {
+    const key = cellKey(Math.floor(p.x / cell), Math.floor(p.y / cell));
+    let bin = grid.get(key);
+    if (!bin) { bin = new Map(); grid.set(key, bin); }
+    const list = bin.get(k);
+    if (list) list.push(p); else bin.set(k, [p]);
+  }));
+  const parent = rings.map((_, k) => k);
+  const find = (k: number): number => { while (parent[k] !== k) { parent[k] = parent[parent[k]!]!; k = parent[k]!; } return k; };
+  // Two points within the gap lie in the same or neighbouring cells; compare only points of
+  // different rings not yet in one group, and stop at the first pair near enough.
+  const near = (a: Point[], b: Point[]) => {
+    for (const p of a) for (const q of b) if (Math.hypot(p.x - q.x, p.y - q.y) < gap) return true;
+    return false;
+  };
+  for (const [key, bin] of grid) {
+    const cx = Math.floor(key / 65536) - 1024, cy = key % 65536 - 1024;
+    for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) {
+      const other = grid.get(cellKey(cx + dx, cy + dy));
+      if (!other) continue;
+      for (const [k, a] of bin) for (const [m, b] of other) {
+        if (k === m || find(k) === find(m)) continue;
+        if (near(a, b)) parent[find(m)] = find(k);
+      }
+    }
+  }
+  const order = new Map<number, number>();
+  const groups: Array<{ rings: number[]; targets: Map<number, { share: number; width?: number }> }> = [];
+  rings.forEach((_, k) => {
+    const root = find(k);
+    if (!order.has(root)) { order.set(root, groups.length); groups.push({ rings: [], targets: new Map() }); }
+    groups[order.get(root)!]!.rings.push(k);
+  });
+  for (const [h, target] of targets) {
+    const c = hexCenter(h % cols, Math.floor(h / cols), size);
+    let best = Infinity, ring = 0;
+    for (let reach = 1; best === Infinity && reach < 1 << 16; reach *= 2) {
+      const cx = Math.floor(c.x / cell), cy = Math.floor(c.y / cell);
+      for (let dx = -reach; dx <= reach; dx++) for (let dy = -reach; dy <= reach; dy++)
+        for (const [k, points] of grid.get(cellKey(cx + dx, cy + dy)) ?? []) for (const p of points) {
+          const d = Math.hypot(p.x - c.x, p.y - c.y);
+          if (d < best) { best = d; ring = k; }
+        }
+      if (!grid.size) break;
+    }
+    groups[order.get(find(ring))!]!.targets.set(h, target);
+  }
+  return groups;
 }

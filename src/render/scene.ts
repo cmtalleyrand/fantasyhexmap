@@ -86,6 +86,7 @@ import {
   alike,
   coastKey,
   drawnLand,
+  drawnLandLayout,
   evenOddTest,
   circlePath,
   coastalIslandSide,
@@ -128,7 +129,8 @@ import { ELEVATION_RANK, floeFringe, glacierEdges, glacierFlow, glacierMarginPri
 import { areaCoverage, coveredArea, nearestOn, lakeStraitFrame, shapeCoast, type ShapeMemo, type ShapeTarget } from './footprint.js';
 import { LAND_SHARE_TOLERANCE, withShoreSlack, channelShareSet, channelWidthFraction, drawnLandFraction, landFraction, normaliseHexDimensions } from '../../shared/surfaceArea.js';
 import { hasDerivedShore, isShoreLand } from '../../shared/derive.js';
-import { applyCoastDetail, fitCoastAreas } from './coastArea.js';
+import { applyCoastDetail, coastFitGroups, fitCoastAreas, snapAnchors } from './coastArea.js';
+import { detailKey } from './componentCoast.js';
 import { coastPaintPatches, coastPaintPaths } from './coastPaint.js';
 import { realmBoundary } from './realmBoundary.js';
 import { boundsOf, intersects, type Bounds } from './bounds.js';
@@ -424,15 +426,52 @@ function cachedCoastFit(geometry: CoastGeometry, targets: ReadonlyMap<number, { 
   cols: number, rows: number, size: number, page: { width: number; height: number }, ink: number,
   passages: number[], seed: string, rounds?: number, repairEdges = false): CoastGeometry {
   if (!geometry.component || !targets.size) return geometry;
-  const key = JSON.stringify([seed, cols, rows, size, page, ink, passages, rounds, repairEdges, [...targets],
-    geometry.chains.map(c => c.closed), geometry.paths, [...geometry.anchors], [...geometry.detail ?? []]]);
-  const hit = coastFits.get(key);
-  if (hit) { profileCount('coast.fitGroupHits'); return { ...geometry, ...hit }; }
-  profileCount('coast.fitGroupBuilds');
-  const fitted = fitCoastAreas(geometry, targets, cols, rows, size, page, ink, passages, rounds, repairEdges);
-  coastFits.set(key, { paths: fitted.paths, anchors: fitted.anchors, detail: fitted.detail },
-    fitted.paths.reduce((n, path) => n + path.length * 48, 0) + fitted.anchors.size * 64 + (fitted.detail?.size ?? 0) * 64);
-  return fitted;
+  const groups = coastFitGroups(geometry, targets, cols, size);
+  if (groups.length === 1) {
+    const key = JSON.stringify([seed, cols, rows, size, page, ink, passages, rounds, repairEdges, [...targets],
+      geometry.chains.map(c => c.closed), geometry.paths, [...geometry.anchors], [...geometry.detail ?? []]]);
+    const hit = coastFits.get(key);
+    if (hit) { profileCount('coast.fitGroupHits'); return { ...geometry, ...hit }; }
+    profileCount('coast.fitGroupBuilds');
+    const fitted = fitCoastAreas(geometry, targets, cols, rows, size, page, ink, passages, rounds, repairEdges);
+    coastFits.set(key, { paths: fitted.paths, anchors: fitted.anchors, detail: fitted.detail },
+      fitted.paths.reduce((n, path) => n + path.length * 48, 0) + fitted.anchors.size * 64 + (fitted.detail?.size ?? 0) * 64);
+    return fitted;
+  }
+  // Coasts more than a few hexes apart are fitted, and cached, apart: an edit refits only its own
+  // group. A group's fit sees other groups only through even-odd fill and the page-rim joins, so
+  // its key holds the land test at one of its points and, for each drawn ring it shares with other
+  // groups' open coasts, where those coasts meet the page edge.
+  const polylines = geometry.paths.map(d => pathPolylines(d, 8)[0] ?? []);
+  const layout = drawnLandLayout(geometry, page.width, page.height, size);
+  let land: ((p: Point) => boolean) | undefined;
+  const paths = [...geometry.paths], detail = new Map<string, number>();
+  let held = false;
+  for (const group of groups) {
+    const members = new Set(group.rings);
+    const rim = layout.flatMap(item => 'open' in item && item.open.some(part => 'chain' in part && members.has(part.chain))
+      ? [item.open.map(part => 'point' in part ? [part.point.x, part.point.y]
+        : members.has(part.chain) ? ['g', group.rings.indexOf(part.chain), part.first]
+        : [polylines[part.chain]![0], polylines[part.chain]!.at(-1)])] : []);
+    const at = polylines[group.rings[0]!]![0];
+    land ??= evenOddTest(pathPolylines(drawnLand(geometry, page.width, page.height, size), 8), size / 8);
+    const inside = at ? land({ x: at.x + size * 0.011, y: at.y + size * 0.013 }) : false;
+    const keys = new Set(group.rings.flatMap(k => polylines[k]!.map(detailKey)));
+    const key = JSON.stringify([seed, cols, rows, size, page, ink, passages, rounds, repairEdges, [...group.targets],
+      group.rings.map(k => [geometry.chains[k]!.closed, geometry.paths[k]]), rim, inside,
+      [...geometry.detail ?? []].filter(([id]) => keys.has(id))]);
+    let fit = coastFits.get(key);
+    if (fit) profileCount('coast.fitGroupHits');
+    else {
+      profileCount('coast.fitGroupBuilds');
+      const fitted = fitCoastAreas(geometry, group.targets, cols, rows, size, page, ink, passages, rounds, repairEdges, members);
+      fit = { paths: group.rings.map(k => fitted.paths[k]!), anchors: new Map(), detail: fitted.detail };
+      coastFits.set(key, fit, fit.paths.reduce((s, path) => s + path.length * 48, 0) + (fit.detail?.size ?? 0) * 64);
+    }
+    group.rings.forEach((k, j) => { paths[k] = fit!.paths[j]!; });
+    if (fit.detail) { held = true; for (const [id, offset] of fit.detail) detail.set(id, offset); }
+  }
+  return { ...geometry, paths, detail: held ? detail : undefined, anchors: snapAnchors(geometry.anchors, paths, size) };
 }
 
 /** How far (in hex sizes) a smoothed coast may stray from its plain line, by irregularity. */
