@@ -134,7 +134,8 @@ export function fitCoastAreas(geometry: CoastGeometry, targets: ReadonlyMap<numb
   // Detail held back from the paths (see `Roughness.deferDetail`) belongs to points, which
   // the fit moves but keeps in order: carry each point's offset along, filling in points
   // the loop repairs added from those beside them.
-  const held = geometry.detail ? current.map(ring => {
+  const held = geometry.detail ? current.map((ring, k) => {
+    if (!moves(k)) return [];
     const offsets = ring.map(p => geometry.detail!.get(detailKey(p)) ?? NaN);
     offsets.forEach((v, j) => {
       if (!Number.isNaN(v)) return;
@@ -148,11 +149,33 @@ export function fitCoastAreas(geometry: CoastGeometry, targets: ReadonlyMap<numb
   // Open ends never move. Reuse the page-edge joins, then supply the evolving
   // polylines directly, including the original Z closure.
   const layout = drawnLandLayout(geometryOf(current), page.width, page.height, size);
-  const strokeRings = (rs: Point[][]) => rs.flatMap((ring, k) => ring.length > 1
+  const strokeRings = (rs: Point[][]) => rs.flatMap((ring, k) => ring.length > 1 && (!consider || consider.has(k))
     ? [closed[k] ? [...ring, ring[0]!] : ring] : []);
+  // In a group's fit, the rings that can matter to it: its own, and others whose box comes within
+  // clearance's reach of its region. The rest cannot be measured in, crossed or come near.
+  let consider: Set<number> | undefined;
+  // In a group's fit, a drawn ring with none of its coasts is fixed: built once, and left out
+  // where its box misses the group's region (exact, see `region`).
+  const fixedItems = new Map<number, Point[] | null>();
+  const boxMeets = (ring: Point[], r: Point[]) => {
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    for (const p of ring) { if (p.x < x0) x0 = p.x; if (p.x > x1) x1 = p.x; if (p.y < y0) y0 = p.y; if (p.y > y1) y1 = p.y; }
+    return !(x1 < r[0]!.x || x0 > r[2]!.x || y1 < r[0]!.y || y0 > r[2]!.y);
+  };
   const landRings = (rs: Point[][]): Point[][] => {
     if (rs.some(ring => ring.length < 2)) return pathPolylines(drawnLand(geometryOf(rs), page.width, page.height, size), 8);
-    return layout.map(item => {
+    return layout.map((item, n) => {
+      if (movable && region && ('closed' in item ? !moves(item.closed) : item.open.every(part => !('chain' in part) || !moves(part.chain)))) {
+        if (!fixedItems.has(n)) {
+          const ring = buildItem(item, rs);
+          fixedItems.set(n, ring.length > 1 && boxMeets(ring, region) ? ring : null);
+        }
+        return fixedItems.get(n) ?? [];
+      }
+      return buildItem(item, rs);
+    }).filter(ring => ring.length > 1);
+  };
+  const buildItem = (item: (typeof layout)[number], rs: Point[][]): Point[] => {
       if ('closed' in item) { const ring = rs[item.closed]!; return [...ring, ring[0]!]; }
       const ring: Point[] = [];
       for (const part of item.open) {
@@ -161,7 +184,6 @@ export function fitCoastAreas(geometry: CoastGeometry, targets: ReadonlyMap<numb
       }
       if (ring.length) ring.push(ring[0]!);
       return ring;
-    }).filter(ring => ring.length > 1);
   };
   // A group is measured only over its own hexes' box (with the ink's reach): exact, see `region`.
   let region: Point[] | undefined;
@@ -182,6 +204,8 @@ export function fitCoastAreas(geometry: CoastGeometry, targets: ReadonlyMap<numb
     for (const h of touched) for (const c of cornersOf(h)) { x0 = Math.min(x0, c.x); y0 = Math.min(y0, c.y); x1 = Math.max(x1, c.x); y1 = Math.max(y1, c.y); }
     const pad = ink + 1;
     region = [{ x: x0 - pad, y: y0 - pad }, { x: x1 + pad, y: y0 - pad }, { x: x1 + pad, y: y1 + pad }, { x: x0 - pad, y: y1 + pad }];
+    const reach = size * 4, wide = [{ x: x0 - reach, y: y0 - reach }, { x: x1 + reach, y: y0 - reach }, { x: x1 + reach, y: y1 + reach }, { x: x0 - reach, y: y1 + reach }];
+    consider = new Set(current.flatMap((ring, k) => moves(k) || (ring.length && boxMeets(ring, wide)) ? [k] : []));
   }
   const hexes = [...touched];
   const index = new Map(hexes.map((h, i) => [h, i]));
@@ -219,7 +243,7 @@ export function fitCoastAreas(geometry: CoastGeometry, targets: ReadonlyMap<numb
     // turn it; how far it may move; and the length of coast it stands for.
     const land = evenOddTest(landRings(current), size / 8);
     const chains: CoastChain[] = current.map((ring, k) => ({ closed: closed[k]!, points: ring,
-      edges: ring.slice(0, -1).map((p, j) => ({ from: p, to: ring[j + 1]!, land: -1, water: -1 })) }));
+      edges: consider && !consider.has(k) ? [] : ring.slice(0, -1).map((p, j) => ({ from: p, to: ring[j + 1]!, land: -1, water: -1 })) }));
     const clearance = coastClearance(chains, size);
     type Sample = { n: Point; reach: number; length: number };
     const samples: Sample[][] = current.map((ring, k) => {
@@ -416,7 +440,7 @@ export function fitCoastAreas(geometry: CoastGeometry, targets: ReadonlyMap<numb
       profileCount('fit.trials');
       const trial = moveBy();
       const faults = [...distorts(referenceRings, trial, size * 0.2), ...distorts(current, trial, size * 0.2),
-        ...newCrossings(current, trial, closed, size)];
+        ...newCrossings(current, trial, closed, size, consider)];
       if (!faults.length) { next = trial; break; }
       // A control shared by several faulty points is halved once, not once per point.
       const hit = new Set<number>();
@@ -464,7 +488,9 @@ function lengthsOf(ring: Point[]): Float64Array {
 function distorts(before: Point[][], after: Point[][], span: number): Array<[number, number]> {
   const faults: Array<[number, number]> = [];
   for (let k = 0; k < before.length; k++) {
-    const a = before[k]!, b = after[k]!, length = lengthsOf(a);
+    const a = before[k]!, b = after[k]!;
+    if (a === b) continue; // a ring held still in a group's fit
+    const length = lengthsOf(a);
     let e = 0, arc = 0;
     for (let j = 0; j < a.length; j += 2) {
       if (e < j) { e = j; arc = 0; }
@@ -485,7 +511,7 @@ function distorts(before: Point[][], after: Point[][], span: number): Array<[num
  * before (adjacent segments of one ring aside). Crossings the outline already had, where
  * chains meet, are not the step's doing.
  */
-function newCrossings(before: Point[][], after: Point[][], closed: boolean[], size: number): Array<[number, number]> {
+function newCrossings(before: Point[][], after: Point[][], closed: boolean[], size: number, only?: ReadonlySet<number>): Array<[number, number]> {
   const faults: Array<[number, number]> = [];
   const cell = size / 2;
   // Each cell lists its segments as flat (ring, index) pairs under a numeric key.
@@ -500,6 +526,7 @@ function newCrossings(before: Point[][], after: Point[][], closed: boolean[], si
     return p.x !== q.x || p.y !== q.y || r.x !== t.x || r.y !== t.y;
   };
   for (let k = 0; k < after.length; k++) {
+    if (only && !only.has(k)) continue;
     const ring = after[k]!;
     for (let j = 0; j + 1 < ring.length; j++) {
       const a = ring[j]!, b = ring[j + 1]!;
@@ -599,8 +626,8 @@ const GROUP_GAP = 4;
  * the coast nearest its centre. Groups come in order of their first ring.
  */
 export function coastFitGroups(geometry: CoastGeometry, targets: ReadonlyMap<number, { share: number; width?: number }>,
-  cols: number, size: number): Array<{ rings: number[]; targets: Map<number, { share: number; width?: number }> }> {
-  const rings = geometry.paths.map(d => pathPolylines(d, 8)[0] ?? []);
+  cols: number, size: number, polylines?: Point[][]): Array<{ rings: number[]; targets: Map<number, { share: number; width?: number }> }> {
+  const rings = polylines ?? geometry.paths.map(d => pathPolylines(d, 8)[0] ?? []);
   const gap = GROUP_GAP * size, cell = gap;
   const grid = new Map<number, Map<number, Point[]>>();
   // Cells are offset so a page margin's negative coordinates still pack into one number.
