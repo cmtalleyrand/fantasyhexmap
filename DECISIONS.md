@@ -2258,3 +2258,67 @@ segment with fixed ends (the fit already keeps open ends still), fit those segme
 of the coast fixed for measurement and clearance, and splice them back. The cost per round is then
 in proportion to the window. The window must be wide enough that the kept and refitted coast agree
 where they meet. That is a rework of `fitCoastAreas` around segments and is the next attempt at R2.
+
+## 94. Local refit after a coastal edit (R2): the previous fit kept outside windows
+
+**Built.** With `SceneOptions.incrementalCoast` set (the editor's paint worker sets it; tests and
+other callers do not), each fit of the coast keeps a record of what it took and gave
+(`src/render/coastWindow.ts`). A coast group that misses the fit cache is then planned against the
+last record of the same coast and fit, and refitted only where it changed:
+- A point of the new trace is changed if it lies in or beside a hex whose share or width changed,
+  has no old point within a hex, or breaks the old coast's order (consecutive points meeting old
+  points far apart along it, as where an edit cuts a neck). The change spreads to every ring
+  through the hexes it touches, until no kept coast runs through a newly reached hex.
+- Each changed stretch is replaced by the new trace, from an anchor before it to one after,
+  moved out by up to two hexes of coast to where the new trace runs within 0.12 hex of the old fit.
+  The new trace is bent smoothly to meet the old fit at both anchors. Between stretches the old
+  fit's own points are kept exactly.
+- The window refitted is each stretch with 2.5 hexes of coast either side. `fitCoastAreas` takes
+  the windows, repairs and moves only their points, eases each to still over a hex at its ends (as
+  an open coast does) and aims only at the hexes they run through. Samples, spline controls, the
+  stretch and crossing checks and the measurement are all limited to the windows.
+- A ring changed over most of its length, or one that cannot be spliced, is refitted whole from
+  the new trace. Its group is fitted whole only if no record matches. Neither the populated nor
+  the 50×50 interaction map's sequences needed that.
+- The second fit, on the first fit's output with its detail, counts only exact changes. Outside
+  the first fit's windows its input is the same as last time.
+
+**Correction to §89, §92 and §93.** I wrote there that an edit shifts the rest of its ring's
+features by at most about 1 px. That held for the edit §89 measured, not in general. On the
+populated map, turning hex 553 to sea moved 1,131 of the continent's 3,696 traced points by more than
+0.1 hex and 173 by more than half a hex, all round the ring, because each feature sits at a fraction
+of the whole ring's length (§91). A plain build therefore redraws the far coast of an edited ring
+differently on every edit: up to 10.7 px beyond five hexes of the edit, in the probe below. The
+windowed refit keeps that coast as it was drawn, so its edits show less movement, not more.
+
+**Measured, Node** (populated map, five coastal hexes turned to sea in sequence, windowed against
+plain builds of the same sequence, single runs):
+
+| | Windowed | Plain |
+|---|---:|---:|
+| Coast fit, per edit | 108–277 ms | 240–350 ms |
+| Far coast (beyond 5 hexes) moved from the previous frame | at most 2.1 px | up to 10.7 px |
+| Far coast from a fresh build of the same map | up to 12.5 px | 0 |
+| Share misses not in a fresh build | none | none |
+
+The difference from a fresh build is the feature slides a fresh build would make, and it shows only
+when the map is reopened. The coast then moves as a plain build's does on every edit today. I judge
+that within §91's rule, but it is the owner's call. A test (`test/slow/coastWindow.test.ts`) holds
+the shares, the still far coast (at most 0.12 hex) and a bound on the distance from a fresh build
+(0.6 hex) over four edits.
+
+**Measured, browser** (`npm run perf:edit-wait -- --runs 5`, production worker, medians, against
+the previous commit in the same session):
+
+| Edit | Before: sharp frame (fit) | After: sharp frame (fit) |
+|---|---:|---:|
+| coast: land to sea | 1,584 (433) ms | 1,484 (302) ms |
+| coast: sea to land | 1,483 (394) ms | 1,305 (206) ms |
+| coast: land share 60% | 1,442 (359) ms | 1,119 (142) ms |
+| inland: land to lake | 1,372 (377) ms | 1,290 (154) ms |
+
+The fit falls by 130–220 ms an edit, and a coastal edit by 6–22%. That is near the 20% expected,
+because the fit was only about a third of a coastal edit. What remains of the fit's cost is
+mostly outside the windows: the group keys, page-rim parity, anchor snapping and the plan (14–50
+ms), each map-wide. Cold builds and non-coastal edits are unchanged. Every existing test, the slow
+tests and the drawing sweeps pass, with scenes built without the option unchanged.

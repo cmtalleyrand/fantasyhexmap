@@ -96,7 +96,12 @@ export function fitCoastAreas(geometry: CoastGeometry, targets: ReadonlyMap<numb
    * outline, but are not repaired, moved or returned: only these rings' paths and detail are. */
   movable?: ReadonlySet<number>,
   /** `pathPolylines(path, 8)[0]` of each path, when the caller has them; never modified. */
-  polylines?: Point[][]): CoastGeometry {
+  polylines?: Point[][],
+  /** Move only these stretches (index ranges, ends included, of each movable ring in `polylines`)
+   * and aim only at the hexes they run through: a refit of the coast near an edit, the rest
+   * kept as given (see `planCoastWindows`). Each stretch keeps its ends still, as an open coast
+   * does, and every step of a round costs in proportion to the stretches, not the rings. */
+  windows?: ReadonlyMap<number, Array<[number, number]>>): CoastGeometry {
   if (!geometry.component || (!targets.size && !movable)) return geometry;
   const moves = (k: number) => !movable || movable.has(k);
   const phase = profilePhases('fit');
@@ -127,9 +132,27 @@ export function fitCoastAreas(geometry: CoastGeometry, targets: ReadonlyMap<numb
   // Remove the fold-back loops roughening left and round their joins, rings in order so
   // each repair checks the rings already repaired.
   let current: Point[][] = [];
+  // In a windowed refit only the stretches are repaired, each as an open coast, and the
+  // ranges after a repaired stretch shift by the points it gained or lost.
+  const spans = new Map<number, Array<[number, number]>>();
   geometry.paths.forEach((d, k) => {
     const ring = polylines?.[k] ?? pathPolylines(d, 8)[0] ?? [];
     if (ring.length < 4 || !moves(k)) { current.push(ring); return; }
+    if (windows?.has(k)) {
+      let out = ring, shift = 0;
+      const list: Array<[number, number]> = [];
+      for (const [a0, b0] of windows.get(k) ?? []) {
+        const a = a0 + shift, b = b0 + shift;
+        const { ring: untangled, joins } = untangle(out.slice(a, b + 1), false);
+        const piece = roundLoopJoins(untangled, false, joins, size * .32, p => passageFade(p) >= 1, current);
+        out = [...out.slice(0, a), ...piece, ...out.slice(b + 1)];
+        shift += piece.length - (b - a + 1);
+        list.push([a, a + piece.length - 1]);
+      }
+      spans.set(k, list);
+      current.push(out);
+      return;
+    }
     const { ring: untangled, joins } = untangle(ring, closed[k]!);
     current.push(roundLoopJoins(untangled, closed[k]!, joins, size * .32, p => passageFade(p) >= 1, current));
   });
@@ -199,7 +222,18 @@ export function fitCoastAreas(geometry: CoastGeometry, targets: ReadonlyMap<numb
   };
   // Every hex the coast runs through takes part: those with a share aim at it, the rest keep theirs.
   const touched = new Set<number>();
-  current.forEach((ring, k) => { if (moves(k)) for (const p of ring) touched.add(nearestHex(p, cols, rows, size, centres)); });
+  if (windows) {
+    // Only the hexes the stretches run through are measured and aimed at; the rest keep what
+    // the given coast shows them.
+    current.forEach((ring, k) => {
+      if (!moves(k)) return;
+      const list = spans.get(k) ?? [[0, ring.length - 1]];
+      for (const [a, b] of list) for (let j = a; j <= b; j++) touched.add(nearestHex(ring[j]!, cols, rows, size, centres));
+    });
+    targets = new Map([...targets].filter(([h]) => touched.has(h)));
+  } else {
+    current.forEach((ring, k) => { if (moves(k)) for (const p of ring) touched.add(nearestHex(p, cols, rows, size, centres)); });
+  }
   for (const h of targets.keys()) touched.add(h);
   if (movable) {
     let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
@@ -224,6 +258,16 @@ export function fitCoastAreas(geometry: CoastGeometry, targets: ReadonlyMap<numb
   const error = (m: Map<number, number>) => [...targets.keys()].reduce((s, h) => s + outside(h, m) ** 2, 0)
     + [...touched].filter(h => !targets.has(h)).reduce((s, h) => s + 0.25 * outside(h, m) ** 2, 0);
   let shown = initial;
+  // The box a windowed refit's stretches lie in, with a hex to spare: no segment outside it can
+  // be crossed by one of theirs in a step.
+  const spanBox = (rs: Point[][]) => {
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    for (let k = 0; k < rs.length; k++) if (moves(k)) for (const [a, b] of spans.get(k) ?? [[0, rs[k]!.length - 1]]) for (let j = a; j <= b; j++) {
+      const p = rs[k]![j]!;
+      if (p.x < x0) x0 = p.x; if (p.x > x1) x1 = p.x; if (p.y < y0) y0 = p.y; if (p.y > y1) y1 = p.y;
+    }
+    return { x0: x0 - size, y0: y0 - size, x1: x1 + size, y1: y1 + size };
+  };
   // Bound the total deformation, not just each accepted step.
   const referenceRings = current;
   // Fixed page endpoints make edge shares converge more slowly. After the normal
@@ -248,9 +292,59 @@ export function fitCoastAreas(geometry: CoastGeometry, targets: ReadonlyMap<numb
       edges: consider && !consider.has(k) ? [] : ring.slice(0, -1).map((p, j) => ({ from: p, to: ring[j + 1]!, land: -1, water: -1 })) }));
     const clearance = coastClearance(chains, size);
     type Sample = { n: Point; reach: number; length: number };
+    // A windowed refit's samples: only the stretches' points can move, each stretch easing to
+    // still over a hex at both ends, as an open coast does at its ends.
+    const still: Sample = { n: { x: 0, y: 0 }, reach: 0, length: 0 };
+    const windowSamples = (ring: Point[], k: number, chain: CoastChain): Sample[] => {
+      const count = ring.length;
+      const span = closed[k] && ring[0]!.x === ring[count - 1]!.x && ring[0]!.y === ring[count - 1]!.y ? count - 1 : count;
+      let votes = 0;
+      const step = Math.max(1, Math.floor(count / 24));
+      for (let j = 0; j + 1 < count; j += step) {
+        const a = ring[j]!, b = ring[j + 1]!, length = Math.hypot(b.x - a.x, b.y - a.y) || 1;
+        votes += land({ x: (a.x + b.x) / 2 + (b.y - a.y) / length * size * 0.08, y: (a.y + b.y) / 2 - (b.x - a.x) / length * size * 0.08 }) ? -1 : 1;
+      }
+      const sign = votes >= 0 ? 1 : -1;
+      const arcs = new Float64Array(count);
+      for (let j = 1; j < count; j++) arcs[j] = arcs[j - 1]! + Math.hypot(ring[j]!.x - ring[j - 1]!.x, ring[j]!.y - ring[j - 1]!.y);
+      const total = arcs[count - 1]!;
+      const at = (j: number) => ring[closed[k] ? ((j % span) + span) % span : Math.max(0, Math.min(count - 1, j))]!;
+      const gap = (j: number) => Math.hypot(at(j + 1).x - at(j).x, at(j + 1).y - at(j).y);
+      const out: Sample[] = new Array(count).fill(still);
+      const window = size * 0.4;
+      for (const [a, b] of spans.get(k) ?? []) {
+        const rooms = new Map<number, number>();
+        const local: Sample[] = [];
+        for (let j = a; j <= b; j++) {
+          const p = ring[j]!;
+          // The sum of the segment normals over `window` of coast either side is the chord
+          // across it turned a quarter.
+          let from = j, back = 0, to = j, ahead = 0;
+          while (back < window && (closed[k] || from > 0) && j - from < span) { from--; back += gap(from); }
+          while (ahead < window && (closed[k] || to < count - 1) && to - j < span) { ahead += gap(to); to++; }
+          const u = at(from), v = at(to);
+          const nx = sign * (v.y - u.y), ny = -sign * (v.x - u.x), nl = Math.hypot(nx, ny) || 1;
+          const before = j ? Math.hypot(p.x - ring[j - 1]!.x, p.y - ring[j - 1]!.y) : 0;
+          const after = j + 1 < count ? Math.hypot(ring[j + 1]!.x - p.x, ring[j + 1]!.y - p.y) : 0;
+          const ends = Math.max(0, Math.min(1, (arcs[j]! - arcs[a]!) / size, (arcs[b]! - arcs[j]!) / size,
+            closed[k] ? 1 : Math.min(arcs[j]! / size, (total - arcs[j]!) / size)));
+          if ((j - a) % 4 === 0 || j === b) rooms.set(j, clearance(p, chain, arcs[j]!));
+          local.push({ n: { x: nx / nl, y: ny / nl }, reach: ends * passageFade(p), length: (before + after) / 2 });
+        }
+        const reach = local.map((s, i) => {
+          const j = a + i, a4 = a + (i - i % 4), b4 = Math.min(a4 + 4, b), t = b4 > a4 ? (j - a4) / (b4 - a4) : 0;
+          return s.reach * ((1 - t) * rooms.get(a4)! + t * rooms.get(b4)!) / 3;
+        });
+        for (let i = 1; i < reach.length; i++) reach[i] = Math.min(reach[i]!, reach[i - 1]! + local[i]!.length * 0.5);
+        for (let i = reach.length - 2; i >= 0; i--) reach[i] = Math.min(reach[i]!, reach[i + 1]! + local[i]!.length * 0.5);
+        local.forEach((s, i) => { s.reach = reach[i]!; out[a + i] = s; });
+      }
+      return out;
+    };
     const samples: Sample[][] = current.map((ring, k) => {
       const count = ring.length;
       if (count < 3 || !moves(k)) return [];
+      if (spans.has(k)) return windowSamples(ring, k, chains[k]!);
       // A closed ring repeats its first point last; treat that pair as one point.
       const span = closed[k] && ring[0]!.x === ring[count - 1]!.x && ring[0]!.y === ring[count - 1]!.y ? count - 1 : count;
       let votes = 0;
@@ -319,6 +413,27 @@ export function fitCoastAreas(geometry: CoastGeometry, targets: ReadonlyMap<numb
     const support = current.map((ring, k): { index: Int32Array; weight: Float64Array } => {
       const count = ring.length;
       if (count < 3 || !moves(k)) { controls.push({ base: unknowns, count: 0, closed: closed[k]! }); return { index: new Int32Array(0), weight: new Float64Array(0) }; }
+      if (spans.has(k)) {
+        // Each stretch has its own open spline; a point outside every stretch has none (-1).
+        const index = new Int32Array(count * 4).fill(-1), weight = new Float64Array(count * 4);
+        for (const [a, b] of spans.get(k) ?? []) {
+          const arcs = [0];
+          for (let j = a + 1; j <= b; j++) arcs.push(arcs[j - a - 1]! + Math.hypot(ring[j]!.x - ring[j - 1]!.x, ring[j]!.y - ring[j - 1]!.y));
+          const total = arcs.at(-1)! || 1;
+          const m = Math.max(4, Math.round(total / spacing) + 3);
+          controls.push({ base: unknowns, count: m, closed: false });
+          const base = unknowns;
+          unknowns += m;
+          arcs.forEach((s, i) => {
+            const j = a + i, t = (s / total) * (m - 3);
+            const cell = Math.min(Math.floor(t), m - 4), u = t - cell;
+            weight[4 * j] = (1 - u) ** 3 / 6; weight[4 * j + 1] = (3 * u ** 3 - 6 * u * u + 4) / 6;
+            weight[4 * j + 2] = (-3 * u ** 3 + 3 * u * u + 3 * u + 1) / 6; weight[4 * j + 3] = u ** 3 / 6;
+            for (let q = 0; q < 4; q++) index[4 * j + q] = base + cell + q;
+          });
+        }
+        return { index, weight };
+      }
       const arcs = [0];
       for (let j = 1; j < count; j++) arcs.push(arcs[j - 1]! + Math.hypot(ring[j]!.x - ring[j - 1]!.x, ring[j]!.y - ring[j - 1]!.y));
       const total = arcs[count - 1]! || 1;
@@ -428,6 +543,7 @@ export function fitCoastAreas(geometry: CoastGeometry, targets: ReadonlyMap<numb
         if (!s.reach) return p;
         let d = 0;
         const { index: at, weight } = support[k]!;
+        if (at[4 * j]! < 0) return p;
         for (let q = 4 * j; q < 4 * j + 4; q++) d += weight[q]! * x[at[q]!]! * factor[at[q]!]!;
         d = Math.max(-s.reach, Math.min(s.reach, d));
         return { x: p.x + s.n.x * d, y: p.y + s.n.y * d };
@@ -441,14 +557,14 @@ export function fitCoastAreas(geometry: CoastGeometry, targets: ReadonlyMap<numb
     for (let attempt = 0; attempt < 6; attempt++) {
       profileCount('fit.trials');
       const trial = moveBy();
-      const faults = [...distorts(referenceRings, trial, size * 0.2), ...distorts(current, trial, size * 0.2),
-        ...newCrossings(current, trial, closed, size, consider)];
+      const faults = [...distorts(referenceRings, trial, size * 0.2, windows && spans), ...distorts(current, trial, size * 0.2, windows && spans),
+        ...newCrossings(current, trial, closed, size, consider, windows && spanBox(trial))];
       if (!faults.length) { next = trial; break; }
       // A control shared by several faulty points is halved once, not once per point.
       const hit = new Set<number>();
       for (const [k, j] of faults) {
         const at = support[k]?.index;
-        if (at && 4 * j < at.length) for (let q = 4 * j; q < 4 * j + 4; q++) hit.add(at[q]!);
+        if (at && 4 * j < at.length) for (let q = 4 * j; q < 4 * j + 4; q++) if (at[q]! >= 0) hit.add(at[q]!);
       }
       for (const i of hit) factor[i] = attempt < 4 ? factor[i]! * 0.5 : 0;
     }
@@ -487,22 +603,33 @@ function lengthsOf(ring: Point[]): Float64Array {
   return lengths;
 }
 
-function distorts(before: Point[][], after: Point[][], span: number): Array<[number, number]> {
+function distorts(before: Point[][], after: Point[][], span: number,
+  /** Only stretches starting within these ranges (or ending in them) can have changed. */
+  ranges?: ReadonlyMap<number, Array<[number, number]>>): Array<[number, number]> {
   const faults: Array<[number, number]> = [];
   for (let k = 0; k < before.length; k++) {
     const a = before[k]!, b = after[k]!;
     if (a === b) continue; // a ring held still in a group's fit
     const length = lengthsOf(a);
-    let e = 0, arc = 0;
-    for (let j = 0; j < a.length; j += 2) {
-      if (e < j) { e = j; arc = 0; }
-      while (e + 1 < a.length && arc < span) { arc += length[e]!; e++; }
-      if (arc < span) break;
-      const ux = a[e]!.x - a[j]!.x, uy = a[e]!.y - a[j]!.y, vx = b[e]!.x - b[j]!.x, vy = b[e]!.y - b[j]!.y;
-      const lu = Math.hypot(ux, uy), lv = Math.hypot(vx, vy);
-      arc -= length[j]! + (j + 2 < a.length ? length[j + 1]! : 0);
-      if (lu < span * 0.25) continue;
-      if (lv > lu * 2 || (ux * vx + uy * vy) < lu * lv * 0.64) faults.push([k, j], [k, e]);
+    const scan = (start: number, stop: number) => {
+      let e = start, arc = 0;
+      for (let j = start; j < stop; j += 2) {
+        if (e < j) { e = j; arc = 0; }
+        while (e + 1 < a.length && arc < span) { arc += length[e]!; e++; }
+        if (arc < span) break;
+        const ux = a[e]!.x - a[j]!.x, uy = a[e]!.y - a[j]!.y, vx = b[e]!.x - b[j]!.x, vy = b[e]!.y - b[j]!.y;
+        const lu = Math.hypot(ux, uy), lv = Math.hypot(vx, vy);
+        arc -= length[j]! + (j + 2 < a.length ? length[j + 1]! : 0);
+        if (lu < span * 0.25) continue;
+        if (lv > lu * 2 || (ux * vx + uy * vy) < lu * lv * 0.64) faults.push([k, j], [k, e]);
+      }
+    };
+    const list = ranges?.get(k);
+    if (!list) { scan(0, a.length); continue; }
+    for (const [from, to] of list) {
+      let start = from, back = 0;
+      while (start > 0 && back < span * 2) { start--; back += length[start]!; }
+      scan(start, Math.min(a.length, to + 1));
     }
   }
   return faults;
@@ -513,7 +640,9 @@ function distorts(before: Point[][], after: Point[][], span: number): Array<[num
  * before (adjacent segments of one ring aside). Crossings the outline already had, where
  * chains meet, are not the step's doing.
  */
-function newCrossings(before: Point[][], after: Point[][], closed: boolean[], size: number, only?: ReadonlySet<number>): Array<[number, number]> {
+function newCrossings(before: Point[][], after: Point[][], closed: boolean[], size: number, only?: ReadonlySet<number>,
+  /** Where every moved segment lies: segments wholly outside it are left out. */
+  box?: { x0: number; y0: number; x1: number; y1: number }): Array<[number, number]> {
   const faults: Array<[number, number]> = [];
   const cell = size / 2;
   // Each cell lists its segments as flat (ring, index) pairs under a numeric key.
@@ -532,6 +661,7 @@ function newCrossings(before: Point[][], after: Point[][], closed: boolean[], si
     const ring = after[k]!;
     for (let j = 0; j + 1 < ring.length; j++) {
       const a = ring[j]!, b = ring[j + 1]!;
+      if (box && (Math.max(a.x, b.x) < box.x0 || Math.min(a.x, b.x) > box.x1 || Math.max(a.y, b.y) < box.y0 || Math.min(a.y, b.y) > box.y1)) continue;
       const x0 = Math.floor(Math.min(a.x, b.x) / cell), x1 = Math.floor(Math.max(a.x, b.x) / cell);
       const y0 = Math.floor(Math.min(a.y, b.y) / cell), y1 = Math.floor(Math.max(a.y, b.y) / cell);
       const mine = moved(k, j);
