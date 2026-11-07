@@ -53,6 +53,27 @@ The next improvement is Group 1, step 1 below: replace the repeated global share
   - Step 4 (fit groups in parallel) to recover the cold-build cost.
   - Step 3.3 (local refit within a group) for single-continent maps, which grouping does not help.
 
+## Route to significant gains (7 November 2026)
+
+The goal is significant: the plan's target is a cold build of about 1 s and edits that feel quick.
+On the 50×50 map, coastal edits now take 1.5–1.8 s to a sharp frame, other edits about 0.3 s (mostly
+paint), and a cold build 2.9 s (§90). Shaving individual functions cannot close that gap: no
+function holds more than 6% of a build (§88). The steps below change how much work is done, and
+each states the gain it has to show.
+
+| Step | What | Expected gain | Status |
+|---|---|---|---|
+| R1 | Place rough-coast features locally: anchor each bay and cape to page position, not to a fraction of its ring's perimeter, and seed it locally | Makes rough coasts local, which R2 needs. No speed gain by itself. Redraws the fine detail of every rough coast once (same character, different bays and capes) | Needs the owner's approval: it visibly changes existing maps |
+| R2 | Windowed coastal edits: find the hexes an edit changed, rebuild the coast on the map masked to those hexes plus 9, with indices and coordinates kept, and splice it into the previous coast at seams where the two agree (§91: smooth coasts agree to under 0.5 px) | Coast part of a coastal edit, now 0.7–0.8 s, falls to about 0.05–0.15 s (window builds of 40–130 ms) | Rule relaxed (§91); after R1 for rough coasts, or now for smooth ones |
+| R3 | Keep the rest of an edit local: revalidate symbols, rebuild land fills and re-place labels only in the window | About 0.3 s of a coastal edit, now spent map-wide | After R2 |
+| R4 | Parallel cold build: fit independent coast groups (§90), and other independent stages, in a worker pool | Cold builds of multi-group maps 20–35% faster, also recovering §90's 6% | Needs the build in the paint worker to become asynchronous |
+| R5 | Measure paint on a GPU-backed browser before working on it | Paint is 0.2–0.27 s of every edit in headless software raster, which may overstate it | Measurement only |
+
+After R1–R3, a coastal edit should take about 0.5–0.65 s (paint about 0.25 s, the rest of the build
+about 0.1 s, the window 0.15–0.3 s): about three times faster than now. A cold build of 1 s is not
+reachable on one core, because the coast alone is 1.7 s of it; R4 is the route, and its gain is
+bounded by the largest coast group.
+
 What remains is the last section, the fit's own cost. Its first step, removing overhead without
 changing any result, is done (DECISIONS §80 and §81), scenes byte-identical. In paired runs each step
 cut the populated cold build by a median of 11% and 16% respectively.

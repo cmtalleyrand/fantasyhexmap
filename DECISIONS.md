@@ -2154,3 +2154,35 @@ grouping into a cold-build gain too.
 
 Samples: `work/perf-compare/2026-11-07T14-16-55-756Z.json` (populated) and
 `work/perf-compare/2026-11-07T14-22-00-833Z.json` (mixed).
+
+## 91. Edits may redraw a coast differently from a fresh build, and how local the coast is
+
+**Owner's decision.** The rule that a scene rebuilt after edits equals an uncached build of the same
+map is relaxed for the coast. An edit may recompute only the coast near it (Group 1, step 3.3), so
+the drawn coast may depend on the map's edit history. The difference from a fresh build must not
+be visible (§76) and must keep the land-share gates. Other cached state (symbols, labels, rivers)
+keeps exact equality until a step says otherwise. `assertRebuildMatchesUncached` stays as it is
+until such a step lands, and that step replaces it, for the coast only, with a visible-change and
+share check.
+
+**How local the coast is** (`npx tsx scripts/coast-locality.ts`, populated map). A window can only
+replace the coast near an edit if the coast there depends only on nearby input. Two tests:
+
+| Test | Smooth irregularity | Default (rough) |
+|---|---|---|
+| Crop one column (renumbers hexes, moves page coordinates), coast more than 4 hexes inside | p50 0.68, p95 4.9, max 10.5 px | p50 2.1, p95 7.1, max 15.7 px |
+| Mask beyond 9 hexes of a coastal hex to Sea (indices and coordinates kept), coast within 1.5 hexes | p95 0.01–0.37, max 0.01–0.43 px | p95 2.0–5.9, max 6.5–8.0 px |
+| The same, margin 6 | p95 0.37–12.1 px | p95 5.6–12.6 px |
+
+Coordinates and hex indices seed the coast's shaping, so any window must keep the map's own (the
+mask test, not the crop). With them kept, smooth coasts are local within 9 hexes: the fit, the
+share passes and the smoothing agree to well under a pixel. Rough coasts are not, because
+`componentCoast` places each bay and cape at a random fraction of the whole ring's perimeter,
+measured from the ring's start, and seeds all of a ring's features from one number, the lowest
+land-hex index on the ring. Change a ring's length anywhere and every feature on it shifts. Today an
+edit moves the far side of a continent by at most about 1 px (§89), but a window of a ring cannot
+reproduce the whole ring's features.
+
+**Cost of a window.** Masked builds of the geography alone took 40–130 ms at a 9-hex margin for
+smooth coasts and 150–430 ms for rough ones, against 790–1,030 ms for the whole map's geography after
+the same edit (single runs, context only).
