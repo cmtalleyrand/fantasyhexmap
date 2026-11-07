@@ -19,6 +19,32 @@ Band-line thinning is adopted after a 30-pair production-worker comparison: medi
 The complete edit-to-sharp-frame result is unresolved (ratio 0.9773, interval 0.9283–1.0392).
 The next improvement is Group 1, step 1 below: replace the repeated global share passes.
 
+**6 November 2026 (DECISIONS §85–§87).**
+- **Fixtures corrected first (§85).** The maps every timing uses were not sensible. `mixed` had no
+  straits or isthmuses. The 50×50 interaction map had invalid mixed hexes, enclosed sea holes,
+  cities on glaciers and rivers over ice and open water. `populated` had the same generator faults.
+  The generator is fixed, `populated-40.json` is regenerated and the tests now guard all three maps.
+  Scene hashes changed; earlier absolute timings and hashes are not comparable.
+- **Step 1.1 withdrawn (§86).** The global passes cannot be replaced by a solve from the trace.
+  Smoothing leaves some coastal hexes with no coast in them, which the fit has no controls to reach.
+  Without the passes the populated map misses 13–15 shares instead of 1.
+- **Step 1.2, clearance reuse, removed (§87).** It was exact, but no faster in wall time, and 3–5%
+  slower in CPU time.
+- **Step 2, flat arrays for the field's samples, not adopted (§88).** Hashes were unchanged, but
+  it was no faster on populated.
+- **Function-level profile (§88).** Garbage collection takes 15.8% of a populated cold build. The
+  two largest functions, the fit's own loops and the per-hex coverage measure, take 5.8% each, and
+  nothing else reaches 5%. Kernel rewrites cannot deliver the 20–35% estimated below.
+- **Steps 3.1 and 3.2 measured (§89).** `node scripts/render-edit-wait.mjs` times ten edits on
+  the 50×50 map. Any edit that changes land or water waits 2.2–2.6 s, 78–91% of a cold build, and
+  the coast is 57–72% of that wait. Other edits take about 0.3–0.4 s, mostly paint. One coastal edit
+  rebuilds 85 of 88 coast components and refits the whole map as one group. 35 untouched coasts up to
+  57 hexes away change by up to 0.0026 px.
+- **Next: the 3.2 fix.** Partition the coast into independent groups. Run the global passes and the
+  fit per group, with other rings held fixed while measuring, and cache each group on its own inputs.
+  Add the test that an edit leaves unconnected groups byte-identical. Step 4 then parallelises the
+  same groups.
+
 What remains is the last section, the fit's own cost. Its first step, removing overhead without
 changing any result, is done (DECISIONS §80 and §81), scenes byte-identical. In paired runs each step
 cut the populated cold build by a median of 11% and 16% respectively.
@@ -147,8 +173,12 @@ untouched, and they are the only route to a faster first picture now that a stan
 | — | Option 1 | Rejected by the owner as a workaround (§78) |
 | 1 | Option 2 at 64 lines (done; §77) | One constant and existing checks, plus the fixes it exposed |
 | 2 | The fit's own cost: overhead with identical results (done; §80, §81) | Free: no picture change |
-| 3 — next | Group 1, step 1.1: an initial constrained solve starting from the trace | Largest likely gain on a cold build |
-| 4 | Group 1, steps 1.2–1.3, then steps 2–4 | Measure each part separately, in rank order |
+| 3 | Group 1, step 1.1: an initial constrained solve starting from the trace | Withdrawn: dry coastal hexes have no controls (§86) |
+| 4 | Group 1, step 1.2: reuse the field across rounds | Clearance reuse exact but not faster; removed (§87) |
+| 5 | Group 1, step 2: typed-array field samples | Hashes unchanged, no gain; not adopted (§88) |
+| 6 | Function-level CPU profile (§88) | No function above 5.8%; garbage collection 15.8% |
+| 7 | Group 1, steps 3.1–3.2 measured (§89) | Land or water edits wait 2.2–2.6 s; whole map refitted |
+| 8 — next | 3.2 fix: per-group passes, fit and cache; then 3.3 and step 4 | Untouched coasts are rebuilt on every land or water edit |
 | Done | Group 2: T1 paired benchmark (§83) and T2 review (§84) | Use these tools and retained optimizations as the baseline for future work |
 
 ## Next task: the initial coast solve
