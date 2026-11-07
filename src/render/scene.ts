@@ -393,7 +393,8 @@ const coastCache = new BoundedMemo<TracedCoast>(4, 20_000_000);
 // each key lists every edge). At 16 MB the last traces evicted the first, so a coast edit reused
 // none of them; at 48 MB it reuses 57 of 85 and builds 12% faster (DECISIONS §90).
 const coastComponents = new BoundedMemo<CoastComponentRecord>(384, 48_000_000);
-const coastFits = new BoundedMemo<Pick<CoastGeometry, 'paths' | 'anchors' | 'detail'>>(8, 12_000_000);
+// Four coast groups make eight entries a build (two fits each); keep a few builds' worth.
+const coastFits = new BoundedMemo<Pick<CoastGeometry, 'paths' | 'anchors' | 'detail'>>(32, 48_000_000);
 const glacierMargins = new BoundedMemo<CoastGeometry>(4, 8_000_000);
 const packIceDrawings = new BoundedMemo<Prim[]>(4, 8_000_000);
 

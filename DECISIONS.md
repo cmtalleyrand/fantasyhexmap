@@ -2086,3 +2086,71 @@ joins still see the whole outline. Cache each group's result on its own inputs. 
 asks for comes with it: an edit leaves unconnected coast groups byte-identical. The same partition
 is step 4's unit of parallel work. Cold-build pictures may move by float-level amounts (CG
 scalars, measurement unions), so it is judged by §76 and the share gates, not by hash.
+
+## 90. Coastal edits reuse what they do not touch: a cache sized to the map, and coasts fitted by group (Group 1, step 3.2 fix)
+
+**Component cache.** One cold build of the populated map stores 17.7 MB of component traces (88
+entries across three traces; each key lists every edge's coordinates). The cache held 16 MB, so the
+last traces evicted the first, and a coastal edit reused none (0 hits of 85). At 384 entries and
+48 MB it reuses 57 of 85. Hits are exact, and scene hashes are unchanged. In Node, six different
+coastal edits in sequence took a median of about 1.65 s before and 1.44 s after.
+
+**Fitting by group.** `coastFitGroups` (in `coastArea.ts`) links rings that occupy cells of half
+of four hex sizes at most two cells apart. Any two points within four hex sizes are linked, which is
+beyond clearance's reach of three, so no group can see another through clearance, crossings or a
+shared hex. Rings up to about twice that apart may also be linked, which only merges groups that
+could have stayed apart. Each target goes to the group of the coast nearest its centre.
+`cachedCoastFit` fits each group with `fitCoastAreas(…, movable)`. The other rings are held
+still: they are measured, but not untangled, moved or returned, and they have no controls. Each
+group is measured only over its own region, which is exact, because an outline whose box misses
+the region crosses each measuring line an even number of times on either side of any clip inside
+it (`areaCoverage`'s new `region`). Each group is cached on its own paths, targets and held-back
+detail. Its key also holds the even-odd parity of the drawn land at one of its points (one ray cast)
+and, for any drawn ring it shares with other groups' open coasts, where those coasts meet the page
+edge. A map with one group (mixed) takes the old path and is byte-identical.
+
+**Reach after an edit.** On populated (4 groups), a coastal edit refits one group, measuring 978
+hexes against 2,551 before. Every coast in the other groups is redrawn byte for byte
+(`test/slow/coastGroups.test.ts`, which checks 86 coasts). An edit on the page edge also refits the
+group whose page-rim joins it changes, as the key intends. The fit cache now holds 32 entries and
+48 MB, since four groups make eight entries per build.
+
+**Cold-build pictures.** Grouping changes how a multi-group map is fitted: the conjugate-gradient
+scalars and the stopping tests are now per group. On populated's cold build, coastline points move
+by at most 0.45 px at 1× (0.017 hex), with a 99th percentile of 0.07 px and a median of 0.0015 px.
+`perf:coast` finds no visible change at fit, 1× and 4×, at 1× and 2× pixel ratio, through both
+compositors (up to 11,978 changed pixels, all below §76's threshold). The land-share misses are the
+same (hex 1532 only). All 33 gallery maps and mixed are byte-identical. `test:drawing-sweeps`
+passes with no failures. Node, slow and pixel suites pass.
+
+**Measured.** `npm run perf:edit-wait`, medians of 3 fresh-worker runs, ms to the sharp frame:
+
+| Edit | Before (§89) | Cache fix | Grouped fit |
+|---|---:|---:|---:|
+| coast: land to sea | 2,387 | 2,074 | 1,755 |
+| coast: sea to land | 2,362 | 2,007 | 1,503 |
+| coast: land share 60% | 2,585 | 1,966 | 1,568 |
+| inland: land to lake | 2,203 | 1,668 | 1,536 |
+| cold build | 2,839 | 2,778 | 2,937 |
+
+The §89 column was taken a session earlier and is indicative only. The last two columns were taken
+in one session. Coastal edits on the 50×50 map are 26–36% faster than at the start of this work.
+
+**Cost on cold builds.** 40 paired cold builds against the cache-fix commit `8111bca`:
+
+| Map | Wall median | 95% interval | CPU median | 95% interval |
+|---|---:|---|---:|---|
+| populated (4 groups) | 1.0594 | 1.0221–1.0903 | 1.1433 | 1.1111–1.1778 |
+| mixed (1 group) | 1.0162 | 0.9980–1.0372 | 1.0255 | 1.0126–1.0571 |
+
+A multi-group cold build is about 6% slower. Four group fits run 1,678 solver iterations against
+480 for one whole-map fit: each group converges in about as many iterations as the whole map did.
+The wrapper adds about 70 ms per build (grouping 29 ms, sorting detail into groups 20 ms, keys
+15 ms). Two earlier versions were slower still and were improved before this measurement: 16%
+(the wrapper repeated whole-map work per group) and then 6% wall with 9% on mixed (distance tests
+in the grouping). The trade is accepted: a coastal edit, which the owner waits for repeatedly,
+gains far more than a cold build loses. Fitting the groups in parallel (step 4) is the way to turn
+grouping into a cold-build gain too.
+
+Samples: `work/perf-compare/2026-11-07T14-16-55-756Z.json` (populated) and
+`work/perf-compare/2026-11-07T14-22-00-833Z.json` (mixed).

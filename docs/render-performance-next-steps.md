@@ -40,10 +40,18 @@ The next improvement is Group 1, step 1 below: replace the repeated global share
   the coast is 57–72% of that wait. Other edits take about 0.3–0.4 s, mostly paint. One coastal edit
   rebuilds 85 of 88 coast components and refits the whole map as one group. 35 untouched coasts up to
   57 hexes away change by up to 0.0026 px.
-- **Next: the 3.2 fix.** Partition the coast into independent groups. Run the global passes and the
-  fit per group, with other rings held fixed while measuring, and cache each group on its own inputs.
-  Add the test that an edit leaves unconnected groups byte-identical. Step 4 then parallelises the
-  same groups.
+- **3.2 fixed (§90).** The coast component cache was too small to hold one map's traces, so edits
+  reused none; it is resized. Coasts are now fitted and cached per independent group. Coastal edits
+  on the 50×50 map are 26–36% faster (for example 2.39 → 1.76 s and 2.36 → 1.50 s), and other groups
+  are left byte-identical, which a slow test checks. Cold builds of multi-group maps are about 6%
+  slower.
+- **Next:**
+  - In a coastal edit, after the fit: the global share passes (about 200 ms; they measure every hex
+    each pass), symbol revalidation (about 150 ms; all symbols are revalidated after any land change)
+    and island drawings (all 67 rebuilt; keyed on a whole-map land revision). Each can be made to
+    follow only the groups or hexes an edit touches.
+  - Step 4 (fit groups in parallel) to recover the cold-build cost.
+  - Step 3.3 (local refit within a group) for single-continent maps, which grouping does not help.
 
 What remains is the last section, the fit's own cost. Its first step, removing overhead without
 changing any result, is done (DECISIONS §80 and §81), scenes byte-identical. In paired runs each step
@@ -178,7 +186,8 @@ untouched, and they are the only route to a faster first picture now that a stan
 | 5 | Group 1, step 2: typed-array field samples | Hashes unchanged, no gain; not adopted (§88) |
 | 6 | Function-level CPU profile (§88) | No function above 5.8%; garbage collection 15.8% |
 | 7 | Group 1, steps 3.1–3.2 measured (§89) | Land or water edits wait 2.2–2.6 s; whole map refitted |
-| 8 — next | 3.2 fix: per-group passes, fit and cache; then 3.3 and step 4 | Untouched coasts are rebuilt on every land or water edit |
+| 8 | 3.2 fix: component cache sized, fit per group (§90) | Coastal edits 26–36% faster; multi-group cold builds about 6% slower |
+| 9 — next | Per-group passes, symbols and islands in edits; step 4; step 3.3 | The remaining edit costs, the cold cost, single-continent maps |
 | Done | Group 2: T1 paired benchmark (§83) and T2 review (§84) | Use these tools and retained optimizations as the baseline for future work |
 
 ## Next task: the initial coast solve
