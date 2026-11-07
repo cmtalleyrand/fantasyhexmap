@@ -94,7 +94,9 @@ export function fitCoastAreas(geometry: CoastGeometry, targets: ReadonlyMap<numb
   /** Fit only these rings (one independent group; see `coastFitGroups`), holding the rest still.
    * The others are measured as they are, so even-odd fill and page-rim joins see the whole
    * outline, but are not repaired, moved or returned: only these rings' paths and detail are. */
-  movable?: ReadonlySet<number>): CoastGeometry {
+  movable?: ReadonlySet<number>,
+  /** `pathPolylines(path, 8)[0]` of each path, when the caller has them; never modified. */
+  polylines?: Point[][]): CoastGeometry {
   if (!geometry.component || (!targets.size && !movable)) return geometry;
   const moves = (k: number) => !movable || movable.has(k);
   const phase = profilePhases('fit');
@@ -126,7 +128,7 @@ export function fitCoastAreas(geometry: CoastGeometry, targets: ReadonlyMap<numb
   // each repair checks the rings already repaired.
   let current: Point[][] = [];
   geometry.paths.forEach((d, k) => {
-    const ring = pathPolylines(d, 8)[0] ?? [];
+    const ring = polylines?.[k] ?? pathPolylines(d, 8)[0] ?? [];
     if (ring.length < 4 || !moves(k)) { current.push(ring); return; }
     const { ring: untangled, joins } = untangle(ring, closed[k]!);
     current.push(roundLoopJoins(untangled, closed[k]!, joins, size * .32, p => passageFade(p) >= 1, current));
@@ -628,12 +630,20 @@ const GROUP_GAP = 4;
 export function coastFitGroups(geometry: CoastGeometry, targets: ReadonlyMap<number, { share: number; width?: number }>,
   cols: number, size: number, polylines?: Point[][]): Array<{ rings: number[]; targets: Map<number, { share: number; width?: number }> }> {
   const rings = polylines ?? geometry.paths.map(d => pathPolylines(d, 8)[0] ?? []);
-  const gap = GROUP_GAP * size, cell = gap;
-  const grid = new Map<number, Map<number, Point[]>>();
+  // Rings are linked when they occupy cells of half the gap at most two cells apart: any two
+  // points within the gap are, so no near pair is split, and no distances need measuring. Rings
+  // up to about twice the gap apart may be linked too, which only joins groups that could have
+  // been fitted apart.
+  const gap = GROUP_GAP * size, cell = gap / 2;
   // Cells are offset so a page margin's negative coordinates still pack into one number.
   const cellKey = (x: number, y: number) => (x + 1024) * 65536 + (y + 1024);
+  const occupied = new Map<number, Set<number>>();
+  const grid = new Map<number, Map<number, Point[]>>();
   rings.forEach((ring, k) => ring.forEach(p => {
     const key = cellKey(Math.floor(p.x / cell), Math.floor(p.y / cell));
+    let set = occupied.get(key);
+    if (!set) { set = new Set(); occupied.set(key, set); }
+    set.add(k);
     let bin = grid.get(key);
     if (!bin) { bin = new Map(); grid.set(key, bin); }
     const list = bin.get(k);
@@ -641,21 +651,14 @@ export function coastFitGroups(geometry: CoastGeometry, targets: ReadonlyMap<num
   }));
   const parent = rings.map((_, k) => k);
   const find = (k: number): number => { while (parent[k] !== k) { parent[k] = parent[parent[k]!]!; k = parent[k]!; } return k; };
-  // Two points within the gap lie in the same or neighbouring cells; compare only points of
-  // different rings not yet in one group, and stop at the first pair near enough.
-  const near = (a: Point[], b: Point[]) => {
-    for (const p of a) for (const q of b) if (Math.hypot(p.x - q.x, p.y - q.y) < gap) return true;
-    return false;
-  };
-  for (const [key, bin] of grid) {
+  const join = (k: number, m: number) => { const a = find(k), b = find(m); if (a !== b) parent[b] = a; };
+  for (const [key, set] of occupied) {
     const cx = Math.floor(key / 65536) - 1024, cy = key % 65536 - 1024;
-    for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) {
-      const other = grid.get(cellKey(cx + dx, cy + dy));
-      if (!other) continue;
-      for (const [k, a] of bin) for (const [m, b] of other) {
-        if (k === m || find(k) === find(m)) continue;
-        if (near(a, b)) parent[find(m)] = find(k);
-      }
+    const first = set.values().next().value!;
+    for (const k of set) join(first, k);
+    for (let dx = -2; dx <= 2; dx++) for (let dy = -2; dy <= 2; dy++) {
+      const other = occupied.get(cellKey(cx + dx, cy + dy));
+      if (other) for (const m of other) join(first, m);
     }
   }
   const order = new Map<number, number>();

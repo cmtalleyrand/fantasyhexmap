@@ -434,7 +434,7 @@ function cachedCoastFit(geometry: CoastGeometry, targets: ReadonlyMap<number, { 
     const hit = coastFits.get(key);
     if (hit) { profileCount('coast.fitGroupHits'); return { ...geometry, ...hit }; }
     profileCount('coast.fitGroupBuilds');
-    const fitted = fitCoastAreas(geometry, targets, cols, rows, size, page, ink, passages, rounds, repairEdges);
+    const fitted = fitCoastAreas(geometry, targets, cols, rows, size, page, ink, passages, rounds, repairEdges, undefined, polylines);
     coastFits.set(key, { paths: fitted.paths, anchors: fitted.anchors, detail: fitted.detail },
       fitted.paths.reduce((n, path) => n + path.length * 48, 0) + fitted.anchors.size * 64 + (fitted.detail?.size ?? 0) * 64);
     return fitted;
@@ -477,7 +477,7 @@ function cachedCoastFit(geometry: CoastGeometry, targets: ReadonlyMap<number, { 
     if (fit) profileCount('coast.fitGroupHits');
     else {
       profileCount('coast.fitGroupBuilds');
-      const fitted = fitCoastAreas(geometry, group.targets, cols, rows, size, page, ink, passages, rounds, repairEdges, members);
+      const fitted = fitCoastAreas(geometry, group.targets, cols, rows, size, page, ink, passages, rounds, repairEdges, members, polylines);
       fit = { paths: group.rings.map(k => fitted.paths[k]!), anchors: new Map(), detail: fitted.detail };
       coastFits.set(key, fit, fit.paths.reduce((s, path) => s + path.length * 48, 0) + (fit.detail?.size ?? 0) * 64);
     }
