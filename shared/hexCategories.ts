@@ -26,7 +26,10 @@ export function adjacentHexes(base: ReadonlyArray<BaseGeo | null | undefined>, c
   }
   return out;
 }
-/** Count groups around the six sides; missing neighbours are neither land nor water. */
+/**
+ * Count groups around the six sides; missing neighbours are neither land nor water. A passage
+ * (strait or isthmus) needs exactly two of each: three of either is not one passage.
+ */
 export function passageNeighbours(base: ReadonlyArray<BaseGeo | null | undefined>, cols: number, index: number) {
   const ring = Array.from({ length: 6 }, (_, side) => {
     const n = neighbourOf(index % cols, Math.floor(index / cols), side);
@@ -37,7 +40,7 @@ export function passageNeighbours(base: ReadonlyArray<BaseGeo | null | undefined
   const land = ring.filter(isCategoryLand).length, water = ring.filter(isCategoryWater).length;
   const landGroups = groups(isCategoryLand), waterGroups = groups(isCategoryWater);
   return { land, water, landGroups, waterGroups,
-    valid: land >= 2 && water >= 2 && water <= 4 && landGroups >= 2 && waterGroups >= 2 };
+    valid: landGroups === 2 && waterGroups === 2 };
 }
 /** Land that islands need at the least: 2.5% for each small island, 5% for each large one. */
 export function islandMinimum(spec?: IslandSpec): number {

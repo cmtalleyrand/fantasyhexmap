@@ -938,7 +938,7 @@ test('an isthmus or strait of any width stays joined to the land it runs between
         drawn++;
       }
     }
-    assert.equal(drawn, 128, `${type}: all thirty-two separated neighbour patterns at four widths`);
+    assert.equal(drawn, 120, `${type}: all thirty patterns of two land and two water groups at four widths`);
   }
 });
 

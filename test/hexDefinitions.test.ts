@@ -68,13 +68,14 @@ test('every plain water subtype has no detached land and at least 5% beside whol
     }
   }
 });
-test('passages require separated land and water groups, across all 64 neighbour patterns', () => {
+test('passages require exactly two land groups and two water groups, across all 64 neighbour patterns', () => {
   for (const type of ['Isthmus', 'Strait'] as const) for (let mask = 0; mask < 64; mask++) {
     const map = mapWith(type), base = map.layers.base.data!;
     adjacentHexes(base, 7, 24).forEach((j, side) => { base[j] = mask & (1 << side) ? 'Land' : 'Sea'; });
     const bits = Array.from({ length: 6 }, (_, side) => !!(mask & (1 << side)));
     const transitions = bits.filter((v, side) => v !== bits[(side + 5) % 6]).length;
-    assert.equal(validateHexDefinitions(map).length === 0, transitions >= 4, `${type}: mask ${mask}`);
+    // Four changes round the ring are two groups of each; six (land and water alternating) are three of each, not one passage.
+    assert.equal(validateHexDefinitions(map).length === 0, transitions === 4, `${type}: mask ${mask}`);
   }
 });
 test('passages may reach a map edge when the required land and water neighbours exist', () => {

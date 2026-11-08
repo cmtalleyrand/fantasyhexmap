@@ -15,7 +15,7 @@ export function validateHexDefinitions(map: MapState): string[] {
     const water = adjacent.filter(j => isCategoryWater(base[j]));
     const problems: string[] = [];
     if ((value === 'Strait' || value === 'Isthmus') && !passageNeighbours(base, map.cols, i).valid)
-      problems.push('requires at least two separate land groups and two separate water groups (2–4 water neighbours)');
+      problems.push('requires exactly two separate land groups and two separate water groups (2–4 water neighbours)');
     if (value === 'Mainland and islands' && (!land.length || !water.length))
       problems.push('requires a land and a water neighbour');
     if (value === 'Islands' && land.some(j => share(j) >= 100))
