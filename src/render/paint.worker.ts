@@ -2,9 +2,10 @@ import { drawScene } from './canvas.js';
 import { loadLettering } from './fontFiles.js';
 import { MAP_COLOURS } from './palette.js';
 import type { PaintReply, PaintRequest } from './paintProtocol.js';
-import { buildStaticScene, type Scene } from './scene.js';
+import { buildStaticScene, prepareCoast, type Scene } from './scene.js';
+import { FitPool, runFitsShared } from './coastPool.js';
 import { SceneInputs } from './sceneInputs.js';
-import { beginRenderProfile, endRenderProfile, profileCount, profileTime, type RenderProfile } from './profile.js';
+import { beginRenderProfile, endRenderProfile, profileCount, profileSection, profileTime, type RenderProfile } from './profile.js';
 
 const host = globalThis as unknown as {
   onmessage: (event: MessageEvent<PaintRequest>) => void;
@@ -15,20 +16,49 @@ let current: Entry | null = null;
 /** Overview resolution and the rows rasterized between yields. */
 const OVERVIEW_PIXELS = 4_000_000, OVERVIEW_BAND_PIXELS = 1_000_000;
 const inputs = new SceneInputs();
+/** Where the fit worker is served when the bundle cannot say (a test page sends it); empty for none. */
+let fitWorkerUrl: string | undefined;
+/** Helpers that fit independent coast groups while this worker fits the largest (DECISIONS §97). */
+let helpers = Math.max(0, Math.min(3, (globalThis.navigator?.hardwareConcurrency ?? 2) - 1));
+const makePool = () => new FitPool(() => fitWorkerUrl !== undefined ? fitWorkerUrl ? new Worker(fitWorkerUrl) : null
+  : new Worker(new URL('./fit.worker.ts', import.meta.url), { type: 'module' }), helpers);
+let pool = makePool();
+// Made at once, so the helpers have started before the first build is busy (see `FitPool.warm`).
+pool.warm();
+/** Builds run one at a time: one waiting on its fits must not interleave with the next. */
+let building: Promise<void> = Promise.resolve();
 
 host.onmessage = async ({ data }) => {
   if (data.type === 'scene') {
     current = { version: data.version, scene: data.scene, fonts: loadLettering(data.lettering), overview: false };
     return;
   }
+  if (data.type === 'configure') {
+    fitWorkerUrl = data.fitWorker;
+    if (data.helpers !== undefined) helpers = data.helpers;
+    pool = makePool();
+    pool.warm();
+    return;
+  }
   if (data.type === 'build') {
+    const previous = building;
+    let release!: () => void;
+    building = new Promise(resolve => { release = resolve; });
+    await previous;
     try {
       const start = performance.now();
       await loadLettering(data.options.style?.knobs.lettering ?? 'classic');
       if (data.profile) beginRenderProfile();
       const map = profileTime('worker.retain', () => inputs.retain(data.map));
       // The editor's worker refits only the coast near each edit (DECISIONS §94).
-      const scene = buildStaticScene(map, { ...data.options, incrementalCoast: data.options.incrementalCoast ?? true });
+      const options = { ...data.options, incrementalCoast: data.options.incrementalCoast ?? true };
+      // The coast first, its independent fits run at once; the build then finds it cached.
+      pool.warm();
+      await pool.ready(3000);
+      const endCoast = profileSection('worker.coast');
+      await prepareCoast(map, options, jobs => runFitsShared(pool, jobs));
+      endCoast();
+      const scene = buildStaticScene(map, options);
       current = { version: data.version, scene, fonts: Promise.resolve(), overview: false };
       const { prims: _prims, ...metadata } = scene;
       host.postMessage({ version: data.version, id: data.id, metadata, timings: { buildMs: performance.now() - start },
@@ -36,6 +66,8 @@ host.onmessage = async ({ data }) => {
     } catch (error) {
       if (data.profile) endRenderProfile();
       host.postMessage({ version: data.version, id: data.id, error: String(error) }, []);
+    } finally {
+      release();
     }
     return;
   }
