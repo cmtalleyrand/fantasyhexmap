@@ -26,6 +26,21 @@ const segmentDistance = (p: Point, a: Point, b: Point) => {
 export function lakeShoreFields(original: PathCmd[], passages: LakeShorePassage[], size: number): PathCmd[] {
   let path = original;
   for (const spec of passages) {
+    const result = passageContour(path, spec, size);
+    const changed: PathCmd[] = result.flatMap(r => [...r.map((p, k): PathCmd => [k ? 'L' : 'M', p.x, p.y]), ['Z'] as PathCmd]);
+    path = localLakeShore(path, changed, [spec.centre], size);
+  }
+  return path;
+}
+
+/**
+ * The shore round one passage: two rounded headland tips a throat `spec.width` apart, the flanks
+ * receding rapidly from them, blended into the signed distance field of `path` (whose inside, by
+ * even-odd, is the kind that passes through: a strait's water, an isthmus's land) and fading back to
+ * it by half a hex beyond the passage's own. Closed rings round that inside, local to the passage.
+ */
+export function passageContour(path: PathCmd[], spec: LakeShorePassage, size: number): Point[][] {
+  {
     const rings = pathPolylines(path, 12), water = evenOddTest(rings, size / 8), cell = size / 4, reach = size * .7;
     const buckets = new Map<string, Array<[Point, Point]>>();
     for (const ring of rings)
@@ -191,8 +206,6 @@ export function lakeShoreFields(original: PathCmd[], passages: LakeShorePassage[
           high = at;
       }
     }
-    const changed: PathCmd[] = result.flatMap(r => [...r.map((p, k): PathCmd => [k ? 'L' : 'M', p.x, p.y]), ['Z'] as PathCmd]);
-    path = localLakeShore(path, changed, [spec.centre], size);
+    return result;
   }
-  return path;
 }
