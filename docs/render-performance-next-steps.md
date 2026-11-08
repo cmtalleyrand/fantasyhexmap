@@ -65,7 +65,7 @@ each states the gain it has to show.
 |---|---|---|---|
 | R1 | Local rough-coast features | Not needed by R2 | Built and withdrawn (§92); its fold fix for whole-island coasts kept |
 | R2 | Local refit after a coastal edit: the previous fit kept outside windows round what changed, the windows refitted alone (§94; the first form, freezing points, reverted in §93) | The fit, 0.2–0.35 s of a coastal edit in Node and about 0.4–0.5 s in the browser, falls to the window's share | Done (§94): fit 130–220 ms less an edit in the browser, coastal edits 6–22% faster, far coast no longer redrawn |
-| R3 | Keep the rest of an edit local: revalidate symbols, rebuild land fills and re-place labels only in the window | About 0.3 s of a coastal edit, now spent map-wide | After R2 |
+| R3 | Keep the rest of an edit local: revalidate symbols, rebuild land fills and re-place labels only in the window | About 0.3 s of a coastal edit, now spent map-wide | First part done (§95): share passes, islet drawings and symbol checks local; coastal edits 25–38% faster than before R2 |
 | R4 | Parallel cold build: fit independent coast groups (§90), and other independent stages, in a worker pool | Cold builds of multi-group maps 20–35% faster, also recovering §90's 6% | Needs the build in the paint worker to become asynchronous |
 | R5 | Measure paint on a GPU-backed browser before working on it | Paint is 0.2–0.27 s of every edit in headless software raster, which may overstate it | Measurement only |
 

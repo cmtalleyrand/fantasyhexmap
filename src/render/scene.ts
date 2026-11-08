@@ -405,7 +405,11 @@ const packIceDrawings = new BoundedMemo<Prim[]>(4, 8_000_000);
 
 /** The sea predicate can be reused with a traced coast; symbol fitting has a separate land dependency below. */
 let symbolFits = new WeakMap<object, { dry: ((p: Point) => boolean) | null }>();
-interface SymbolFitRecord { revisions: Array<{ id: number }>; fit: Fitted; probes: Array<{ at: Point; land: boolean }> }
+interface SymbolFitRecord {
+  revisions: Array<{ id: number }>; fit: Fitted; probes: Array<{ at: Point; land: boolean }>;
+  /** The land near the hex when the fit was last checked (see `landNear`), if every probe lay near it. */
+  land?: string;
+}
 const symbolPlacements = new BoundedMemo<SymbolFitRecord>(10000, 16_000_000);
 const terrainRevisions = new BoundedMemo<{ id: number }>(4, 1_000_000);
 let terrainRevisionNumber = 0;
@@ -428,6 +432,9 @@ function prepareSceneCacheScope(map: MapState, size: number): void {
 
 /** The numerical solve and its stopping tests couple all fitting rings. Its exact
  * inputs form one dependency group; changing one input rebuilds that group. */
+/** For each coast an incremental build has made, each hex's target (with what it is to show)
+ * and the share the share passes settled on for it (DECISIONS §95). */
+const sharePassRecords = new Map<string, { signatures: Map<number, string>; shares: Map<number, number> }>();
 /** The last few fits of each kind, for an incremental build's windows (DECISIONS §94). */
 const coastFitRecords = new Map<string, CoastFitRecord[]>();
 
@@ -590,6 +597,17 @@ const ISLE_IRREGULARITY: Record<Irregularity, { wobble: number; extraPoints: num
 };
 
 const COAST_AMPLITUDE: Record<Irregularity, number> = { Smooth: 0, Wavy: 0.06, Ragged: 0.12, Fractured: 0.2 };
+
+/** Two 32-bit FNV-1a hashes of the exact bits of `values`, as one string. */
+function hashNumbers(values: number[]): string {
+  const bytes = new Uint8Array(Float64Array.from(values).buffer);
+  let a = 0x811c9dc5, b = 0x01000193 ^ 0x5bd1e995;
+  for (let k = 0; k < bytes.length; k++) {
+    a = Math.imul(a ^ bytes[k]!, 0x01000193);
+    b = Math.imul(b ^ bytes[k]!, 0x5bd1e995) ^ (b >>> 15);
+  }
+  return `${(a >>> 0).toString(36)}${(b >>> 0).toString(36)}`;
+}
 
 /** Content snapshots also make shape edits safe across worker cloning and undo. */
 function shapesSignature(shapes: Record<string, HexShape> | undefined): string { return JSON.stringify(shapes) ?? ''; }
@@ -791,13 +809,34 @@ function cachedCoast(
     }
     return { shaped, geometry };
   };
-  let { shaped, geometry } = trace(targets);
+  // An incremental build starts every hex away from what changed at the share the last build of
+  // this coast settled on, and measures and moves only the hexes near the change: the rest of the
+  // coast is then traced as before, from the component cache, and the change cannot spread
+  // through the passes' map-wide choices (DECISIONS §95).
+  const passKey = incremental ? JSON.stringify([incremental, cols, rows, size, smooth, inkReach, seed]) : '';
+  const last = incremental ? sharePassRecords.get(passKey) : undefined;
+  const signatures = incremental ? new Map([...targets].map(([i, t]) => [i, JSON.stringify([t, wanted.get(i)])])) : undefined;
+  let near: Set<number> | null = null;
+  let start: Map<number, ShapeTarget> = targets;
+  if (last && signatures) {
+    const differ = [...last.signatures.keys()].filter(i => !signatures.has(i));
+    for (const [i, sign] of signatures) if (last.signatures.get(i) !== sign) differ.push(i);
+    near = new Set(differ);
+    for (let ring = 0; ring < 2; ring++) for (const i of [...near]) for (let side = 0; side < 6; side++) {
+      const n = neighbourOf(i % cols, Math.floor(i / cols), side);
+      if (inBounds(cols, rows, n.col, n.row)) near.add(hexIndex(cols, n.col, n.row));
+    }
+    start = new Map([...targets].map(([i, t]) => [i, near!.has(i) || !last.shares.has(i) ? t : { ...t, share: last.shares.get(i)! }]));
+    profileCount('coast.passHexesNear', [...targets.keys()].filter(i => near!.has(i)).length);
+  }
+  const moving = (i: number) => !near || near.has(i);
+  let { shaped, geometry } = trace(start);
   // Fit the final outline and stroke, not requested area plus signed correction
   // patches. Patches can overlap/fold, and a width-constrained shape may never
   // have achieved its requested intermediate area in the first place.
   const hexArea = 1.5 * Math.sqrt(3) * size * size;
   const page = gridPixelSize(cols, rows, size);
-  let aimed = targets;
+  let aimed = start;
   const brackets = new Map([...targets.keys()].map(i => [i, { low: 0, high: 1 }]));
   const previous = new Map<number, { was: number; shows: number }>();
   let best: { shaped: typeof shaped; geometry: typeof geometry; miss: number; shares: Map<number, ShapeTarget> } | null = null;
@@ -823,6 +862,10 @@ function cachedCoast(
       // A neck or channel with no share set is drawn as it is; with one, its fill is found like any other cut.
       if (target.width !== undefined && !target.fit) {
         next.set(i, target);
+        continue;
+      }
+      if (!moving(i)) {
+        next.set(i, aimed.get(i)!);
         continue;
       }
       const was = aimed.get(i)!.share;
@@ -861,7 +904,7 @@ function cachedCoast(
   // fit keeps passages still (their shape outranks their share), so a passage's share is
   // found here, by re-cutting its banks, whose joins follow them.
   for (const [i, target] of targets) {
-    if (!target.fit) continue;
+    if (!target.fit || !moving(i)) continue;
     const clip = hexCorners(i % cols, Math.floor(i / cols), size);
     const shownAt = (g: CoastGeometry) => areaCoverage(pathPolylines(drawnLand(g, page.width, page.height, size), 8), {
       evenOdd: true, stroke: { rings: g.paths.flatMap(d => pathPolylines(d, 8)), reach: inkReach },
@@ -898,6 +941,11 @@ function cachedCoast(
     }
     ({ shaped, geometry } = selected);
     aimed.set(i, { ...target, share: selected.share });
+  }
+  if (incremental && signatures) {
+    sharePassRecords.delete(passKey);
+    sharePassRecords.set(passKey, { signatures, shares: new Map([...aimed].map(([i, t]) => [i, t.share])) });
+    if (sharePassRecords.size > 8) sharePassRecords.delete(sharePassRecords.keys().next().value!);
   }
   coastPhase('coupledFit');
   const fitTargets = new Map([...targets].flatMap(([i, target]) =>
@@ -1241,12 +1289,21 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
     centre: Point,
     onLand: (p: Point) => boolean,
     inHex: (p: Point) => boolean,
+    /** The hex, and whether `onLand` also sees islands and lake water: lets an unchanged fit be
+     * known by the land near the hex alone, not by replaying its probes. */
+    near?: { hex: number; full: boolean },
   ): Fitted => {
     const cacheKey = `${seed}/${cols}/${rows}/${size}/${key}`;
     const known = symbolPlacements.get(cacheKey);
-    if (known && (known.revisions.includes(symbolLandRevision) || known.probes.every(p => onLand(p.at) === p.land))) {
+    // The land near the hex is only looked at when the fit must be checked again or is new.
+    const land = near && !known?.revisions.includes(symbolLandRevision) ? landNear(near.hex, near.full) : undefined;
+    const same = known !== undefined && !known.revisions.includes(symbolLandRevision) && land !== undefined && known.land === land;
+    if (same) profileCount('symbols.landHits');
+    if (known && (known.revisions.includes(symbolLandRevision) || same || known.probes.every(p => onLand(p.at) === p.land))) {
+      if (land !== undefined && known.land === undefined && near && known.probes.every(p => inLandRegion(near.hex, p.at))) known.land = land;
+      else if (land !== undefined && known.land !== undefined) known.land = land;
       if (!known.revisions.includes(symbolLandRevision)) {
-        profileCount('symbols.revalidatedFits');
+        if (!same) profileCount('symbols.revalidatedFits');
         // Retain exact validation for the same four content revisions as terrainRevisions.
         // Undo/redo need not replay every failed candidate in an unchanged fit again.
         known.revisions.push(symbolLandRevision);
@@ -1264,9 +1321,82 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
       return land;
     }, inHex);
     const fit = { ...fitted, placed: [] };
-    symbolPlacements.set(cacheKey, { revisions: [symbolLandRevision], fit, probes }, probes.length * 48 + 192);
+    symbolPlacements.set(cacheKey, { revisions: [symbolLandRevision], fit, probes,
+      land: near && probes.every(p => inLandRegion(near.hex, p.at)) ? land : undefined }, probes.length * 48 + 192);
     return fitted;
   };
+  /** The box within half a hex of hex `i`: what `landNear` describes. */
+  const landRegionOf = (i: number) => {
+    const c = hexCenter(i % cols, Math.floor(i / cols), size), w = size * (Math.sqrt(3) / 2 + 0.5), h = size * 1.5;
+    return { x0: c.x - w, x1: c.x + w, y0: c.y - h, y1: c.y + h, c };
+  };
+  const inLandRegion = (i: number, p: Point) => {
+    const r = landRegionOf(i);
+    return p.x >= r.x0 && p.x <= r.x1 && p.y >= r.y0 && p.y <= r.y1;
+  };
+  // The drawn shores the land tests see (the sea coast; with `full`, lake shores too), in a grid
+  // of hex-sized cells.
+  const shoreIndexes = new Map<boolean, { lines: Point[][]; grid: Map<number, number[]> }>();
+  const shoreIndex = (full: boolean) => {
+    let index = shoreIndexes.get(full);
+    if (index) return index;
+    const lines = [...pathPolylines(drawnCoastLand(), 6), ...(full ? lakeDraws.flatMap(d => pathPolylines(d, 12)) : [])];
+    const grid = new Map<number, number[]>();
+    lines.forEach((ring, r) => {
+      for (let k = 0; k < ring.length; k++) {
+        const a = ring[k]!, b = ring[(k + 1) % ring.length]!;
+        for (let x = Math.floor(Math.min(a.x, b.x) / size); x <= Math.floor(Math.max(a.x, b.x) / size); x++)
+          for (let y = Math.floor(Math.min(a.y, b.y) / size); y <= Math.floor(Math.max(a.y, b.y) / size); y++) {
+            const key = (x + 4096) * 8192 + (y + 4096), list = grid.get(key);
+            if (list) list.push(r, k); else grid.set(key, [r, k]);
+          }
+      }
+    });
+    index = { lines, grid };
+    shoreIndexes.set(full, index);
+    return index;
+  };
+  /**
+   * What decides land as drawn within half a hex of hex `i`, as one string: every segment of the
+   * sea coast and lake shores there, exactly; whether the hex's centre is on land; and the kind,
+   * lake, split and island drawing of each hex near enough to matter (`full`: islands and lake water
+   * too, as `landAt` sees them). Even-odd land is decided within the box by these alone, so a
+   * symbol fit whose probes all lie in it holds while they are unchanged (DECISIONS §95).
+   */
+  const landNearMemo = new Map<string, string | undefined>();
+  const landNear = (i: number, full: boolean): string | undefined => {
+    const memoKey = `${i}/${full}`;
+    if (landNearMemo.has(memoKey)) return landNearMemo.get(memoKey);
+    let result: string | undefined;
+    if (base && seaCoastLand && traced && traced.geometry.paths.length > 0) {
+      {
+        const { lines: shoreLines, grid: shoreGrid } = shoreIndex(full);
+        const box = landRegionOf(i), found = new Set<number>(), parts: number[] = [];
+        for (let x = Math.floor(box.x0 / size); x <= Math.floor(box.x1 / size); x++) for (let y = Math.floor(box.y0 / size); y <= Math.floor(box.y1 / size); y++) {
+          const list = shoreGrid.get((x + 4096) * 8192 + (y + 4096));
+          if (list) for (let n = 0; n < list.length; n += 2) found.add(list[n]! * 1048576 + list[n + 1]!);
+        }
+        for (const id of [...found].sort((a, b) => a - b)) {
+          const ring = shoreLines[Math.floor(id / 1048576)]!, k = id % 1048576, a = ring[k]!, b = ring[(k + 1) % ring.length]!;
+          if (Math.max(a.x, b.x) < box.x0 || Math.min(a.x, b.x) > box.x1 || Math.max(a.y, b.y) < box.y0 || Math.min(a.y, b.y) > box.y1) continue;
+          parts.push(a.x, a.y, b.x, b.y);
+        }
+        const hexes: string[] = [];
+        const at = pixelToOffset(box.c.x, box.c.y, size);
+        for (let dr = -2; dr <= 2; dr++) for (let dc = -2; dc <= 2; dc++) {
+          const col = at.col + dc, row = at.row + dr;
+          if (!inBounds(cols, rows, col, row)) continue;
+          const j = hexIndex(cols, col, row), split = Boolean(terrain?.split.has(j));
+          const isle = full && isIslandType(base[j]) && !split ? islandDrawingKey(j) : '';
+          hexes.push(`${j}:${base[j]}:${inLakeBody.has(j)}:${lakeIslands.has(j)}:${split}:${isle}`);
+        }
+        result = `${hashNumbers(parts)}|${parts.length}|${seaCoastLand(box.c)}|${full ? `${inLakeWater(box.c)}${isleAt(box.c)}` : ''}|${hexes.join(',')}`;
+      }
+    }
+    landNearMemo.set(memoKey, result);
+    return result;
+  };
+  let islandDrawingKey: (i: number) => string = () => '';
   /** Records a hex whose symbols (`what`, such as "hills symbols") were drawn smaller than asked, or left out. */
   const noteFit = (i: number, what: string, fitted: Fitted) => {
     const smallest = Math.round(Math.min(...FIT_SCALES) * 100);
@@ -1595,7 +1725,7 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
             return at.col === col && at.row === row;
           };
           const draw = (at: Point, s: number): Placed[] => [{ y: at.y, prims: elevationMarks(at, s, elevation) }];
-          const fitted = fitSymbols(`marks/${i}/${elevation}`, draw, hexCenter(col, row, size), dry, inHex);
+          const fitted = fitSymbols(`marks/${i}/${elevation}`, draw, hexCenter(col, row, size), dry, inHex, { hex: i, full: false });
           for (const p of fitted.placed) prims.push(...p.prims);
           trace(i, fitted.placed);
           noteFit(i, `${elevation.toLowerCase()} marks`, fitted);
@@ -2100,6 +2230,8 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
   let drawnShoreLines: Point[][] | null = null;
   /** The drawn shore each mainland hex's islands were kept clear of, as a memo key. */
   const mainlandKeys = new Map<number, string>();
+  /** The same shore exactly, with whether the hex's centre is on land: what an island drawing is kept by. */
+  const mainlandExact = new Map<number, string>();
   /**
    * How far a point lies from a mainland hex's land, and the nearest point of it: 0 inside.
    * Where the coast is smoothed, that is the coast as drawn, which can lie well off the
@@ -2128,6 +2260,7 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
       segments.push([a, b]);
     }
     mainlandKeys.set(i, segments.map(([a, b]) => `${Math.round(a.x * 10)},${Math.round(a.y * 10)},${Math.round(b.x * 10)},${Math.round(b.y * 10)}`).join(' '));
+    mainlandExact.set(i, JSON.stringify([segments, Boolean(seaCoastLand(c))]));
     return (p) => {
       let best = { dist: Infinity, at: p };
       for (const [a, b] of segments) {
@@ -2362,6 +2495,8 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
           return sum + perimeter * inkReach + Math.PI * inkReach * inkReach;
         }, 0);
   const islandScales = new Map<number, number>();
+  /** Each island hex's scale key (see `islandScale`). */
+  const islandKeys = new Map<number, string>();
   const islandScale = (i: number): number => {
     const known = islandScales.get(i);
     if (known !== undefined) return known;
@@ -2372,6 +2507,7 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
     if (base![i] === 'Mainland and islands') mainlandNear(i);
     const mainland = base![i] === 'Mainland and islands' ? [...mainlandOf(i).map((ring) => ring.map(q => [q.x, q.y])), mainlandKeys.get(i) ?? ''] : [];
     const memoKey = JSON.stringify([size, seed, inkReach, i, cols, levelOf(i), knobs.islands, spec, coastward(i, spec), want, dimensions.largeIslandPercent, dimensions.smallIslandPercent, mainland]);
+    islandKeys.set(i, memoKey);
     let times = islandDrawings.scale(memoKey);
     if (times === undefined) {
       times = 1;
@@ -2424,16 +2560,25 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
     return times;
   };
   const drawings = new Map<number, { isles: Isle[]; path: PathCmd[] }>();
+  /** Each island hex's drawing key, for `landNear`. */
+  const drawingKeys = new Map<number, string>();
+  islandDrawingKey = (i: number) => { islandDrawing(i); return drawingKeys.get(i) ?? ''; };
   const islandDrawing = (i: number) => {
     let drawing = drawings.get(i);
     if (drawing) return drawing;
-    drawing = islandDrawings.drawing(symbolLandRevision.id, i);
+    // Kept by everything the drawing depends on, all of it local to the hex: its scale's key, the
+    // scale, whether it has a mainland piece, and that mainland's drawn shore exactly. An edit
+    // elsewhere leaves it alone.
+    const times = islandScale(i);
+    const key = JSON.stringify([islandKeys.get(i), times, base![i], Boolean(terrain?.split.has(i)), mainlandExact.get(i) ?? null]);
+    drawingKeys.set(i, key);
+    drawing = islandDrawings.drawing(key);
     if (drawing) profileCount('islands.drawingHits');
     else {
       profileCount('islands.drawingBuilds');
-      const isles = sizedIslesAt(i, islandScale(i));
+      const isles = sizedIslesAt(i, times);
       drawing = { isles, path: islandPathFrom(i, isles) };
-      islandDrawings.setDrawing(symbolLandRevision.id, i, drawing);
+      islandDrawings.setDrawing(key, drawing);
     }
     drawings.set(i, drawing);
     return drawing;
@@ -3056,7 +3201,7 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
         const at = pixelToOffset(p.x, p.y, size);
         return at.col === col && at.row === row;
       };
-      const fitted = fitSymbols(`${i}/${height ?? ''}/${cover ?? ''}`, draw, centre, dry, inHex);
+      const fitted = fitSymbols(`${i}/${height ?? ''}/${cover ?? ''}`, draw, centre, dry, inHex, { hex: i, full: true });
       placed.push(...fitted.placed);
       trace(i, fitted.placed);
       noteFit(i, `${[height, height !== 'Mountains' ? cover : null].filter(Boolean).join(' and ')} symbols`, fitted);

@@ -2324,3 +2324,60 @@ because the fit was only about a third of a coastal edit. What remains of the fi
 mostly outside the windows: the group keys, page-rim parity, anchor snapping and the plan (14–50
 ms), each map-wide. Cold builds and non-coastal edits are unchanged. Every existing test, the slow
 tests and the drawing sweeps pass, with scenes built without the option unchanged.
+
+## 95. Keeping the rest of a coastal edit local (R3, first part): share passes, islets and symbols
+
+A profile of coastal edits after §94 (Node, 50×50 interaction map) showed three map-wide costs
+outside the fit:
+- The share passes. They pick their best attempt and decide when to stop by a whole-map error,
+  so one edit changed the shaped land of hexes all over the map.
+- Islet drawings: all 90 redrawn on every land edit, about 105 ms. They were cached by a whole-map
+  land revision. Ten of them were also re-sized, about 90 ms, because the passes had reshaped
+  their mainland.
+- Symbol placements: all 715 re-checked by replaying their land probes, about 200 ms. They were
+  also keyed by the whole-map land revision.
+
+**Changes:**
+- **Share passes, incremental builds only.** Each coast keeps the target and the settled share of
+  every hex. A later build starts each hex whose target is unchanged and lies more than two hexes
+  from a changed one at its last settled share. Only the hexes near the change are measured,
+  moved and bracketed. The rest of the coast is traced from the component cache as before. A
+  coastal edit adjusts about 12 hexes.
+- **Islet drawings, all builds.** They are cached by everything they depend on, all local to the
+  hex: the key their size search already used, the size, whether the hex has a mainland piece,
+  and that mainland's drawn shore exactly. The cache budget rose from 4 MB to 8 MB.
+- **Symbol placements, all builds.** A fit records a fingerprint of the land near its hex, if all
+  its probes lie within half a hex of it. The fingerprint holds:
+  - every sea-coast and lake-shore segment in that box, exactly, hashed;
+  - which side of them the hex's centre lies;
+  - the kind, lake, split and islet drawing of the hexes within two rings.
+
+  Even-odd land inside the box is decided by those alone, so a fit whose fingerprint is unchanged
+  is kept without replaying its probes. Anything else is replayed or searched as before. The
+  fingerprint is taken only when a fit is new or must be checked again.
+
+**Measured.** Per coastal edit in Node, about 658 of 715 fits are now kept by fingerprint, and the
+symbols phase fell from about 209 to 109 ms. Islet drawings rebuilt fell from 90 to about 5.
+Browser, `perf:edit-wait --runs 5`, sharp frame, all three in one session:
+
+| Edit | Before §94 | After §94 | Now |
+|---|---:|---:|---:|
+| coast: land to sea | 1,711 ms | 1,540 ms | 1,278 ms |
+| coast: sea to land | 1,648 ms | 1,287 ms | 1,133 ms |
+| coast: land share 60% | 1,705 ms | 1,235 ms | 1,056 ms |
+| inland: land to lake | 1,511 ms | 1,285 ms | 1,268 ms |
+
+Coastal edits are now 25–38% faster than before §94. Other edits and cold builds are unchanged:
+paired Node cold builds on populated gave 1.018 (interval 0.975–1.055), unresolved.
+
+**Tests.** Scenes built without `incrementalCoast` still equal uncached builds
+(`assertRebuildMatchesUncached` throughout). One test counted probe replays after a far edit and
+now accepts either a replay or a fingerprint hit. A new test checks the following, each matching
+an uncached build:
+- a far edit keeps a hex's fit by fingerprint;
+- an edit beside the hex replays it or searches again.
+
+**Still map-wide in a coastal edit.** The landmass the edit touches is retraced on each of the three
+share passes, because its silhouette is one component (making that local is R1, withdrawn in
+§92). After that come coverage and lakes (about 130 ms), the rest of land and fills (about 150 ms)
+and paint (about 240 ms in headless software raster).
