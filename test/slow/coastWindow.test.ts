@@ -3,7 +3,8 @@ import test from 'node:test';
 import { fixture, options } from '../../scripts/render-profile-input.ts';
 import { buildStaticScene, type Scene } from '../../src/render/scene.ts';
 import { beginRenderProfile, endRenderProfile } from '../../src/render/profile.ts';
-import { hexCenter, type Point } from '../../shared/hex.ts';
+import { hexCenter, hexIndex, inBounds, neighbourOf, type Point } from '../../shared/hex.ts';
+import { clearRiverLabelCache } from '../../src/render/featureLabels.ts';
 import { pathPolylines } from '../../src/render/ice.ts';
 import type { Prim } from '../../src/render/prims.ts';
 
@@ -76,4 +77,35 @@ test('an incremental coastal edit refits only near the edit, keeps the far coast
     assert.ok(apart <= size * 0.6, `edit at ${hex}: the far coast is ${apart.toFixed(2)} px from a fresh build's`);
     previous = now;
   }
+});
+
+test('an incremental coastal edit keeps the river names, pack ice and measured land away from it', () => {
+  const map = fixture('populated'), opts = { ...options(), incrementalCoast: true }, { cols, rows } = map;
+  const withHex = (m: typeof map, hex: number, value: string) =>
+    ({ ...m, layers: { ...m.layers, base: { ...m.layers.base, data: m.layers.base.data!.map((v, i) => i === hex ? value : v) } } });
+  const riverNames = (scene: Scene) => JSON.stringify(scene.prims.filter(p => p.kind === 'text' && p.tag?.kind === 'river'));
+  buildStaticScene(map, opts);
+  const edited = withHex(map, 871, 'Sea');
+  beginRenderProfile();
+  const scene = buildStaticScene(edited, opts);
+  const { counters } = endRenderProfile()!;
+  assert.equal(counters['ice.packHits'], 1, 'the pack ice, far from the edit, is kept');
+  assert.ok((counters['riverLabels.riverHits'] ?? 0) > (counters['riverLabels.riverSearches'] ?? 0), 'most river names are kept');
+  assert.ok((counters['coast.coverageKept'] ?? 0) > 100, 'most hexes keep their measured land');
+  // A kept river name is the one a new search on the same land makes.
+  clearRiverLabelCache();
+  beginRenderProfile();
+  const again = buildStaticScene(edited, opts);
+  assert.equal(endRenderProfile()!.counters['coast.cacheHit'], 1);
+  assert.equal(riverNames(again), riverNames(scene));
+  // An edit beside the ice draws it again.
+  const data = edited.layers.base.data!;
+  const beside = data.findIndex((v, i) => v === 'Sea' && [0, 1, 2, 3, 4, 5].some(e => {
+    const n = neighbourOf(i % cols, Math.floor(i / cols), e);
+    return inBounds(cols, rows, n.col, n.row) && data[hexIndex(cols, n.col, n.row)] === 'Sea Ice';
+  }));
+  assert.ok(beside >= 0);
+  beginRenderProfile();
+  buildStaticScene(withHex(edited, beside, 'Land'), opts);
+  assert.equal(endRenderProfile()!.counters['ice.packBuilds'], 1, 'land beside the ice draws the pack again');
 });

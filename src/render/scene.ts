@@ -437,6 +437,55 @@ function prepareSceneCacheScope(map: MapState, size: number): void {
 const sharePassRecords = new Map<string, { signatures: Map<number, string>; shares: Map<number, number> }>();
 /** The last few fits of each kind, for an incremental build's windows (DECISIONS §94). */
 const coastFitRecords = new Map<string, CoastFitRecord[]>();
+/** For each coast an incremental build has made, each target hex's measured land and what
+ * decided it (see `coveragePrints`, DECISIONS §96). */
+const coverageRecords = new Map<string, Map<number, { print: string; shown: number }>>();
+
+/**
+ * What decides the land measured in a hex, as one string per hex: the segments of the drawn land
+ * and of the coastline's stroke in the grid cells its box (grown by the ink's reach) overlaps, and
+ * whether its centre is on land. Within a convex box, even-odd land is fixed by the segments that
+ * cross it and the state of one point in it, and the stroke's ink by the segments within its reach,
+ * so a hex whose print is unchanged measures the same.
+ */
+function coveragePrints(land: Point[][], stroke: Point[][], reach: number, size: number, cols: number,
+  page: { width: number; height: number }): (i: number) => string {
+  const cell = size, grid = new Map<number, number[]>(), hashes = new Map<number, string>();
+  const lines = [...land.map(ring => ({ ring, closed: true })), ...stroke.map(ring => ({ ring, closed: false }))];
+  lines.forEach(({ ring, closed }, r) => {
+    for (let k = 0; k < (closed ? ring.length : ring.length - 1); k++) {
+      const a = ring[k]!, b = ring[(k + 1) % ring.length]!;
+      for (let x = Math.floor(Math.min(a.x, b.x) / cell); x <= Math.floor(Math.max(a.x, b.x) / cell); x++)
+        for (let y = Math.floor(Math.min(a.y, b.y) / cell); y <= Math.floor(Math.max(a.y, b.y) / cell); y++) {
+          const key = (x + 4096) * 8192 + (y + 4096), list = grid.get(key);
+          if (list) list.push(r, k); else grid.set(key, [r, k]);
+        }
+    }
+  });
+  const inside = evenOddTest(land, size / 8), prefix = `${cols}/${size}/${reach}/${page.width}/${page.height}`;
+  return (i) => {
+    const corners = hexCorners(i % cols, Math.floor(i / cols), size);
+    const xs = corners.map(p => p.x), ys = corners.map(p => p.y), grow = reach + size * 1e-6;
+    const parts: string[] = [prefix];
+    for (let x = Math.floor((Math.min(...xs) - grow) / cell); x <= Math.floor((Math.max(...xs) + grow) / cell); x++)
+      for (let y = Math.floor((Math.min(...ys) - grow) / cell); y <= Math.floor((Math.max(...ys) + grow) / cell); y++) {
+        const key = (x + 4096) * 8192 + (y + 4096);
+        let hash = hashes.get(key);
+        if (hash === undefined) {
+          const list = grid.get(key), values: number[] = [];
+          if (list) for (let n = 0; n < list.length; n += 2) {
+            const { ring, closed } = lines[list[n]!]!, k = list[n + 1]!, a = ring[k]!, b = ring[(k + 1) % ring.length]!;
+            values.push(closed ? 1 : 0, a.x, a.y, b.x, b.y);
+          }
+          hash = values.length ? `${hashNumbers(values)}.${values.length}` : '';
+          hashes.set(key, hash);
+        }
+        parts.push(hash);
+      }
+    parts.push(String(inside(hexCenter(i % cols, Math.floor(i / cols), size))));
+    return parts.join(',');
+  };
+}
 
 function cachedCoastFit(geometry: CoastGeometry, targets: ReadonlyMap<number, { share: number; width?: number }>,
   cols: number, rows: number, size: number, page: { width: number; height: number }, ink: number,
@@ -605,6 +654,17 @@ function hashNumbers(values: number[]): string {
   for (let k = 0; k < bytes.length; k++) {
     a = Math.imul(a ^ bytes[k]!, 0x01000193);
     b = Math.imul(b ^ bytes[k]!, 0x5bd1e995) ^ (b >>> 15);
+  }
+  return `${(a >>> 0).toString(36)}${(b >>> 0).toString(36)}`;
+}
+
+/** Two 32-bit FNV-1a hashes of a string's UTF-16 code units, as one string. */
+function hashText(text: string): string {
+  let a = 0x811c9dc5, b = 0x01000193 ^ 0x5bd1e995;
+  for (let k = 0; k < text.length; k++) {
+    const c = text.charCodeAt(k);
+    a = Math.imul(a ^ c, 0x01000193);
+    b = Math.imul(b ^ c, 0x5bd1e995) ^ (b >>> 15);
   }
   return `${(a >>> 0).toString(36)}${(b >>> 0).toString(36)}`;
 }
@@ -1057,12 +1117,31 @@ function cachedCoast(
   }
   const coverage = new Map<number, { wanted: number; shown: number }>();
   if (targets.size) {
-    const measure = areaCoverage(pathPolylines(drawnLand(geometry, page.width, page.height, size), 8), {
-      evenOdd: true, stroke: { rings: geometry.paths.flatMap(d => pathPolylines(d, 8)), reach: inkReach },
-    });
+    const land = pathPolylines(drawnLand(geometry, page.width, page.height, size), 8);
+    const strokeRings = geometry.paths.flatMap(d => pathPolylines(d, 8));
+    let measure: ReturnType<typeof areaCoverage> | undefined;
+    // An incremental build measures again only the hexes whose land may have changed.
+    const previous = incremental ? coverageRecords.get(incremental) : undefined;
+    const printOf = incremental ? coveragePrints(land, strokeRings, inkReach, size, cols, page) : undefined;
+    const next = new Map<number, { print: string; shown: number }>();
     for (const [i, target] of targets) {
       if ((hasDerivedShore(base[i]) && !shore[i]) || (target.width !== undefined && !target.fit)) continue;
-      coverage.set(i, { wanted: wanted.get(i)!, shown: measure(hexCorners(i % cols, Math.floor(i / cols), size)) / hexArea });
+      const print = printOf?.(i), known = previous?.get(i);
+      let shown: number;
+      if (print !== undefined && known?.print === print) {
+        shown = known.shown;
+        profileCount('coast.coverageKept');
+      } else {
+        measure ??= areaCoverage(land, { evenOdd: true, stroke: { rings: strokeRings, reach: inkReach } });
+        shown = measure(hexCorners(i % cols, Math.floor(i / cols), size)) / hexArea;
+      }
+      if (print !== undefined) next.set(i, { print, shown });
+      coverage.set(i, { wanted: wanted.get(i)!, shown });
+    }
+    if (incremental) {
+      coverageRecords.delete(incremental);
+      coverageRecords.set(incremental, next);
+      if (coverageRecords.size > 8) coverageRecords.delete(coverageRecords.keys().next().value!);
     }
   }
   const paint = coastPaintGeometry(geometry, page.width, page.height, size);
@@ -1336,7 +1415,7 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
   };
   // The drawn shores the land tests see (the sea coast; with `full`, lake shores too), in a grid
   // of hex-sized cells.
-  const shoreIndexes = new Map<boolean, { lines: Point[][]; grid: Map<number, number[]> }>();
+  const shoreIndexes = new Map<boolean, { lines: Point[][]; grid: Map<number, number[]>; hashes: Map<number, string> }>();
   const shoreIndex = (full: boolean) => {
     let index = shoreIndexes.get(full);
     if (index) return index;
@@ -1352,13 +1431,13 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
           }
       }
     });
-    index = { lines, grid };
+    index = { lines, grid, hashes: new Map() };
     shoreIndexes.set(full, index);
     return index;
   };
   /**
    * What decides land as drawn within half a hex of hex `i`, as one string: every segment of the
-   * sea coast and lake shores there, exactly; whether the hex's centre is on land; and the kind,
+   * sea coast and lake shores there, exactly (with some beyond, by grid cell); whether the hex's centre is on land; and the kind,
    * lake, split and island drawing of each hex near enough to matter (`full`: islands and lake water
    * too, as `landAt` sees them). Even-odd land is decided within the box by these alone, so a
    * symbol fit whose probes all lie in it holds while they are unchanged (DECISIONS §95).
@@ -1370,16 +1449,23 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
     let result: string | undefined;
     if (base && seaCoastLand && traced && traced.geometry.paths.length > 0) {
       {
-        const { lines: shoreLines, grid: shoreGrid } = shoreIndex(full);
-        const box = landRegionOf(i), found = new Set<number>(), parts: number[] = [];
+        const { lines: shoreLines, grid: shoreGrid, hashes } = shoreIndex(full);
+        // Each cell's segments are hashed once and shared by every hex whose box overlaps it: the
+        // cells hold every segment in the box, and some beyond, which can only add re-checks.
+        const box = landRegionOf(i), cells: string[] = [];
         for (let x = Math.floor(box.x0 / size); x <= Math.floor(box.x1 / size); x++) for (let y = Math.floor(box.y0 / size); y <= Math.floor(box.y1 / size); y++) {
-          const list = shoreGrid.get((x + 4096) * 8192 + (y + 4096));
-          if (list) for (let n = 0; n < list.length; n += 2) found.add(list[n]! * 1048576 + list[n + 1]!);
-        }
-        for (const id of [...found].sort((a, b) => a - b)) {
-          const ring = shoreLines[Math.floor(id / 1048576)]!, k = id % 1048576, a = ring[k]!, b = ring[(k + 1) % ring.length]!;
-          if (Math.max(a.x, b.x) < box.x0 || Math.min(a.x, b.x) > box.x1 || Math.max(a.y, b.y) < box.y0 || Math.min(a.y, b.y) > box.y1) continue;
-          parts.push(a.x, a.y, b.x, b.y);
+          const key = (x + 4096) * 8192 + (y + 4096);
+          let hash = hashes.get(key);
+          if (hash === undefined) {
+            const list = shoreGrid.get(key), parts: number[] = [];
+            if (list) for (let n = 0; n < list.length; n += 2) {
+              const ring = shoreLines[list[n]!]!, k = list[n + 1]!, a = ring[k]!, b = ring[(k + 1) % ring.length]!;
+              parts.push(a.x, a.y, b.x, b.y);
+            }
+            hash = parts.length ? `${hashNumbers(parts)}.${parts.length}` : '';
+            hashes.set(key, hash);
+          }
+          cells.push(hash);
         }
         const hexes: string[] = [];
         const at = pixelToOffset(box.c.x, box.c.y, size);
@@ -1390,7 +1476,7 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
           const isle = full && isIslandType(base[j]) && !split ? islandDrawingKey(j) : '';
           hexes.push(`${j}:${base[j]}:${inLakeBody.has(j)}:${lakeIslands.has(j)}:${split}:${isle}`);
         }
-        result = `${hashNumbers(parts)}|${parts.length}|${seaCoastLand(box.c)}|${full ? `${inLakeWater(box.c)}${isleAt(box.c)}` : ''}|${hexes.join(',')}`;
+        result = `${cells.join(',')}|${seaCoastLand(box.c)}|${full ? `${inLakeWater(box.c)}${isleAt(box.c)}` : ''}|${hexes.join(',')}`;
       }
     }
     landNearMemo.set(memoKey, result);
@@ -2717,7 +2803,15 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
     const drawn: Prim[] = [];
     if (iceHexes.length > 0) {
       const margin = size * 2;
-      const packKey = JSON.stringify([seed, cols, rows, size, base, sides, map.hexShapes, map.defaultIrregularity,
+      // The pack reads only the ice hexes' irregularity and which hexes within two rings of the
+      // ice are land: a coastal edit away from the ice keeps its drawing (DECISIONS §96).
+      const nearIce = new Set(iceHexes);
+      for (let ring = 0; ring < 2; ring++) for (const i of [...nearIce]) for (let e = 0; e < 6; e++) {
+        const n = neighbourOf(i % cols, Math.floor(i / cols), e);
+        if (inBounds(cols, rows, n.col, n.row)) nearIce.add(hexIndex(cols, n.col, n.row));
+      }
+      const packKey = JSON.stringify([seed, cols, rows, size, iceHexes, iceHexes.map(levelOf),
+        [...nearIce].sort((a, b) => a - b).map(j => `${j}${sides?.[j] === 'land' ? 'l' : ''}`).join(','),
         iceColours, texturedIce, knobs.coast]);
       let pack = packIceDrawings.get(packKey);
       if (pack) profileCount('ice.packHits');
@@ -3728,13 +3822,38 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
   if (rivers && opts.riverNames) {
     const pathFor = tapered ? (id: string) => courses.get(id) ?? null : undefined;
     const riverObstacles = [...taken, ...cityBoxes];
+    // What decides land and lake water near a course: the land near every hex whose box (see
+    // `landNear`) reaches within `reach` of it. A course near the page's edge, where probes may
+    // fall outside every hex's box, is keyed by the whole land, as before (DECISIONS §96).
+    const riverLandKey = (course: Point[], reach: number): string => {
+      const w = size * (Math.sqrt(3) / 2 + 0.5), h = size * 1.5, hexes = new Set<number>();
+      for (let k = 0; k < course.length; k++) {
+        const a = course[k]!, b = course[Math.min(k + 1, course.length - 1)]!;
+        const x0 = Math.min(a.x, b.x) - reach, x1 = Math.max(a.x, b.x) + reach;
+        const y0 = Math.min(a.y, b.y) - reach, y1 = Math.max(a.y, b.y) + reach;
+        if (x0 < 0 || y0 < 0 || x1 > width || y1 > height) return `g${symbolLandRevision.id}`;
+        const r0 = Math.max(0, Math.floor((y0 - h - size) / (1.5 * size))), r1 = Math.min(rows - 1, Math.ceil((y1 + h - size) / (1.5 * size)));
+        const c0 = Math.max(0, Math.floor((x0 - w) / (Math.sqrt(3) * size)) - 1), c1 = Math.min(cols - 1, Math.ceil((x1 + w) / (Math.sqrt(3) * size)));
+        for (let r = r0; r <= r1; r++) for (let c = c0; c <= c1; c++) {
+          const at = hexCenter(c, r, size);
+          if (at.x + w >= x0 && at.x - w <= x1 && at.y + h >= y0 && at.y - h <= y1) hexes.add(r * cols + c);
+        }
+      }
+      const parts: string[] = [];
+      for (const j of [...hexes].sort((a, b) => a - b)) {
+        const land = landNear(j, true);
+        if (land === undefined) return `g${symbolLandRevision.id}`;
+        parts.push(`${j}=${land}`);
+      }
+      return hashText(parts.join(';'));
+    };
     const riverNames = cachedPlacement('riverLabels', [rivers.rivers, size, lettering.river, measureEpoch,
       riverObstacles, tapered ? [...courses] : null, [...meanWidths], [...widthProfiles], lakeShores, symbolLandRevision.id],
     // Within a search, each river is reused while the inputs that reach it are
     // unchanged: an edit elsewhere moves realm names without touching most rivers.
     () => placeRiverLabels(rivers.rivers, size, pathFor, lettering.river, riverObstacles,
       (id) => meanWidths.get(id), inLakeWater, (id) => widthProfiles.get(id), quickLandAt,
-      JSON.stringify([measureEpoch, lakeShores, symbolLandRevision.id])));
+      JSON.stringify([measureEpoch]), riverLandKey));
     const namedRivers = new Set(riverNames.map(n => n.text));
     for (const river of rivers.rivers) {
       if (!river.name.trim() || namedRivers.has(river.name.trim())) continue;

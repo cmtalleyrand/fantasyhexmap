@@ -2381,3 +2381,66 @@ an uncached build:
 share passes, because its silhouette is one component (making that local is R1, withdrawn in
 §92). After that come coverage and lakes (about 130 ms), the rest of land and fills (about 150 ms)
 and paint (about 240 ms in headless software raster).
+
+## 96. Keeping the rest of a coastal edit local (R3, second part): river names, pack ice and measured land
+
+A profile of the edit builds alone after §95 (Node, populated, five coastal and five inland edits)
+showed three more map-wide costs:
+- River names: about 65 ms of a coastal edit and 100 ms of an inland one. Every river was searched
+  again, because each river's reuse key held the whole-map land revision and the lake shores.
+- Pack ice: about 37 ms. It was cached by the whole base layer, so any land edit redrew it.
+- The land measured in each hex for the coverage report: about 95 ms, every target hex measured
+  again by scanline.
+
+**Changes:**
+- **River names, all builds.** Each river's reuse key now holds a fingerprint of the land near its
+  course instead of the whole-map land:
+  - the `landNear` fingerprint (§95) of every hex whose box comes within the placement's reach of
+    the course, with islands and lake water;
+  - the whole-map revision, as before, for a course near the page's edge, where a probe could fall
+    outside every hex's box.
+
+  Placement already relies on every probe lying within that reach.
+- **Pack ice, all builds.** It is cached by what it reads: the ice hexes, their irregularity, and
+  which hexes within two rings of the ice are land.
+- **Measured land, incremental builds only.** Each coast keeps every target hex's measured land and
+  a fingerprint of what decides it:
+  - the drawn land's and the coastline stroke's segments in the grid cells its box overlaps, the
+    box grown by the ink's reach;
+  - whether the hex's centre is on land.
+
+  A hex whose fingerprint is unchanged keeps its value, and the rest are measured as before. In
+  six edits checked against a fresh measurement of the same geometry, every kept value was equal.
+- **`landNear`.** It now hashes each grid cell's segments once, shared by the hexes whose boxes
+  overlap the cell. A cell can hold segments beyond a box, which can only add re-checks. This made
+  no measurable difference.
+
+**Measured.**
+- Per coastal edit in Node: feature labels fell from about 70 to 30 ms, land and fills from about
+  105 to 54 ms, and coverage and lakes from about 92 to 48 ms. About 80% of target hexes keep their
+  measured land.
+- Per inland edit in Node: feature labels fell from about 120 to 20 ms.
+- Paired Node edit runs against §95 (30 pairs each): coastal edits 0.843 of the time, inland edits
+  0.726.
+- Cold builds: 0.989 (interval 0.952–0.999), with scenes identical.
+
+Browser, `perf:edit-wait --runs 5`, both in one session:
+
+| Edit | Build before | Build now | Sharp before | Sharp now |
+|---|---:|---:|---:|---:|
+| coast: land to sea | 1,153 ms | 1,061 ms | 1,396 ms | 1,396 ms |
+| coast: sea to land | 995 ms | 875 ms | 1,264 ms | 1,149 ms |
+| coast: land share 60% | 837 ms | 756 ms | 1,208 ms | 1,025 ms |
+| inland: land to lake | 860 ms | 693 ms | 1,248 ms | 1,012 ms |
+
+Absolute times in this session ran about 9% above §95's for the same code, so only the pairs
+compare.
+
+**Tests.** A slow test edits the populated map away from its rivers and ice and checks:
+- the pack ice is kept;
+- most river names and most measured land are kept;
+- the kept river names equal a fresh search on the same land;
+- land beside the ice redraws the pack.
+
+**Still map-wide.** The edited landmass's retrace on each share pass, about 150–190 ms. The rest of
+the symbols phase, about 45 ms: re-drawing kept fits and escarpments. And paint.
