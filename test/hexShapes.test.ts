@@ -21,10 +21,10 @@ test('each shaped type has its default land share', () => {
   assert.equal(share('Land'), 1);
   assert.equal(landFraction('Land', undefined, dims, undefined, true), 0.8);
   assert.equal(share('Lake'), 0);
-  // An isthmus or strait is drawn at a width (30% of the hex's by default), not to a share: it counts
-  // the share of a straight neck or channel that wide, 2/sqrt(3) of the width.
-  assert.ok(Math.abs(share('Isthmus') - 0.3 * 2 / Math.sqrt(3)) < 1e-12);
-  assert.ok(Math.abs(share('Strait') - (1 - 0.3 * 2 / Math.sqrt(3))) < 1e-12);
+  // An isthmus or strait is drawn at a width (Normal by default), not to a share: it counts the share
+  // its natural shape at that width is drawn with, a short narrows rather than a channel through the hex.
+  assert.equal(share('Isthmus'), 0.625);
+  assert.equal(share('Strait'), 0.4);
   assert.equal(share('Glacier'), 1);
   assert.equal(share('Sea Ice'), 0);
   assert.equal(share('Sea'), 0);

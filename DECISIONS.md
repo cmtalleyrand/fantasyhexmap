@@ -1034,9 +1034,9 @@ hex's flat-to-flat width: Very narrow 5%, Narrow 15%, Normal 30%, Wide 50% (`Cha
 both) and a hex overrides them with `HexShape.width`. The land share of decision 42 stays, as an
 optional second setting (`HexShape.land`; map-wide `isthmusPercent` and `straitPercent`, absent by default):
 the width fixes the shape, and a share set beside it tunes how much land the hex has, since the natural shape
-for a width does not always look right. Unset, a hex's share for polity areas is that of a straight neck or
-channel of its width (`channelAreaFraction`: 2/sqrt(3) of the width fraction; an isthmus counts that as land,
-a strait counts the rest as its banks). Old saves' 70%/30% isthmus and 40% strait defaults were never chosen
+for a width does not always look right. Unset, a hex's share for polity areas was that of a straight neck or
+channel of its width (`channelAreaFraction`: 2/sqrt(3) of the width fraction; an isthmus counted that as land,
+a strait counted the rest as its banks); decision 85 replaces it with the share the natural shape is drawn with. Old saves' 70%/30% isthmus and 40% strait defaults were never chosen
 and load as unset.
 
 **Tuning** (`fill` in `fixedLand`, solved by `fillFor` to the share). An isthmus cannot go below the land its width gives (cutting its flare back left pockets of water, a second
@@ -1820,3 +1820,38 @@ mixed scene hashes match the original `120cba6` output:
 Tests cover keeping original serialized commands, retaining curves and subpath boundaries, marking
 primitives when command arrays are shared, cache reuse after edits, and distinct size tolerances.
 No check or threshold was weakened. T2 is complete; Group 1's solver redesign remains the next step.
+
+## 85. A strait or isthmus is a short narrows between two rounded tips, wherever it lies
+
+**Definitions.** A Strait is a water channel joining two waters between two land masses; an Isthmus is a
+land neck joining two land masses between two waters. A hex is either only with exactly two separate land
+groups and two separate water groups round it (`passageNeighbours`); three of either is not one passage and
+fails validation. Up to rotation and reflection that leaves five neighbour patterns: banks opposite, banks
+two apart, three land sides (runs of two and one), and four land sides (runs of two and two, or three and
+one). A Mainland and islands hex keeps 2.5% for its mainland and each island's minimum (2.5% small, 5% large).
+
+**Chosen.** Sea straits, sea isthmuses and isthmuses in lakes take the local shore field that lake straits
+had (decision 47's lake passage work): the coast is traced with the passage hex open (a strait's as sea, an
+isthmus's as land), the shore round it is reshaped into two rounded tips a throat of the set width apart,
+and the result is joined to that coast on a circle 1.55 to 1.85 radii out, beyond which the field is the
+old shore (`passageContour`, `spliceChainPaths`). A join that fails keeps the passage's own cut rather than
+the opened background. The set width is the narrowest point; the shores open quickly either side of it.
+
+**Shape.** Narrower throats take sharper tips (radius 0.3 to 0.48 of the hex radius with width), so that a
+Very narrow passage is not a thin gap held parallel for half a hex. The flanks recede at a blunt tip's
+rate, and where the throat is moved towards one side they return to a blunt tip's from half a hex out, so
+that the far banks stay on their roots. A bank of three edges is rooted at the mean of its edges' midpoints
+(the chord across them passes through the hex centre and crowded the throat against the opposite bank).
+Shore detail is capped at half the local half-width and cannot pinch a passage shut.
+
+**Land share.** Unset, a passage counts the share its natural shape is drawn with (`NATURAL_PASSAGE_LAND`,
+the median over the five patterns to 2.5%): straits 55, 47.5, 40 and 25% from Very narrow to Wide,
+isthmuses 45, 52.5, 62.5 and 75%. A share that is set is fitted by headland depth, never below the depth at
+which the banks part by a quarter hex within 0.4 radii of the tips; a share beyond that is left short and
+reported, not drawn as a canal. Measured across the five patterns, a strait can then be drawn with about
+21–75% land at Very narrow, 19–64% Narrow, 15–53% Normal and 8–40% Wide; an isthmus with about 33–85%,
+43–87%, 54–90% and 72–95%. The type bounds (Strait 10–70%, Isthmus 15–80%) are unchanged.
+
+**Why.** A uniform channel or neck through the hex is a canal, not a strait or isthmus, and counting a
+strait's share as one (65% land at Normal) described a shape that is never drawn.
+

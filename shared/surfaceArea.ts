@@ -9,6 +9,7 @@ import {
   isIslandType,
   type BaseData,
   type BaseGeo,
+  type ChannelWidth,
   type GeoNameKind,
   type MapState,
   type HexShape,
@@ -93,12 +94,15 @@ export function channelShareSet(
 }
 
 /**
- * The part of a hex a straight neck or channel through it, of width `fraction` of the hex's
- * flat-to-flat width, covers: the width times the flat-to-flat span over the hex's area.
+ * The land share, in percent, of an isthmus or strait drawn at each width with no share set: a short
+ * narrows between rounded tips, the shores parting quickly either side of it (the median drawn over
+ * the neighbour patterns a passage can have, to 2.5%). Not a straight neck or channel of that width
+ * running through the hex, which would give a strait far more land (65% at Normal, not 40%).
  */
-export function channelAreaFraction(fraction: number): number {
-  return Math.min(1, (2 / Math.sqrt(3)) * fraction);
-}
+export const NATURAL_PASSAGE_LAND: Record<'Isthmus' | 'Strait', Record<ChannelWidth, number>> = {
+  Isthmus: { 'Very narrow': 45, Narrow: 52.5, Normal: 62.5, Wide: 75 },
+  Strait: { 'Very narrow': 55, Narrow: 47.5, Normal: 40, Wide: 25 },
+};
 
 /**
  * How much of a hex is land, from 0 to 1. A hex a person has given a land share
@@ -120,11 +124,13 @@ export function landFraction(
   const spec = isIslandType(value) ? islandSpecFor(value, stored) : stored;
   if (set !== undefined) return boundedLandShare(value, set, spec) / 100;
   const percent = (n: number) => boundedLandShare(value, n, spec) / 100;
-  // With no share set, an isthmus or strait counts the share of a straight neck or channel of its width.
-  const mapWide = value === 'Isthmus' ? dimensions.isthmusPercent : value === 'Strait' ? dimensions.straitPercent : undefined;
-  if (mapWide !== undefined) return percent(mapWide);
-  const width = channelWidthFraction(value, dimensions, shape);
-  if (width !== null) return percent(100 * (value === 'Isthmus' ? channelAreaFraction(width) : 1 - channelAreaFraction(width)));
+  // With no share set, an isthmus or strait counts the share its natural shape at its width is drawn with.
+  if (value === 'Isthmus' || value === 'Strait') {
+    const mapWide = value === 'Isthmus' ? dimensions.isthmusPercent : dimensions.straitPercent;
+    if (mapWide !== undefined) return percent(mapWide);
+    const width = hexShapeFor(value, shape).width ?? (value === 'Isthmus' ? dimensions.isthmusWidth : dimensions.straitWidth);
+    return percent(NATURAL_PASSAGE_LAND[value][width]);
+  }
   switch (value) {
     case 'Land':
       return percent(dimensions.coastalLandPercent);

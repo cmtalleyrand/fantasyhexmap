@@ -12,7 +12,10 @@ export interface LakeShorePassage {
   mouths: Point[];
   width: number;
   outline: Point[];
+  /** The land share wanted in `outline`, 0–1, or null for the natural shape. */
   land: number | null;
+  /** True when the field's inside is land (an isthmus's neck); else it is water (a strait's channel). */
+  landInside?: boolean;
   ink: number;
   rough: number;
   phase: number[];
@@ -102,18 +105,33 @@ export function passageContour(path: PathCmd[], spec: LakeShorePassage, size: nu
       const blend = t * t * (3 - 2 * t);
       return { p, u, v, centre, prime, blend, old: oldField(p), edge: i % n === 0 || i % n === n - 1 || i < n || i >= n * (n - 1) };
     });
+    // Narrower throats take sharper tips (as a share of the hex radius): blunt ones would hold a thin
+    // gap parallel for half a hex.
+    const tip = Math.min(.48, .3 + .35 * spec.width / size);
+    const offCentre = Math.min(1, distance(spec.junction, spec.centre) / size / .6);
+    const fadeFrom = .5 + 1.5 * (1 - offCentre);
     const draw = (depth: number) => {
       const values = nodes.map(node => {
         if (node.edge)
           return -size;
         // Rounded headland tips: a short curved nose, then rapidly receding
         // flanks. Noise varies each flank without serrating the tip itself.
-        const radius = size * (.48 + .045 * Math.sin(spec.phase[node.v > node.centre ? 0 : 3]!));
-        const growth = depth * (Math.sqrt(1 + (node.u / radius) ** 2) - 1);
-        const tipFade = Math.max(0, Math.min(1, (Math.abs(node.u) / size - .12) / .28));
-        const detail = shoreDetail(node.u, node.v - node.centre) * spec.rough * size * 1.7
-          * tipFade * tipFade * (3 - 2 * tipFade);
+        const radius = size * (tip + .045 * Math.sin(spec.phase[node.v > node.centre ? 0 : 3]!));
+        // A sharper tip curves away sooner than a blunt one (radius 0.48), its flanks receding at
+        // the same rate. Where the throat is moved towards one side of the hex, the banks on the
+        // other side are rooted far from it and must not be cut back off their roots: there the
+        // flanks return to the blunt tip's from half a hex out (fully so once the throat is 0.6
+        // radii off centre).
+        const blunt = depth * (Math.sqrt(1 + (node.u / (radius + size * (.48 - tip))) ** 2) - 1);
+        const sharp = depth * (Math.sqrt(1 + (node.u / radius) ** 2) - 1) * radius / (size * .48);
+        const near = Math.max(0, Math.min(1, (fadeFrom - Math.abs(node.u) / size) / .5 + 1));
+        const growth = blunt + (sharp - blunt) * near * near * (3 - 2 * near);
+        // Detail fades in over the flank beyond the tip, a span in proportion to the tip.
+        const tipFade = Math.max(0, Math.min(1, (Math.abs(node.u) / size - .2 * tip) / (.45 * tip)));
         const half = spec.width / 2 * Math.sqrt(1 + node.prime * node.prime) + growth;
+        // Never more than half the passage's half-width, so that detail cannot pinch it shut.
+        const detail = Math.max(-half / 2, Math.min(half / 2, shoreDetail(node.u, node.v - node.centre) * spec.rough * size * 1.7
+          * tipFade * tipFade * (3 - 2 * tipFade)));
         const channel = (half - Math.abs(node.v - node.centre)) / Math.sqrt(1 + node.prime * node.prime) + detail;
         const f = node.old + (channel - node.old) * node.blend;
         const floor = (spec.width / 2 * Math.sqrt(1 + node.prime * node.prime) + size * .05 * (node.u / size) ** 2 - Math.abs(node.v - node.centre)) / Math.sqrt(1 + node.prime * node.prime);
@@ -184,15 +202,22 @@ export function passageContour(path: PathCmd[], spec: LakeShorePassage, size: nu
       return out;
     };
     let depth = size * .75, result = draw(depth);
-    // Fit attainable area requests by varying headland depth, with a lower
-    // bound that keeps the constriction short. High shares such as 80% are
-    // left unfitted rather than flattening both tips into a canal.
-    if (spec.land !== null && spec.land < .8) {
+    // Fit the area requested by varying headland depth. The lower bound keeps
+    // the constriction short (the banks part by a quarter hex within 0.4 radii
+    // of the tips): a share beyond it is left short, and reported, rather than
+    // flattening both tips into a canal. That bound is what limits the share a
+    // passage of each width can take while still looking like one.
+    if (spec.land !== null) {
       const page = [{ x: x0, y: y0 }, { x: x0 + pad * 2, y: y0 },
         { x: x0 + pad * 2, y: y0 + pad * 2 }, { x: x0, y: y0 + pad * 2 }];
       const area = 1.5 * Math.sqrt(3) * size * size;
-      const share = (rs: Point[][]) => areaCoverage([page, ...rs], { evenOdd: true, stroke: { rings: rs, reach: spec.ink } })(spec.outline, 96) / area;
-      let best = Math.abs(share(result) - spec.land), low = size * .2, high = size * 4;
+      // Coastline ink counts as land on either side of the shore.
+      const share = (rs: Point[][]) => areaCoverage(spec.landInside ? rs : [page, ...rs],
+        { evenOdd: true, stroke: { rings: rs, reach: spec.ink } })(spec.outline, 96) / area;
+      // The least depth at which each bank recedes by an eighth of a hex 0.4 radii from its tip (the
+      // throat opening by a quarter hex), with a third to spare for the shore detail.
+      const shallowest = size * .125 * 1.3 * .48 / (tip - .045) / (Math.sqrt(1 + (.4 / (tip - .045)) ** 2) - 1);
+      let best = Math.abs(share(result) - spec.land), low = shallowest, high = size * 4;
       for (let k = 0; k < 13 && best > .003; k++) {
         const at = (low + high) / 2, trial = draw(at), shown = share(trial), miss = Math.abs(shown - spec.land);
         if (miss < best) {
@@ -200,7 +225,8 @@ export function passageContour(path: PathCmd[], spec: LakeShorePassage, size: nu
           depth = at;
           result = trial;
         }
-        if (shown > spec.land)
+        // Deeper tips give the inside more room: more land round an isthmus, less round a strait.
+        if ((shown > spec.land) !== !!spec.landInside)
           low = at;
         else
           high = at;

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { CHANNEL_WIDTH_PERCENT, CHANNEL_WIDTH_VALUES, type ChannelWidth, type HexDimensions } from '../../shared/types.js';
+import { landShareRange } from '../../shared/hexCategories.js';
 import {
   SHORE_SLACK,
   isRegularHex,
@@ -282,7 +283,7 @@ export default function HexSizeInput({
               }}
             >
               <option value="natural">Natural (from the width)</option>
-              {LAND_PERCENT_OPTIONS.filter(p => label === 'Isthmus' ? p >= 15 && p <= 80 : p >= 10 && p <= 70).map((p) => (
+              {LAND_PERCENT_OPTIONS.filter(p => p >= landShareRange(label)[0] && p <= landShareRange(label)[1]).map((p) => (
                 <option key={p} value={p}>
                   {p}%
                 </option>
