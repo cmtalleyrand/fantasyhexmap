@@ -2568,3 +2568,13 @@ check identity).
 
 **Measured.** Paired Node runs against §98 (30 pairs each): coastal edits 0.928 of the time,
 inland edits 0.945. Cold builds 0.983 (interval 0.940–1.020), unresolved, with scenes identical.
+
+**Addendum: fit cache keys.** `cachedCoastFit` keyed each group by its paths and held-back detail
+serialized to JSON, the continent's thousands of path commands included, on every fit. Paths are
+now keyed by a four-lane hash of their commands and every coordinate's bits, word by word and kept
+per path array. Detail is keyed by a hash of its keys and offsets.
+- The key phase fell from about 15 to 8 ms per coastal edit.
+- Paired Node runs (40 pairs each): coastal edits 0.986, inland edits 0.975, within noise.
+- Cold builds 0.990, unresolved, scenes identical.
+- A byte-wise version of the hash showed no gain (coastal edits 1.036, inland 0.958); the word-wise
+  version replaced it.

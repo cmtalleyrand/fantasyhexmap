@@ -2,7 +2,7 @@ import { markBandLine } from './bandLines.js';
 import { coastPaintGeometry, type CoastPaintGeometry } from './coastPaintGeometry.js';
 import { IslandDrawingCache, type DrawnIsle as Isle } from './islandDrawingCache.js';
 import { BoundedMemo, renderCachesEnabled, withRenderCaches } from './cache.js';
-import { hashNumbers, hashText } from './hash.js';
+import { hashNumbers, hashNumbers128, hashText, hashText128 } from './hash.js';
 import { cachedPlacement, clearPlacementCache } from './placementCache.js';
 import { clearSharedPaths, shareUnchangedPaths } from './sharedPaths.js';
 import { profileCount, profileTime, profilePhases } from './profile.js';
@@ -488,6 +488,27 @@ function coveragePrints(land: Point[][], stroke: Point[][], reach: number, size:
   };
 }
 
+const PATH_CODES: Record<string, number> = { M: 1, L: 2, Q: 3, C: 4, Z: 5 };
+/** A path's exact content as a short string (its commands and every coordinate's bits). */
+const pathHashes = new WeakMap<PathCmd[], string>();
+function pathHash(d: PathCmd[]): string {
+  let hash = pathHashes.get(d);
+  if (hash === undefined) {
+    const values: number[] = [];
+    for (const c of d) { values.push(PATH_CODES[c[0]] ?? 0, c.length); for (let k = 1; k < c.length; k++) values.push(c[k] as number); }
+    hash = hashNumbers128(values);
+    pathHashes.set(d, hash);
+  }
+  return hash;
+}
+/** Held-back detail as a short string: its entries' keys and offsets, in order. */
+function detailHash(detail: Iterable<[string, number]> | undefined): string {
+  if (!detail) return '';
+  const keys: string[] = [], offsets: number[] = [];
+  for (const [key, offset] of detail) { keys.push(key); offsets.push(offset); }
+  return keys.length ? `${hashText128(keys.join(';'))}/${hashNumbers128(offsets)}/${keys.length}` : '';
+}
+
 function cachedCoastFit(geometry: CoastGeometry, targets: ReadonlyMap<number, { share: number; width?: number }>,
   cols: number, rows: number, size: number, page: { width: number; height: number }, ink: number,
   passages: number[], seed: string, rounds?: number, repairEdges = false, incremental?: string): CoastGeometry {
@@ -550,8 +571,9 @@ function cachedCoastFit(geometry: CoastGeometry, targets: ReadonlyMap<number, { 
     fitPhase('groups');
     const groups = coastFitGroups(geometry, targets, cols, size, polylines);
     if (groups.length === 1) {
+      // Paths and detail by exact content hash: serializing the whole coast was most of the key's cost.
       const key = JSON.stringify([seed, cols, rows, size, page, ink, passages, rounds, repairEdges, [...targets],
-        closed, geometry.paths, [...geometry.anchors], [...geometry.detail ?? []]]);
+        closed, geometry.paths.map(pathHash), [...geometry.anchors], detailHash(geometry.detail)]);
       const hit = coastFits.get(key) ?? (incremental ? coastFits.get('w' + key) : undefined);
       if (hit) { profileCount('coast.fitGroupHits'); return { ...geometry, ...hit }; }
       profileCount('coast.fitGroupBuilds');
@@ -602,7 +624,7 @@ function cachedCoastFit(geometry: CoastGeometry, targets: ReadonlyMap<number, { 
       const at = polylines[group.rings[0]!]![0];
       const inside = at ? parity({ x: at.x + size * 0.011, y: at.y + size * 0.013 }) : false;
       const key = JSON.stringify([seed, cols, rows, size, page, ink, passages, rounds, repairEdges, [...group.targets],
-        group.rings.map(k => [closed[k], geometry.paths[k]]), rim, inside, groupDetail[n]]);
+        group.rings.map(k => [closed[k], pathHash(geometry.paths[k]!)]), rim, inside, detailHash(groupDetail[n])]);
       let fit = coastFits.get(key) ?? (incremental ? coastFits.get('w' + key) : undefined);
       fitPhase('groupFit');
       if (fit) profileCount('coast.fitGroupHits');
