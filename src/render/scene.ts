@@ -435,7 +435,7 @@ function prepareSceneCacheScope(map: MapState, size: number): void {
  * inputs form one dependency group; changing one input rebuilds that group. */
 /** For each coast an incremental build has made, each hex's target (with what it is to show)
  * and the share the share passes settled on for it (DECISIONS §95). */
-const sharePassRecords = new Map<string, { signatures: Map<number, string>; shares: Map<number, number> }>();
+const sharePassRecords = new Map<string, { signatures: Map<number, string>; shapes: Map<number, string>; shares: Map<number, number> }>();
 /** The last few fits of each kind, for an incremental build's windows (DECISIONS §94). */
 const coastFitRecords = new Map<string, CoastFitRecord[]>();
 /** For each coast an incremental build has made, each target hex's measured land and what
@@ -511,7 +511,9 @@ function detailHash(detail: Iterable<[string, number]> | undefined): string {
 
 function cachedCoastFit(geometry: CoastGeometry, targets: ReadonlyMap<number, { share: number; width?: number }>,
   cols: number, rows: number, size: number, page: { width: number; height: number }, ink: number,
-  passages: number[], seed: string, rounds?: number, repairEdges = false, incremental?: string): CoastGeometry {
+  passages: number[], seed: string, rounds?: number, repairEdges = false, incremental?: string,
+  /** Each hex's shape settings, in an incremental build: a hex whose settings changed counts as changed. */
+  shapes?: ReadonlyMap<number, string>): CoastGeometry {
   if (!geometry.component || !targets.size) return geometry;
   const fitPhase = profilePhases('fitCache');
   fitPhase('polylines');
@@ -537,6 +539,7 @@ function cachedCoastFit(geometry: CoastGeometry, targets: ReadonlyMap<number, { 
         const was = record.targets.get(h);
         if (!was || was.share !== t.share || was.width !== t.width) differ.push(h);
       }
+      for (const [h, sign] of shapes ?? []) if (record.shapes?.get(h) !== sign) differ.push(h);
       changed = new Set(differ);
       for (const h of differ) for (let side = 0; side < 6; side++) {
         const n = neighbourOf(h % cols, Math.floor(h / cols), side);
@@ -650,7 +653,7 @@ function cachedCoastFit(geometry: CoastGeometry, targets: ReadonlyMap<number, { 
   if (incremental) {
     // Kept for the next edit: this fit's input and output, newest first, two per coast and kind.
     const kept: CoastFitRecord = { inputs: polylines, outputs: result.paths.map(d => pathPolylines(d, 8)[0] ?? []), closed,
-      targets: new Map(targets), detail: result.detail };
+      targets: new Map(targets), shapes, detail: result.detail };
     coastFitRecords.delete(stage);
     coastFitRecords.set(stage, [kept, ...records.filter(r => r !== record)].slice(0, 2));
     if (coastFitRecords.size > 8) coastFitRecords.delete(coastFitRecords.keys().next().value!);
@@ -877,11 +880,17 @@ function cachedCoast(
   const passKey = incremental ? JSON.stringify([incremental, cols, rows, size, smooth, inkReach, seed]) : '';
   const last = incremental ? sharePassRecords.get(passKey) : undefined;
   const signatures = incremental ? new Map([...targets].map(([i, t]) => [i, JSON.stringify([t, wanted.get(i)])])) : undefined;
+  // Each hex's shape settings: an edit to a hex's roughness or concentration alone changes no
+  // target, but changes its coast, so it counts as a change here and in the fits' windows.
+  const shapeSignatures = incremental ? new Map(base.map((v, i) => [i, JSON.stringify([shapes?.[String(i)] ?? null,
+    hexShapeFor(v, shapes?.[String(i)], defaultIrregularity), v === 'Lake' ? defaultLakeIrregularity ?? null : null,
+    islandSpecs?.[String(i)] ?? null])])) : undefined;
   let near: Set<number> | null = null;
   let start: Map<number, ShapeTarget> = targets;
   if (last && signatures) {
     const differ = [...last.signatures.keys()].filter(i => !signatures.has(i));
     for (const [i, sign] of signatures) if (last.signatures.get(i) !== sign) differ.push(i);
+    for (const [i, sign] of shapeSignatures!) if (last.shapes.get(i) !== sign) differ.push(i);
     near = new Set(differ);
     for (let ring = 0; ring < 2; ring++) for (const i of [...near]) for (let side = 0; side < 6; side++) {
       const n = neighbourOf(i % cols, Math.floor(i / cols), side);
@@ -1005,7 +1014,7 @@ function cachedCoast(
   }
   if (incremental && signatures) {
     sharePassRecords.delete(passKey);
-    sharePassRecords.set(passKey, { signatures, shares: new Map([...aimed].map(([i, t]) => [i, t.share])) });
+    sharePassRecords.set(passKey, { signatures, shapes: shapeSignatures!, shares: new Map([...aimed].map(([i, t]) => [i, t.share])) });
     if (sharePassRecords.size > 8) sharePassRecords.delete(sharePassRecords.keys().next().value!);
   }
   coastPhase('coupledFit');
@@ -1013,13 +1022,13 @@ function cachedCoast(
     (hasDerivedShore(base[i]) && !shore[i]) || (target.width !== undefined && !target.fit) ? []
       : [[i, { share: wanted.get(i)!, width: target.width }] as const]));
   const fitPassages = [...targets].filter(([, target]) => target.width !== undefined).map(([i]) => i);
-  geometry = profileTime('coast.fit', () => cachedCoastFit(geometry, fitTargets, cols, rows, size, page, inkReach, fitPassages, seed, undefined, false, incremental));
+  geometry = profileTime('coast.fit', () => cachedCoastFit(geometry, fitTargets, cols, rows, size, page, inkReach, fitPassages, seed, undefined, false, incremental, shapeSignatures));
   // The coast was shaped and fitted smooth; its local cuts and fine detail go on now,
   // where moving it can no longer squeeze or stretch them, and a short last fit evens
   // out the little land the detail adds or takes away in each hex. Boundary shares
   // can finish with a targeted correction, since their page endpoints cannot move.
   geometry = applyCoastDetail(geometry, size);
-  geometry = profileTime('coast.fit', () => cachedCoastFit(geometry, fitTargets, cols, rows, size, page, inkReach, fitPassages, seed, 2, true, incremental));
+  geometry = profileTime('coast.fit', () => cachedCoastFit(geometry, fitTargets, cols, rows, size, page, inkReach, fitPassages, seed, 2, true, incremental, shapeSignatures));
   coastPhase('coverageAndLakes');
   const lakeOf = new Map<number, number>();
   lakes.forEach((lake, k) => lake.forEach(i => lakeOf.set(i, k)));

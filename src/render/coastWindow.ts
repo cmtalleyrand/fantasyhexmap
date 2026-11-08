@@ -19,6 +19,8 @@ export interface CoastFitRecord {
   outputs: Point[][];
   closed: boolean[];
   targets: ReadonlyMap<number, { share: number; width?: number }>;
+  /** Each hex's shape settings (see `cachedCoastFit`): an edit to them alone changes no target. */
+  shapes?: ReadonlyMap<number, string>;
   /** The held-back detail of the output's points (see `Roughness.deferDetail`). */
   detail?: ReadonlyMap<string, number>;
   /** The arc to each point of each input ring, built when first needed. */

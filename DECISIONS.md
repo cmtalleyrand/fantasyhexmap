@@ -2578,3 +2578,31 @@ per path array. Detail is keyed by a hash of its keys and offsets.
 - Cold builds 0.990, unresolved, scenes identical.
 - A byte-wise version of the hash showed no gain (coastal edits 1.036, inland 0.958); the word-wise
   version replaced it.
+
+## 100. Incremental coasts redraw edits to a hex's shape alone (review of PR #183)
+
+**Bug.** A code review of PR #183 (Codex) found the following. An edit that changes a hex's
+irregularity or concentration, or the map's default irregularity, without changing any land share
+or passage width, was lost in an incremental build:
+- Both incremental stages decided what changed from targets alone: the share passes (§95) and
+  the fit's window planner (§94).
+- The planner tolerates the new trace's small differences, so it kept the whole previous fit.
+- Reproduced on a 12×10 map: the coast was byte-identical before and after the edit, while an
+  uncached build showed it.
+
+**Fix.** Each hex has a shape signature: its stored shape, its resolved shape settings (with the
+map default), the lake default for lake hexes, and its island spec. In incremental builds:
+- the share passes count a hex whose signature changed as changed, so it and the hexes within two
+  rings are measured and moved;
+- the fit records the signatures, and the window planner counts a hex whose signature changed as
+  changed, together with its neighbours.
+
+A map-wide setting changes every hex, so the coast is fitted whole.
+
+**Test.** `test/coastShapeEdits.test.ts`, which fails without the fix, checks two cases:
+- A default-irregularity change gives exactly a fresh build's coast.
+- One hex's concentration, then its irregularity, each move the coast within 1.2 hexes of that hex
+  by more than 0.15 hex. That stretch also stays within 0.2 hex of a fresh build's both ways
+  (measured 0.05 and 0.13), as §94 allows.
+
+Edit times are unchanged: paired runs 0.995 coastal and 1.024 inland, within noise.
