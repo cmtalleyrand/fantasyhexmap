@@ -2,7 +2,7 @@ import { coastEdges, surfaceMap } from '../src/render/coast.ts';
 import { shapeCoast } from '../src/render/footprint.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { HEX_CATEGORIES, adjacentHexes, boundedLandShare, isCategoryLand, landPercent, passageNeighbours } from '../shared/hexCategories.ts';
+import { HEX_CATEGORIES, adjacentHexes, boundedLandShare, isCategoryLand, landPercent, landShareRange, passageNeighbours } from '../shared/hexCategories.ts';
 import { validateHexDefinitions } from '../shared/hexValidation.ts';
 import { prepareLoadedMap } from '../src/state/import.ts';
 import { drawnLandFraction, landFraction, landFractionAt, normaliseHexDimensions, withShoreSlack } from '../shared/surfaceArea.ts';
@@ -87,14 +87,23 @@ test('passages may reach a map edge when the required land and water neighbours 
     assert.deepEqual(validateHexDefinitions(map), []);
   }
 });
-test('mixed mainland and islands retains the stated 10–90% range for any island count', () => {
+test('mixed mainland and islands keeps 2.5% mainland plus each island\'s minimum, within 10–90%', () => {
   const spec = { large: 2, small: 6 };
-  assert.equal(boundedLandShare('Mainland and islands', 10, spec), 10);
+  assert.deepEqual(landShareRange('Mainland and islands', spec), [27.5, 90]);
+  assert.deepEqual(landShareRange('Mainland and islands', { large: 0, small: 1 }), [10, 90]);
+  assert.deepEqual(landShareRange('Mainland and islands', { large: 1, small: 2 }), [12.5, 90]);
   const map = mapWith('Mainland and islands'); map.islandSpecs = { '24': spec };
   const changed = reducer(map, { type: 'setHexShape', indices: [24], change: { land: 10 } });
-  assert.equal(changed.hexShapes?.['24']?.land, 10);
-  const mainland = drawnLandFraction('Mainland and islands', dims, changed.hexShapes?.['24'], true, spec)!;
-  assert.ok(mainland >= .025 && mainland < .1, 'the 10% share contains both mainland and islands');
+  assert.equal(changed.hexShapes?.['24']?.land, 27.5);
+  const shape = changed.hexShapes?.['24'];
+  const mainland = drawnLandFraction('Mainland and islands', dims, shape, true, spec)!;
+  assert.ok(Math.abs(mainland - .025) < 1e-12, 'the mainland keeps its 2.5%');
+  assert.ok(Math.abs(landFraction('Mainland and islands', spec, dims, shape) - mainland - .25) < 1e-12, 'the islands keep their 25%');
+  // A share saved below the minimum, or islands added after it was set, is read at the minimum and flagged.
+  const stale = mapWith('Mainland and islands'); stale.islandSpecs = { '24': spec };
+  stale.hexShapes = { '24': { type: 'Mainland and islands', land: 15 } };
+  assert.equal(landFraction('Mainland and islands', spec, dims, stale.hexShapes['24']), .275);
+  assert.ok(validateHexDefinitions(stale).some(w => w.includes('27.5–90%')));
 });
 test('mixed hexes need land and water, and islands cannot adjoin whole land', () => {
   const map = mapWith('Mainland and islands');
@@ -138,11 +147,11 @@ test('shore slack preserves the mainland-only share after bounding and splitting
     const target = withShoreSlack(base, 7, 24, mainland, dims, { '24': shape }, 'mainland');
     assert.equal(target, mainland, `mainland portion at ${requested}% total`);
     assert.ok(Math.abs(target + islands - total) < 1e-12);
-    assert.equal(withShoreSlack(base, 7, 24, requested / 100, dims), total, 'total-share bounds still apply');
-    if (requested <= 10) {
+    assert.equal(withShoreSlack(base, 7, 24, total, dims), total, 'a bounded total is left as it is');
+    if (requested <= 27.5) {
       assert.equal(target, .025);
-      assert.ok(Math.abs(islands - .075) < 1e-12);
-      assert.ok(Math.abs(target + islands - .1) < 1e-12);
+      assert.ok(Math.abs(islands - .25) < 1e-12);
+      assert.ok(Math.abs(target + islands - .275) < 1e-12);
     }
   }
 });

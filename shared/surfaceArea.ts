@@ -1,4 +1,4 @@
-import { adjacentHexes, boundedLandShare, isCategoryLand } from './hexCategories.js';
+import { adjacentHexes, boundedLandShare, isCategoryLand, islandMinimum, MAINLAND_MINIMUM } from './hexCategories.js';
 import { holdersOf } from './polityShares.js';
 import {
   CHANNEL_WIDTH_PERCENT,
@@ -117,8 +117,9 @@ export function landFraction(
 ): number {
   if ((value === 'Land' || value === 'Glacier') && !shore) return 1;
   const set = hexShapeFor(value, shape).land;
-  if (set !== undefined) return boundedLandShare(value, set, isIslandType(value) ? islandSpecFor(value, stored) : stored) / 100;
-  const percent = (n: number) => boundedLandShare(value, n, stored) / 100;
+  const spec = isIslandType(value) ? islandSpecFor(value, stored) : stored;
+  if (set !== undefined) return boundedLandShare(value, set, spec) / 100;
+  const percent = (n: number) => boundedLandShare(value, n, spec) / 100;
   // With no share set, an isthmus or strait counts the share of a straight neck or channel of its width.
   const mapWide = value === 'Isthmus' ? dimensions.isthmusPercent : value === 'Strait' ? dimensions.straitPercent : undefined;
   if (mapWide !== undefined) return percent(mapWide);
@@ -136,8 +137,7 @@ export function landFraction(
       return percent(dimensions.lakeLandPercent);
     case 'Islands':
     case 'Mainland and islands': {
-      const spec = islandSpecFor(value, stored);
-      const islands = spec.large * dimensions.largeIslandPercent + spec.small * dimensions.smallIslandPercent;
+      const islands = spec!.large * dimensions.largeIslandPercent + spec!.small * dimensions.smallIslandPercent;
       return percent((value === 'Islands' ? 0 : dimensions.mainlandPercent) + islands);
     }
     default:
@@ -217,10 +217,9 @@ export function drawnLandFraction(
       return landFraction(value, undefined, dimensions, shape);
     case 'Mainland and islands': {
       const mainland = Math.min(100, Math.max(0, dimensions.mainlandPercent));
-      const islands = islandSpecFor(value, spec);
-      const total = landFraction(value, spec, dimensions, shape) * 100;
-      const minimum = Math.min(islands.large * 5 + islands.small * 2.5, total - 2.5);
-      return Math.max(0, Math.min(Math.max(2.5, mainland), total - minimum)) / 100;
+      // The total's lower bound leaves room for both minimums (`landShareRange`).
+      const total = Math.round(landFraction(value, spec, dimensions, shape) * 1e6) / 1e4;
+      return Math.min(Math.max(MAINLAND_MINIMUM, mainland), total - islandMinimum(islandSpecFor(value, spec))) / 100;
     }
     default:
       return null;

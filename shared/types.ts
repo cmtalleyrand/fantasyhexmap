@@ -101,7 +101,7 @@ export const BASE_DESCRIPTIONS: Record<BaseGeo, string> = {
   Glacier: 'Land under permanent ice: it has elevation and the rest of the land layers, and shows the ice over the relief.',
   'Sea Ice': 'Frozen water with attached shore land only: 0% without a land neighbour, at least 5% beside 100% land.',
   Islands: 'Water with isolated islands: at least 2.5% land per small island and 5% per large island. No connection to adjacent land; cannot adjoin 100% land.',
-  'Mainland and islands': '10–90% land: connected mainland and separate offshore islands. Requires both a land and a water neighbour.',
+  'Mainland and islands': '10–90% land: connected mainland (at least 2.5%) and separate offshore islands (at least 2.5% per small island, 5% per large). Requires both a land and a water neighbour.',
   Isthmus: '15–80% connected land joining adjacent land hexes, with at least two separate land groups and two separate water groups (2–4 water neighbours).',
   Strait: '10–70% land in two separate banks, each joining adjacent land, with at least two separate land groups and two separate water groups (2–4 water neighbours).',
 };

@@ -39,12 +39,18 @@ export function passageNeighbours(base: ReadonlyArray<BaseGeo | null | undefined
   return { land, water, landGroups, waterGroups,
     valid: land >= 2 && water >= 2 && water <= 4 && landGroups >= 2 && waterGroups >= 2 };
 }
+/** Land that islands need at the least: 2.5% for each small island, 5% for each large one. */
+export function islandMinimum(spec?: IslandSpec): number {
+  return (spec?.small ?? 0) * 2.5 + (spec?.large ?? 0) * 5;
+}
+/** Land a Mainland and islands hex keeps for its mainland at the least. */
+export const MAINLAND_MINIMUM = 2.5;
 export function landShareRange(value: BaseGeo | null | undefined, spec?: IslandSpec): readonly [number, number] {
   switch (value) {
     case 'Isthmus': return [15, 80];
     case 'Strait': return [10, 70];
-    case 'Mainland and islands': return [10, 90];
-    case 'Islands': return [Math.max(2.5, (spec?.small ?? 0) * 2.5 + (spec?.large ?? 0) * 5), 100];
+    case 'Mainland and islands': return [Math.max(10, MAINLAND_MINIMUM + islandMinimum(spec)), 90];
+    case 'Islands': return [Math.max(2.5, islandMinimum(spec)), 100];
     default: return [0, 100];
   }
 }
