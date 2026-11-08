@@ -2,6 +2,7 @@ import { markBandLine } from './bandLines.js';
 import { coastPaintGeometry, type CoastPaintGeometry } from './coastPaintGeometry.js';
 import { IslandDrawingCache, type DrawnIsle as Isle } from './islandDrawingCache.js';
 import { BoundedMemo, renderCachesEnabled, withRenderCaches } from './cache.js';
+import { hashNumbers, hashText } from './hash.js';
 import { cachedPlacement, clearPlacementCache } from './placementCache.js';
 import { clearSharedPaths, shareUnchangedPaths } from './sharedPaths.js';
 import { profileCount, profileTime, profilePhases } from './profile.js';
@@ -646,28 +647,6 @@ const ISLE_IRREGULARITY: Record<Irregularity, { wobble: number; extraPoints: num
 };
 
 const COAST_AMPLITUDE: Record<Irregularity, number> = { Smooth: 0, Wavy: 0.06, Ragged: 0.12, Fractured: 0.2 };
-
-/** Two 32-bit FNV-1a hashes of the exact bits of `values`, as one string. */
-function hashNumbers(values: number[]): string {
-  const bytes = new Uint8Array(Float64Array.from(values).buffer);
-  let a = 0x811c9dc5, b = 0x01000193 ^ 0x5bd1e995;
-  for (let k = 0; k < bytes.length; k++) {
-    a = Math.imul(a ^ bytes[k]!, 0x01000193);
-    b = Math.imul(b ^ bytes[k]!, 0x5bd1e995) ^ (b >>> 15);
-  }
-  return `${(a >>> 0).toString(36)}${(b >>> 0).toString(36)}`;
-}
-
-/** Two 32-bit FNV-1a hashes of a string's UTF-16 code units, as one string. */
-function hashText(text: string): string {
-  let a = 0x811c9dc5, b = 0x01000193 ^ 0x5bd1e995;
-  for (let k = 0; k < text.length; k++) {
-    const c = text.charCodeAt(k);
-    a = Math.imul(a ^ c, 0x01000193);
-    b = Math.imul(b ^ c, 0x5bd1e995) ^ (b >>> 15);
-  }
-  return `${(a >>> 0).toString(36)}${(b >>> 0).toString(36)}`;
-}
 
 /** Content snapshots also make shape edits safe across worker cloning and undo. */
 function shapesSignature(shapes: Record<string, HexShape> | undefined): string { return JSON.stringify(shapes) ?? ''; }

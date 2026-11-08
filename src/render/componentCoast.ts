@@ -2,6 +2,7 @@ import type { Point } from '../../shared/hex.js';
 import type { CoastChain, CoastEdge, Roughness, Sliver } from './coast.js';
 import type { PathCmd } from './prims.js';
 import { polygonSliver } from './sliver.js';
+import { hashNumbers, hashText128 } from './hash.js';
 
 /** The key a path point's held-back detail is found by: its exact coordinates. */
 export const detailKey = (p: Point) => `${p.x},${p.y}`;
@@ -87,20 +88,40 @@ export function coastClearance(chains: CoastChain[], size: number) {
   };
   // A fitting pass can move one coast while leaving distant components alone.
   // Include every edge that their clearance queries could inspect so cached
-  // silhouettes are invalidated whenever a nearby constraint changes.
-  const signature = (chain: CoastChain): string => {
-    const nearby = new Set<Entry>();
-    for (const edge of chain.edges) {
-      for (let x = Math.floor(Math.min(edge.from.x, edge.to.x) / size) - 3; x <= Math.floor(Math.max(edge.from.x, edge.to.x) / size) + 3; x++) {
-        const column = bins.get(x);
-        if (!column) continue;
-        for (let y = Math.floor(Math.min(edge.from.y, edge.to.y) / size) - 3; y <= Math.floor(Math.max(edge.from.y, edge.to.y) / size) + 3; y++) {
-          for (const entry of column.get(y) ?? []) nearby.add(entry);
-        }
-      }
+  // silhouettes are invalidated whenever a nearby constraint changes: every edge in
+  // the bins within three of each of the chain's edges' bins. Each bin's edges are
+  // hashed once and shared by the chains near it. An entry's place along its own
+  // chain is not hashed: it follows from the chain's own edges, which the caller keys.
+  const pack = (x: number, y: number) => (x + 32768) * 65536 + (y + 32768);
+  const binHashes = new Map<number, string>();
+  const binHash = (x: number, y: number): string => {
+    const id = pack(x, y);
+    let hash = binHashes.get(id);
+    if (hash === undefined) {
+      const values: number[] = [];
+      for (const e of bins.get(x)?.get(y) ?? []) values.push(e.edge.from.x, e.edge.from.y, e.edge.to.x, e.edge.to.y, e.length);
+      hash = values.length ? `${hashNumbers(values)}.${values.length}` : '';
+      binHashes.set(id, hash);
     }
-    return JSON.stringify([...nearby].map(e => [e.edge.from.x, e.edge.from.y, e.edge.to.x, e.edge.to.y,
-      e.chain === chain ? e.arc : null, e.length]));
+    return hash;
+  };
+  const signature = (chain: CoastChain): string => {
+    const own = new Set<number>();
+    for (const edge of chain.edges) {
+      for (let x = Math.floor(Math.min(edge.from.x, edge.to.x) / size); x <= Math.floor(Math.max(edge.from.x, edge.to.x) / size); x++)
+        for (let y = Math.floor(Math.min(edge.from.y, edge.to.y) / size); y <= Math.floor(Math.max(edge.from.y, edge.to.y) / size); y++) own.add(pack(x, y));
+    }
+    // Grown by three bins across, then down: the same bins as each edge's box grown by three.
+    const across = new Set<number>();
+    for (const id of own) for (let dx = -3; dx <= 3; dx++) across.add(id + dx * 65536);
+    const near = new Set<number>();
+    for (const id of across) for (let dy = -3; dy <= 3; dy++) near.add(id + dy);
+    const parts: string[] = [];
+    for (const id of [...near].sort((a, b) => a - b)) {
+      const hash = binHash(Math.floor(id / 65536) - 32768, (id % 65536) - 32768);
+      if (hash) parts.push(`${id}:${hash}`);
+    }
+    return hashText128(parts.join(','));
   };
   return Object.assign(measure, { signature });
 }

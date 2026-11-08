@@ -108,6 +108,17 @@ function rimXY(p: Point, bounds: RimBounds): [number, number] {
  * the geometry before fitting; land queries and painted ink share it.
  */
 const flattenedPaths = new WeakMap<PathCmd[], Point[][]>();
+const ringBoxes = new WeakMap<Point[], [number, number, number, number]>();
+/** A flattened ring's box, [x0, y0, x1, y1], kept per ring. */
+function boxOf(ring: Point[]): [number, number, number, number] {
+  let box = ringBoxes.get(ring);
+  if (!box) {
+    box = [Infinity, Infinity, -Infinity, -Infinity];
+    for (const p of ring) { box[0] = Math.min(box[0], p.x); box[1] = Math.min(box[1], p.y); box[2] = Math.max(box[2], p.x); box[3] = Math.max(box[3], p.y); }
+    ringBoxes.set(ring, box);
+  }
+  return box;
+}
 /** A path's polylines, kept per path array: callers pass the same unchanged paths again and again. */
 function flattened(d: PathCmd[]): Point[][] {
   let lines = flattenedPaths.get(d);
@@ -123,12 +134,15 @@ export function extendCoastToRim(path: PathCmd[], closed: boolean, bounds: RimBo
   const cross = (a: Point,b: Point,c: Point)=>(b.x-a.x)*(c.y-a.y)-(b.y-a.y)*(c.x-a.x);
   const safe = (p: Point,control: Point,rim: Point) => {
     let a=p;
+    // The curve lies within the box of its three points; a ring whose box misses it cannot cross it.
+    const cx0=Math.min(p.x,control.x,rim.x),cx1=Math.max(p.x,control.x,rim.x),cy0=Math.min(p.y,control.y,rim.y),cy1=Math.max(p.y,control.y,rim.y);
+    obstacles ??= [path, ...otherPaths].flatMap(flattened);
+    const near = obstacles.filter(ring => { const b = boxOf(ring); return b[0] <= cx1 && b[2] >= cx0 && b[1] <= cy1 && b[3] >= cy0; });
     for(let k=1;k<=8;k++) {
       const t=k/8,u=1-t,b={x:u*u*p.x+2*u*t*control.x+t*t*rim.x,y:u*u*p.y+2*u*t*control.y+t*t*rim.y};
-      obstacles ??= [path, ...otherPaths].flatMap(flattened);
       // Segments whose boxes do not overlap cannot cross.
       const x0=Math.min(a.x,b.x),x1=Math.max(a.x,b.x),y0=Math.min(a.y,b.y),y1=Math.max(a.y,b.y);
-      for(const ring of obstacles)for(let j=0;j+1<ring.length;j++) {
+      for(const ring of near)for(let j=0;j+1<ring.length;j++) {
         const c=ring[j]!,d=ring[j+1]!;
         if((c.x<x0&&d.x<x0)||(c.x>x1&&d.x>x1)||(c.y<y0&&d.y<y0)||(c.y>y1&&d.y>y1))continue;
         if(cross(a,b,c)*cross(a,b,d)<-1e-8&&cross(c,d,a)*cross(c,d,b)<-1e-8)return false;

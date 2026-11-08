@@ -688,23 +688,25 @@ function newCrossings(before: Point[][], after: Point[][], closed: boolean[], si
  */
 export function snapAnchors(anchors: Map<string, Point>, paths: PathCmd[][], size: number): Map<string, Point> {
   const lines = paths.flatMap(d => pathPolylines(d, 8));
+  // Half-hex cells: each holds a few segments, so a search tests few beyond the nearest.
+  const cell = size / 2;
   const grid = new Map<number, Array<[Point, Point]>>();
   const key = (x: number, y: number) => x * 65536 + y;
   for (const line of lines) for (let j = 0; j + 1 < line.length; j++) {
     const a = line[j]!, b = line[j + 1]!;
-    for (let x = Math.floor(Math.min(a.x, b.x) / size); x <= Math.floor(Math.max(a.x, b.x) / size); x++)
-      for (let y = Math.floor(Math.min(a.y, b.y) / size); y <= Math.floor(Math.max(a.y, b.y) / size); y++) {
-        const cell = grid.get(key(x, y));
-        if (cell) cell.push([a, b]); else grid.set(key(x, y), [[a, b]]);
+    for (let x = Math.floor(Math.min(a.x, b.x) / cell); x <= Math.floor(Math.max(a.x, b.x) / cell); x++)
+      for (let y = Math.floor(Math.min(a.y, b.y) / cell); y <= Math.floor(Math.max(a.y, b.y) / cell); y++) {
+        const list = grid.get(key(x, y));
+        if (list) list.push([a, b]); else grid.set(key(x, y), [[a, b]]);
       }
   }
   const nearest = (p: Point): Point => {
-    const cx = Math.floor(p.x / size), cy = Math.floor(p.y / size);
+    const cx = Math.floor(p.x / cell), cy = Math.floor(p.y / cell);
     let best = Infinity, at = p;
     // Ring by ring outwards; a ring further out than the best distance found cannot hold a nearer segment.
-    for (let r = 0; r < 64 && (r - 1) * size < best; r++) {
-      for (let x = cx - r; x <= cx + r; x++) for (let y = cy - r; y <= cy + r; y++) {
-        if (Math.max(Math.abs(x - cx), Math.abs(y - cy)) !== r) continue;
+    for (let r = 0; r < 128 && (r - 1) * cell < best; r++) {
+      // The cells on the ring's border only, in the order the whole square would give them.
+      for (let x = cx - r; x <= cx + r; x++) for (let y = cy - r; y <= cy + r; y += x === cx - r || x === cx + r ? 1 : Math.max(1, 2 * r)) {
         for (const [a, b] of grid.get(key(x, y)) ?? []) {
           const ex = b.x - a.x, ey = b.y - a.y;
           const t = Math.max(0, Math.min(1, ((p.x - a.x) * ex + (p.y - a.y) * ey) / (ex * ex + ey * ey || 1)));

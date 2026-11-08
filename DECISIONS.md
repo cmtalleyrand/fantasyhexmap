@@ -2527,3 +2527,44 @@ hardware.
   render profile.
 - The only CPU-side lever on rasterizing is drawing fewer or cheaper primitives. That changes the
   picture, and it is a style decision, not a performance one.
+
+## 99. Whole-map work inside the coast stage: rim curves, anchor snapping, component keys
+
+**Context.** After §96–§98 the owner noted the goal is speed, not completing plan steps. A profile
+of coastal edits then showed several pieces of whole-map work that run on every trace or fit,
+however small the edit. All three changes below are exact: scenes are identical (paired cold builds
+check identity).
+
+**Changes:**
+- **Anchor snapping.** About 35 ms per coastal edit, 90% of it nearest-point searches; it moves
+  each of about 2,300 anchors to the coast.
+  - Each ring of grid cells was found by scanning the whole square of cells and skipping the
+    interior. It now visits only the ring's border cells, in the same order.
+  - Cells are half a hex instead of a whole hex. Each search tested about 120 segments, about
+    14 per cell; it now tests far fewer.
+  - The visiting order changes, so the first of two segments at exactly the same distance could
+    in principle differ. Scenes are unchanged.
+- **Rim curves.** For an open coast's end curve to the page edge, the safety check tested every
+  segment of every coast. It now skips rings whose box misses the curve's box, which a quadratic
+  curve cannot leave.
+- **Component cache keys.** Every trace keys each of about 100 coast components by its edges and by
+  every edge its clearance queries could inspect. That signature collected each edge's bins
+  grown by three (49 bins per edge) and turned the edges found into JSON, about 17 ms per
+  coastal edit. Now:
+  - each bin's edges are hashed once per index and shared by the components near it;
+  - each component's bins are grown separably, three across and then three down, which gives the
+    same bins;
+  - the bin hashes are combined into four 32-bit lanes.
+
+  An edge's place along its own chain is no longer hashed: it follows from the chain's own
+  edges, which the key already holds. `hashNumbers` and `hashText` moved to `hash.ts`.
+
+**Tried and dropped.**
+- One trace per incremental edit instead of three, and then two: the passes moved nearby hexes by
+  only a few hundredths each, and two traces would save about 85–170 ms.
+  - One trace broke the share gate: hex 513 missed its share where a fresh build reaches it.
+  - Two traces broke the far-coast gate: 8.25 px of movement.
+  - Starting nearby hexes from their settled shares passed both gates but did not save a trace.
+
+**Measured.** Paired Node runs against §98 (30 pairs each): coastal edits 0.928 of the time,
+inland edits 0.945. Cold builds 0.983 (interval 0.940–1.020), unresolved, with scenes identical.
