@@ -2302,8 +2302,10 @@ plain builds of the same sequence, single runs):
 | Share misses not in a fresh build | none | none |
 
 The difference from a fresh build is the feature slides a fresh build would make, and it shows only
-when the map is reopened. The coast then moves as a plain build's does on every edit today. I judge
-that within §91's rule, but it is the owner's call. A test (`test/slow/coastWindow.test.ts`) holds
+when the map is reopened. The coast then moves as a plain build's does on every edit today.
+**Owner's decision (8 November 2026):** shown side-by-side renders of an incremental and a fresh
+build after four edits (largest far differences 9–11 px, visible as reshaped bays), the owner does
+not mind the differences. Incremental refits stay on in the editor. A test (`test/slow/coastWindow.test.ts`) holds
 the shares, the still far coast (at most 0.12 hex) and a bound on the distance from a fresh build
 (0.6 hex) over four edits.
 
