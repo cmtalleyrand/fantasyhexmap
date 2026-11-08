@@ -11,8 +11,6 @@ export interface PaintView {
 }
 
 export type PaintRequest =
-  /** Where to load the coast-fit worker from, where the bundle cannot locate it itself. */
-  | { type: 'configure'; fitWorker: string; helpers?: number }
   | { type: 'build'; version: number; id: number; map: MapState; options: SceneOptions; profile?: boolean }
   | { type: 'scene'; version: number; scene: Scene; lettering: LetteringId; profile?: boolean }
   | ({ type: 'paint'; version: number; id: number; profile?: boolean } & PaintView);

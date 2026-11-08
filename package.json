@@ -24,7 +24,8 @@
     "perf:coast": "node scripts/render-coast-validation.mjs",
     "perf:incremental": "node scripts/render-incremental-validation.mjs",
     "perf:interaction": "node scripts/render-interaction-study.mjs",
-    "perf:edit-wait": "node scripts/render-edit-wait.mjs"
+    "perf:edit-wait": "node scripts/render-edit-wait.mjs",
+    "perf:paint-split": "node scripts/render-paint-split.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.124.0",

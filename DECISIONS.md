@@ -2444,3 +2444,86 @@ compare.
 
 **Still map-wide.** The edited landmass's retrace on each share pass, about 150–190 ms. The rest of
 the symbols phase, about 45 ms: re-drawing kept fits and escarpments. And paint.
+
+## 97. Parallel coast fits (R4): built, measured, withdrawn
+
+R4 asked whether fitting a cold build's independent coast groups (§90) at the same time, in a
+worker pool, would make cold builds 20–35% faster. On the 50×50 interaction map each of the two
+fits has three groups: 432, 343 and 25 ms in Node for the first fit, and 181, 118 and 27 ms for the
+second. Fitted one after another they take about 0.9–1.0 s of a 2.6–2.9 s cold build. At best, in
+parallel, they would take about 0.6 s.
+
+**What was built** (commit c6dd311, reverted in the next commit):
+- The coast stage became a generator that yields its group fits as plain jobs. The synchronous
+  build ran them in place, with scenes identical (606 tests).
+- The paint worker built the coast ahead of the scene. It fitted the largest group itself while
+  helper workers, made by the paint worker, fitted the rest. The build that followed found the coast
+  cached.
+- Jobs carry only what the fit reads: about a sixth of the copying (19 ms against 114 ms per job),
+  with identical results.
+- Helpers are made when the paint worker starts. In Chromium a worker made by a worker loads through
+  its maker's event loop, so one made at the start of a build did not start until the paint worker
+  had finished its own fit. The build waited, for at most 250 ms, for the helpers to start.
+- Vite bundles the nested worker.
+
+**Measured**, `perf:edit-wait`, 12 cold builds each, alternating, in one session:
+
+| Variant | Cold build | Fit |
+|---|---:|---:|
+| Pool, three helpers | 2,716 ms | 1,036 ms |
+| No pool | 2,749 ms | 1,001 ms |
+| Pool, one helper | 2,700 ms | 983 ms |
+| No pool | 2,674 ms | 958 ms |
+| Pool, helpers warmed by small fits while idle | 2,787 ms | 932 ms |
+| No pool | 2,583 ms | 925 ms |
+
+Once the helpers started promptly, the wait for them after the paint worker's own fit fell to
+15–120 ms. But every fit ran about 1.5× slower while others ran beside it: the paint worker's two
+largest fits took 750–800 ms in all, against about 520 ms alone. The fits done by the helpers took
+about 730–780 ms.
+
+The browser does run workers in parallel. A spin loop and a simple allocation loop scale to three
+workers, and in Node two of these fits run together only about 10% slower than alone. Run warm in
+the browser, after a second of warm-up fits, two workers together took roughly what each took alone
+(noisy: 173–491 ms alone, 287–487 ms together). The loss is in a cold build. Each fresh worker
+compiles the fit's code from scratch. Fits warmed while idle compete with the paint worker's trace
+on this four-vCPU container, which made the cold build slower.
+
+**Decision.** Withdrawn: this container shows no gain, and the plan requires each step to show its
+gain. It may help on machines with more free cores, but that has not been measured. The generator
+split is the part worth reusing if R4 is tried again.
+- `perf:edit-wait` would need its fit worker passed as a blob URL, as in c6dd311. Playwright's
+  routes do not see requests made from inside a worker.
+- The cold-JIT cost would need addressing first: fewer, longer-lived helpers, or helpers kept warm
+  across builds.
+
+## 98. Paint without a GPU (R5): what rasterizing costs
+
+R5 asked how much of paint a GPU-backed browser would remove before any work on paint. No GPU is
+available here, so `npm run perf:paint-split` measures the bound instead. It paints the 50×50
+interaction map's scene as the paint worker does, at a 1400×900 view, and times two paints (median
+of 7):
+- to a real OffscreenCanvas, which headless Chromium rasterizes in software;
+- to a stub context that accepts every call and draws nothing. Its composite layers are 1×1, so
+  this is the cost of walking the scene, building paths and issuing commands.
+
+| View | dpr | Paint | Commands | Rasterizing |
+|---|---:|---:|---:|---:|
+| fit | 1 | 203 ms | 24 ms | 179 ms |
+| fit | 2 | 361 ms | 26 ms | 335 ms |
+| zoom 1 | 1 | 98 ms | 7 ms | 91 ms |
+| zoom 1 | 2 | 247 ms | 10 ms | 237 ms |
+| zoom 2 | 1 | 62 ms | 3 ms | 59 ms |
+| zoom 2 | 2 | 165 ms | 6 ms | 159 ms |
+
+About 88–96% of paint is rasterizing pixels. A GPU-backed 2D canvas, which Chrome uses in workers
+where a GPU is available, does that on the GPU. Commands still cost 3–26 ms per frame.
+
+**Decision.** No CPU-side work on paint is planned. The 0.2–0.27 s that `perf:edit-wait` reports
+for paint is mostly software rasterizing in this headless container, and overstates paint on GPU
+hardware.
+- Commands are at most about 26 ms per frame and do not justify work either.
+- If paint matters on real devices, measure it there first: a frame's `paintMs` from the editor's
+  render profile.
+- The only CPU-side lever on rasterizing is drawing fewer or cheaper primitives. That changes the
+  picture, and it is a style decision, not a performance one.

@@ -1,7 +1,7 @@
 /**
  * What a person waits for after an edit, split into its parts (performance plan, Group 1, step 3.1).
  *
- *   node scripts/render-edit-wait.mjs [--runs 3] [--span 50] [--zoom fit|1|2] [--output DIR] [--no-pool] [--helpers N]
+ *   node scripts/render-edit-wait.mjs [--runs 3] [--span 50] [--zoom fit|1|2] [--output DIR]
  *
  * Through the production worker and ScenePainter, on the all-layer interaction map: one cold
  * build, then ten edits of four kinds applied in sequence, each waited out (sharp frame and
@@ -18,14 +18,12 @@ import { launchBrowser, serveBuild } from './browser-runtime.mjs';
 
 const arg = (name, fallback) => process.argv.includes(name) ? process.argv[process.argv.indexOf(name) + 1] : fallback;
 const runs = Number(arg('--runs', '3')), span = Number(arg('--span', '50')), zoom = arg('--zoom', 'fit');
-const pool = !process.argv.includes('--no-pool'), helpers = process.argv.includes('--helpers') ? Number(arg('--helpers', '3')) : undefined;
 const output = resolve(arg('--output', `work/edit-wait/${new Date().toISOString().replace(/[:.]/g, '-')}`));
 mkdirSync(output, { recursive: true });
 const bundle = async (options) => (await build({ bundle: true, write: false, format: 'iife', globalName: 'api',
   loader: { '.woff2': 'dataurl' }, ...options })).outputFiles[0].text;
 const assets = {
   '/worker.js': await bundle({ entryPoints: [resolve('src/render/paint.worker.ts')] }),
-  '/fit.worker.js': await bundle({ entryPoints: [resolve('src/render/fit.worker.ts')] }),
   '/page.js': await bundle({ stdin: { contents: `export { ScenePainter } from ${JSON.stringify(resolve('src/render/scenePainter.ts'))};
 export { neighbourOf, inBounds } from ${JSON.stringify(resolve('shared/hex.ts'))};
 export { isCategoryLand, isCategoryWater } from ${JSON.stringify(resolve('shared/hexCategories.ts'))};
@@ -40,7 +38,7 @@ try {
   const tab = await context.newPage();
   await tab.goto('http://render.test/blank');
   await tab.addScriptTag({ url: 'http://render.test/page.js' });
-  report.samples = await tab.evaluate(async ({ runs, span, zoom, pool, helpers }) => {
+  report.samples = await tab.evaluate(async ({ runs, span, zoom }) => {
     const size = { width: 1400, height: 900 };
     const initial = api.fixture('interaction-study', span), options = api.options();
     const { cols, rows } = initial, base = initial.layers.base.data;
@@ -75,10 +73,6 @@ try {
     const out = [];
     for (let run = 0; run < runs; run++) {
       const worker = new Worker('/worker.js');
-      // The coast-fit helpers (DECISIONS §97); --no-pool leaves every fit to the paint worker.
-      // A blob URL: requests made from inside a worker do not reach the test server's routes.
-      const fitSource = pool ? await (await fetch('/fit.worker.js')).text() : '';
-      worker.postMessage({ type: 'configure', fitWorker: pool ? URL.createObjectURL(new Blob([fitSource], { type: 'text/javascript' })) : '', helpers });
       let timings = {}, profile = null, metadata = null, pending = null;
       worker.addEventListener('message', ({ data }) => {
         if (data.timings?.buildMs !== undefined) { timings.buildMs = data.timings.buildMs; profile = data.profile ?? null; }
@@ -104,8 +98,7 @@ try {
         setTimeout(() => painter.paint({ size, dpr: 1, view: view() }), 0);
       }).then(result => {
         const phase = name => (profile?.timings ?? []).filter(t => t.name === name).reduce((s, t) => s + t.duration, 0);
-        return { ...result, buildMs: timings.buildMs, paintMs: timings.paintMs, coastMs: phase('scene.coast') + phase('worker.coast'), fitMs: phase('coast.fit'),
-          pool: Object.fromEntries(Object.entries(profile?.counters ?? {}).filter(([k]) => k.startsWith('pool.'))),
+        return { ...result, buildMs: timings.buildMs, paintMs: timings.paintMs, coastMs: phase('scene.coast'), fitMs: phase('coast.fit'),
           compromises: metadata?.compromises?.length ?? 0 };
       });
       let map = structuredClone(initial);
@@ -119,7 +112,7 @@ try {
       painter.dispose();
     }
     return out;
-  }, { runs, span, zoom, pool, helpers });
+  }, { runs, span, zoom });
 } finally {
   await browser.close();
 }

@@ -4,8 +4,7 @@ import { IslandDrawingCache, type DrawnIsle as Isle } from './islandDrawingCache
 import { BoundedMemo, renderCachesEnabled, withRenderCaches } from './cache.js';
 import { cachedPlacement, clearPlacementCache } from './placementCache.js';
 import { clearSharedPaths, shareUnchangedPaths } from './sharedPaths.js';
-import { profileCount, profileTime, profilePhases, profileSection } from './profile.js';
-import { runFitsHere, type FitJob, type FitOutput, type FitSteps } from './coastFitJob.js';
+import { profileCount, profileTime, profilePhases } from './profile.js';
 /**
  * The scene model.
  *
@@ -488,9 +487,9 @@ function coveragePrints(land: Point[][], stroke: Point[][], reach: number, size:
   };
 }
 
-function* cachedCoastFit(geometry: CoastGeometry, targets: ReadonlyMap<number, { share: number; width?: number }>,
+function cachedCoastFit(geometry: CoastGeometry, targets: ReadonlyMap<number, { share: number; width?: number }>,
   cols: number, rows: number, size: number, page: { width: number; height: number }, ink: number,
-  passages: number[], seed: string, rounds?: number, repairEdges = false, incremental?: string): FitSteps<CoastGeometry> {
+  passages: number[], seed: string, rounds?: number, repairEdges = false, incremental?: string): CoastGeometry {
   if (!geometry.component || !targets.size) return geometry;
   const fitPhase = profilePhases('fitCache');
   fitPhase('polylines');
@@ -546,7 +545,7 @@ function* cachedCoastFit(geometry: CoastGeometry, targets: ReadonlyMap<number, {
     }
     return { paths: members.map(k => fitted.paths[k]!), detail: held };
   };
-  const result: CoastGeometry = yield* (function* (): FitSteps<CoastGeometry> {
+  const result = ((): CoastGeometry => {
     fitPhase('groups');
     const groups = coastFitGroups(geometry, targets, cols, size, polylines);
     if (groups.length === 1) {
@@ -562,9 +561,7 @@ function* cachedCoastFit(geometry: CoastGeometry, targets: ReadonlyMap<number, {
         coastFits.set('w' + key, fit, paths.reduce((n, path) => n + path.length * 48, 0) + fit.anchors.size * 64 + (fit.detail?.size ?? 0) * 64);
         return { ...geometry, ...fit };
       }
-      const [output] = yield [{ geometry, targets: new Map(targets), cols, rows, size, page, ink, passages: [...passages], rounds,
-        repairEdges, polylines, weight: polylines.reduce((n, ring) => n + ring.length, 0) }];
-      const fitted: CoastGeometry = { ...geometry, ...output! };
+      const fitted = fitCoastAreas(geometry, targets, cols, rows, size, page, ink, passages, rounds, repairEdges, undefined, polylines);
       coastFits.set(key, { paths: fitted.paths, anchors: fitted.anchors, detail: fitted.detail },
         fitted.paths.reduce((n, path) => n + path.length * 48, 0) + fitted.anchors.size * 64 + (fitted.detail?.size ?? 0) * 64);
       return fitted;
@@ -594,10 +591,6 @@ function* cachedCoastFit(geometry: CoastGeometry, targets: ReadonlyMap<number, {
     }
     const paths = [...geometry.paths], detail = new Map<string, number>();
     let held = false;
-    // Groups that missed the cache and could not be refitted in windows are fitted together
-    // afterwards, so they can be handed out to run at once (DECISIONS §97).
-    const fits: Array<Pick<CoastGeometry, 'paths' | 'anchors' | 'detail'> | undefined> = [];
-    const pending: Array<{ n: number; key: string; job: FitJob }> = [];
     groups.forEach((group, n) => {
       fitPhase('keys');
       const members = new Set(group.rings);
@@ -619,24 +612,12 @@ function* cachedCoastFit(geometry: CoastGeometry, targets: ReadonlyMap<number, {
           fit = { paths: local.paths, anchors: new Map(), detail: local.detail };
           coastFits.set('w' + key, fit, fit.paths.reduce((s, path) => s + path.length * 48, 0) + (fit.detail?.size ?? 0) * 64);
         } else {
-          pending.push({ n, key, job: { geometry, targets: new Map(group.targets), cols, rows, size, page, ink, passages: [...passages],
-            rounds, repairEdges, movable: [...group.rings], polylines, weight: group.rings.reduce((s, k) => s + polylines[k]!.length, 0) } });
+          const fitted = fitCoastAreas(geometry, group.targets, cols, rows, size, page, ink, passages, rounds, repairEdges, members, polylines);
+          fit = { paths: group.rings.map(k => fitted.paths[k]!), anchors: new Map(), detail: fitted.detail };
+          coastFits.set(key, fit, fit.paths.reduce((s, path) => s + path.length * 48, 0) + (fit.detail?.size ?? 0) * 64);
         }
       }
-      fits[n] = fit;
-    });
-    if (pending.length) {
-      fitPhase('groupFit');
-      const outputs = yield pending.map(p => p.job);
-      pending.forEach(({ n, key }, j) => {
-        const fit = { paths: outputs[j]!.paths, anchors: new Map<string, Point>(), detail: outputs[j]!.detail };
-        coastFits.set(key, fit, fit.paths.reduce((s, path) => s + path.length * 48, 0) + (fit.detail?.size ?? 0) * 64);
-        fits[n] = fit;
-      });
-    }
-    groups.forEach((group, n) => {
-      const fit = fits[n]!;
-      group.rings.forEach((k, j) => { paths[k] = fit.paths[j]!; });
+      group.rings.forEach((k, j) => { paths[k] = fit!.paths[j]!; });
       if (fit.detail) { held = true; for (const [id, offset] of fit.detail) detail.set(id, offset); }
     });
     fitPhase('anchors');
@@ -691,13 +672,7 @@ function hashText(text: string): string {
 /** Content snapshots also make shape edits safe across worker cloning and undo. */
 function shapesSignature(shapes: Record<string, HexShape> | undefined): string { return JSON.stringify(shapes) ?? ''; }
 
-/** The traced, shaped and fitted coast, its fits run in place (see `coastSteps`). */
-function cachedCoast(...args: Parameters<typeof coastSteps>): TracedCoast {
-  return runFitsHere(coastSteps(...args));
-}
-
-/** The coast's steps, which hand out its fits (DECISIONS §97). */
-function* coastSteps(
+function cachedCoast(
   base: ReadonlyArray<BaseGeo | null>,
   cols: number,
   rows: number,
@@ -714,7 +689,7 @@ function* coastSteps(
   /** Refit only near what changed since this coast's last fit (see `SceneOptions.incrementalCoast`):
    * which coast it is, the map's or a lake's background, so each is spliced from its own. */
   incremental?: string,
-): FitSteps<TracedCoast> {
+): TracedCoast {
   const key = JSON.stringify([base, cols, rows, size, smooth, inkReach, seed, defaultIrregularity, defaultLakeIrregularity, shapesSignature(shapes), dimensions, islandSpecs, incremental]);
   const hit = coastCache.get(key);
   if (hit) { profileCount('coast.cacheHit'); return hit; }
@@ -1037,17 +1012,13 @@ function* coastSteps(
     (hasDerivedShore(base[i]) && !shore[i]) || (target.width !== undefined && !target.fit) ? []
       : [[i, { share: wanted.get(i)!, width: target.width }] as const]));
   const fitPassages = [...targets].filter(([, target]) => target.width !== undefined).map(([i]) => i);
-  let endFit = profileSection('coast.fit');
-  geometry = yield* cachedCoastFit(geometry, fitTargets, cols, rows, size, page, inkReach, fitPassages, seed, undefined, false, incremental);
-  endFit();
+  geometry = profileTime('coast.fit', () => cachedCoastFit(geometry, fitTargets, cols, rows, size, page, inkReach, fitPassages, seed, undefined, false, incremental));
   // The coast was shaped and fitted smooth; its local cuts and fine detail go on now,
   // where moving it can no longer squeeze or stretch them, and a short last fit evens
   // out the little land the detail adds or takes away in each hex. Boundary shares
   // can finish with a targeted correction, since their page endpoints cannot move.
   geometry = applyCoastDetail(geometry, size);
-  endFit = profileSection('coast.fit');
-  geometry = yield* cachedCoastFit(geometry, fitTargets, cols, rows, size, page, inkReach, fitPassages, seed, 2, true, incremental);
-  endFit();
+  geometry = profileTime('coast.fit', () => cachedCoastFit(geometry, fitTargets, cols, rows, size, page, inkReach, fitPassages, seed, 2, true, incremental));
   coastPhase('coverageAndLakes');
   const lakeOf = new Map<number, number>();
   lakes.forEach((lake, k) => lake.forEach(i => lakeOf.set(i, k)));
@@ -1113,7 +1084,7 @@ function* coastSteps(
     if (!specs.length) continue;
     const backgroundBase = [...base];
     for (const i of passages) backgroundBase[i] = 'Lake';
-    const background = yield* coastSteps(backgroundBase, cols, rows, size, smooth, shapes,
+    const background = cachedCoast(backgroundBase, cols, rows, size, smooth, shapes,
       defaultIrregularity, dimensions, seed, inkReach, defaultLakeIrregularity, islandSpecs, incremental && `${incremental}/lake:${passages.join(',')}`);
     const backgroundIndex = background.lakes.findIndex(cells => cells.includes(passages[0]!));
     const path = lakeShoreFields(background.lakePaths[backgroundIndex] ?? lakePaths[k]!, specs, size);
@@ -1313,38 +1284,6 @@ export function decorationPrims(map: MapState, opts: SceneOptions): Prim[] {
   return prims;
 }
 
-/** Half the coastline's stroke width: what its ink adds outside the land, which counts as land (0 with no coastline). */
-function inkReachFor(opts: SceneOptions): number {
-  const { palette, knobs } = opts.style ?? CLASSIC_STYLE;
-  return knobs.coast === 'none' ? 0 : Math.max(0.8, opts.size * palette.coastWidth * knobs.lineWeight) / 2;
-}
-
-/** What the map's coast is built from, or null when the base layer is hidden. */
-function coastArgsOf(map: MapState, opts: SceneOptions): Parameters<typeof coastSteps> | null {
-  const base = opts.visible.base ? map.layers.base.data : null;
-  if (!base) return null;
-  const { knobs } = opts.style ?? CLASSIC_STYLE;
-  return [base, map.cols, map.rows, opts.size, knobs.coast === 'smooth', map.hexShapes, map.defaultIrregularity,
-    normaliseHexDimensions(map.hexDimensions), map.id, inkReachFor(opts), map.defaultLakeIrregularity, map.islandSpecs,
-    opts.incrementalCoast === true && renderCachesEnabled() ? 'map' : undefined];
-}
-
-/**
- * Builds the map's coast ahead of `buildStaticScene` with the same options, handing its fits to
- * `run`, which may run them at once in other workers (DECISIONS §97). The build that follows finds
- * the coast cached. Does nothing with caches off, where the build could not find it.
- */
-export async function prepareCoast(map: MapState, opts: SceneOptions,
-  run: (jobs: FitJob[]) => Promise<FitOutput[]>): Promise<void> {
-  if (opts.cache === 'off' || !renderCachesEnabled()) return;
-  prepareSceneCacheScope(map, opts.size);
-  const args = coastArgsOf(map, opts);
-  if (!args) return;
-  const steps = coastSteps(...args);
-  let step = steps.next();
-  while (!step.done) step = steps.next(await run(step.value));
-}
-
 /** Everything but the hover and selection outlines. */
 export function buildStaticScene(map: MapState, opts: SceneOptions): Scene {
   return withRenderCaches(opts.cache !== 'off', () => profileTime('scene.total', () => {
@@ -1381,10 +1320,10 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
   const population = opts.visible.population ? layers.population.data : null;
   const maxPop = population ? Math.max(1, ...population.map((v) => v ?? 0)) : 1;
 
-  const inkReachOf = inkReachFor(opts);
+  // Half the coastline's stroke width: what its ink adds outside the land, which counts as land (0 with no coastline).
+  const inkReachOf = knobs.coast === 'none' ? 0 : Math.max(0.8, size * palette.coastWidth * knobs.lineWeight) / 2;
   phase('coast');
-  const coastArgs = coastArgsOf(map, opts);
-  const traced = coastArgs ? cachedCoast(...coastArgs) : null;
+  const traced = base ? cachedCoast(base, cols, rows, size, knobs.coast === 'smooth', map.hexShapes, map.defaultIrregularity, normaliseHexDimensions(map.hexDimensions), seed, inkReachOf, map.defaultLakeIrregularity, map.islandSpecs, opts.incrementalCoast === true && renderCachesEnabled() ? 'map' : undefined) : null;
   // Exact clips and donor geometry survive redraws with their traced coast.
   const drawnCoastLand = (): PathCmd[] => traced?.paint.land ?? [];
   phase('landAndFills');
