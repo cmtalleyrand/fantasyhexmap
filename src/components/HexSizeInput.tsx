@@ -23,13 +23,11 @@ const SMALL_ISLAND_PERCENT_OPTIONS = [2.5, ...LAND_PERCENT_OPTIONS.slice(1)];
 /** The land share of each shaped type, as (field, label) for the settings below. */
 const LAND_SHARES: Array<[keyof HexDimensions, string]> = [
   ['coastalLandPercent', 'Land on the shore (beside sea or lake)'],
-  ['seaLandPercent', 'Sea beside land (land in the hex)'],
+  ['seaLandPercent', 'Sea and sea ice beside land (land in the hex)'],
   ['lakeLandPercent', 'Lake (land in the hex)'],
   ['largeIslandPercent', 'Each large island'],
   ['smallIslandPercent', 'Each small island'],
   ['mainlandPercent', 'Mainland (with islands)'],
-  
-  
   ['glacierPercent', 'Glacier on the shore (beside sea or lake)'],
 ];
 

@@ -36,6 +36,14 @@ export function normaliseHexDimensions(value?: StoredHexDimensions): HexDimensio
   // The old defaults (70% and 30% for an isthmus, 40% for a strait) were not chosen: those maps take the natural shape.
   if (out.isthmusPercent === 70 || out.isthmusPercent === 30 || typeof out.isthmusPercent !== 'number') delete out.isthmusPercent;
   if (out.straitPercent === 40 || typeof out.straitPercent !== 'number') delete out.straitPercent;
+  // A share someone chose outside its type's bounds (saved before they existed) takes the nearest one allowed,
+  // so the settings show what is drawn and counted.
+  for (const [field, type] of [['isthmusPercent', 'Isthmus'], ['straitPercent', 'Strait']] as const) {
+    const percent = out[field];
+    if (percent === undefined) continue;
+    if (Number.isFinite(percent)) out[field] = boundedLandShare(type, percent);
+    else delete out[field];
+  }
   if (!CHANNEL_WIDTH_VALUES.includes(out.isthmusWidth)) out.isthmusWidth = DEFAULT_HEX_DIMENSIONS.isthmusWidth;
   if (!CHANNEL_WIDTH_VALUES.includes(out.straitWidth)) out.straitWidth = DEFAULT_HEX_DIMENSIONS.straitWidth;
   if (islandLandPercent !== undefined && rest.smallIslandPercent === undefined && rest.largeIslandPercent === undefined) {

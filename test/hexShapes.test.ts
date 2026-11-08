@@ -1033,3 +1033,12 @@ test('a land share set on an isthmus or strait tunes the land round its width, a
     }
   }
 });
+
+test('map-wide isthmus and strait shares saved outside their type bounds are held to them', () => {
+  const held = normaliseHexDimensions({ ...dims, isthmusPercent: 95, straitPercent: 85 });
+  assert.equal(held.isthmusPercent, 80);
+  assert.equal(held.straitPercent, 70);
+  assert.equal(normaliseHexDimensions({ ...dims, isthmusPercent: 5 }).isthmusPercent, 15);
+  assert.equal(normaliseHexDimensions({ ...dims, straitPercent: 55 }).straitPercent, 55);
+  assert.ok(!('straitPercent' in normaliseHexDimensions({ ...dims, straitPercent: Number.NaN })));
+});

@@ -779,8 +779,8 @@ function HexShapePanel(props: SubProps) {
             {landHexes.some((i) => base![i] === 'Lake')
               ? ' In a lake hex this is land drawn in from the edges it shares with land (the lake keeps the rest); 0% leaves the lake as it is.'
               : ''}
-            {landHexes.some((i) => base![i] === 'Sea')
-              ? ' In a sea hex this extends the neighbouring shore into the water. The default is 0%; open sea without a land neighbour stays water.'
+            {landHexes.some((i) => base![i] === 'Sea' || base![i] === 'Sea Ice')
+              ? ' In a sea or sea ice hex this extends the neighbouring shore into the water. The default is 0%; without a land neighbour it stays water.'
               : ''}
             {landHexes.some((i) => isIslandType(base![i]))
               ? ` An island hex adds up its islands (${dims.smallIslandPercent}% for each small one, ${dims.largeIslandPercent}% for each large one, plus ${dims.mainlandPercent}% for a mainland); its islands are drawn at that size, kept apart and inside the hex; if they cannot all fit at that size they are drawn as large as they can be.`
