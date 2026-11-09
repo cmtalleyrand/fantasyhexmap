@@ -138,6 +138,7 @@ export function createMapState(
     journal: [],
     derivedShores: true,
     derivedGlacierShores: true,
+    chosenPassageShares: true,
   };
 }
 

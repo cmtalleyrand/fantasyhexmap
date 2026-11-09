@@ -375,7 +375,14 @@ export function lakeStraitFrame(outline: Poly, hexCentre: Point, dry: number[], 
   const distance = Math.hypot(chosen.x - hexCentre.x, chosen.y - hexCentre.y);
   const ratio = distance ? Math.max(0, distance - width / 2) / distance : 0;
   let centre = { x: hexCentre.x + (chosen.x - hexCentre.x) * ratio, y: hexCentre.y + (chosen.y - hexCentre.y) * ratio };
+  // Each bank is rooted at the middle of the chord across its edges, except that the chord across
+  // three or more edges passes through (or behind) the hex centre: such a bank is rooted at the mean
+  // of its edges' midpoints, so that the throat does not crowd the bank opposite it.
   const roots = dryRuns.map(run => {
+    if (run.length >= 3) {
+      const mids = run.map(e => ({ x: (outline[e]!.x + outline[(e + 1) % 6]!.x) / 2, y: (outline[e]!.y + outline[(e + 1) % 6]!.y) / 2 }));
+      return { x: mids.reduce((sum, p) => sum + p.x, 0) / mids.length, y: mids.reduce((sum, p) => sum + p.y, 0) / mids.length };
+    }
     const a = outline[run[0]!]!, b = outline[(run.at(-1)! + 1) % 6]!;
     return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
   });

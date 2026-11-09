@@ -113,7 +113,8 @@ import { capitalCrown, cityMarker, iconClearance, iconDrop, markerExtent, symbol
 import { riverStance, riverThroughIcon, showsRiver } from './riverCity.js';
 import { riverCourses, type RiverCourse } from './rivers.js';
 import { measureRiverCourse, type RiverMeasurement } from '../../shared/riverLength.js';
-import { lakeShoreFields } from './lakeShoreField.js';
+import { lakeShoreFields, passageContour, type LakeShorePassage } from './lakeShoreField.js';
+import { spliceChainPaths } from './passageShore.js';
 import { citySite, lakeEdgesOf, resolvedSite } from './sites.js';
 import { FIT_SCALES, smoothPlateauRims, plateauRimVertex, escarpment, escarpmentWithinLand, hillshade, keepToLand, refit, samplePoints, type Fitted, reliefSymbols, symbolAnchor, vegetationSymbols, type Placed } from './symbols.js';
 import { ownersAtDepth, polityDepths, polityDisplayColours, toned } from './hierarchy.js';
@@ -128,6 +129,7 @@ import { ELEVATION_RANK, floeFringe, glacierEdges, glacierFlow, glacierMarginPri
 import { areaCoverage, coveredArea, nearestOn, lakeStraitFrame, shapeCoast, type ShapeMemo, type ShapeTarget } from './footprint.js';
 import { LAND_SHARE_TOLERANCE, withShoreSlack, channelShareSet, channelWidthFraction, drawnLandFraction, landFraction, normaliseHexDimensions } from '../../shared/surfaceArea.js';
 import { hasDerivedShore, isShoreLand } from '../../shared/derive.js';
+import { isCategoryLand } from '../../shared/hexCategories.js';
 import { applyCoastDetail, fitCoastAreas } from './coastArea.js';
 import { coastPaintPatches, coastPaintPaths } from './coastPaint.js';
 import { realmBoundary } from './realmBoundary.js';
@@ -384,6 +386,8 @@ interface TracedCoast {
   onLand: (p: Point) => boolean;
   /** Width-constrained lake shores use the same bank construction and clearance as sea shores. */
   lakeCoast?: TracedCoast;
+  /** Sea straits and isthmuses whose shore was reshaped locally round them, and how far round: their fills follow the reshaped coast there. */
+  passageEdits?: Array<{ i: number; centre: Point; radius: number }>;
 }
 
 const coastCache = new BoundedMemo<TracedCoast>(4, 20_000_000);
@@ -763,12 +767,13 @@ function cachedCoast(
   coastPhase('coverageAndLakes');
   const lakeOf = new Map<number, number>();
   lakes.forEach((lake, k) => lake.forEach(i => lakeOf.set(i, k)));
-  let chainLakes = geometry.chains.map(chain => {
+  const lakeOwners = (geometry: CoastGeometry) => geometry.chains.map(chain => {
     const lake = chain.edges.map(e => lakeOf.get(e.water)).find(k => k !== undefined);
     return lake ?? -1;
   });
+  let chainLakes = lakeOwners(geometry);
   // Reverse land-oriented shores to close each water body along the correct page rim.
-  const lakePaths = lakes.map((lake, k) => {
+  const lakePathsOf = (geometry: CoastGeometry, chainLakes: number[]) => lakes.map((lake, k) => {
     const indices = chainLakes.flatMap((owner, c) => owner === k ? [c] : []);
     const chains = indices.map(c => {
       const chain = geometry.chains[c]!;
@@ -784,6 +789,7 @@ function cachedCoast(
     }
     return drawnLand({ ...geometry, chains, paths }, page.width, page.height, size);
   });
+  const lakePaths = lakePathsOf(geometry, chainLakes);
   // Passage controls deform a stable surrounding shore locally. Build that shore
   // with the same shared engine, treating the passage as water while its controls
   // are applied, so changing a throat cannot reseed a distant bay.
@@ -843,6 +849,88 @@ function cachedCoast(
       lakePaths[k] = path;
     }
   }
+  // Sea straits and isthmuses, and isthmuses in lakes, take the same local shore as a lake strait:
+  // the coast is traced with each passage hex open (a strait's as sea, an isthmus's as land), and the
+  // shore round it is then reshaped into two rounded headland tips a throat apart (a strait's banks,
+  // an isthmus's bays), fading back into that coast by half a hex beyond the passage. Only hexes with
+  // exactly two land and two water groups round them are passages (see `passageNeighbours`); others
+  // keep their cut.
+  const runsOf = (edges: number[]) => edges.length === 6 ? [edges] : edges.filter(e => !edges.includes((e + 5) % 6)).map(e => {
+    const run = [e];
+    while (edges.includes((run.at(-1)! + 1) % 6)) run.push((run.at(-1)! + 1) % 6);
+    return run;
+  });
+  const seaPassages = base.flatMap((value, i) => {
+    if (value !== 'Isthmus' && (value !== 'Strait' || lakePassageHexes.has(i))) return [];
+    const split = surface.split.get(i);
+    if (!split) return [];
+    const dry = [0, 1, 2, 3, 4, 5].filter(e => split.sides[6 + e] === 'land');
+    const wet = [0, 1, 2, 3, 4, 5].filter(e => split.sides[6 + e] !== 'land');
+    if (runsOf(dry).length !== 2 || runsOf(wet).length !== 2) return [];
+    return [{ i, kind: value, dry, wet }];
+  });
+  let passageEdits: TracedCoast['passageEdits'];
+  // A passage whose reshaped shore cannot be joined to the coast round it keeps its own cut: trace
+  // the background again with only the others open, until every passage still open is joined.
+  let open = seaPassages;
+  while (open.length) {
+    const backgroundBase = [...base];
+    for (const { i, kind } of open) backgroundBase[i] = kind === 'Strait' ? 'Sea' : 'Land';
+    const background = cachedCoast(backgroundBase, cols, rows, size, smooth, shapes,
+      defaultIrregularity, dimensions, seed, inkReach, defaultLakeIrregularity, islandSpecs);
+    let paths = background.geometry.paths;
+    const edits: NonNullable<TracedCoast['passageEdits']> = [], failed = new Set<number>();
+    const rim = polygonPath([{ x: -size, y: -size }, { x: page.width + size, y: -size },
+      { x: page.width + size, y: page.height + size }, { x: -size, y: page.height + size }]);
+    for (const { i, kind, dry, wet } of open) {
+      const corners = hexCorners(i % cols, Math.floor(i / cols), size), centre = hexCenter(i % cols, Math.floor(i / cols), size);
+      const shape = hexShapeFor(base[i], shapes?.[String(i)]);
+      const width = (channelWidthFraction(base[i], dimensions, shapes?.[String(i)]) ?? .3) * Math.sqrt(3) * size;
+      // The kind that passes through runs between the two mouths; the other is the two headlands.
+      const [passing, held] = kind === 'Strait' ? [wet, dry] : [dry, wet];
+      const frame = lakeStraitFrame(corners, centre, held, width, kind === 'Strait' ? shape.straitJunctionSide : undefined);
+      if (!frame) { failed.add(i); continue; }
+      const mouths = runsOf(passing).map(run => {
+        const mid = (run.length - 1) / 2;
+        if (!Number.isInteger(mid)) return corners[run[Math.ceil(mid)]!]!;
+        const e = run[mid]!;
+        return { x: (corners[e]!.x + corners[(e + 1) % 6]!.x) / 2, y: (corners[e]!.y + corners[(e + 1) % 6]!.y) / 2 };
+      });
+      const set = channelShareSet(base[i], dimensions, shapes?.[String(i)]);
+      const spec: LakeShorePassage = { centre, mouths, junction: frame.centre, normal: frame.normal,
+        rough: { Smooth: 0, Wavy: .04, Ragged: .07, Fractured: .12 }[shape.irregular],
+        phase: Array.from({ length: 6 }, (_, k) => unit(seed, 'passage-shore', i, k) * Math.PI * 2),
+        width, outline: corners, land: set, landInside: kind === 'Isthmus', ink: inkReach };
+      const land = drawnLand({ ...background.geometry, paths }, page.width, page.height, size);
+      const contour = passageContour(kind === 'Strait' ? [...rim, ...land] : land, spec, size);
+      // The reshaped shore is the old one from 1.5 radii out: join it to the coast on a circle in
+      // that band, trying others where the coast grazes the first.
+      let joined = false;
+      for (const radius of [1.55, 1.7, 1.85, 1.62, 1.78].map(r => r * size)) {
+        const spliced = spliceChainPaths(paths, contour, centre, radius, size * .1);
+        if (!spliced) continue;
+        paths = spliced;
+        edits.push({ i, centre, radius });
+        joined = true;
+        break;
+      }
+      if (!joined) failed.add(i);
+    }
+    if (failed.size) { open = open.filter(({ i }) => !failed.has(i)); continue; }
+    passageEdits = edits;
+    geometry = { ...background.geometry, paths,
+      chains: background.geometry.chains.map((chain, c) => ({ ...chain, points: pathPolylines(paths[c]!, 12)[0] ?? chain.points })) };
+    if (open.some(({ i }) => lakePassageHexes.has(i))) {
+      // An isthmus in a lake leaves the lakes of the background traced without it; close this map's
+      // lakes again from the reshaped shore.
+      chainLakes = lakeOwners(geometry);
+      lakePaths.splice(0, lakePaths.length, ...lakePathsOf(geometry, chainLakes));
+    } else {
+      chainLakes = background.chainLakes;
+      lakePaths.splice(0, lakePaths.length, ...background.lakePaths);
+    }
+    break;
+  }
   // Local passage fields keep their throat width, while explicit neighbouring
   // water shares still fit against the final contour that will be painted.
   const localShares = new Map([...targets].flatMap(([i]) =>
@@ -867,7 +955,7 @@ function cachedCoast(
     }
   }
   const paint = coastPaintGeometry(geometry, page.width, page.height, size);
-  const entry = { key, paint, geometry, coverage, lakes, lakeIslands, surface, lakePaths, chainLakes, onLand: landTest(surface, shaped?.land ?? new Map(), size) };
+  const entry = { key, paint, geometry, coverage, lakes, lakeIslands, surface, lakePaths, chainLakes, passageEdits, onLand: landTest(surface, shaped?.land ?? new Map(), size) };
   coastCache.set(key, entry, geometry.paths.reduce((n, path) => n + path.length * 192, 0)
     + lakePaths.reduce((n, path) => n + path.length * 48, 0)
     + (geometry.toLand.length + geometry.toWater.length) * 256 + base.length * 128 + paint.estimatedBytes);
@@ -1495,6 +1583,8 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
   }
 
   // --- glacier ground ----------------------------------------------------------------
+  // Glacier ground and hill shading, drawn again over a reshaped passage's repaint (below).
+  const reliefStart = prims.length;
   const glacierHexes: number[] = [];
   base?.forEach((v, i) => {
     if (v === 'Glacier') glacierHexes.push(i);
@@ -1622,6 +1712,8 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
     }
   }
 
+  const reliefEnd = prims.length;
+
   // --- water --------------------------------------------------------------------
   const coast = traced?.geometry ?? null;
   const componentWaterClip = coast?.component ? traced!.paint.water : null;
@@ -1717,6 +1809,39 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
     if (componentWaterClip) {
       prims.push({ kind: 'group', clipRule: 'evenodd', clip: componentWaterClip, prims: corrections });
     } else prims.push(...corrections);
+    // Round a reshaped strait or isthmus the hex pieces no longer match the coast: repaint
+    // that patch from the coast as drawn, water over all of it and then the land within the coast.
+    // Land in a whole land hex, or in a split hex of its own (an isthmus's neck, a mainland, a shore),
+    // takes that hex's colours; a strait's banks and land drawn into water take the nearest land
+    // hex's. Glacier ground and hill shading, drawn before the water, are drawn again over it.
+    for (const edit of traced?.passageEdits ?? []) {
+      const circle = polygonPath(Array.from({ length: 64 }, (_, k) => ({
+        x: edit.centre.x + Math.cos(k * Math.PI / 32) * edit.radius, y: edit.centre.y + Math.sin(k * Math.PI / 32) * edit.radius })));
+      const page = gridPixelSize(cols, rows, size);
+      const water = [...polygonPath([{ x: -size, y: -size }, { x: page.width + size, y: -size },
+        { x: page.width + size, y: page.height + size }, { x: -size, y: page.height + size }]), ...drawnCoastLand()];
+      const near = Array.from({ length: base.length }, (_, j) => j).filter(j =>
+        Math.hypot(hexCenter(j % cols, Math.floor(j / cols), size).x - edit.centre.x, hexCenter(j % cols, Math.floor(j / cols), size).y - edit.centre.y) < edit.radius + size * 2);
+      // A lake's hexes count as land for its painting, but are lake coloured: never take colour from one.
+      const landHexes = near.filter(j => !isWater(j) && !isSplit(j) && !inLakeBody.has(j));
+      const nearestLand = (p: Point) => landHexes.reduce((best, j) => {
+        const c = hexCenter(j % cols, Math.floor(j / cols), size), d = Math.hypot(c.x - p.x, c.y - p.y);
+        return d < best.d ? { j, d } : best;
+      }, { j: inLakeBody.has(edit.i) ? lakeShoreDonor(edit.i) : edit.i, d: Infinity }).j;
+      const landFills: Prim[] = near.flatMap(j => {
+        const corners = hexCorners(j % cols, Math.floor(j / cols), size), c = hexCenter(j % cols, Math.floor(j / cols), size);
+        const own = landHexes.includes(j) || (isSplit(j) && base[j] !== 'Strait' && isCategoryLand(base[j]) && !inLakeBody.has(j));
+        if (own) return [{ kind: 'polygon', points: corners, fill: groundColour(j), stroke: groundColour(j), strokeWidth: seal } as Prim];
+        return corners.map((a, e): Prim => {
+          const b = corners[(e + 1) % 6]!, fill = groundColour(nearestLand({ x: (a.x + b.x + c.x) / 3, y: (a.y + b.y + c.y) / 3 }));
+          return { kind: 'polygon', points: [c, a, b], fill, stroke: fill, strokeWidth: seal };
+        });
+      });
+      prims.push({ kind: 'group', clip: circle, prims: [
+        { kind: 'group', clip: water, clipRule: 'evenodd', prims: [{ kind: 'path', d: circle, fill: palette.sea }] },
+        { kind: 'group', clip: drawnCoastLand(), clipRule: 'evenodd', prims: [...landFills, ...prims.slice(reliefStart, reliefEnd)] },
+      ] });
+    }
   }
 
   const islandRand = (i: number) => {

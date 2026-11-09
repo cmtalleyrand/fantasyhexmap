@@ -1,4 +1,4 @@
-import { adjacentHexes, boundedLandShare, isCategoryLand } from './hexCategories.js';
+import { adjacentHexes, boundedLandShare, isCategoryLand, islandMinimum, MAINLAND_MINIMUM } from './hexCategories.js';
 import { holdersOf } from './polityShares.js';
 import {
   CHANNEL_WIDTH_PERCENT,
@@ -9,6 +9,7 @@ import {
   isIslandType,
   type BaseData,
   type BaseGeo,
+  type ChannelWidth,
   type GeoNameKind,
   type MapState,
   type HexShape,
@@ -33,11 +34,13 @@ type StoredHexDimensions = Partial<HexDimensions> & { islandLandPercent?: number
 export function normaliseHexDimensions(value?: StoredHexDimensions): HexDimensions {
   const { islandLandPercent, ...rest } = value ?? {};
   const out = { ...DEFAULT_HEX_DIMENSIONS, ...rest };
-  // The old defaults (70% and 30% for an isthmus, 40% for a strait) were not chosen: those maps take the natural shape.
-  if (out.isthmusPercent === 70 || out.isthmusPercent === 30 || typeof out.isthmusPercent !== 'number') delete out.isthmusPercent;
-  if (out.straitPercent === 40 || typeof out.straitPercent !== 'number') delete out.straitPercent;
+  // The old defaults (70% and 30% for an isthmus, 40% for a strait) are cleared once, on load
+  // (`migrateToChosenPassageShares`): any share here was chosen, whatever its value.
+  if (typeof out.isthmusPercent !== 'number') delete out.isthmusPercent;
+  if (typeof out.straitPercent !== 'number') delete out.straitPercent;
   if (!CHANNEL_WIDTH_VALUES.includes(out.isthmusWidth)) out.isthmusWidth = DEFAULT_HEX_DIMENSIONS.isthmusWidth;
   if (!CHANNEL_WIDTH_VALUES.includes(out.straitWidth)) out.straitWidth = DEFAULT_HEX_DIMENSIONS.straitWidth;
+  heldPassageShares(out);
   if (islandLandPercent !== undefined && rest.smallIslandPercent === undefined && rest.largeIslandPercent === undefined) {
     // The old defaults (60% coast, 40% island) take the current defaults; a share
     // someone chose becomes the same ratio of small to large islands as before.
@@ -69,6 +72,31 @@ export function channelWidthFraction(
 }
 
 /**
+ * Map-wide isthmus and strait shares held to the range their map-wide width allows (`PASSAGE_LAND_RANGE`), in
+ * place: a share chosen outside it (saved before the range existed, or before the width changed) takes the
+ * nearest one allowed, so the settings show what is drawn and counted. A share that is not a number goes.
+ */
+export function heldPassageShares(dimensions: HexDimensions): HexDimensions {
+  for (const [field, type, width] of [['isthmusPercent', 'Isthmus', dimensions.isthmusWidth], ['straitPercent', 'Strait', dimensions.straitWidth]] as const) {
+    const percent = dimensions[field];
+    if (percent === undefined) continue;
+    if (Number.isFinite(percent)) dimensions[field] = boundedLandShare(type, percent, undefined, width);
+    else delete dimensions[field];
+  }
+  return dimensions;
+}
+
+/** The width an isthmus or strait is drawn at: the hex's own, else the map's. Undefined for any other type. */
+export function passageWidth(
+  value: BaseGeo | null | undefined,
+  dimensions: HexDimensions,
+  shape?: HexShape,
+): ChannelWidth | undefined {
+  if (value !== 'Isthmus' && value !== 'Strait') return undefined;
+  return hexShapeFor(value, shape).width ?? (value === 'Isthmus' ? dimensions.isthmusWidth : dimensions.straitWidth);
+}
+
+/**
  * The land share a person has set on an isthmus or strait, from 0 to 1: the hex's own, else the map's.
  * Null when neither is set (or for any other type): the shape is then the natural one for its width.
  */
@@ -81,16 +109,19 @@ export function channelShareSet(
   const own = hexShapeFor(value, shape).land;
   const mapWide = value === 'Isthmus' ? dimensions.isthmusPercent : dimensions.straitPercent;
   const percent = own ?? mapWide;
-  return percent === undefined ? null : boundedLandShare(value, percent) / 100;
+  return percent === undefined ? null : boundedLandShare(value, percent, undefined, passageWidth(value, dimensions, shape)) / 100;
 }
 
 /**
- * The part of a hex a straight neck or channel through it, of width `fraction` of the hex's
- * flat-to-flat width, covers: the width times the flat-to-flat span over the hex's area.
+ * The land share, in percent, of an isthmus or strait drawn at each width with no share set: a short
+ * narrows between rounded tips, the shores parting quickly either side of it (the median drawn over
+ * the neighbour patterns a passage can have, to 2.5%). Not a straight neck or channel of that width
+ * running through the hex, which would give a strait far more land (65% at Normal, not 40%).
  */
-export function channelAreaFraction(fraction: number): number {
-  return Math.min(1, (2 / Math.sqrt(3)) * fraction);
-}
+export const NATURAL_PASSAGE_LAND: Record<'Isthmus' | 'Strait', Record<ChannelWidth, number>> = {
+  Isthmus: { 'Very narrow': 45, Narrow: 52.5, Normal: 62.5, Wide: 75 },
+  Strait: { 'Very narrow': 55, Narrow: 47.5, Normal: 40, Wide: 25 },
+};
 
 /**
  * How much of a hex is land, from 0 to 1. A hex a person has given a land share
@@ -109,13 +140,17 @@ export function landFraction(
 ): number {
   if ((value === 'Land' || value === 'Glacier') && !shore) return 1;
   const set = hexShapeFor(value, shape).land;
-  if (set !== undefined) return boundedLandShare(value, set, isIslandType(value) ? islandSpecFor(value, stored) : stored) / 100;
-  const percent = (n: number) => boundedLandShare(value, n, stored) / 100;
-  // With no share set, an isthmus or strait counts the share of a straight neck or channel of its width.
-  const mapWide = value === 'Isthmus' ? dimensions.isthmusPercent : value === 'Strait' ? dimensions.straitPercent : undefined;
-  if (mapWide !== undefined) return percent(mapWide);
-  const width = channelWidthFraction(value, dimensions, shape);
-  if (width !== null) return percent(100 * (value === 'Isthmus' ? channelAreaFraction(width) : 1 - channelAreaFraction(width)));
+  const spec = isIslandType(value) ? islandSpecFor(value, stored) : stored;
+  const width = passageWidth(value, dimensions, shape);
+  if (set !== undefined) return boundedLandShare(value, set, spec, width) / 100;
+  const percent = (n: number) => boundedLandShare(value, n, spec, width) / 100;
+  // With no share set, an isthmus or strait counts the share its natural shape at its width is drawn with.
+  if (value === 'Isthmus' || value === 'Strait') {
+    const mapWide = value === 'Isthmus' ? dimensions.isthmusPercent : dimensions.straitPercent;
+    if (mapWide !== undefined) return percent(mapWide);
+    const width = hexShapeFor(value, shape).width ?? (value === 'Isthmus' ? dimensions.isthmusWidth : dimensions.straitWidth);
+    return percent(NATURAL_PASSAGE_LAND[value][width]);
+  }
   switch (value) {
     case 'Land':
       return percent(dimensions.coastalLandPercent);
@@ -128,8 +163,7 @@ export function landFraction(
       return percent(dimensions.lakeLandPercent);
     case 'Islands':
     case 'Mainland and islands': {
-      const spec = islandSpecFor(value, stored);
-      const islands = spec.large * dimensions.largeIslandPercent + spec.small * dimensions.smallIslandPercent;
+      const islands = spec!.large * dimensions.largeIslandPercent + spec!.small * dimensions.smallIslandPercent;
       return percent((value === 'Islands' ? 0 : dimensions.mainlandPercent) + islands);
     }
     default:
@@ -170,7 +204,8 @@ export function withShoreSlack(
   const value = base[index];
   const land = value !== null && value !== undefined && SHORE_LAND.has(value);
   const water = value !== null && value !== undefined && SHORE_WATER.has(value);
-  if (scope === 'total' || value !== 'Mainland and islands') share = boundedLandShare(value, share * 100) / 100;
+  if (scope === 'total' || value !== 'Mainland and islands')
+    share = boundedLandShare(value, share * 100, undefined, passageWidth(value, dimensions, shapes?.[String(index)])) / 100;
   if (water && !adjacentHexes(base, cols, index).some(j => isCategoryLand(base[j]))) return 0;
   if (!land && !water) return share;
   const rows = Math.floor(base.length / cols);
@@ -209,10 +244,9 @@ export function drawnLandFraction(
       return landFraction(value, undefined, dimensions, shape);
     case 'Mainland and islands': {
       const mainland = Math.min(100, Math.max(0, dimensions.mainlandPercent));
-      const islands = islandSpecFor(value, spec);
-      const total = landFraction(value, spec, dimensions, shape) * 100;
-      const minimum = Math.min(islands.large * 5 + islands.small * 2.5, total - 2.5);
-      return Math.max(0, Math.min(Math.max(2.5, mainland), total - minimum)) / 100;
+      // The total's lower bound leaves room for both minimums (`landShareRange`).
+      const total = Math.round(landFraction(value, spec, dimensions, shape) * 1e6) / 1e4;
+      return Math.min(Math.max(MAINLAND_MINIMUM, mainland), total - islandMinimum(islandSpecFor(value, spec))) / 100;
     }
     default:
       return null;

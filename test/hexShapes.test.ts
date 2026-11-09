@@ -21,10 +21,10 @@ test('each shaped type has its default land share', () => {
   assert.equal(share('Land'), 1);
   assert.equal(landFraction('Land', undefined, dims, undefined, true), 0.8);
   assert.equal(share('Lake'), 0);
-  // An isthmus or strait is drawn at a width (30% of the hex's by default), not to a share: it counts
-  // the share of a straight neck or channel that wide, 2/sqrt(3) of the width.
-  assert.ok(Math.abs(share('Isthmus') - 0.3 * 2 / Math.sqrt(3)) < 1e-12);
-  assert.ok(Math.abs(share('Strait') - (1 - 0.3 * 2 / Math.sqrt(3))) < 1e-12);
+  // An isthmus or strait is drawn at a width (Normal by default), not to a share: it counts the share
+  // its natural shape at that width is drawn with, a short narrows rather than a channel through the hex.
+  assert.equal(share('Isthmus'), 0.625);
+  assert.equal(share('Strait'), 0.4);
   assert.equal(share('Glacier'), 1);
   assert.equal(share('Sea Ice'), 0);
   assert.equal(share('Sea'), 0);
@@ -938,7 +938,7 @@ test('an isthmus or strait of any width stays joined to the land it runs between
         drawn++;
       }
     }
-    assert.equal(drawn, 128, `${type}: all thirty-two separated neighbour patterns at four widths`);
+    assert.equal(drawn, 120, `${type}: all thirty patterns of two land and two water groups at four widths`);
   }
 });
 
@@ -952,8 +952,13 @@ test('the scene draws a strait differently at each width, and its width is set p
   assert.deepEqual(set.hexShapes!['4'], { type: 'Strait', width: 'Narrow' });
   assert.equal(hexShapeFor('Strait', set.hexShapes!['4']).width, 'Narrow');
   // A strait has a land share as well, kept beside its width.
+  // Narrow allows 20–65%: a share below that is held to it.
   const both = reducer(set, { type: 'setHexShape', indices: [4], change: { land: 10 } });
-  assert.deepEqual(both.hexShapes!['4'], { type: 'Strait', land: 10, width: 'Narrow' });
+  assert.deepEqual(both.hexShapes!['4'], { type: 'Strait', land: 20, width: 'Narrow' });
+  // Widening it to Wide (10–40%) holds a share it set to 60% for Narrow to Wide's maximum.
+  const sixty = reducer(set, { type: 'setHexShape', indices: [4], change: { land: 60 } });
+  const wide = reducer(sixty, { type: 'setHexShape', indices: [4], change: { width: 'Wide' } });
+  assert.deepEqual(wide.hexShapes!['4'], { type: 'Strait', land: 40, width: 'Wide' });
   // A width means nothing on a coast hex.
   const coast = mapWith(['Land', 'Sea']);
   assert.equal(reducer(coast, { type: 'setHexShape', indices: [0], change: { width: 'Wide' } }), coast);
@@ -983,9 +988,23 @@ test('a strait junction is central by default and can be moved towards any selec
 });
 
 test('maps saved with land shares for isthmuses and straits take widths instead', () => {
-  const old = { ...dims, isthmusPercent: 30, straitPercent: 40 };
-  const migrated = normaliseHexDimensions(old);
-  assert.ok(!('isthmusPercent' in migrated) && !('straitPercent' in migrated));
+  // An old map's defaults (isthmus 30% or 70%, strait 40%) were never chosen: they are cleared once, on load.
+  const saved = createMapState('Old passages', 3, 3);
+  delete saved.chosenPassageShares;
+  saved.hexDimensions = { ...dims, isthmusPercent: 70, straitPercent: 40 };
+  saved.history = { past: [{ ...saved, hexDimensions: { ...dims, isthmusPercent: 30 } }], future: [] };
+  const loaded = reducer(saved, { type: 'load', map: saved });
+  assert.ok(!('isthmusPercent' in loaded.hexDimensions) && !('straitPercent' in loaded.hexDimensions));
+  assert.ok(!('isthmusPercent' in loaded.history!.past[0]!.hexDimensions), 'an undo does not bring an old default back');
+  assert.equal(loaded.chosenPassageShares, true);
+  // Chosen afterwards, the same values are kept: when read, and when the map is loaded again.
+  const chosen = reducer(loaded, { type: 'setHexDimensions', hexDimensions: { ...loaded.hexDimensions, isthmusPercent: 70, straitPercent: 40 } });
+  assert.equal(normaliseHexDimensions(chosen.hexDimensions).straitPercent, 40);
+  assert.equal(normaliseHexDimensions(chosen.hexDimensions).isthmusPercent, 70);
+  const reloaded = reducer(chosen, { type: 'load', map: chosen });
+  assert.equal(reloaded.hexDimensions.straitPercent, 40);
+  assert.equal(reloaded.hexDimensions.isthmusPercent, 70);
+  const migrated = normaliseHexDimensions(dims);
   assert.equal(migrated.isthmusWidth, 'Normal');
   assert.equal(migrated.straitWidth, 'Normal');
   assert.equal(normaliseHexDimensions({ ...dims, straitWidth: 'Wide' }).straitWidth, 'Wide');
@@ -1032,4 +1051,17 @@ test('a land share set on an isthmus or strait tunes the land round its width, a
       assert.ok(shares[4]! - shares[0]! > 0.15, `${type} ${width}: the share changes the land (${shares.join(', ')})`);
     }
   }
+});
+
+test('map-wide isthmus and strait shares saved outside the range of their width are held to it', () => {
+  // Normal widths: an isthmus 55–90%, a strait 15–55%.
+  const held = normaliseHexDimensions({ ...dims, isthmusPercent: 95, straitPercent: 85 });
+  assert.equal(held.isthmusPercent, 90);
+  assert.equal(held.straitPercent, 55);
+  assert.equal(normaliseHexDimensions({ ...dims, isthmusPercent: 5 }).isthmusPercent, 55);
+  assert.equal(normaliseHexDimensions({ ...dims, straitPercent: 55 }).straitPercent, 55);
+  // The range follows the map-wide width.
+  assert.equal(normaliseHexDimensions({ ...dims, straitWidth: 'Very narrow', straitPercent: 85 }).straitPercent, 75);
+  assert.equal(normaliseHexDimensions({ ...dims, isthmusWidth: 'Wide', isthmusPercent: 5 }).isthmusPercent, 70);
+  assert.ok(!('straitPercent' in normaliseHexDimensions({ ...dims, straitPercent: Number.NaN })));
 });
