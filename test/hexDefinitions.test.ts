@@ -13,6 +13,7 @@ import { coastGallery } from '../scripts/coast-gallery-fixtures.ts';
 import { editCases } from '../scripts/render-edit-fixtures.ts';
 import { fixture } from '../scripts/render-profile-input.ts';
 import { featureFixture } from '../scripts/coastFeatureFixture.ts';
+import { fixture as allLayersFixture } from '../scripts/render-all-layers-fixture.ts';
 import { neighbourOf, inBounds, hexIndex } from '../shared/hex.ts';
 
 const dims = DEFAULT_HEX_DIMENSIONS;
@@ -124,7 +125,25 @@ test('render performance maps and every edit state obey hex definitions', () => 
   const maps = [...coastGallery(), ...editCases(), ...['populated', 'feature'].map(name => ({ name, map: fixture(name) }))];
   for (const N of [20, 30, 40, 50]) for (const layout of ['plain', 'mixed'])
     maps.push({ name: `feature-${N}-${layout}`, map: featureFixture({ createMapState, neighbourOf, inBounds, hexIndex }, N, layout) });
+  maps.push({ name: 'interaction-study', map: allLayersFixture('interaction-study', 50) });
   for (const { name, map } of maps) assert.deepEqual(validateHexDefinitions(map), [], name);
+});
+
+test('the coast benchmark map contains every coast feature it is meant to measure', () => {
+  const base = fixture('mixed').layers.base.data!;
+  for (const type of ['Strait', 'Isthmus', 'Mainland and islands', 'Islands', 'Lake'] as const)
+    assert.ok(base.filter(v => v === type).length >= 2, type);
+});
+
+test('all-layer performance maps put cities and rivers only on open ground', () => {
+  for (const [name, map] of [['populated', fixture('populated')], ['interaction-study', allLayersFixture('interaction-study', 50)]] as const) {
+    const base = map.layers.base.data!, at = (h: { col: number; row: number }) => base[h.row * map.cols + h.col];
+    const cities = map.layers.cities.data!.cities, rivers = map.layers.rivers.data!.rivers;
+    assert.ok(cities.length > 0 && rivers.length > 0, name);
+    assert.deepEqual(cities.filter(c => at(c) === 'Glacier').map(c => c.name), [], `${name}: cities on glaciers`);
+    const crossings = rivers.flatMap(r => r.segments.filter(s => at(s) === 'Glacier' || at(s) === 'Islands').map(s => `${r.name} ${s.col},${s.row}`));
+    assert.deepEqual(crossings, [], `${name}: rivers over glaciers or open water`);
+  }
 });
 
 test('a strait draws two separate banks for all nine separated pairs of land neighbours', () => {

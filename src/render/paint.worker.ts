@@ -27,7 +27,8 @@ host.onmessage = async ({ data }) => {
       await loadLettering(data.options.style?.knobs.lettering ?? 'classic');
       if (data.profile) beginRenderProfile();
       const map = profileTime('worker.retain', () => inputs.retain(data.map));
-      const scene = buildStaticScene(map, data.options);
+      // The editor's worker refits only the coast near each edit (DECISIONS §94).
+      const scene = buildStaticScene(map, { ...data.options, incrementalCoast: data.options.incrementalCoast ?? true });
       current = { version: data.version, scene, fonts: Promise.resolve(), overview: false };
       const { prims: _prims, ...metadata } = scene;
       host.postMessage({ version: data.version, id: data.id, metadata, timings: { buildMs: performance.now() - start },

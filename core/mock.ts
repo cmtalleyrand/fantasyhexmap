@@ -22,6 +22,7 @@ import type {
   Vegetation,
 } from '../shared/types.js';
 import { isIslandType } from '../shared/types.js';
+import { isCategoryLand, isCategoryWater } from '../shared/hexCategories.js';
 import type { PromptContext } from './prompts.js';
 
 function makeRng(seed: string) {
@@ -82,6 +83,27 @@ function buildBase(ctx: PromptContext): BaseGeo[] {
       return inBounds(cols, rows, nb.col, nb.row) && data[hexIndex(cols, nb.col, nb.row)] === 'Land';
     });
     if (enclosed) data[hexIndex(cols, col, row)] = 'Lake';
+  }
+  const around = (i: number) => [0, 1, 2, 3, 4, 5].flatMap((e) => {
+    const nb = neighbourOf(i % cols, Math.floor(i / cols), e);
+    return inBounds(cols, rows, nb.col, nb.row) ? [data[hexIndex(cols, nb.col, nb.row)]!] : [];
+  });
+  // The noisy band can leave an Islands hex, open sea with islets, with no water around it: a
+  // round hole of sea inside the land. That ground is plain Land. This runs first because it can
+  // take a mixed hex's only water neighbour.
+  for (let i = 0; i < data.length; i++) if (data[i] === 'Islands' && !around(i).some(isCategoryWater)) data[i] = 'Land';
+  // A mixed hex needs both a land and a water neighbour, which the noisy band does not guarantee
+  // either: one enclosed by land is plain Land, one surrounded by water is an Islands hex.
+  const mixed = data.flatMap((v, i) => (v === 'Mainland and islands' ? [i] : []));
+  // Turning one into Islands can take another's only land neighbour, so repeat until settled.
+  for (let changed = true; changed;) {
+    changed = false;
+    for (const i of mixed) {
+      if (data[i] !== 'Mainland and islands') continue;
+      const ring = around(i);
+      const next = !ring.some(isCategoryWater) ? 'Land' : !ring.some(isCategoryLand) ? 'Islands' : null;
+      if (next) { data[i] = next; changed = true; }
+    }
   }
   return data;
 }
@@ -219,6 +241,8 @@ function buildRivers(ctx: PromptContext) {
   /** Which river each hex already carries. */
   const owner = new Map<string, string>();
   const key = (h: Hex) => `${h.col},${h.row}`;
+  // Rivers run over open ground: not across a glacier, nor across the open water of an Islands hex.
+  const riverLand = (v: BaseGeo | undefined) => isLandLike(v) && v !== 'Glacier' && v !== 'Islands';
   const rank = (j: number) => (elev ? ELEVATION_FLOW_RANK[elev[j] ?? 'Lowland'] : 0);
 
   /**
@@ -240,7 +264,7 @@ function buildRivers(ctx: PromptContext) {
           bestRank = -1;
           break;
         }
-        if (!isLandLike(base[j]) || owner.has(key(n))) continue;
+        if (!riverLand(base[j]) || owner.has(key(n))) continue;
         const r = rank(j);
         if (r + rng() * 0.4 < bestRank) {
           bestRank = r;
@@ -257,7 +281,7 @@ function buildRivers(ctx: PromptContext) {
     return null;
   };
   const add = (name: string, path: Hex[], joins?: string) => {
-    for (const p of path) if (!owner.has(key(p)) && isLandLike(base[hexIndex(cols, p.col, p.row)])) owner.set(key(p), name);
+    for (const p of path) if (!owner.has(key(p)) && riverLand(base[hexIndex(cols, p.col, p.row)])) owner.set(key(p), name);
     const navigable = path.map((_, k) => !joins && k > path.length * 0.5);
     rivers.push({ name, path, navigable, ...(joins ? { joins } : {}) });
   };
@@ -265,7 +289,7 @@ function buildRivers(ctx: PromptContext) {
     const col = Math.floor(rng() * cols);
     const row = Math.floor(rng() * rows);
     const i = hexIndex(cols, col, row);
-    if (!isLandLike(base[i]) || owner.has(`${col},${row}`) || rank(i) < 2) return null;
+    if (!riverLand(base[i]) || owner.has(`${col},${row}`) || rank(i) < 2) return null;
     return { col, row };
   };
 
@@ -292,7 +316,7 @@ function buildRivers(ctx: PromptContext) {
     const lake = { col: i % cols, row: Math.floor(i / cols) };
     const shore = [0, 1, 2, 3, 4, 5]
       .map((e) => neighbourOf(lake.col, lake.row, e))
-      .filter((n) => inBounds(cols, rows, n.col, n.row) && isLandLike(base[hexIndex(cols, n.col, n.row)]) && !owner.has(key(n)));
+      .filter((n) => inBounds(cols, rows, n.col, n.row) && riverLand(base[hexIndex(cols, n.col, n.row)]) && !owner.has(key(n)));
     if (shore.length === 0) continue;
     const run = walk([lake, shore.sort((a, b) => rank(hexIndex(cols, a.col, a.row)) - rank(hexIndex(cols, b.col, b.row)))[0]!], true);
     // It must leave the lake for somewhere else, not curl back into it.
@@ -318,7 +342,9 @@ function buildCities(ctx: PromptContext) {
     attempts++;
     const col = Math.floor(rng() * cols);
     const row = Math.floor(rng() * rows);
-    if (!isLandLike(base[hexIndex(cols, col, row)])) continue;
+    // Nobody founds a city on a glacier.
+    const ground = base[hexIndex(cols, col, row)];
+    if (!isLandLike(ground) || ground === 'Glacier') continue;
     if (chosen.some((c) => Math.hypot(c.col - col, c.row - row) < 3)) continue;
     const onRiver = riverHexes.has(`${col},${row}`);
     const coastal = [0, 1, 2, 3, 4, 5].some((e) => {

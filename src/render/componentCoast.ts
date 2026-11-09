@@ -2,6 +2,7 @@ import type { Point } from '../../shared/hex.js';
 import type { CoastChain, CoastEdge, Roughness, Sliver } from './coast.js';
 import type { PathCmd } from './prims.js';
 import { polygonSliver } from './sliver.js';
+import { hashNumbers, hashText128 } from './hash.js';
 
 /** The key a path point's held-back detail is found by: its exact coordinates. */
 export const detailKey = (p: Point) => `${p.x},${p.y}`;
@@ -87,22 +88,58 @@ export function coastClearance(chains: CoastChain[], size: number) {
   };
   // A fitting pass can move one coast while leaving distant components alone.
   // Include every edge that their clearance queries could inspect so cached
-  // silhouettes are invalidated whenever a nearby constraint changes.
-  const signature = (chain: CoastChain): string => {
-    const nearby = new Set<Entry>();
-    for (const edge of chain.edges) {
-      for (let x = Math.floor(Math.min(edge.from.x, edge.to.x) / size) - 3; x <= Math.floor(Math.max(edge.from.x, edge.to.x) / size) + 3; x++) {
-        const column = bins.get(x);
-        if (!column) continue;
-        for (let y = Math.floor(Math.min(edge.from.y, edge.to.y) / size) - 3; y <= Math.floor(Math.max(edge.from.y, edge.to.y) / size) + 3; y++) {
-          for (const entry of column.get(y) ?? []) nearby.add(entry);
-        }
-      }
+  // silhouettes are invalidated whenever a nearby constraint changes: every edge in
+  // the bins within three of each of the chain's edges' bins. Each bin's edges are
+  // hashed once and shared by the chains near it. An entry's place along its own
+  // chain is not hashed: it follows from the chain's own edges, which the caller keys.
+  const pack = (x: number, y: number) => (x + 32768) * 65536 + (y + 32768);
+  const binHashes = new Map<number, string>();
+  const binHash = (x: number, y: number): string => {
+    const id = pack(x, y);
+    let hash = binHashes.get(id);
+    if (hash === undefined) {
+      const values: number[] = [];
+      for (const e of bins.get(x)?.get(y) ?? []) values.push(e.edge.from.x, e.edge.from.y, e.edge.to.x, e.edge.to.y, e.length);
+      hash = values.length ? `${hashNumbers(values)}.${values.length}` : '';
+      binHashes.set(id, hash);
     }
-    return JSON.stringify([...nearby].map(e => [e.edge.from.x, e.edge.from.y, e.edge.to.x, e.edge.to.y,
-      e.chain === chain ? e.arc : null, e.length]));
+    return hash;
+  };
+  const signature = (chain: CoastChain): string => {
+    const own = new Set<number>();
+    for (const edge of chain.edges) {
+      for (let x = Math.floor(Math.min(edge.from.x, edge.to.x) / size); x <= Math.floor(Math.max(edge.from.x, edge.to.x) / size); x++)
+        for (let y = Math.floor(Math.min(edge.from.y, edge.to.y) / size); y <= Math.floor(Math.max(edge.from.y, edge.to.y) / size); y++) own.add(pack(x, y));
+    }
+    // Grown by three bins across, then down: the same bins as each edge's box grown by three.
+    const across = new Set<number>();
+    for (const id of own) for (let dx = -3; dx <= 3; dx++) across.add(id + dx * 65536);
+    const near = new Set<number>();
+    for (const id of across) for (let dy = -3; dy <= 3; dy++) near.add(id + dy);
+    const parts: string[] = [];
+    for (const id of [...near].sort((a, b) => a - b)) {
+      const hash = binHash(Math.floor(id / 65536) - 32768, (id % 65536) - 32768);
+      if (hash) parts.push(`${id}:${hash}`);
+    }
+    return hashText128(parts.join(','));
   };
   return Object.assign(measure, { signature });
+}
+/** Whether a closed outline crosses itself (segments that are not neighbours). */
+function crossesItself(ring: Point[]): boolean {
+  const n = ring.length;
+  const cross = (a: Point, b: Point, c: Point) => (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
+  for (let i = 0; i < n; i++) {
+    const a = ring[i]!, b = ring[(i + 1) % n]!;
+    const x0 = Math.min(a.x, b.x), x1 = Math.max(a.x, b.x), y0 = Math.min(a.y, b.y), y1 = Math.max(a.y, b.y);
+    for (let j = i + 2; j < n; j++) {
+      if (i === 0 && j === n - 1) continue;
+      const c = ring[j]!, d = ring[(j + 1) % n]!;
+      if (Math.max(c.x, d.x) < x0 || Math.min(c.x, d.x) > x1 || Math.max(c.y, d.y) < y0 || Math.min(c.y, d.y) > y1) continue;
+      if (cross(a, b, c) * cross(a, b, d) < 0 && cross(c, d, a) * cross(c, d, b) < 0) return true;
+    }
+  }
+  return false;
 }
 /** Uniform arc-length samples, a multi-hex low-pass silhouette, then independently shaped bays, capes and cuts.
 * No source corner or edge midpoint is a mandatory waypoint. Source correspondence is kept
@@ -218,55 +255,60 @@ export function componentCoast(chain: CoastChain, rough: Roughness, clearance: R
   };
   const broadFeatures = features(0), cuts = features(1), fine = features(2);
   const shoreFeatures = cuts.map((v, i) => v + fine[i]!);
-  const result = silhouette.map((p, i) => {
-    const prev = silhouette[chain.closed ? (i - 1 + n) % n : Math.max(0, i - 1)]!;
-    const next = silhouette[chain.closed ? (i + 1) % n : Math.min(n - 1, i + 1)]!;
-    const dx = next.x - prev.x, dy = next.y - prev.y, len = Math.hypot(dx, dy) || 1;
-    const amplitude = edgeSettings.get(donors[i]!)!.amplitude;
-    const strength = aggregate || amplitude > 0 ? 1 : 0;
-    const off = -edgeSettings.get(donors[i]!)!.lean * size + broadFeatures[i]! * size * amplitude / 0.12;
-    const target = { x: p.x - dy / len * off, y: p.y + dx / len * off };
-    const original = source[i]!;
-    // Reserve movement for detail after the silhouette is eased. Explicit geographic limits
-    // divide their budget between this stage and the final irregularity stage. A passage's
-    // width limit holds only against movement that would narrow it (towards the water of a
-    // strait, towards the land of an isthmus): rounding a corner off the other way only
-    // widens it, so a bank cut square against its channel is rounded like any other cape
-    // (to about a fifth of a hex).
-    const move = distance(original, target);
-    const towardsLand = ((target.x - original.x) * -dy + (target.y - original.y) * dx) / len > 0;
-    const widthLimit = edgeSettings.get(donors[i]!)!.limit, narrow = edgeSettings.get(donors[i]!)!.narrow;
-    const widens = narrow === 'water' ? towardsLand : narrow === 'land' ? !towardsLand : false;
-    const limit = Math.min(size * (aggregate ? 1.2 : 0.8), clearance(original, chain, i * step, aggregate) * 0.24,
-      widens && widthLimit < Infinity ? Math.max(widthLimit * 0.6, size * 0.18) : widthLimit * 0.6);
-    const ends = chain.closed ? 1 : Math.min(1, i * step / (size * 1.5), (perimeter - i * step) / (size * 1.5));
-    return lerp(original, target, Math.min(strength, limit / (move || 1)) * ends);
-  });
-  // Ease the bounded displacement as a curve, so a local clearance limit cannot introduce
-  // a new corner. In explicitly narrow features this last filter has a correspondingly short reach.
-  const paddedResult = new Map<number, Point[]>();
-  const eased = result.map((p, i) => {
-    if (!chain.closed && (i === 0 || i === n - 1))
-      return p;
-    const widthLimit = edgeSettings.get(donors[i]!)!.limit;
-    const radius = Math.min(size * 0.35, perimeter / 6, Math.max(size / 16, widthLimit * 0.5));
-    const smoothingKernel = kernel(radius);
-    const reach = smoothingKernel.reach;
-    let padded = paddedResult.get(reach);
-    if (!padded) {
-      padded = Array.from({ length: n + 2 * reach }, (_, j) => result[chain.closed ? (j - reach + n) % n : Math.max(0, Math.min(n - 1, j - reach))]!);
-      paddedResult.set(reach, padded);
-    }
-    let x = 0, y = 0;
-    for (let k = -reach; k <= reach; k++) {
-      const q = padded[i + k + reach]!;
-      const w = smoothingKernel.weights[k + reach]!;
-      x += q.x * w;
-      y += q.y * w;
-    }
-    return { x: x / smoothingKernel.total, y: y / smoothingKernel.total };
-  });
-  result.splice(0, result.length, ...eased);
+  // The silhouette with its broad bays and capes, eased as a curve; `broadScale` scales the bays.
+  const easedAt = (broadScale: number) => {
+    const result = silhouette.map((p, i) => {
+      const prev = silhouette[chain.closed ? (i - 1 + n) % n : Math.max(0, i - 1)]!;
+      const next = silhouette[chain.closed ? (i + 1) % n : Math.min(n - 1, i + 1)]!;
+      const dx = next.x - prev.x, dy = next.y - prev.y, len = Math.hypot(dx, dy) || 1;
+      const amplitude = edgeSettings.get(donors[i]!)!.amplitude;
+      const strength = aggregate || amplitude > 0 ? 1 : 0;
+      const off = -edgeSettings.get(donors[i]!)!.lean * size + broadFeatures[i]! * broadScale * size * amplitude / 0.12;
+      const target = { x: p.x - dy / len * off, y: p.y + dx / len * off };
+      const original = source[i]!;
+      // Reserve movement for detail after the silhouette is eased. Explicit geographic limits
+      // divide their budget between this stage and the final irregularity stage. A passage's
+      // width limit holds only against movement that would narrow it (towards the water of a
+      // strait, towards the land of an isthmus): rounding a corner off the other way only
+      // widens it, so a bank cut square against its channel is rounded like any other cape
+      // (to about a fifth of a hex).
+      const move = distance(original, target);
+      const towardsLand = ((target.x - original.x) * -dy + (target.y - original.y) * dx) / len > 0;
+      const widthLimit = edgeSettings.get(donors[i]!)!.limit, narrow = edgeSettings.get(donors[i]!)!.narrow;
+      const widens = narrow === 'water' ? towardsLand : narrow === 'land' ? !towardsLand : false;
+      const limit = Math.min(size * (aggregate ? 1.2 : 0.8), clearance(original, chain, i * step, aggregate) * 0.24,
+        widens && widthLimit < Infinity ? Math.max(widthLimit * 0.6, size * 0.18) : widthLimit * 0.6);
+      const ends = chain.closed ? 1 : Math.min(1, i * step / (size * 1.5), (perimeter - i * step) / (size * 1.5));
+      return lerp(original, target, Math.min(strength, limit / (move || 1)) * ends);
+    });
+    // Ease the bounded displacement as a curve, so a local clearance limit cannot introduce
+    // a new corner. In explicitly narrow features this last filter has a correspondingly short reach.
+    const paddedResult = new Map<number, Point[]>();
+    const eased = result.map((p, i) => {
+      if (!chain.closed && (i === 0 || i === n - 1))
+        return p;
+      const widthLimit = edgeSettings.get(donors[i]!)!.limit;
+      const radius = Math.min(size * 0.35, perimeter / 6, Math.max(size / 16, widthLimit * 0.5));
+      const smoothingKernel = kernel(radius);
+      const reach = smoothingKernel.reach;
+      let padded = paddedResult.get(reach);
+      if (!padded) {
+        padded = Array.from({ length: n + 2 * reach }, (_, j) => result[chain.closed ? (j - reach + n) % n : Math.max(0, Math.min(n - 1, j - reach))]!);
+        paddedResult.set(reach, padded);
+      }
+      let x = 0, y = 0;
+      for (let k = -reach; k <= reach; k++) {
+        const q = padded[i + k + reach]!;
+        const w = smoothingKernel.weights[k + reach]!;
+        x += q.x * w;
+        y += q.y * w;
+      }
+      return { x: x / smoothingKernel.total, y: y / smoothingKernel.total };
+    });
+    return eased;
+  };
+  let eased = easedAt(1);
+  const result = [...eased];
   const amplitudes = donors.map(edge => edgeSettings.get(edge)!.amplitude);
   const limits = donors.map((edge, i) => Math.min(size * 0.4, clearance(source[i]!, chain, i * step) * 0.14,
     edgeSettings.get(edge)!.limit * 0.4));
@@ -289,7 +331,7 @@ export function componentCoast(chain: CoastChain, rough: Roughness, clearance: R
   // A component sized as a whole (below) keeps its detail: that sizing is exact and comes
   // after the detail, and such a component is not fitted hex by hex.
   const defer = rough.deferDetail === true && !aggregate;
-  const detail = eased.map((p, i) => {
+  const detailAt = (scale: number) => eased.map((p, i) => {
     const previous = eased[chain.closed ? (i - 1 + n) % n : Math.max(0, i - 1)]!;
     const next = eased[chain.closed ? (i + 1) % n : Math.min(n - 1, i + 1)]!;
     const dx = next.x - previous.x, dy = next.y - previous.y, length = Math.hypot(dx, dy) || 1;
@@ -298,7 +340,7 @@ export function componentCoast(chain: CoastChain, rough: Roughness, clearance: R
     // Keep local cuts and capes after the component-scale silhouette filter. Their
     // profiles range from curved bays to skewed wedges and shelves, rather than
     // covering the whole coast with the same ridged high-frequency field.
-    const offset = shoreFeatures[i]! * amplitude / 0.12;
+    const offset = shoreFeatures[i]! * amplitude / 0.12 * scale;
     const move = { x: -dy / length * offset, y: dx / length * offset };
     // The component filter can form tight end caps. Detail must stay inside their
     // curvature radius, not merely the width of the old hex-derived outline.
@@ -311,6 +353,16 @@ export function componentCoast(chain: CoastChain, rough: Roughness, clearance: R
     held[i] = offset * gain;
     return defer ? p : { x: p.x + move.x * gain, y: p.y + move.y * gain };
   });
+  let detail = detailAt(1);
+  // A component sized as a whole is never fitted, so nothing later removes a fold it makes, and
+  // its broad bays are limited only by other coasts, so on a narrow island they can meet its own
+  // opposite shore. Reduce the detail, then the bays, until the outline no longer crosses itself
+  // (DECISIONS §92).
+  if (aggregate && !defer && crossesItself(detail)) for (const [broad, fine] of [[1, 0.5], [1, 0.25], [1, 0], [0.5, 0], [0.25, 0], [0, 0]] as const) {
+    if (broad !== 1) eased = easedAt(broad);
+    detail = detailAt(fine);
+    if (!crossesItself(detail)) break;
+  }
   if (targetArea !== undefined) {
     // A positive affine transform changes the component's area without folding
     // its contour or reintroducing per-hex width constraints. For elongated land,

@@ -19,6 +19,63 @@ Band-line thinning is adopted after a 30-pair production-worker comparison: medi
 The complete edit-to-sharp-frame result is unresolved (ratio 0.9773, interval 0.9283–1.0392).
 The next improvement is Group 1, step 1 below: replace the repeated global share passes.
 
+**6 November 2026 (DECISIONS §85–§87).**
+- **Fixtures corrected first (§85).** The maps every timing uses were not sensible. `mixed` had no
+  straits or isthmuses. The 50×50 interaction map had invalid mixed hexes, enclosed sea holes,
+  cities on glaciers and rivers over ice and open water. `populated` had the same generator faults.
+  The generator is fixed, `populated-40.json` is regenerated and the tests now guard all three maps.
+  Scene hashes changed; earlier absolute timings and hashes are not comparable.
+- **Step 1.1 withdrawn (§86).** The global passes cannot be replaced by a solve from the trace.
+  Smoothing leaves some coastal hexes with no coast in them, which the fit has no controls to reach.
+  Without the passes the populated map misses 13–15 shares instead of 1.
+- **Step 1.2, clearance reuse, removed (§87).** It was exact, but no faster in wall time, and 3–5%
+  slower in CPU time.
+- **Step 2, flat arrays for the field's samples, not adopted (§88).** Hashes were unchanged, but
+  it was no faster on populated.
+- **Function-level profile (§88).** Garbage collection takes 15.8% of a populated cold build. The
+  two largest functions, the fit's own loops and the per-hex coverage measure, take 5.8% each, and
+  nothing else reaches 5%. Kernel rewrites cannot deliver the 20–35% estimated below.
+- **Steps 3.1 and 3.2 measured (§89).** `node scripts/render-edit-wait.mjs` times ten edits on
+  the 50×50 map. Any edit that changes land or water waits 2.2–2.6 s, 78–91% of a cold build, and
+  the coast is 57–72% of that wait. Other edits take about 0.3–0.4 s, mostly paint. One coastal edit
+  rebuilds 85 of 88 coast components and refits the whole map as one group. 35 untouched coasts up to
+  57 hexes away change by up to 0.0026 px.
+- **3.2 fixed (§90).** The coast component cache was too small to hold one map's traces, so edits
+  reused none; it is resized. Coasts are now fitted and cached per independent group. Coastal edits
+  on the 50×50 map are 26–36% faster (for example 2.39 → 1.76 s and 2.36 → 1.50 s), and other groups
+  are left byte-identical, which a slow test checks. Cold builds of multi-group maps are about 6%
+  slower.
+- **Next:**
+  - In a coastal edit, after the fit: the global share passes (about 200 ms; they measure every hex
+    each pass), symbol revalidation (about 150 ms; all symbols are revalidated after any land change)
+    and island drawings (all 67 rebuilt; keyed on a whole-map land revision). Each can be made to
+    follow only the groups or hexes an edit touches.
+  - Step 4 (fit groups in parallel) to recover the cold-build cost.
+  - Step 3.3 (local refit within a group) for single-continent maps, which grouping does not help.
+
+## Route to significant gains (7 November 2026)
+
+The goal is significant: the plan's target is a cold build of about 1 s and edits that feel quick.
+On the 50×50 map, coastal edits now take 1.5–1.8 s to a sharp frame, other edits about 0.3 s (mostly
+paint), and a cold build 2.9 s (§90). Shaving individual functions cannot close that gap: no
+function holds more than 6% of a build (§88). The steps below change how much work is done, and
+each states the gain it has to show.
+
+| Step | What | Expected gain | Status |
+|---|---|---|---|
+| R1 | Local rough-coast features | Not needed by R2 | Built and withdrawn (§92); its fold fix for whole-island coasts kept |
+| R2 | Local refit after a coastal edit: the previous fit kept outside windows round what changed, the windows refitted alone (§94; the first form, freezing points, reverted in §93) | The fit, 0.2–0.35 s of a coastal edit in Node and about 0.4–0.5 s in the browser, falls to the window's share | Done (§94): fit 130–220 ms less an edit in the browser, coastal edits 6–22% faster, far coast no longer redrawn |
+| R3 | Keep the rest of an edit local: revalidate symbols, rebuild land fills and re-place labels only in the window | About 0.3 s of a coastal edit, now spent map-wide | Mostly done (§95, §96): share passes, islets, symbols, river names, pack ice and measured land local; in paired runs coastal edits 16% and inland lake edits 27% faster than after §95 |
+| R4 | Parallel cold build: fit independent coast groups (§90), and other independent stages, in a worker pool | Cold builds of multi-group maps 20–35% faster, also recovering §90's 6% | Built and withdrawn (§97): no gain in this container, as each fresh worker compiles the fit and parallel fits ran about 1.5× slower |
+| R5 | Measure paint on a GPU-backed browser before working on it | Paint is 0.2–0.27 s of every edit in headless software raster, which may overstate it | Done as a bound (§98): 88–96% of paint is software rasterizing, which a GPU canvas takes over; commands 3–26 ms; no paint work planned |
+
+After R2 and R3, a coastal edit should take about 0.7–0.9 s: tracing about 0.3 s, the windowed
+passes and fit about 0.1 s, coverage and paint geometry about 0.15 s, the rest of the build about
+0.1 s and paint about 0.25 s. That is about twice as fast as now. Reaching the earlier estimate of
+0.5–0.65 s would also need the trace windowed, which needs local features (R1, §92). A cold build of 1 s is not
+reachable on one core, because the coast alone is 1.7 s of it; R4 is the route, and its gain is
+bounded by the largest coast group.
+
 What remains is the last section, the fit's own cost. Its first step, removing overhead without
 changing any result, is done (DECISIONS §80 and §81), scenes byte-identical. In paired runs each step
 cut the populated cold build by a median of 11% and 16% respectively.
@@ -147,8 +204,13 @@ untouched, and they are the only route to a faster first picture now that a stan
 | — | Option 1 | Rejected by the owner as a workaround (§78) |
 | 1 | Option 2 at 64 lines (done; §77) | One constant and existing checks, plus the fixes it exposed |
 | 2 | The fit's own cost: overhead with identical results (done; §80, §81) | Free: no picture change |
-| 3 — next | Group 1, step 1.1: an initial constrained solve starting from the trace | Largest likely gain on a cold build |
-| 4 | Group 1, steps 1.2–1.3, then steps 2–4 | Measure each part separately, in rank order |
+| 3 | Group 1, step 1.1: an initial constrained solve starting from the trace | Withdrawn: dry coastal hexes have no controls (§86) |
+| 4 | Group 1, step 1.2: reuse the field across rounds | Clearance reuse exact but not faster; removed (§87) |
+| 5 | Group 1, step 2: typed-array field samples | Hashes unchanged, no gain; not adopted (§88) |
+| 6 | Function-level CPU profile (§88) | No function above 5.8%; garbage collection 15.8% |
+| 7 | Group 1, steps 3.1–3.2 measured (§89) | Land or water edits wait 2.2–2.6 s; whole map refitted |
+| 8 | 3.2 fix: component cache sized, fit per group (§90) | Coastal edits 26–36% faster; multi-group cold builds about 6% slower |
+| 9 — next | Per-group passes, symbols and islands in edits; step 4; step 3.3 | The remaining edit costs, the cold cost, single-continent maps |
 | Done | Group 2: T1 paired benchmark (§83) and T2 review (§84) | Use these tools and retained optimizations as the baseline for future work |
 
 ## Next task: the initial coast solve

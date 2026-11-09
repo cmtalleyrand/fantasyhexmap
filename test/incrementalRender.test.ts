@@ -59,10 +59,29 @@ test('returning to an already validated land revision does not replay unchanged 
   profiled(map, options);
   const changed = structuredClone(map); changed.layers.base.data![19] = 'Sea Ice';
   const validated = profiled(changed, options);
-  assert.ok(validated.profile.counters['symbols.revalidatedFits']! > 0);
+  // Checked again, by the land near it (unchanged: the edit is far off) or by replaying its probes.
+  assert.ok((validated.profile.counters['symbols.revalidatedFits'] ?? 0) + (validated.profile.counters['symbols.landHits'] ?? 0) > 0);
   const again = profiled(structuredClone(map), options);
   assert.equal(again.profile.counters['symbols.revalidatedFits'] ?? 0, 0);
   assertRebuildMatchesUncached(map, options, 'restore land revision', again.scene);
+});
+test('a symbol fit is kept by the land near its hex: unchanged far off, searched again beside an edit', () => {
+  const map = createMapState('Symbol land fingerprint', 8, 6), options = editOptions();
+  map.layers.base.data = Array(48).fill('Land');
+  for (const i of [0, 1, 8, 47]) map.layers.base.data![i] = 'Sea';
+  map.layers.elevation.data = Array(48).fill(null);
+  map.layers.elevation.data![10] = 'Hills'; map.layers.elevation.data![37] = 'Mountains';
+  profiled(map, options);
+  // An edit at the far corner leaves hex 10's land as it was: its fit is kept without a replay.
+  const far = structuredClone(map); far.layers.base.data![46] = 'Sea';
+  const kept = profiled(far, options);
+  assert.ok((kept.profile.counters['symbols.landHits'] ?? 0) > 0);
+  assertRebuildMatchesUncached(far, options, 'far edit', kept.scene);
+  // Beside hex 10 the coast moves: its fit is checked by replay or searched again, never kept by its old land.
+  const beside = structuredClone(far); beside.layers.base.data![9] = 'Sea';
+  const moved = profiled(beside, options);
+  assert.ok((moved.profile.counters['symbols.revalidatedFits'] ?? 0) + (moved.profile.counters['symbols.searches'] ?? 0) > 0);
+  assertRebuildMatchesUncached(beside, options, 'edit beside', moved.scene);
 });
 test('pack ice reuses its exact drawing and invalidates on shore, roughness and appearance edits', () => {
   const map = createMapState('Pack ice cache', 5, 4), options = editOptions();

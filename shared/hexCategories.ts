@@ -51,7 +51,7 @@ export const MAINLAND_MINIMUM = 2.5;
 /**
  * The land shares, in percent, an isthmus or strait of each width can be drawn with while it is still a
  * short narrows between two rounded tips (measured over the five neighbour patterns a passage can have,
- * to 5%; decision 85). More land round a strait, or less round an isthmus, could only be drawn as a canal.
+ * to 5%; decision 101). More land round a strait, or less round an isthmus, could only be drawn as a canal.
  */
 export const PASSAGE_LAND_RANGE: Record<'Isthmus' | 'Strait', Record<ChannelWidth, readonly [number, number]>> = {
   Isthmus: { 'Very narrow': [35, 85], Narrow: [45, 85], Normal: [55, 90], Wide: [70, 95] },

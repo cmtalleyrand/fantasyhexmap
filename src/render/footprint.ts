@@ -1520,7 +1520,17 @@ export function areaCoverage(rings: Point[][], options?: {
   stroke?: { rings: Point[][]; reach: number };
   /** Limit preparation to this query; other clips use the unrestricted fallback. */
   within?: Poly;
+  /** Every clip lies inside this outline: prepare only for it, with no fallback. Exact, since an
+   * outline whose box misses the region crosses each measuring line an even number of times on
+   * either side of any clip in it. */
+  region?: Poly;
 }): (clip: Poly, lines?: number) => number {
+  if (options?.region) return coverageOf(rings.map(ring => ({
+    box: boxOf(ring),
+    edges: (visit: (a: Point, b: Point) => void) => ring.forEach((a, k) => visit(a, ring[(k + 1) % ring.length]!)),
+  })), (visit) => {
+    for (const ring of options.stroke?.rings ?? []) for (let k = 0; k + 1 < ring.length; k++) visit(ring[k]!, ring[k + 1]!);
+  }, { evenOdd: options.evenOdd, reach: options.stroke?.reach ?? 0, within: options.region, reuseScanlines: options.reuseScanlines });
   let unrestricted: ReturnType<typeof areaCoverage> | undefined;
   const measure = coverageOf(rings.map(ring => ({
     box: boxOf(ring),

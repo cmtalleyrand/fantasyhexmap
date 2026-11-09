@@ -4,6 +4,9 @@ import { pathPolylines } from './ice.js';
 import { evenOddTest } from './coast.js';
 import { areaCoverage } from './footprint.js';
 import { localLakeShore } from './lakePassage.js';
+import { BoundedMemo, renderCachesEnabled } from './cache.js';
+import { hashNumbers128, hashText128 } from './hash.js';
+import { profileCount } from './profile.js';
 /** Local shoreline controls, in scene coordinates. */
 export interface LakeShorePassage {
   centre: Point;
@@ -43,8 +46,34 @@ export function lakeShoreFields(original: PathCmd[], passages: LakeShorePassage[
  * it by half a hex beyond the passage's own. Closed rings round that inside, local to the passage.
  */
 export function passageContour(path: PathCmd[], spec: LakeShorePassage, size: number): Point[][] {
+  // The contour reads the old shore only near the passage: its distance within `reach` of nodes up
+  // to `pad` from the centre, and which side of it each node lies on. Kept by an exact fingerprint of
+  // the shore segments that can reach a node, and of the side the centre lies on (within the box the
+  // side changes only across those segments), so that an edit elsewhere does not redraw it.
+  const rings = pathPolylines(path, 12), water = evenOddTest(rings, size / 8);
+  if (!renderCachesEnabled()) return contourOf(rings, water, spec, size);
+  const margin = size * (1.9 + .7 + .5), { x: cx, y: cy } = spec.centre, near: number[][] = [];
+  for (const ring of rings)
+    for (let k = 1; k < ring.length; k++) {
+      const a = ring[k - 1]!, b = ring[k]!;
+      if (Math.max(a.x, b.x) < cx - margin || Math.min(a.x, b.x) > cx + margin
+        || Math.max(a.y, b.y) < cy - margin || Math.min(a.y, b.y) > cy + margin) continue;
+      near.push([a.x, a.y, b.x, b.y]);
+    }
+  near.sort((p, q) => p[0]! - q[0]! || p[1]! - q[1]! || p[2]! - q[2]! || p[3]! - q[3]!);
+  const key = `${hashText128(JSON.stringify([spec, size, water(spec.centre)]))}/${hashNumbers128(near.flat())}`;
+  const hit = contours.get(key);
+  if (hit) { profileCount('passage.contourKept'); return hit; }
+  profileCount('passage.contourBuilt');
+  const result = contourOf(rings, water, spec, size);
+  contours.set(key, result, result.reduce((n, ring) => n + ring.length * 48, 0));
+  return result;
+}
+const contours = new BoundedMemo<Point[][]>(64, 8_000_000);
+
+function contourOf(rings: Point[][], water: (p: Point) => boolean, spec: LakeShorePassage, size: number): Point[][] {
   {
-    const rings = pathPolylines(path, 12), water = evenOddTest(rings, size / 8), cell = size / 4, reach = size * .7;
+    const cell = size / 4, reach = size * .7;
     const buckets = new Map<string, Array<[Point, Point]>>();
     for (const ring of rings)
       for (let k = 1; k < ring.length; k++) {

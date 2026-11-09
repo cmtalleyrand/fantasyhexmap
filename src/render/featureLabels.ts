@@ -587,9 +587,12 @@ export function placeRiverLabels(
   /** Land as drawn; a mouth does not license a river name in open sea. */
   onLand?: (p: Point) => boolean,
   context?: string,
+  /** What decides land and lake water within `reach` of a course, as one string: with it, a river's
+   * name is reused while the land near it is unchanged, whatever changed elsewhere (DECISIONS §96). */
+  landKey?: (course: Point[], reach: number) => string,
 ): FeatureLabel[] {
   if (onLand) {
-    const previous = placeRiverLabels(rivers, size, pathFor, face, avoid, widthFor, inWater, profileFor, undefined, context);
+    const previous = placeRiverLabels(rivers, size, pathFor, face, avoid, widthFor, inWater, profileFor, undefined, context, landKey);
     if (previous.every(label => labelOnSide(label, face, onLand))) return previous;
   }
   const out: FeatureLabel[] = [];
@@ -619,7 +622,8 @@ export function placeRiverLabels(
       const near = avoid.filter(box => boxMayReach(box, area));
       const nearPlaced = placed.filter(box => boxMayReach(box, area));
       const nearLines = others.filter(p => p.x >= lineArea.left && p.x <= lineArea.right && p.y >= lineArea.top && p.y <= lineArea.bottom);
-      const key = JSON.stringify([onLand ? 1 : 0, context, text, raw, drawn, profile ?? null, size, face, near, nearPlaced, nearLines]);
+      const key = JSON.stringify([onLand ? 1 : 0, context, text, raw, drawn, profile ?? null, size, face, near, nearPlaced, nearLines,
+        landKey?.(raw, reach) ?? null]);
       const known = riverMemo.get(key);
       if (known !== undefined) {
         profileCount('riverLabels.riverHits');

@@ -2,10 +2,13 @@ import type { Point } from '../../shared/hex.js';
 import { alike, coastKey, type CoastGeometry, type Sliver } from './coast.js';
 import { pathPolylines } from './ice.js';
 import { polygonSliver } from './sliver.js';
+import { hashNumbers128 } from './hash.js';
 import type { PathCmd } from './prims.js';
 
 const paintCache = new WeakMap<CoastGeometry, { size: number; patches: Sliver[] }>();
 const pathCache = new WeakMap<Sliver[], Map<number, PathCmd[]>>();
+/** Each chain's patches, by its path and a fingerprint of everything else they follow from. */
+const chainPatches = new WeakMap<PathCmd[], Map<string, Sliver[]>>();
 
 /** Immutable geometry can share its compound donor paths across style redraws. */
 export function coastPaintPaths(patches: Sliver[]): Map<number, PathCmd[]> {
@@ -35,7 +38,22 @@ export function coastPaintPatches(geometry: CoastGeometry, size: number): Sliver
   const patches: Sliver[] = [];
   const seal = Math.max(0.4, size * 0.02);
   geometry.chains.forEach((chain, k) => {
-    const ring = pathPolylines(geometry.paths[k] ?? [], 8)[0];
+    // A chain's patches follow from its path, its edges and donors, and where the coast passes
+    // its corners: kept with its path while those are unchanged, so that an edit elsewhere on the
+    // map does not draw them again (DECISIONS §105).
+    const path = geometry.paths[k] ?? [];
+    const values: number[] = [size, chain.closed ? 1 : 0];
+    for (const edge of chain.edges) {
+      const at = geometry.anchors.get(coastKey(edge.from));
+      values.push(edge.from.x, edge.from.y, edge.to.x, edge.to.y, edge.land, at?.x ?? NaN, at?.y ?? NaN);
+    }
+    const key = hashNumbers128(values);
+    let kept = chainPatches.get(path);
+    const known = kept?.get(key);
+    if (known) { patches.push(...known); return; }
+    const mine: Sliver[] = [];
+    const before = patches.length;
+    const ring = pathPolylines(path, 8)[0];
     if (!ring || ring.length < 2 || !chain.edges.length) return;
     const count = ring.length - 1;
     // Index the final shore once. Source-corner anchors already follow fitting,
@@ -123,6 +141,9 @@ export function coastPaintPatches(geometry: CoastGeometry, size: number): Sliver
       ]);
       patches.push(polygonSliver(convexHull(sealed), edge.land));
     });
+    mine.push(...patches.slice(before));
+    if (!kept) chainPatches.set(path, kept = new Map());
+    kept.set(key, mine);
   });
   paintCache.set(geometry, { size, patches });
   return patches;
