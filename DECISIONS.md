@@ -1850,7 +1850,17 @@ isthmuses 45, 52.5, 62.5 and 75%. A share that is set is fitted by headland dept
 which the banks part by a quarter hex within 0.4 radii of the tips; a share beyond that is left short and
 reported, not drawn as a canal. Measured across the five patterns, a strait can then be drawn with about
 21–75% land at Very narrow, 19–64% Narrow, 15–53% Normal and 8–40% Wide; an isthmus with about 33–85%,
-43–87%, 54–90% and 72–95%. The type bounds (Strait 10–70%, Isthmus 15–80%) are unchanged.
+43–87%, 54–90% and 72–95%.
+
+**Bounds by width.** Those measurements, to 5%, are the shares a passage may be set to
+(`PASSAGE_LAND_RANGE`): a strait 20–75% Very narrow, 20–65% Narrow, 15–55% Normal and 10–40% Wide; an
+isthmus 35–85%, 45–85%, 55–90% and 70–95%. They replace the fixed type bounds (Strait 10–70%, Isthmus
+15–80%), which allowed shares no width can draw as a narrows (an isthmus at 15%, a Wide strait at 70%) and
+ruled out natural ones (a Wide isthmus above 80%). The range follows the width the hex is drawn at, its own
+or the map's: the land share settings offer only that range, a share set outside it is held to it, and
+changing the width holds a share already set to the new range. A share saved outside it reads as the
+nearest one allowed and is flagged by validation; without a width (`landShareRange` called bare) the range
+covers every width.
 
 **Why.** A uniform channel or neck through the hex is a canal, not a strait or isthmus, and counting a
 strait's share as one (65% land at Normal) described a shape that is never drawn.

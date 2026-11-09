@@ -952,8 +952,13 @@ test('the scene draws a strait differently at each width, and its width is set p
   assert.deepEqual(set.hexShapes!['4'], { type: 'Strait', width: 'Narrow' });
   assert.equal(hexShapeFor('Strait', set.hexShapes!['4']).width, 'Narrow');
   // A strait has a land share as well, kept beside its width.
+  // Narrow allows 20–65%: a share below that is held to it.
   const both = reducer(set, { type: 'setHexShape', indices: [4], change: { land: 10 } });
-  assert.deepEqual(both.hexShapes!['4'], { type: 'Strait', land: 10, width: 'Narrow' });
+  assert.deepEqual(both.hexShapes!['4'], { type: 'Strait', land: 20, width: 'Narrow' });
+  // Widening it to Wide (10–40%) holds a share it set to 60% for Narrow to Wide's maximum.
+  const sixty = reducer(set, { type: 'setHexShape', indices: [4], change: { land: 60 } });
+  const wide = reducer(sixty, { type: 'setHexShape', indices: [4], change: { width: 'Wide' } });
+  assert.deepEqual(wide.hexShapes!['4'], { type: 'Strait', land: 40, width: 'Wide' });
   // A width means nothing on a coast hex.
   const coast = mapWith(['Land', 'Sea']);
   assert.equal(reducer(coast, { type: 'setHexShape', indices: [0], change: { width: 'Wide' } }), coast);
@@ -1034,11 +1039,15 @@ test('a land share set on an isthmus or strait tunes the land round its width, a
   }
 });
 
-test('map-wide isthmus and strait shares saved outside their type bounds are held to them', () => {
+test('map-wide isthmus and strait shares saved outside the range of their width are held to it', () => {
+  // Normal widths: an isthmus 55–90%, a strait 15–55%.
   const held = normaliseHexDimensions({ ...dims, isthmusPercent: 95, straitPercent: 85 });
-  assert.equal(held.isthmusPercent, 80);
-  assert.equal(held.straitPercent, 70);
-  assert.equal(normaliseHexDimensions({ ...dims, isthmusPercent: 5 }).isthmusPercent, 15);
+  assert.equal(held.isthmusPercent, 90);
+  assert.equal(held.straitPercent, 55);
+  assert.equal(normaliseHexDimensions({ ...dims, isthmusPercent: 5 }).isthmusPercent, 55);
   assert.equal(normaliseHexDimensions({ ...dims, straitPercent: 55 }).straitPercent, 55);
+  // The range follows the map-wide width.
+  assert.equal(normaliseHexDimensions({ ...dims, straitWidth: 'Very narrow', straitPercent: 85 }).straitPercent, 75);
+  assert.equal(normaliseHexDimensions({ ...dims, isthmusWidth: 'Wide', isthmusPercent: 5 }).isthmusPercent, 70);
   assert.ok(!('straitPercent' in normaliseHexDimensions({ ...dims, straitPercent: Number.NaN })));
 });

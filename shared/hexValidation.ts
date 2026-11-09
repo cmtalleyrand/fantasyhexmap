@@ -1,5 +1,5 @@
 import { adjacentHexes, isCategoryLand, isCategoryWater, landShareRange, passageNeighbours } from './hexCategories.js';
-import { landFractionAt, normaliseHexDimensions } from './surfaceArea.js';
+import { landFractionAt, normaliseHexDimensions, passageWidth } from './surfaceArea.js';
 import { isIslandType, islandSpecFor, type MapState } from './types.js';
 
 /** Validate geography independently of land-layer and settlement eligibility. */
@@ -22,7 +22,8 @@ export function validateHexDefinitions(map: MapState): string[] {
       problems.push('cannot adjoin 100% land; use Mainland and islands');
     const stored = map.hexShapes?.[i];
     if (stored && stored.type === value && stored.land !== undefined) {
-      const [min, max] = landShareRange(value, isIslandType(value) ? islandSpecFor(value, map.islandSpecs?.[i]) : undefined);
+      const [min, max] = landShareRange(value, isIslandType(value) ? islandSpecFor(value, map.islandSpecs?.[i]) : undefined,
+        passageWidth(value, normaliseHexDimensions(map.hexDimensions), stored));
       if (stored.land < min || stored.land > max) problems.push(`land share must be ${min}–${max}%`);
       if ((value === 'Sea' || value === 'Lake' || value === 'Sea Ice') && !land.length && stored.land !== 0)
         problems.push('water without adjacent land must have 0% land');

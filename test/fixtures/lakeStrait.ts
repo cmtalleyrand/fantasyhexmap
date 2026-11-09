@@ -36,7 +36,7 @@ export const LAKE_STRAIT_CASES: LakeStraitCase[] = [
   { width: 'Normal', side: 5, land: 50, irregular: 'Wavy' },
   { width: 'Wide', irregular: 'Smooth' },
   { width: 'Wide', side: 1, land: 30, irregular: 'Ragged' },
-  { width: 'Wide', side: 2, land: 50, irregular: 'Wavy' },
+  { width: 'Wide', side: 2, land: 40, irregular: 'Wavy' },
   { width: 'Wide', side: 4, irregular: 'Fractured' },
 ];
 

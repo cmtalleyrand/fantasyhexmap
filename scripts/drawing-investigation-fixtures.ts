@@ -57,8 +57,8 @@ export function cases() {
   for (const kind of ['Islands','Strait','Isthmus','Glacier','Lake'] as BaseGeo[]) {
     const map = coastMap(20, `investigation-${kind}`);
     map.layers.base.data![12] = kind;
-    // 10% land, or an isthmus's least (15%).
-    map.hexShapes = { '12': { type: kind, land: kind === 'Isthmus' ? 15 : 10, width: 'Very narrow', irregular: 'Fractured' } };
+    // 10% land, or the least a Very narrow passage allows (20% for a strait, 35% for an isthmus).
+    map.hexShapes = { '12': { type: kind, land: kind === 'Isthmus' ? 35 : kind === 'Strait' ? 20 : 10, width: 'Very narrow', irregular: 'Fractured' } };
     // A possible passage: two land masses (west and east) and two seas (a northern channel and the
     // southern sea), each meeting the hex as one group.
     if (kind === 'Strait' || kind === 'Isthmus') {

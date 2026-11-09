@@ -283,7 +283,7 @@ export default function HexSizeInput({
               }}
             >
               <option value="natural">Natural (from the width)</option>
-              {LAND_PERCENT_OPTIONS.filter(p => p >= landShareRange(label)[0] && p <= landShareRange(label)[1]).map((p) => (
+              {LAND_PERCENT_OPTIONS.filter(p => p >= landShareRange(label, undefined, value[field])[0] && p <= landShareRange(label, undefined, value[field])[1]).map((p) => (
                 <option key={p} value={p}>
                   {p}%
                 </option>
@@ -292,7 +292,7 @@ export default function HexSizeInput({
           </div>
         ))}
       </div>
-      <p className="hint">An isthmus or strait is drawn at a width: how narrow the neck of land (or channel of water) is at its thinnest, as a share of the hex's width, from 5% (very narrow) to 50% (wide). Its land percentage is optional: left on Natural it is whatever the width gives; set, it tunes how much land the hex has round that width (the flared ends of a neck, the banks of a channel). Each other such hex is drawn with its share as land (a coastal hex's shore is set in from its edge; an island is drawn at its share of the hex; a lake or sea hex is the other way round, water with this share of land drawn in from its edges against land; 0% adds no shore land, and open sea without a land neighbour stays water), and polity areas in the legend count it. An island hex adds up its islands. A single hex can override its own share in the sidebar.</p>
+      <p className="hint">An isthmus or strait is drawn at a width: how narrow the neck of land (or channel of water) is at its thinnest, as a share of the hex's width, from 5% (very narrow) to 50% (wide). Its land percentage is optional: left on Natural it is whatever the width gives; set, it tunes how much land the hex has round that width (the flared ends of a neck, the banks of a channel), within the range that width can be drawn with as a short narrows: a strait has less room for land the wider it is, an isthmus more. Each other such hex is drawn with its share as land (a coastal hex's shore is set in from its edge; an island is drawn at its share of the hex; a lake or sea hex is the other way round, water with this share of land drawn in from its edges against land; 0% adds no shore land, and open sea without a land neighbour stays water), and polity areas in the legend count it. An island hex adds up its islands. A single hex can override its own share in the sidebar.</p>
 
       <h3>Displayed measurement rounding</h3>
       <div className="row">

@@ -88,8 +88,9 @@ test('a passage share within reach is drawn; one beyond it is reported, not draw
   assert.equal(met.scene.compromises?.find(c => c.hexes.includes(centre)), undefined, '30% fits a Normal strait');
   const isthmus = draw(passage('Isthmus', 'Normal', OPPOSITE, 'Sea', 70));
   assert.equal(isthmus.scene.compromises?.find(c => c.hexes.includes(centre)), undefined, '70% fits a Normal isthmus');
-  const far = draw(passage('Strait', 'Normal', OPPOSITE, 'Sea', 65));
-  assert.ok(far.scene.compromises?.find(c => c.hexes.includes(centre)), 'a Normal strait cannot hold 65% land as a strait');
+  // 55% is within a Normal strait's range, but more than banks opposite each other can hold as a narrows.
+  const far = draw(passage('Strait', 'Normal', OPPOSITE, 'Sea', 55));
+  assert.ok(far.scene.compromises?.find(c => c.hexes.includes(centre)), 'opposite banks cannot hold 55% land round a Normal strait');
   const gap = gauge('Strait', 'Normal', OPPOSITE, far.land);
   for (const side of [-1, 1]) assert.ok(gap(side * size * .4) > gap(0) + size * .25, 'still a short narrows');
 });

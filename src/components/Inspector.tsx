@@ -62,6 +62,7 @@ import {
   channelShareSet,
   landLayerSurfaceStatistics,
   normaliseHexDimensions,
+  passageWidth,
 } from '../../shared/surfaceArea.js';
 import { descendantsOf, polityOutline, wouldCycle } from '../../shared/polityTree.js';
 import { contrastingRealmColours } from '../render/hierarchy.js';
@@ -744,7 +745,8 @@ function HexShapePanel(props: SubProps) {
   const concentration = sharedOf(concentrated.map((i) => String(hexShapeFor(base![i], map.hexShapes?.[String(i)]).concentration ?? 0)));
   const landValue = Number(land);
   // The shares the shore slack allows on every selected hex: no option outside them is offered.
-  const lowest = Math.max(0, ...landHexes.map((i) => Math.max(landPercent(slack(i, 0)), landShareRange(base![i], isIslandType(base![i]) ? islandSpecFor(base![i], map.islandSpecs?.[String(i)]) : undefined)[0])));
+  const lowest = Math.max(0, ...landHexes.map((i) => Math.max(landPercent(slack(i, 0)), landShareRange(base![i], isIslandType(base![i]) ? islandSpecFor(base![i], map.islandSpecs?.[String(i)]) : undefined,
+    passageWidth(base![i], dims, map.hexShapes?.[String(i)]))[0])));
   const highest = Math.min(100, ...landHexes.map((i) => landPercent(slack(i, 1))));
   return (
     <div className="stack" style={{ marginTop: 8 }}>
