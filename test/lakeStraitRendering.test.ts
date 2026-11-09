@@ -41,11 +41,12 @@ test('lake straits report land shares without sacrificing their headland shape t
   const middle = render(fixture('Narrow', undefined, 50));
   assert.ok(Math.abs(low.share() - 0.3) < 0.01, `30% request rendered ${low.share()}`);
   assert.ok(Math.abs(middle.share() - 0.5) < 0.01, `50% request rendered ${middle.share()}`);
-  const maximum = render(fixture('Narrow', undefined, 70));
+  // A Narrow strait allows 20–65%: an 80% share saved before that range existed is read as 65%.
+  const maximum = render(fixture('Narrow', undefined, 65));
   const eighty = render(fixture('Narrow', undefined, 80));
-  assert.deepEqual(eighty.rings, maximum.rings, 'legacy 80% shares clamp to the allowed 70% maximum');
+  assert.deepEqual(eighty.rings, maximum.rings, 'legacy 80% shares clamp to the allowed 65% maximum');
   const note = eighty.scene.compromises?.find(c => c.hexes.includes(centre));
-  if (Math.abs(eighty.share() - 0.7) > LAND_SHARE_TOLERANCE) {
+  if (Math.abs(eighty.share() - 0.65) > LAND_SHARE_TOLERANCE) {
     assert.ok(note, 'an unmet valid target must be reported');
     assert.ok(Math.abs(Number(note.what.match(/^(\d+)%/)?.[1]) / 100 - eighty.share()) < 0.01);
   }

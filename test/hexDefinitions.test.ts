@@ -2,7 +2,7 @@ import { coastEdges, surfaceMap } from '../src/render/coast.ts';
 import { shapeCoast } from '../src/render/footprint.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { HEX_CATEGORIES, adjacentHexes, boundedLandShare, isCategoryLand, landPercent, passageNeighbours } from '../shared/hexCategories.ts';
+import { HEX_CATEGORIES, PASSAGE_LAND_RANGE, adjacentHexes, boundedLandShare, isCategoryLand, landPercent, landShareRange, passageNeighbours } from '../shared/hexCategories.ts';
 import { validateHexDefinitions } from '../shared/hexValidation.ts';
 import { prepareLoadedMap } from '../src/state/import.ts';
 import { drawnLandFraction, landFraction, landFractionAt, normaliseHexDimensions, withShoreSlack } from '../shared/surfaceArea.ts';
@@ -32,16 +32,22 @@ test('geography categories distinguish straits and islands from layer eligibilit
   assert.equal(isCategoryLand('Mainland and islands'), true);
 });
 test('channel and mixed land shares stay within their definitions, including natural widths', () => {
-  for (const [type, min, max] of [['Isthmus', 15, 80], ['Strait', 10, 70], ['Mainland and islands', 10, 90]] as const) {
+  for (const [type, min, max] of [['Isthmus', 35, 95], ['Strait', 10, 75], ['Mainland and islands', 10, 90]] as const) {
     assert.equal(boundedLandShare(type, 0), min);
     assert.equal(boundedLandShare(type, 100), max);
-    for (const width of ['Very narrow', 'Narrow', 'Normal', 'Wide'] as const) {
-      const share = landFraction(type, undefined, dims, { type, width }) * 100;
-      assert.ok(share >= min && share <= max);
-    }
-    const map = mapWith(type);
-    const changed = reducer(map, { type: 'setHexShape', indices: [24], change: { land: 100 } });
-    assert.equal(changed.hexShapes?.['24']?.land, max);
+  }
+  // A passage's range depends on its width, and holds its natural share at that width.
+  for (const type of ['Isthmus', 'Strait'] as const) for (const width of ['Very narrow', 'Narrow', 'Normal', 'Wide'] as const) {
+    const [min, max] = PASSAGE_LAND_RANGE[type][width];
+    assert.deepEqual(landShareRange(type, undefined, width), [min, max]);
+    const share = landFraction(type, undefined, dims, { type, width }) * 100;
+    assert.ok(share >= min && share <= max, `${type} ${width}: natural ${share}% outside ${min}–${max}%`);
+    assert.equal(landPercent(landFraction(type, undefined, dims, { type, width, land: 0 })), min);
+    assert.equal(landPercent(landFraction(type, undefined, dims, { type, width, land: 100 })), max);
+  }
+  for (const [type, max] of [['Isthmus', 90], ['Strait', 55], ['Mainland and islands', 90]] as const) {
+    const changed = reducer(mapWith(type), { type: 'setHexShape', indices: [24], change: { land: 100 } });
+    assert.equal(changed.hexShapes?.['24']?.land, max, `${type} at the map's Normal width`);
   }
 });
 test('island minima are per island and retain half-percent precision in edits', () => {
@@ -69,13 +75,14 @@ test('every plain water subtype has no detached land and at least 5% beside whol
     }
   }
 });
-test('passages require separated land and water groups, across all 64 neighbour patterns', () => {
+test('passages require exactly two land groups and two water groups, across all 64 neighbour patterns', () => {
   for (const type of ['Isthmus', 'Strait'] as const) for (let mask = 0; mask < 64; mask++) {
     const map = mapWith(type), base = map.layers.base.data!;
     adjacentHexes(base, 7, 24).forEach((j, side) => { base[j] = mask & (1 << side) ? 'Land' : 'Sea'; });
     const bits = Array.from({ length: 6 }, (_, side) => !!(mask & (1 << side)));
     const transitions = bits.filter((v, side) => v !== bits[(side + 5) % 6]).length;
-    assert.equal(validateHexDefinitions(map).length === 0, transitions >= 4, `${type}: mask ${mask}`);
+    // Four changes round the ring are two groups of each; six (land and water alternating) are three of each, not one passage.
+    assert.equal(validateHexDefinitions(map).length === 0, transitions === 4, `${type}: mask ${mask}`);
   }
 });
 test('passages may reach a map edge when the required land and water neighbours exist', () => {
@@ -88,14 +95,23 @@ test('passages may reach a map edge when the required land and water neighbours 
     assert.deepEqual(validateHexDefinitions(map), []);
   }
 });
-test('mixed mainland and islands retains the stated 10–90% range for any island count', () => {
+test('mixed mainland and islands keeps 2.5% mainland plus each island\'s minimum, within 10–90%', () => {
   const spec = { large: 2, small: 6 };
-  assert.equal(boundedLandShare('Mainland and islands', 10, spec), 10);
+  assert.deepEqual(landShareRange('Mainland and islands', spec), [27.5, 90]);
+  assert.deepEqual(landShareRange('Mainland and islands', { large: 0, small: 1 }), [10, 90]);
+  assert.deepEqual(landShareRange('Mainland and islands', { large: 1, small: 2 }), [12.5, 90]);
   const map = mapWith('Mainland and islands'); map.islandSpecs = { '24': spec };
   const changed = reducer(map, { type: 'setHexShape', indices: [24], change: { land: 10 } });
-  assert.equal(changed.hexShapes?.['24']?.land, 10);
-  const mainland = drawnLandFraction('Mainland and islands', dims, changed.hexShapes?.['24'], true, spec)!;
-  assert.ok(mainland >= .025 && mainland < .1, 'the 10% share contains both mainland and islands');
+  assert.equal(changed.hexShapes?.['24']?.land, 27.5);
+  const shape = changed.hexShapes?.['24'];
+  const mainland = drawnLandFraction('Mainland and islands', dims, shape, true, spec)!;
+  assert.ok(Math.abs(mainland - .025) < 1e-12, 'the mainland keeps its 2.5%');
+  assert.ok(Math.abs(landFraction('Mainland and islands', spec, dims, shape) - mainland - .25) < 1e-12, 'the islands keep their 25%');
+  // A share saved below the minimum, or islands added after it was set, is read at the minimum and flagged.
+  const stale = mapWith('Mainland and islands'); stale.islandSpecs = { '24': spec };
+  stale.hexShapes = { '24': { type: 'Mainland and islands', land: 15 } };
+  assert.equal(landFraction('Mainland and islands', spec, dims, stale.hexShapes['24']), .275);
+  assert.ok(validateHexDefinitions(stale).some(w => w.includes('27.5–90%')));
 });
 test('mixed hexes need land and water, and islands cannot adjoin whole land', () => {
   const map = mapWith('Mainland and islands');
@@ -157,17 +173,18 @@ test('shore slack preserves the mainland-only share after bounding and splitting
     const target = withShoreSlack(base, 7, 24, mainland, dims, { '24': shape }, 'mainland');
     assert.equal(target, mainland, `mainland portion at ${requested}% total`);
     assert.ok(Math.abs(target + islands - total) < 1e-12);
-    assert.equal(withShoreSlack(base, 7, 24, requested / 100, dims), total, 'total-share bounds still apply');
-    if (requested <= 10) {
+    assert.equal(withShoreSlack(base, 7, 24, total, dims), total, 'a bounded total is left as it is');
+    if (requested <= 27.5) {
       assert.equal(target, .025);
-      assert.ok(Math.abs(islands - .075) < 1e-12);
-      assert.ok(Math.abs(target + islands - .1) < 1e-12);
+      assert.ok(Math.abs(islands - .25) < 1e-12);
+      assert.ok(Math.abs(target + islands - .275) < 1e-12);
     }
   }
 });
 test('half-step land shares are stored and shown exactly, without floating-point residue', () => {
   for (const type of ['Isthmus', 'Strait', 'Mainland and islands'] as const) {
-    const [min, max] = boundedLandShare(type, 0) === 0 ? [0, 100] : [boundedLandShare(type, 0), boundedLandShare(type, 100)];
+    // At the map's Normal width for a passage.
+    const [min, max] = landShareRange(type, undefined, type === 'Mainland and islands' ? undefined : 'Normal');
     for (let percent = min; percent <= max; percent += 2.5) {
       const changed = reducer(mapWith(type), { type: 'setHexShape', indices: [24], change: { land: percent } });
       assert.equal(changed.hexShapes?.['24']?.land, percent, `${type} ${percent}%`);

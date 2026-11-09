@@ -57,8 +57,14 @@ export function cases() {
   for (const kind of ['Islands','Strait','Isthmus','Glacier','Lake'] as BaseGeo[]) {
     const map = coastMap(20, `investigation-${kind}`);
     map.layers.base.data![12] = kind;
-    map.hexShapes = { '12': { type: kind, land: 10, width: 'Very narrow', irregular: 'Fractured' } };
-    if (kind === 'Strait' || kind === 'Isthmus') map.layers.base.data![11] = map.layers.base.data![13] = 'Land';
+    // 10% land, or the least a Very narrow passage allows (20% for a strait, 35% for an isthmus).
+    map.hexShapes = { '12': { type: kind, land: kind === 'Isthmus' ? 35 : kind === 'Strait' ? 20 : 10, width: 'Very narrow', irregular: 'Fractured' } };
+    // A possible passage: two land masses (west and east) and two seas (a northern channel and the
+    // southern sea), each meeting the hex as one group.
+    if (kind === 'Strait' || kind === 'Isthmus') {
+      map.layers.base.data![11] = map.layers.base.data![13] = 'Land';
+      map.layers.base.data![2] = map.layers.base.data![7] = 'Sea';
+    }
     if (kind === 'Islands') map.islandSpecs = { '12': { large: 1, small: 2 } };
     out.push({ name: kind.toLowerCase(), map, opts: options() });
   }
