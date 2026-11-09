@@ -131,3 +131,46 @@ test('a strait in a sea one hex wide keeps its banks where the old coast only gr
     assert.ok(scene.prims.length > 0);
   }
 });
+
+/** Every filled primitive whose fill covers `p`, in paint order, within the clips it is drawn in. */
+function paintAt(prims: ReturnType<typeof draw>['scene']['prims'], p: { x: number; y: number }): string[] {
+  const out: string[] = [];
+  const walk = (list: typeof prims) => {
+    for (const prim of list) {
+      if (prim.kind === 'group') {
+        if (prim.clip && !evenOddTest(pathPolylines(prim.clip, 6), size / 8)(p)) continue;
+        walk(prim.prims);
+      } else if (prim.kind === 'polygon' && prim.fill && evenOddTest([prim.points], size / 8)(p)) out.push(prim.fill);
+      else if (prim.kind === 'path' && prim.fill && evenOddTest(pathPolylines(prim.d, 6), size / 8)(p)) out.push(prim.fill);
+    }
+  };
+  walk(prims);
+  return out;
+}
+const opaque = (fill: string) => /^#[0-9a-f]{6}$/i.test(fill);
+
+test('a reshaped isthmus keeps its own colours across its neck', () => {
+  // A mountain isthmus between lowlands, coloured by elevation: its neck is mountain-coloured, not lowland.
+  const map = passage('Isthmus', 'Wide', OPPOSITE, 'Sea');
+  map.layers.elevation.data = map.layers.base.data!.map((v, i) => i === centre ? 'Mountains' : v === 'Land' ? 'Lowland' : null);
+  const style = resolveStyle({ preset: 'parchment', overrides: { water: 'flat', grain: false, grid: 'none', land: 'uniform', relief: 'colour' } });
+  const scene = buildScene(map, { size, visible: { ...defaultVisibility(), elevation: true }, labels: false, style });
+  assert.ok(landTestOf(scene)!(middle), 'the neck is land');
+  const neck = paintAt(scene.prims, middle).filter(opaque).at(-1);
+  const n = neighbourOf(4, 4, 0), lowland = paintAt(scene.prims, hexCenter(n.col, n.row, size)).filter(opaque).at(-1);
+  assert.ok(neck && lowland && neck !== lowland, `the neck is painted ${neck}, the lowland beside it ${lowland}`);
+});
+
+test('hill shading still shows on land repainted round a reshaped passage', () => {
+  const map = passage('Isthmus', 'Normal', OPPOSITE, 'Sea');
+  const n = neighbourOf(4, 4, 0), hill = n.row * cols + n.col;
+  map.layers.elevation.data = map.layers.base.data!.map((v, i) => i === hill ? 'Mountains' : v === 'Land' || i === centre ? 'Lowland' : null);
+  const style = resolveStyle({ preset: 'parchment', overrides: { water: 'flat', grain: false, grid: 'none', land: 'uniform', relief: 'hillshade' } });
+  const scene = buildScene(map, { size, visible: { ...defaultVisibility(), elevation: true }, labels: false, style });
+  // In the mountain hex beside the isthmus, inside the repainted circle.
+  const c = hexCenter(n.col, n.row, size), p = { x: middle.x + (c.x - middle.x) * .7, y: middle.y + (c.y - middle.y) * .7 };
+  assert.ok(landTestOf(scene)!(p), 'the point is on land');
+  const fills = paintAt(scene.prims, p);
+  const lastGround = fills.map(opaque).lastIndexOf(true);
+  assert.ok(lastGround >= 0 && fills.slice(lastGround + 1).some(f => !opaque(f)), `shading must lie over the last ground fill: ${fills.join(' ')}`);
+});

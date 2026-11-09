@@ -129,6 +129,7 @@ import { ELEVATION_RANK, floeFringe, glacierEdges, glacierFlow, glacierMarginPri
 import { areaCoverage, coveredArea, nearestOn, lakeStraitFrame, shapeCoast, type ShapeMemo, type ShapeTarget } from './footprint.js';
 import { LAND_SHARE_TOLERANCE, withShoreSlack, channelShareSet, channelWidthFraction, drawnLandFraction, landFraction, normaliseHexDimensions } from '../../shared/surfaceArea.js';
 import { hasDerivedShore, isShoreLand } from '../../shared/derive.js';
+import { isCategoryLand } from '../../shared/hexCategories.js';
 import { applyCoastDetail, fitCoastAreas } from './coastArea.js';
 import { coastPaintPatches, coastPaintPaths } from './coastPaint.js';
 import { realmBoundary } from './realmBoundary.js';
@@ -1582,6 +1583,8 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
   }
 
   // --- glacier ground ----------------------------------------------------------------
+  // Glacier ground and hill shading, drawn again over a reshaped passage's repaint (below).
+  const reliefStart = prims.length;
   const glacierHexes: number[] = [];
   base?.forEach((v, i) => {
     if (v === 'Glacier') glacierHexes.push(i);
@@ -1709,6 +1712,8 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
     }
   }
 
+  const reliefEnd = prims.length;
+
   // --- water --------------------------------------------------------------------
   const coast = traced?.geometry ?? null;
   const componentWaterClip = coast?.component ? traced!.paint.water : null;
@@ -1805,8 +1810,10 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
       prims.push({ kind: 'group', clipRule: 'evenodd', clip: componentWaterClip, prims: corrections });
     } else prims.push(...corrections);
     // Round a reshaped strait or isthmus the hex pieces no longer match the coast: repaint
-    // that patch from the coast as drawn, water over all of it and then the land within the coast,
-    // each part of the land in the colour of the land hex nearest it.
+    // that patch from the coast as drawn, water over all of it and then the land within the coast.
+    // Land in a whole land hex, or in a split hex of its own (an isthmus's neck, a mainland, a shore),
+    // takes that hex's colours; a strait's banks and land drawn into water take the nearest land
+    // hex's. Glacier ground and hill shading, drawn before the water, are drawn again over it.
     for (const edit of traced?.passageEdits ?? []) {
       const circle = polygonPath(Array.from({ length: 64 }, (_, k) => ({
         x: edit.centre.x + Math.cos(k * Math.PI / 32) * edit.radius, y: edit.centre.y + Math.sin(k * Math.PI / 32) * edit.radius })));
@@ -1823,7 +1830,8 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
       }, { j: inLakeBody.has(edit.i) ? lakeShoreDonor(edit.i) : edit.i, d: Infinity }).j;
       const landFills: Prim[] = near.flatMap(j => {
         const corners = hexCorners(j % cols, Math.floor(j / cols), size), c = hexCenter(j % cols, Math.floor(j / cols), size);
-        if (landHexes.includes(j)) return [{ kind: 'polygon', points: corners, fill: groundColour(j), stroke: groundColour(j), strokeWidth: seal } as Prim];
+        const own = landHexes.includes(j) || (isSplit(j) && base[j] !== 'Strait' && isCategoryLand(base[j]) && !inLakeBody.has(j));
+        if (own) return [{ kind: 'polygon', points: corners, fill: groundColour(j), stroke: groundColour(j), strokeWidth: seal } as Prim];
         return corners.map((a, e): Prim => {
           const b = corners[(e + 1) % 6]!, fill = groundColour(nearestLand({ x: (a.x + b.x + c.x) / 3, y: (a.y + b.y + c.y) / 3 }));
           return { kind: 'polygon', points: [c, a, b], fill, stroke: fill, strokeWidth: seal };
@@ -1831,7 +1839,7 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
       });
       prims.push({ kind: 'group', clip: circle, prims: [
         { kind: 'group', clip: water, clipRule: 'evenodd', prims: [{ kind: 'path', d: circle, fill: palette.sea }] },
-        { kind: 'group', clip: drawnCoastLand(), clipRule: 'evenodd', prims: landFills },
+        { kind: 'group', clip: drawnCoastLand(), clipRule: 'evenodd', prims: [...landFills, ...prims.slice(reliefStart, reliefEnd)] },
       ] });
     }
   }
