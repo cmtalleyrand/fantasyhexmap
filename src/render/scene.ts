@@ -440,7 +440,7 @@ function prepareSceneCacheScope(map: MapState, size: number): void {
   sceneCacheScope = scope;
   coastCache.clear(); coastComponents.clear(); coastFits.clear(); glacierMargins.clear(); packIceDrawings.clear(); symbolPlacements.clear(); terrainRevisions.clear();
   symbolFits = new WeakMap(); clearPlacementCache(); clearRiverLabelCache(); clearSharedPaths(); shapeMemo.clear(); islandDrawings.clear();
-  regionRecords.clear(); regionDrawn.clear();
+  regionRecords.clear(); regionDrawn.clear(); regionLinks.clear(); coastRevisions.clear();
 }
 
 /** Forget every symbol's fit and every cached label placement, so that they are found again (for tests). */
@@ -693,10 +693,26 @@ function shapesSignature(shapes: Record<string, HexShape> | undefined): string {
 
 /** The last coast each incremental build drew, with what it was drawn from (DECISIONS §103). */
 const regionRecords = new Map<string, TracedCoast>();
-/** Each coast drawn regionally, with the coast it was joined to and the disc it changed. */
-const regionLinks = new WeakMap<TracedCoast, { from: TracedCoast; disc: { centre: Point; radius: number } }>();
-/** The land revision (see `symbolLandRevision`) each coast was last drawn with. */
-const coastRevisions = new WeakMap<TracedCoast, { id: number }>();
+/** A number for each coast, so that the links below hold no coast: a chain of links holding the
+ * coasts themselves would keep every coast of an editing session alive (review of PR #185). */
+const coastIds = new WeakMap<TracedCoast, number>();
+let coastIdCount = 0;
+const coastId = (coast: TracedCoast) => {
+  let id = coastIds.get(coast);
+  if (id === undefined) coastIds.set(coast, id = ++coastIdCount);
+  return id;
+};
+/** Each coast drawn regionally (by number), with the coast it was joined to and the disc it
+ * changed; and the land revision (see `symbolLandRevision`) each coast was last drawn with. Only
+ * the newest are kept: `landKeptSince` looks back no further than these reach. */
+const regionLinks = new Map<number, { from: number; disc: { centre: Point; radius: number } }>();
+const coastRevisions = new Map<number, { id: number }>();
+const REGION_LINKS_KEPT = 64;
+const keepNewest = <V>(map: Map<number, V>, key: number, value: V) => {
+  map.delete(key);
+  map.set(key, value);
+  while (map.size > REGION_LINKS_KEPT) map.delete(map.keys().next().value!);
+};
 const sameSets = (a: number[], b: number[]) => {
   if (a.length !== b.length) return false;
   const set = new Set(a);
@@ -1563,7 +1579,7 @@ function cachedCoast(
   // themselves against that coast's land while no region since reaches them (DECISIONS §105). A
   // change to the lakes reaches further, so it breaks the link.
   if (regional && sameSets(lakes.flat(), regional.from.lakes.flat()) && sameSets([...lakeIslands], [...regional.from.lakeIslands])) {
-    regionLinks.set(entry, { from: regional.from, disc: regional.disc });
+    keepNewest(regionLinks, coastId(entry), { from: coastId(regional.from), disc: regional.disc });
   }
   if (incremental === 'map' && shapeSignatures) {
     regionOf.set(entry, { context: regionContext(cols, rows, size, smooth, inkReach, seed, dimensions), base: [...base], shapes: shapeSignatures });
@@ -1783,7 +1799,7 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
     map.defaultIrregularity, map.defaultLakeIrregularity, map.islandSpecs, knobs.coast, knobs.islands, inkReachOf]);
   const symbolLandRevision = terrainRevisions.get(symbolLandInputs) ?? { id: ++terrainRevisionNumber };
   terrainRevisions.set(symbolLandInputs, symbolLandRevision);
-  if (traced) coastRevisions.set(traced, symbolLandRevision);
+  if (traced) keepNewest(coastRevisions, coastId(traced), symbolLandRevision);
   /**
    * Whether land as drawn within `box` is as it was at one of `revisions`: the coast now drawn was
    * joined, region by region, to a coast drawn with one of them, and no region since reaches the
@@ -1792,8 +1808,8 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
    * change which side of the coast a point outside it lies on (DECISIONS §105).
    */
   const landKeptSince = (revisions: Array<{ id: number }>, box: { x0: number; x1: number; y0: number; y1: number }): boolean => {
-    let coast = traced ?? undefined;
-    for (let step = 0; coast && step < 12; step++) {
+    let coast = traced ? coastId(traced) : undefined;
+    for (let step = 0; coast !== undefined && step < 12; step++) {
       const rev = coastRevisions.get(coast);
       if (step > 0 && rev && revisions.includes(rev)) return true;
       const link = regionLinks.get(coast);

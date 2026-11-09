@@ -2824,3 +2824,17 @@ placement over the whole map. The rest is the drawing every build does, about 12
 **Test.** `test/slow/coastWindow.test.ts` checks that most symbols are kept outside the regions over
 three edits, and that the scene equals the one found by checking every symbol again on the same
 coast. With the regions shrunk by three hex radii it fails.
+
+## 106. The regional links hold numbers, not coasts (review of PR #185)
+
+**Bug.** A code review (Codex) found that §105's links kept every coast of an editing session alive.
+Each regionally drawn coast held the coast it was joined to, and the newest coast is always held,
+so the whole chain stayed reachable after the caches had let the coasts go. The WeakMap kept its
+keys weak, but not its values. Measured over 80 random coastal edits on the 50×50 map, the heap
+after garbage collection grew by about 19 MB per edit, to 1.68 GB.
+
+**Fix.** Each coast is given a number. The links (from a coast to the coast it was joined to, with the
+disc it changed) and each coast's land revision are kept by number, the newest 64 of each.
+`landKeptSince` looks back at most 12 links, so 64 covers it. Scenes are unchanged: every step's
+hash in the ten-edit sequence is the same. Over the same 80 edits the heap now levels off at
+267–322 MB as the bounded caches fill.
