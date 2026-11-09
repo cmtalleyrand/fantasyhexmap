@@ -2657,3 +2657,34 @@ current dimensions and the undo history's alike; a map-wide passage share after 
 **Why.** A uniform channel or neck through the hex is a canal, not a strait or isthmus, and counting a
 strait's share as one (65% land at Normal) described a shape that is never drawn.
 
+## 102. Sea straits and isthmuses kept local to an edit (merging §101 into §94–§96)
+
+**Problem.** §101 (merged to main while §85–§100 were in review) draws a sea strait or isthmus by
+tracing a second, background coast with the passage open and splicing a reshaped shore into it.
+Merged as it stood, any map holding one such passage lost the incremental coast on every edit:
+- the background was traced without the incremental key, so it was fitted whole, and the
+  incremental fit of the coast it replaces was thrown away;
+- `passageContour` was drawn again on every build, though it reads only the shore within about two
+  hexes of the passage.
+
+On a 24×14 map with one sea strait, an island edit 9 hexes from the strait took 290–470 ms, against
+55–140 ms on the same map without the strait.
+
+**Fix.**
+- The background is traced incrementally like a lake strait's (§94): keyed by the map's coast and
+  the passages it opens, it is refitted in windows round an edit.
+- `passageContour` is kept by an exact fingerprint: the passage's spec, the old shore's segments
+  within 3.1 radii of its centre (every segment a node of its field can read, sorted), and which
+  side of that shore the centre lies on. Within that box even-odd sides change only across those
+  segments, so a kept contour equals a fresh one. Lake straits share it.
+
+The same edit then takes 100–200 ms. What remains is the coast traced and fitted once with the
+passage cut and once with it open (the first is discarded once the splice holds), which §101
+does in every build; it is not changed here.
+
+**Test.** `test/passageEdits.test.ts`, which fails without the fix: after an edit away from a sea
+strait, the strait's shore is kept, a cached build equals an uncached one, and every group fit of
+the incremental build, the background's included, is windowed.
+
+The performance maps of §85 hold no strait or isthmus, so §89–§99's timings are unaffected.
+

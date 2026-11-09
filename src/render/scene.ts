@@ -1145,8 +1145,11 @@ function cachedCoast(
   while (open.length) {
     const backgroundBase = [...base];
     for (const { i, kind } of open) backgroundBase[i] = kind === 'Strait' ? 'Sea' : 'Land';
+    // An incremental build refits this background only near an edit, like the coast it replaces:
+    // it is spliced from the last background traced with the same passages open.
     const background = cachedCoast(backgroundBase, cols, rows, size, smooth, shapes,
-      defaultIrregularity, dimensions, seed, inkReach, defaultLakeIrregularity, islandSpecs);
+      defaultIrregularity, dimensions, seed, inkReach, defaultLakeIrregularity, islandSpecs,
+      incremental && `${incremental}/passages:${open.map(({ i }) => i).join(',')}`);
     let paths = background.geometry.paths;
     const edits: NonNullable<TracedCoast['passageEdits']> = [], failed = new Set<number>();
     const rim = polygonPath([{ x: -size, y: -size }, { x: page.width + size, y: -size },
