@@ -2789,7 +2789,7 @@ named what still ran across the whole map:
 - the river courses, laid again for every river;
 - each mainland-and-islands hex scanning the whole shore for the segments near it.
 
-**Chosen (scenes unchanged).** In the edit sequence of `perf` scripts, every step's scene hash is
+**Chosen (scenes unchanged).** Over a fixed sequence of ten edits on the 50×50 map, every step's scene hash is
 identical before and after.
 - **Symbols.** A coast drawn regionally records the coast it was joined to and the disc it
   changed. Outside every disc the old coast is kept exactly, and a change confined to a disc cannot
