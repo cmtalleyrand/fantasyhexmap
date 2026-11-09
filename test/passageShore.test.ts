@@ -10,6 +10,7 @@ import { hexCenter, hexCorners, neighbourOf } from '../shared/hex.ts';
 import { validateHexDefinitions } from '../shared/hexValidation.ts';
 import { CHANNEL_WIDTH_PERCENT, type BaseGeo, type ChannelWidth, type MapState } from '../shared/types.ts';
 import { createMapState } from './seededMap.ts';
+import { lakeStraitFixture } from './fixtures/lakeStrait.ts';
 
 const size = 30, cols = 9, rows = 9, centre = 4 * cols + 4;
 const style = resolveStyle({ preset: 'parchment', overrides: { water: 'flat', grain: false, grid: 'none', land: 'uniform' } });
@@ -173,4 +174,32 @@ test('hill shading still shows on land repainted round a reshaped passage', () =
   const fills = paintAt(scene.prims, p);
   const lastGround = fills.map(opaque).lastIndexOf(true);
   assert.ok(lastGround >= 0 && fills.slice(lastGround + 1).some(f => !opaque(f)), `shading must lie over the last ground fill: ${fills.join(' ')}`);
+});
+
+// A passage with no roughness of its own inherits it as the shore round it does: the map's default
+// for a sea strait or isthmus, the lakes' default for a strait in a lake (review of PR #185).
+test('a passage without its own roughness draws its banks with the default the shore round it uses', () => {
+  const sample = (map: MapState) => {
+    const land = draw(map).land, out: boolean[] = [];
+    for (let x = middle.x - size * 2; x <= middle.x + size * 2; x += size / 10)
+      for (let y = middle.y - size * 2; y <= middle.y + size * 2; y += size / 10) out.push(land({ x, y }));
+    return out;
+  };
+  for (const type of ['Strait', 'Isthmus'] as const) {
+    const inherited = passage(type, 'Normal', OPPOSITE);
+    inherited.defaultIrregularity = 'Smooth';
+    const own = structuredClone(inherited);
+    own.hexShapes = { [centre]: { ...own.hexShapes![centre]!, irregular: 'Smooth' } };
+    assert.deepEqual(sample(inherited), sample(own), `sea ${type}: the map's Smooth, inherited, is drawn as its own Smooth`);
+  }
+  const lake = lakeStraitFixture({ width: 'Normal', irregular: 'Smooth' });
+  delete lake.hexShapes!['24']!.irregular;
+  const own = lakeStraitFixture({ width: 'Normal', irregular: 'Smooth' });
+  const lakeLand = (map: MapState) => {
+    const scene = buildScene(map, { size, visible: defaultVisibility(), labels: false, style });
+    const land = landTestOf(scene)!, c = hexCenter(24 % 7, Math.floor(24 / 7), size), out: boolean[] = [];
+    for (let x = c.x - size * 2; x <= c.x + size * 2; x += size / 10) for (let y = c.y - size * 2; y <= c.y + size * 2; y += size / 10) out.push(land({ x, y }));
+    return out;
+  };
+  assert.deepEqual(lakeLand(lake), lakeLand(own), "lake strait: the lakes' Smooth, inherited, is drawn as its own Smooth");
 });

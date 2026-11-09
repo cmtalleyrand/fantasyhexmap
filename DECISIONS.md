@@ -2761,3 +2761,18 @@ which are sized for the map. The blend can close a narrow channel between an isl
 (caught, and retried or fallen back). After a fallback the whole coast is redrawn fresh, so features
 can shift by up to about 10 px (§94) everywhere on that one edit. What remains of a coastal edit is
 mostly outside the coast: symbols, land fills and labels (about 400 ms in Node) and paint.
+
+## 104. A passage without roughness of its own inherits the shore's default (review of PR #185)
+
+**Bug.** A code review (Codex) found that a sea strait's or isthmus's reshaped shore (§101) read
+the hex's roughness without the map's default. A strait with no roughness of its own was then drawn
+at its type's default (Ragged) on a map set to Smooth, while the coast round it followed the map. A
+strait in a lake had the same fault: its banks took the type's default, not the lakes' default the
+lake shore round it uses.
+
+**Fix.** A sea strait or isthmus resolves its roughness with the map's default, as the coast does. A
+strait in a lake resolves it as lake shore does (`lakeShoreIrregularity`, with the lakes' default).
+An explicit setting on the hex wins in both cases, as before.
+
+**Test.** In `test/passageShore.test.ts`, a sea strait, a sea isthmus and a lake strait each draw the
+same land when they inherit Smooth as when Smooth is set on them. Each case fails without its fix.

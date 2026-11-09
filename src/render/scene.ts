@@ -1373,6 +1373,8 @@ function cachedCoast(
         const corners = hexCorners(i % cols, Math.floor(i / cols), size);
         const centre = hexCenter(i % cols, Math.floor(i / cols), size);
         const shape = hexShapeFor(base[i], shapes?.[String(i)]);
+        // Its banks are lake shore: without roughness of its own, it takes the lakes' default.
+        const irregular = lakeShoreIrregularity(base[i], shapes?.[String(i)], defaultLakeIrregularity);
         const width = (channelWidthFraction(base[i], dimensions, shapes?.[String(i)]) ?? .3) * Math.sqrt(3) * size;
         const frame = lakeStraitFrame(corners, centre, dry, width, shape.straitJunctionSide);
         if (!frame) return [];
@@ -1386,7 +1388,7 @@ function cachedCoast(
         });
         if (mouths.length !== 2) return [];
         return [{ centre, mouths, junction: frame.centre, normal: frame.normal,
-          rough: { Smooth: 0, Wavy: .04, Ragged: .07, Fractured: .12 }[shape.irregular],
+          rough: { Smooth: 0, Wavy: .04, Ragged: .07, Fractured: .12 }[irregular],
           phase: Array.from({ length: 6 }, (_, k) => unit(seed, 'lake-strait-shore', i, k) * Math.PI * 2),
           width, outline: corners, land: channelShareSet(base[i], dimensions, shapes?.[String(i)]), ink: inkReach }];
       });
@@ -1450,7 +1452,8 @@ function cachedCoast(
       { x: page.width + size, y: page.height + size }, { x: -size, y: page.height + size }]);
     for (const { i, kind, dry, wet } of open) {
       const corners = hexCorners(i % cols, Math.floor(i / cols), size), centre = hexCenter(i % cols, Math.floor(i / cols), size);
-      const shape = hexShapeFor(base[i], shapes?.[String(i)]);
+      // Without roughness of its own, a passage takes the map's default, as the coast round it does.
+      const shape = hexShapeFor(base[i], shapes?.[String(i)], defaultIrregularity);
       const width = (channelWidthFraction(base[i], dimensions, shapes?.[String(i)]) ?? .3) * Math.sqrt(3) * size;
       // The kind that passes through runs between the two mouths; the other is the two headlands.
       const [passing, held] = kind === 'Strait' ? [wet, dry] : [dry, wet];
