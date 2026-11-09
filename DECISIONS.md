@@ -2776,3 +2776,51 @@ An explicit setting on the hex wins in both cases, as before.
 
 **Test.** In `test/passageShore.test.ts`, a sea strait, a sea isthmus and a lake strait each draw the
 same land when they inherit Smooth as when Smooth is set on them. Each case fails without its fix.
+
+## 105. Keeping the rest of a regional coastal edit local: symbols, ground patches, glacier margins, river courses
+
+**Problem.** After §103 the coast was about half of a coastal edit. On the 50×50 map the scene round it
+spent about 290 ms (Node) per edit, against about 120 ms for an edit away from the coast. Profiling
+named what still ran across the whole map:
+- symbols: about 700 of them took a fingerprint of the land near their hex on every coastal edit,
+  though almost all were then kept;
+- the coast's ground patches (`coastPaintPatches`), built again for every chain;
+- the glacier margins, keyed by the whole base layer;
+- the river courses, laid again for every river;
+- each mainland-and-islands hex scanning the whole shore for the segments near it.
+
+**Chosen (scenes unchanged).** In the edit sequence of `perf` scripts, every step's scene hash is
+identical before and after.
+- **Symbols.** A coast drawn regionally records the coast it was joined to and the disc it
+  changed. Outside every disc the old coast is kept exactly, and a change confined to a disc cannot
+  change which side of the coast a point outside it lies on: the old and new boundaries differ by
+  a cycle within the disc. A symbol fit checked against an earlier coast is therefore kept, with no
+  fingerprint, while no disc drawn since (widened by three hex radii for the islets drawn clear of
+  the mainland there) reaches its hex's box or its probes. A change to the lakes breaks the link.
+  Elsewhere the fingerprint is taken as before. 684 of 721 symbols per edit are now kept this way.
+- **Ground patches.** Each chain's patches are kept by its path and an exact fingerprint of its
+  edges, donors and the anchors of its corners.
+- **Glacier margins.** These are keyed by the glacier hexes and those within two rings: their base,
+  water, roughness, height and shape settings, all that `glacierEdges` reads.
+- **River courses.** Each course is kept by everything it is laid from (`riverCourses`) and the land
+  near the river's hexes and their neighbours (`landNear`).
+- **Mainland distances.** The shore's segments are indexed by cell, and those near a hex are taken
+  in their order along the lines, as the scan of every line took them.
+
+**Tried and withdrawn.** Realm names reused per realm, keyed by the land, owners, obstacles and
+names that can reach each one. The large realms' areas contain almost every edit, so they were
+searched again anyway, and the keys over their areas cost more than the small realms' searches
+saved: 33 ms became 46–60 ms.
+
+**Measured.** CPU time of 30 random coastal edits, three interleaved pairs: a mean of 1,216 ms before
+and 1,128 ms after (−7%). Wall time varies by more than that between runs on this container. In
+Node, symbols fell from about 88 to 71 ms, ground patches from 35 to 12 ms, and the glacier margin
+and river courses are kept on edits away from them.
+
+**What remains.** Islets beside an edit are sized again (each a search of up to 20 layouts), and the
+realm and water names are placed again. Both are reached by the edit itself or are a single
+placement over the whole map. The rest is the drawing every build does, about 120 ms for any edit.
+
+**Test.** `test/slow/coastWindow.test.ts` checks that most symbols are kept outside the regions over
+three edits, and that the scene equals the one found by checking every symbol again on the same
+coast. With the regions shrunk by three hex radii it fails.

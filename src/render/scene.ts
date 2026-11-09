@@ -440,7 +440,11 @@ function prepareSceneCacheScope(map: MapState, size: number): void {
   sceneCacheScope = scope;
   coastCache.clear(); coastComponents.clear(); coastFits.clear(); glacierMargins.clear(); packIceDrawings.clear(); symbolPlacements.clear(); terrainRevisions.clear();
   symbolFits = new WeakMap(); clearPlacementCache(); clearRiverLabelCache(); clearSharedPaths(); shapeMemo.clear(); islandDrawings.clear();
+  regionRecords.clear(); regionDrawn.clear();
 }
+
+/** Forget every symbol's fit and every cached label placement, so that they are found again (for tests). */
+export function clearSymbolPlacements(): void { symbolPlacements.clear(); clearPlacementCache(); clearRiverLabelCache(); }
 
 /** The numerical solve and its stopping tests couple all fitting rings. Its exact
  * inputs form one dependency group; changing one input rebuilds that group. */
@@ -689,6 +693,15 @@ function shapesSignature(shapes: Record<string, HexShape> | undefined): string {
 
 /** The last coast each incremental build drew, with what it was drawn from (DECISIONS §103). */
 const regionRecords = new Map<string, TracedCoast>();
+/** Each coast drawn regionally, with the coast it was joined to and the disc it changed. */
+const regionLinks = new WeakMap<TracedCoast, { from: TracedCoast; disc: { centre: Point; radius: number } }>();
+/** The land revision (see `symbolLandRevision`) each coast was last drawn with. */
+const coastRevisions = new WeakMap<TracedCoast, { id: number }>();
+const sameSets = (a: number[], b: number[]) => {
+  if (a.length !== b.length) return false;
+  const set = new Set(a);
+  return b.every(i => set.has(i));
+};
 /** Incremental coasts drawn regionally since they were last drawn whole. */
 const regionDrawn = new Set<string>();
 /** Above 0 while a region's crop is drawn (see `regionalCoast`). */
@@ -698,6 +711,8 @@ const regionOf = new WeakMap<TracedCoast, RegionRecord>();
 const regionContext = (cols: number, rows: number, size: number, smooth: boolean, inkReach: number, seed: string, dimensions: HexDimensions) =>
   JSON.stringify([cols, rows, size, smooth, inkReach, seed, dimensions]);
 
+/** Each coast path as the islands' mainland distances read it (see `buildMainlandDistance`). */
+const shoreLinesOf = new WeakMap<PathCmd[], Point[][]>();
 /** Each coast path's points, and each coast's drawn land as rings, kept with the path or coast. */
 const polylines = new WeakMap<PathCmd[], Point[]>();
 const landPolylines = new WeakMap<TracedCoast, Point[][]>();
@@ -724,7 +739,7 @@ function regionalCoast(input: {
   /** What each hex's land is fitted to (see `cachedCoastFit`). */
   fitTargets: ReadonlyMap<number, { share: number; width?: number }>;
   lakePassageHexes: ReadonlySet<number>; memo: ShapeMemo; page: { width: number; height: number }; incremental: string;
-}): { shaped: ReturnType<typeof shapeCoast>; geometry: CoastGeometry; settled: Map<number, number> } | null {
+}): { shaped: ReturnType<typeof shapeCoast>; geometry: CoastGeometry; settled: Map<number, number>; from: TracedCoast; disc: { centre: Point; radius: number } } | null {
   const { base, cols, rows, size, smooth, shapes, dimensions, seed, inkReach, surface, targets, page } = input;
   const fail = (why: string) => { profileCount(`coast.regionalFallback.${why}`); return null; };
   const prev = regionRecords.get(input.incremental), record = prev && regionOf.get(prev);
@@ -923,7 +938,7 @@ function regionalCoast(input: {
   }
   for (const [key, p] of snapAnchors(near, geometry.paths, size)) anchors.set(key, p);
   profileCount('coast.regional');
-  return { shaped, geometry, settled: new Map([...start].map(([i, t]) => [i, t.share])) };
+  return { shaped, geometry, settled: new Map([...start].map(([i, t]) => [i, t.share])), from: prev, disc: { centre, radius } };
 }
 
 function cachedCoast(
@@ -1544,6 +1559,12 @@ function cachedCoast(
   }
   const paint = coastPaintGeometry(geometry, page.width, page.height, size);
   const entry: TracedCoast = { key, paint, geometry, coverage, lakes, lakeIslands, surface, lakePaths, chainLakes, passageEdits, settled, onLand: landTest(surface, shaped?.land ?? new Map(), size) };
+  // Outside the region the land is the coast it was joined to exactly: things drawn on land check
+  // themselves against that coast's land while no region since reaches them (DECISIONS §105). A
+  // change to the lakes reaches further, so it breaks the link.
+  if (regional && sameSets(lakes.flat(), regional.from.lakes.flat()) && sameSets([...lakeIslands], [...regional.from.lakeIslands])) {
+    regionLinks.set(entry, { from: regional.from, disc: regional.disc });
+  }
   if (incremental === 'map' && shapeSignatures) {
     regionOf.set(entry, { context: regionContext(cols, rows, size, smooth, inkReach, seed, dimensions), base: [...base], shapes: shapeSignatures });
     regionRecords.set(incremental, entry);
@@ -1762,6 +1783,28 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
     map.defaultIrregularity, map.defaultLakeIrregularity, map.islandSpecs, knobs.coast, knobs.islands, inkReachOf]);
   const symbolLandRevision = terrainRevisions.get(symbolLandInputs) ?? { id: ++terrainRevisionNumber };
   terrainRevisions.set(symbolLandInputs, symbolLandRevision);
+  if (traced) coastRevisions.set(traced, symbolLandRevision);
+  /**
+   * Whether land as drawn within `box` is as it was at one of `revisions`: the coast now drawn was
+   * joined, region by region, to a coast drawn with one of them, and no region since reaches the
+   * box. Each region is widened by three hex radii for the islets drawn clear of the mainland
+   * there. Outside every region the old coast is kept exactly, and an edit within a region cannot
+   * change which side of the coast a point outside it lies on (DECISIONS §105).
+   */
+  const landKeptSince = (revisions: Array<{ id: number }>, box: { x0: number; x1: number; y0: number; y1: number }): boolean => {
+    let coast = traced ?? undefined;
+    for (let step = 0; coast && step < 12; step++) {
+      const rev = coastRevisions.get(coast);
+      if (step > 0 && rev && revisions.includes(rev)) return true;
+      const link = regionLinks.get(coast);
+      if (!link) return false;
+      const { centre, radius } = link.disc, r = radius + size * 3;
+      const dx = Math.max(box.x0 - centre.x, 0, centre.x - box.x1), dy = Math.max(box.y0 - centre.y, 0, centre.y - box.y1);
+      if (dx * dx + dy * dy < r * r) return false;
+      coast = link.from;
+    }
+    return false;
+  };
   /** Replaying every land probe also validates failed candidates: a newly available
    * earlier placement must invalidate the cached choice, not just validate its final position. */
   const fitSymbols = (
@@ -1776,6 +1819,17 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
   ): Fitted => {
     const cacheKey = `${seed}/${cols}/${rows}/${size}/${key}`;
     const known = symbolPlacements.get(cacheKey);
+    // Land unchanged since the fit was checked, where no region drawn since reaches its probes or the
+    // land near its hex.
+    if (known && near && !known.revisions.includes(symbolLandRevision)) {
+      const box = landRegionOf(near.hex);
+      for (const p of known.probes) { box.x0 = Math.min(box.x0, p.at.x); box.x1 = Math.max(box.x1, p.at.x); box.y0 = Math.min(box.y0, p.at.y); box.y1 = Math.max(box.y1, p.at.y); }
+      if (landKeptSince(known.revisions, box)) {
+        profileCount('symbols.keptOutsideRegion');
+        known.revisions.push(symbolLandRevision);
+        if (known.revisions.length > 4) known.revisions.shift();
+      }
+    }
     // The land near the hex is only looked at when the fit must be checked again or is new.
     const land = near && !known?.revisions.includes(symbolLandRevision) ? landNear(near.hex, near.full) : undefined;
     const same = known !== undefined && !known.revisions.includes(symbolLandRevision) && land !== undefined && known.land === land;
@@ -2276,7 +2330,15 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
     if (organicIce) {
       // Only geometry inputs belong here: ownership, colours and opacity do not move ice.
       // Content keys survive worker cloning and undo, while cache:'off' remains independent.
-      const marginKey = JSON.stringify([seed, cols, rows, size, base, elevationData, map.hexShapes, map.defaultIrregularity]);
+      // The margin reads only the glacier hexes and those within two rings of them (their water, roughness
+      // and height): an edit elsewhere keeps it (DECISIONS §105).
+      const nearGlacierHexes = new Set(glacierHexes);
+      for (let ring = 0; ring < 2; ring++) for (const i of [...nearGlacierHexes]) for (let e = 0; e < 6; e++) {
+        const n = neighbourOf(i % cols, Math.floor(i / cols), e);
+        if (inBounds(cols, rows, n.col, n.row)) nearGlacierHexes.add(hexIndex(cols, n.col, n.row));
+      }
+      const marginKey = JSON.stringify([seed, cols, rows, size, [...nearGlacierHexes].sort((a, b) => a - b).map(j =>
+        [j, base[j], sideOf(base[j]), levelOf(j), elevationData?.[j] ?? null, map.hexShapes?.[String(j)] ?? null])]);
       iceMargin = glacierMargins.get(marginKey) ?? null;
       if (iceMargin) profileCount('glacier.marginHits');
       else {
@@ -2753,6 +2815,7 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
   };
   /** The sea coast as drawn, as lines: what a smoothed or roughened mainland really ends at. */
   let drawnShoreLines: Point[][] | null = null;
+  let shoreSegments: { list: Array<[Point, Point]>; cells: Map<number, number[]> } | null = null;
   /** The drawn shore each mainland hex's islands were kept clear of, as a memo key. */
   const mainlandKeys = new Map<number, string>();
   /** The same shore exactly, with whether the hex's centre is on land: what an island drawing is kept by. */
@@ -2776,11 +2839,34 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
     const polys = mainlandOf(i);
     if (polys.length === 0) return null;
     if (!coast?.component || !seaCoastLand) return (p) => nearestOn(p, polys);
-    drawnShoreLines ??= coast.paths.flatMap((d) => pathPolylines(d, 6));
+    drawnShoreLines ??= coast.paths.flatMap((d) => {
+      let lines = shoreLinesOf.get(d);
+      if (!lines) { lines = pathPolylines(d, 6); shoreLinesOf.set(d, lines); }
+      return lines;
+    });
     const c = hexCenter(i % cols, Math.floor(i / cols), size), reach = size * 1.8;
+    // The shore's segments by hex-sized cell, numbered in order along the lines: those near the
+    // hex are found from the cells and taken in that order, as a scan of every line would.
+    if (!shoreSegments) {
+      const list: Array<[Point, Point]> = [], cells = new Map<number, number[]>();
+      for (const line of drawnShoreLines) for (let k = 0; k + 1 < line.length; k++) {
+        const a = line[k]!, b = line[k + 1]!, id = list.length;
+        list.push([a, b]);
+        for (let x = Math.floor(Math.min(a.x, b.x) / size); x <= Math.floor(Math.max(a.x, b.x) / size); x++)
+          for (let y = Math.floor(Math.min(a.y, b.y) / size); y <= Math.floor(Math.max(a.y, b.y) / size); y++) {
+            const key = (x + 4096) * 8192 + (y + 4096), ids = cells.get(key);
+            if (ids) ids.push(id); else cells.set(key, [id]);
+          }
+      }
+      shoreSegments = { list, cells };
+    }
+    const found = new Set<number>();
+    for (let x = Math.floor((c.x - reach) / size); x <= Math.floor((c.x + reach) / size); x++)
+      for (let y = Math.floor((c.y - reach) / size); y <= Math.floor((c.y + reach) / size); y++)
+        for (const id of shoreSegments.cells.get((x + 4096) * 8192 + (y + 4096)) ?? []) found.add(id);
     const segments: Array<[Point, Point]> = [];
-    for (const line of drawnShoreLines) for (let k = 0; k + 1 < line.length; k++) {
-      const a = line[k]!, b = line[k + 1]!;
+    for (const id of [...found].sort((p, q) => p - q)) {
+      const [a, b] = shoreSegments.list[id]!;
       if (Math.max(a.x, b.x) < c.x - reach || Math.min(a.x, b.x) > c.x + reach || Math.max(a.y, b.y) < c.y - reach || Math.min(a.y, b.y) > c.y + reach) continue;
       segments.push([a, b]);
     }
@@ -3832,7 +3918,25 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
               ? { reach: iconClearance(knobs.cityMarkers, symbol, markerRadius(city.population)), ...riverStance(knobs.cityRiver, symbol), dy: iconDrop(knobs.cityMarkers, symbol, markerRadius(city.population)) }
               : undefined,
           };
-        }), knobs.riverWander)
+        }), knobs.riverWander, (river) => {
+        // The land near the river's hexes and their neighbours, where its course and mouth lie
+        // (DECISIONS §105); the whole land where some has none.
+        const hexes = new Set<number>();
+        for (const seg of river.segments) {
+          hexes.add(hexIndex(cols, seg.col, seg.row));
+          for (let e = 0; e < 6; e++) {
+            const n = neighbourOf(seg.col, seg.row, e);
+            if (inBounds(cols, rows, n.col, n.row)) hexes.add(hexIndex(cols, n.col, n.row));
+          }
+        }
+        const parts: string[] = [];
+        for (const j of [...hexes].sort((a, b) => a - b)) {
+          const land = landNear(j, true);
+          if (land === undefined) return `g${symbolLandRevision.id}`;
+          parts.push(`${j}=${land}`);
+        }
+        return hashText(parts.join(';'));
+      })
     : new Map();
   // Everything a river draws, cut to the land below: over a lake or the sea it does not show, so a river through a lake
   // shows on either side of the water only.

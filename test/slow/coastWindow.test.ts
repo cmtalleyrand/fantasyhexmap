@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { fixture, options } from '../../scripts/render-profile-input.ts';
-import { buildStaticScene, type Scene } from '../../src/render/scene.ts';
+import { buildStaticScene, clearSymbolPlacements, type Scene } from '../../src/render/scene.ts';
 import { beginRenderProfile, endRenderProfile } from '../../src/render/profile.ts';
 import { hexCenter, hexIndex, inBounds, neighbourOf, type Point } from '../../shared/hex.ts';
 import { clearRiverLabelCache } from '../../src/render/featureLabels.ts';
 import { pathPolylines } from '../../src/render/ice.ts';
+import { createMapState } from '../seededMap.ts';
 import type { Prim } from '../../src/render/prims.ts';
 
 /** Every coast polyline a scene draws. */
@@ -108,4 +109,27 @@ test('an incremental coastal edit keeps the river names, pack ice and measured l
   beginRenderProfile();
   buildStaticScene(withHex(edited, beside, 'Land'), opts);
   assert.equal(endRenderProfile()!.counters['ice.packBuilds'], 1, 'land beside the ice draws the pack again');
+});
+
+// Symbols are kept without checking where no region drawn since reaches them (DECISIONS §105): the
+// scene must be the one found by checking every symbol again on the same coast.
+test('symbols kept outside the regions drawn since are the ones a fresh search places', () => {
+  const map = fixture('populated'), opts = { ...options(), incrementalCoast: true };
+  // Another map first: its scope clears every cache the tests above filled.
+  buildStaticScene(createMapState('Scope', 2, 2), opts);
+  let current = map;
+  buildStaticScene(current, opts);
+  for (const hex of [871, 553, 650]) {
+    current = { ...current, layers: { ...current.layers, base: { ...current.layers.base, data: current.layers.base.data!.map((v, i) => i === hex ? 'Sea' : v) } } };
+    beginRenderProfile();
+    const kept = buildStaticScene(current, opts);
+    const { counters } = endRenderProfile()!;
+    assert.ok((counters['symbols.keptOutsideRegion'] ?? 0) > 100, `edit at ${hex}: most symbols kept outside the region`);
+    clearSymbolPlacements();
+    beginRenderProfile();
+    const searched = buildStaticScene(current, opts);
+    assert.equal(endRenderProfile()!.counters['coast.cacheHit'], 1, 'the same coast');
+    // Compared as text: a structural diff of two whole scenes is too large to report.
+    assert.ok(JSON.stringify(kept.prims) === JSON.stringify(searched.prims), `edit at ${hex}: the same scene`);
+  }
 });
