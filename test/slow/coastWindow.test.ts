@@ -50,7 +50,7 @@ function farthest(rings: Point[][], other: Point[][]): number {
 
 const misses = (scene: Scene) => new Set((scene.compromises ?? []).filter(c => c.what.includes('land drawn')).map(c => c.hexes[0]));
 
-test('an incremental coastal edit refits only near the edit, keeps the far coast still and keeps the shares', () => {
+test('an incremental coastal edit redraws only near the edit, keeps the far coast still and keeps the shares', () => {
   const map = fixture('populated'), base = options(), opts = { ...base, incrementalCoast: true }, { cols } = map, size = opts.size;
   const stroke = opts.style.palette.coast;
   let current = map;
@@ -61,14 +61,14 @@ test('an incremental coastal edit refits only near the edit, keeps the far coast
     beginRenderProfile();
     const scene = buildStaticScene(current, opts);
     const { counters } = endRenderProfile()!;
-    assert.ok((counters['coast.windowFits'] ?? 0) >= 2, `edit at ${hex}: both fits windowed`);
-    assert.equal(counters['coast.windowFallbacks'] ?? 0, 0, `edit at ${hex}: no group fitted whole`);
+    // Drawn from a crop round the edit and joined into the coast drawn before (DECISIONS §103).
+    assert.equal(counters['coast.regional'], 1, `edit at ${hex}: the coast round it drawn regionally`);
     const fresh = buildStaticScene(current, { ...base, cache: 'off' });
     // The shares hold: no hex misses its share that a fresh build of the same map fits.
     const freshMisses = misses(fresh);
     for (const h of misses(scene)) assert.ok(freshMisses.has(h), `edit at ${hex}: hex ${h} misses its share only incrementally`);
     // Beyond five hexes of the edit the coast stays where it was drawn, where a fresh build slides
-    // the roughening's features along the whole ring (DECISIONS §94), and stays near a fresh build.
+    // the roughening's features along the whole ring (DECISIONS §94, §103), and stays near a fresh build.
     const at = hexCenter(hex % cols, Math.floor(hex / cols), size), radius = size * Math.sqrt(3) * 5;
     const now = coastRings(scene, stroke);
     const far = now.map(r => r.filter(p => Math.hypot(p.x - at.x, p.y - at.y) >= radius)).filter(r => r.length);

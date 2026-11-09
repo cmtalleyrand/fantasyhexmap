@@ -2692,3 +2692,72 @@ the incremental build, the background's included, is windowed.
 
 The performance maps of §85 hold no strait or isthmus, so §89–§99's timings are unaffected.
 
+
+## 103. A coastal edit redraws the coast from a crop round it (regional coast)
+
+**Problem.** After §89–§102 a coastal edit on the 50×50 map still took about 1.1 s to build in Node.
+No stage held more than about 18% of it. Making each stage exactly local would have meant reworking
+eight stages for 20–30% in all. The roughening's features are placed along a whole ring, so the
+edited ring could not be traced only near the edit without changing the picture.
+
+**Owner's decision (9 November 2026).** The coast near an edit may be drawn with new random detail
+(new bays and capes, not only the edited hex) as long as it looks good.
+
+**Chosen.** In the editor's incremental builds (`SceneOptions.incrementalCoast`), a small edit is
+drawn regionally (`regionalCoast` in `scene.ts`, `coastRegion.ts`):
+- The changed hexes (base or shape settings) must lie within 1.2 hex widths of their middle, at
+  most 7 of them. Hexes changed further apart, up to 48 (a brush stroke), are drawn a group at a
+  time, each group regionally on the coast the one before left.
+- A crop of the map is built as a map of its own, non-incrementally and not cached. The crop is the
+  region with one hex of margin, starting on an even row so that its hexes lie as the map's do.
+- The crop's coast replaces the old one within 1.3 hex widths of the change. Across the next 1.4
+  hex radii the two are blended through their signed distance fields (land positive, capped at half
+  a hex), with a smoothstep weight. A contour of the blend is then traced on a grid a thirty-second
+  of a hex fine. Only cells near the line are evaluated: a coarse pass skips cells whose corners all
+  lie clearly on one side.
+- The contour is cut into the old coast where it crosses the circle and reconnected run by run,
+  which joins or splits rings where the edit does. Near the page's edge the region is cut half a
+  hex beyond the page, and lines reaching that cut run on to the rim as every open coast does.
+- The hexes' chains are traced from the shapes the hexes settled on, in the crop or in the last
+  build. Unchanged chains keep their paths. The rest are matched to the reconnected lines by where
+  their hex edges run.
+- The region's hexes are measured. The new coast near any that misses its share is fitted again
+  in windows, the rest held still.
+- Where a blend changes the coast's topology from the hexes', the band is moved in, narrowed and
+  moved out before giving up.
+
+**Falling back.** Where an edit cannot be drawn regionally, the coast is drawn as before. Maps with a
+strait or isthmus (whose shores §101 splices) always are, so for them nothing changes. After a
+regional build the passes' and fits' records describe a coast that was never traced: windowed refits
+against them refitted up to 81 rings whole and missed 58 shares in one test. A fallback after a
+regional build therefore draws the coast whole, as a cold build does (its groups' fits are still
+found by content), and the coast's history is reset there.
+
+**Measured.**
+- Node, 40 random coastal edits in one session: mean 713 ms against 1,106 ms drawn as before (−36%),
+  all 40 drawn regionally.
+- Browser, `perf:edit-wait`, paired in one session (medians of 3, sharp frame), drawn as before
+  against regionally:
+
+| Edit | Before | Regional |
+|---|---:|---:|
+| coast: land to sea | 1,295 ms | 929 ms |
+| coast: sea to land | 1,099 ms | 771 ms |
+| coast: land share 60% | 1,197 ms | 858 ms |
+
+  Builds fell by 28–40% and the coast stage by about half (735 → 345 ms on the first edit). Cold
+  builds and other edits are unchanged.
+- Shares: over 12 random edits, and over strokes of 3–5 hexes, no hex missed its share where a fresh
+  build met it. Six edits rendered side by side with the previous method looked alike in quality,
+  with no seam at the band.
+
+**Tests.** `test/slow/coastWindow.test.ts` now requires its four edits to be drawn regionally, with
+the shares and the still far coast as before. `test/coastShapeEdits.test.ts` no longer requires the
+coast at an edited hex to stay within 0.2 hex of a fresh build's, since its detail is now new; it
+requires the coast to move there and the shares to hold.
+
+**Limits.** A crop's own coast, fits and components still go into the component and fit caches,
+which are sized for the map. The blend can close a narrow channel between an islet and the shore
+(caught, and retried or fallen back). After a fallback the whole coast is redrawn fresh, so features
+can shift by up to about 10 px (§94) everywhere on that one edit. What remains of a coastal edit is
+mostly outside the coast: symbols, land fills and labels (about 400 ms in Node) and paint.
