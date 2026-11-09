@@ -41,6 +41,12 @@ import type { RiverWander } from './styles.js';
 import type { PathCmd } from './prims.js';
 import { signed } from './seed.js';
 import { PRESS, SET_IN } from './riverCity.js';
+import { BoundedMemo, renderCachesEnabled } from './cache.js';
+import { hashText128 } from './hash.js';
+import { profileCount } from './profile.js';
+
+/** Each river's course, by everything it is laid from (see `riverCourses`). */
+const courseMemo = new BoundedMemo<RiverCourse>(1024, 16_000_000);
 
 export interface RiverCourseSection {
   outline: PathCmd[];
@@ -926,6 +932,9 @@ export function riverCourses(
   lakeEnds: (river: River) => Pick<CourseEnds, 'before' | 'beyond' | 'inWater' | 'onLand'> = () => ({}),
   cities: Array<{ riverId: string; at: Point; radius: number; id?: string; icon?: { reach: number; straddle: boolean; setIn?: number; press?: number; dy?: number } }> = [],
   wander: RiverWander = 'normal',
+  /** What decides land and lake water round a river, as one string: with it, a river's course is
+   * reused while that and its own inputs are unchanged (DECISIONS §105). */
+  landKey?: (river: River) => string,
 ): Map<string, RiverCourse> {
   const out = new Map<string, RiverCourse>();
   const key = (col: number, row: number) => `${col},${row}`;
@@ -991,7 +1000,16 @@ export function riverCourses(
         if (len > 0) ends.joinTangent = { x: (b.x - a.x) / len, y: (b.y - a.y) / len };
       }
     }
-    const course = riverCourse(r, size, seed, ends);
+    // Everything the course is laid from, the land near it included; the land and lake tests are
+    // known by `landKey`.
+    const memoKey = landKey && renderCachesEnabled()
+      ? hashText128(JSON.stringify([r, size, seed, ends, landKey(r)])) : undefined;
+    let course = memoKey === undefined ? undefined : courseMemo.get(memoKey);
+    if (course) profileCount('rivers.courseHits');
+    else {
+      course = riverCourse(r, size, seed, ends) ?? undefined;
+      if (memoKey !== undefined && course) courseMemo.set(memoKey, course, course.centreline.length * 64 + 256);
+    }
     if (course) out.set(r.id, course);
   };
   // Lay out every river whose hosts are ready; when a cycle leaves none ready,

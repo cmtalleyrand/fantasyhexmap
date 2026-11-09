@@ -37,9 +37,9 @@ function farthestNear(rings: Point[][], other: Point[][], at: Point, reach: numb
   return worst;
 }
 
-// An incremental build keeps the previous fit wherever nothing changed. An edit to a hex's shape
+// An incremental build keeps the previous coast wherever nothing changed. An edit to a hex's shape
 // alone (its roughness or concentration) changes no land share, but must still redraw its coast
-// (DECISIONS §94; review of PR #183).
+// (DECISIONS §94, §100, §103).
 test('an incremental build redraws the coast for edits to roughness and concentration alone', () => {
   const options = { ...editOptions(), incrementalCoast: true }, stroke = options.style.palette.coast, { size } = options;
   const map = createMapState('Shape edits', 12, 10);
@@ -61,11 +61,14 @@ test('an incremental build redraws the coast for edits to roughness and concentr
   ];
   for (const [what, shape] of shapes) {
     current = { ...current, hexShapes: { ...current.hexShapes, '65': shape } };
-    const incremental = coastRings(buildStaticScene(current, options), stroke);
-    const fresh = coastRings(buildStaticScene(current, { ...options, cache: 'off' }), stroke);
+    const scene = buildStaticScene(current, options), incremental = coastRings(scene, stroke);
+    const fresh = buildStaticScene(current, { ...options, cache: 'off' });
     assert.ok(farthestNear(incremental, previous, at, reach) > size * 0.15, `${what}: the coast at the hex moved`);
-    assert.ok(farthestNear(incremental, fresh, at, reach) < size * 0.2, `${what}: near a fresh build's`);
-    assert.ok(farthestNear(fresh, incremental, at, reach) < size * 0.2, `${what}: a fresh build's near it`);
+    // The coast round the edit is redrawn afresh (DECISIONS §103), so its features need not be a
+    // fresh build's; the shares must hold wherever a fresh build holds them.
+    const misses = (s: Scene) => new Set((s.compromises ?? []).filter(c => c.what.includes('land drawn')).map(c => c.hexes[0]));
+    const freshMisses = misses(fresh);
+    for (const h of misses(scene)) assert.ok(freshMisses.has(h), `${what}: hex ${h} misses its share only incrementally`);
     previous = incremental;
   }
 });

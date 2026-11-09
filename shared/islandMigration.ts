@@ -168,7 +168,25 @@ export function migrateToDerivedGlacierShores(map: MapState): MapState {
   return { ...settle(map), ...(history ? { history } : {}) };
 }
 
+/**
+ * Clear the map-wide isthmus and strait shares a map saved before they were optional carries from the
+ * old defaults (70% or 30% for an isthmus, 40% for a strait), which nobody chose: those maps take the
+ * natural shape. Runs once, with its own marker (`chosenPassageShares`), so the same values chosen
+ * afterwards are kept.
+ */
+export function migrateToChosenPassageShares(map: MapState): MapState {
+  if (map.chosenPassageShares) return map;
+  const settle = (s: MapState): MapState => {
+    const dims = s.hexDimensions ? { ...s.hexDimensions } : undefined;
+    if (dims && (dims.isthmusPercent === 70 || dims.isthmusPercent === 30)) delete dims.isthmusPercent;
+    if (dims && dims.straitPercent === 40) delete dims.straitPercent;
+    return { ...s, ...(dims ? { hexDimensions: dims } : {}), chosenPassageShares: true };
+  };
+  const history = map.history && { past: map.history.past.map(settle), future: map.history.future.map(settle) };
+  return { ...settle(map), ...(history ? { history } : {}) };
+}
+
 /** Every migration a loaded map goes through, oldest first. */
 export function migrateMap(map: MapState): MapState {
-  return migrateToDerivedGlacierShores(migrateToDerivedShores(migrateLegacyIslands(map)));
+  return migrateToChosenPassageShares(migrateToDerivedGlacierShores(migrateToDerivedShores(migrateLegacyIslands(map))));
 }

@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { fixture, options } from '../../scripts/render-profile-input.ts';
-import { buildStaticScene, type Scene } from '../../src/render/scene.ts';
+import { buildStaticScene, clearSymbolPlacements, type Scene } from '../../src/render/scene.ts';
 import { beginRenderProfile, endRenderProfile } from '../../src/render/profile.ts';
 import { hexCenter, hexIndex, inBounds, neighbourOf, type Point } from '../../shared/hex.ts';
 import { clearRiverLabelCache } from '../../src/render/featureLabels.ts';
 import { pathPolylines } from '../../src/render/ice.ts';
+import { createMapState } from '../seededMap.ts';
 import type { Prim } from '../../src/render/prims.ts';
 
 /** Every coast polyline a scene draws. */
@@ -50,7 +51,7 @@ function farthest(rings: Point[][], other: Point[][]): number {
 
 const misses = (scene: Scene) => new Set((scene.compromises ?? []).filter(c => c.what.includes('land drawn')).map(c => c.hexes[0]));
 
-test('an incremental coastal edit refits only near the edit, keeps the far coast still and keeps the shares', () => {
+test('an incremental coastal edit redraws only near the edit, keeps the far coast still and keeps the shares', () => {
   const map = fixture('populated'), base = options(), opts = { ...base, incrementalCoast: true }, { cols } = map, size = opts.size;
   const stroke = opts.style.palette.coast;
   let current = map;
@@ -61,14 +62,14 @@ test('an incremental coastal edit refits only near the edit, keeps the far coast
     beginRenderProfile();
     const scene = buildStaticScene(current, opts);
     const { counters } = endRenderProfile()!;
-    assert.ok((counters['coast.windowFits'] ?? 0) >= 2, `edit at ${hex}: both fits windowed`);
-    assert.equal(counters['coast.windowFallbacks'] ?? 0, 0, `edit at ${hex}: no group fitted whole`);
+    // Drawn from a crop round the edit and joined into the coast drawn before (DECISIONS §103).
+    assert.equal(counters['coast.regional'], 1, `edit at ${hex}: the coast round it drawn regionally`);
     const fresh = buildStaticScene(current, { ...base, cache: 'off' });
     // The shares hold: no hex misses its share that a fresh build of the same map fits.
     const freshMisses = misses(fresh);
     for (const h of misses(scene)) assert.ok(freshMisses.has(h), `edit at ${hex}: hex ${h} misses its share only incrementally`);
     // Beyond five hexes of the edit the coast stays where it was drawn, where a fresh build slides
-    // the roughening's features along the whole ring (DECISIONS §94), and stays near a fresh build.
+    // the roughening's features along the whole ring (DECISIONS §94, §103), and stays near a fresh build.
     const at = hexCenter(hex % cols, Math.floor(hex / cols), size), radius = size * Math.sqrt(3) * 5;
     const now = coastRings(scene, stroke);
     const far = now.map(r => r.filter(p => Math.hypot(p.x - at.x, p.y - at.y) >= radius)).filter(r => r.length);
@@ -108,4 +109,27 @@ test('an incremental coastal edit keeps the river names, pack ice and measured l
   beginRenderProfile();
   buildStaticScene(withHex(edited, beside, 'Land'), opts);
   assert.equal(endRenderProfile()!.counters['ice.packBuilds'], 1, 'land beside the ice draws the pack again');
+});
+
+// Symbols are kept without checking where no region drawn since reaches them (DECISIONS §105): the
+// scene must be the one found by checking every symbol again on the same coast.
+test('symbols kept outside the regions drawn since are the ones a fresh search places', () => {
+  const map = fixture('populated'), opts = { ...options(), incrementalCoast: true };
+  // Another map first: its scope clears every cache the tests above filled.
+  buildStaticScene(createMapState('Scope', 2, 2), opts);
+  let current = map;
+  buildStaticScene(current, opts);
+  for (const hex of [871, 553, 650]) {
+    current = { ...current, layers: { ...current.layers, base: { ...current.layers.base, data: current.layers.base.data!.map((v, i) => i === hex ? 'Sea' : v) } } };
+    beginRenderProfile();
+    const kept = buildStaticScene(current, opts);
+    const { counters } = endRenderProfile()!;
+    assert.ok((counters['symbols.keptOutsideRegion'] ?? 0) > 100, `edit at ${hex}: most symbols kept outside the region`);
+    clearSymbolPlacements();
+    beginRenderProfile();
+    const searched = buildStaticScene(current, opts);
+    assert.equal(endRenderProfile()!.counters['coast.cacheHit'], 1, 'the same coast');
+    // Compared as text: a structural diff of two whole scenes is too large to report.
+    assert.ok(JSON.stringify(kept.prims) === JSON.stringify(searched.prims), `edit at ${hex}: the same scene`);
+  }
 });

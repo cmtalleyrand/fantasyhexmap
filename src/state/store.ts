@@ -19,7 +19,7 @@ import { recomputeCityFacts, canHoldSettlement, hasDerivedShore, isShoreLand } f
 import { CHANNEL_WIDTH_VALUES, hasChannelWidth, hasLandConcentration, hasLandShare, isIslandType, isShapedType, islandSpecFor, type ChannelWidth, type HexShape, type IslandSpec, type Irregularity } from '../../shared/types.js';
 import { mergeGeneratedIslandSettings } from '../../shared/generatedIslands.js';
 import { migrateMap } from '../../shared/islandMigration.js';
-import { normaliseHexDimensions, withShoreSlack } from '../../shared/surfaceArea.js';
+import { heldPassageShares, normaliseHexDimensions, passageWidth, withShoreSlack } from '../../shared/surfaceArea.js';
 import { GEO_KIND_LABEL, geoEligibility, geoNamesOf, mergeGeneratedNames, withMigratedGeoNames } from '../../shared/geoNames.js';
 import { withValidParents } from '../../shared/polityTree.js';
 import { applyAutoShade } from '../../shared/polityShade.js';
@@ -744,11 +744,12 @@ function reduceMap(map: MapState, action: Action): MapState {
     case 'setHexDimensions':
       return reconcile({
         ...map,
-        hexDimensions: {
+        // Map-wide passage shares stay within the range of the map-wide widths.
+        hexDimensions: heldPassageShares({
           ...action.hexDimensions,
           smallIslandPercent: Math.max(2.5, action.hexDimensions.smallIslandPercent),
           largeIslandPercent: Math.max(5, action.hexDimensions.largeIslandPercent),
-        },
+        }),
         updatedAt: Date.now(),
       });
 
@@ -1417,6 +1418,9 @@ function reduceMap(map: MapState, action: Action): MapState {
             boundedLandShare(value, change.land, isIslandType(value) ? islandSpecFor(value, map.islandSpecs?.[key]) : undefined) / 100, normaliseHexDimensions(map.hexDimensions), map.hexShapes));
           if (change.width === null) delete next.width;
           else if (change.width !== undefined && hasChannelWidth(value) && CHANNEL_WIDTH_VALUES.includes(change.width)) next.width = change.width;
+          // A share stays within the range of the width the passage now has (`PASSAGE_LAND_RANGE`).
+          if (next.land !== undefined && hasChannelWidth(value))
+            next.land = boundedLandShare(value, next.land, undefined, passageWidth(value, normaliseHexDimensions(map.hexDimensions), next));
           if (value === 'Strait') {
             if (change.straitJunctionSide === null) delete next.straitJunctionSide;
             else if (change.straitJunctionSide !== undefined && Number.isInteger(change.straitJunctionSide) && change.straitJunctionSide >= 0 && change.straitJunctionSide < 6) next.straitJunctionSide = change.straitJunctionSide;

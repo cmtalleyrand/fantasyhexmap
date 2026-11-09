@@ -1034,9 +1034,9 @@ hex's flat-to-flat width: Very narrow 5%, Narrow 15%, Normal 30%, Wide 50% (`Cha
 both) and a hex overrides them with `HexShape.width`. The land share of decision 42 stays, as an
 optional second setting (`HexShape.land`; map-wide `isthmusPercent` and `straitPercent`, absent by default):
 the width fixes the shape, and a share set beside it tunes how much land the hex has, since the natural shape
-for a width does not always look right. Unset, a hex's share for polity areas is that of a straight neck or
-channel of its width (`channelAreaFraction`: 2/sqrt(3) of the width fraction; an isthmus counts that as land,
-a strait counts the rest as its banks). Old saves' 70%/30% isthmus and 40% strait defaults were never chosen
+for a width does not always look right. Unset, a hex's share for polity areas was that of a straight neck or
+channel of its width (`channelAreaFraction`: 2/sqrt(3) of the width fraction; an isthmus counted that as land,
+a strait counted the rest as its banks); decision 101 replaces it with the share the natural shape is drawn with. Old saves' 70%/30% isthmus and 40% strait defaults were never chosen
 and load as unset.
 
 **Tuning** (`fill` in `fixedLand`, solved by `fillFor` to the share). An isthmus cannot go below the land its width gives (cutting its flare back left pockets of water, a second
@@ -2301,8 +2301,12 @@ plain builds of the same sequence, single runs):
 | Far coast from a fresh build of the same map | up to 12.5 px | 0 |
 | Share misses not in a fresh build | none | none |
 
-The difference from a fresh build is the feature slides a fresh build would make, and it shows only
-when the map is reopened. The coast then moves as a plain build's does on every edit today.
+The difference from a fresh build is the feature slides a fresh build would make. It shows when the
+map is reopened, and in PNG and SVG exports, which are built fresh on the main thread rather than in
+the paint worker: after an editing session an export's far coast can differ from the screen's by the
+same amounts. On reopening, the coast then moves as a plain build's does on every edit today.
+(Corrected 9 November 2026: this entry first said the difference shows only on reopening. The owner
+accepts the export difference too.)
 **Owner's decision (8 November 2026):** shown side-by-side renders of an incremental and a fresh
 build after four edits (largest far differences 9–11 px, visible as reshaped bays), the owner does
 not mind the differences. Incremental refits stay on in the editor. A test (`test/slow/coastWindow.test.ts`) holds
@@ -2606,3 +2610,231 @@ A map-wide setting changes every hex, so the coast is fitted whole.
   (measured 0.05 and 0.13), as §94 allows.
 
 Edit times are unchanged: paired runs 0.995 coastal and 1.024 inland, within noise.
+
+## 101. A strait or isthmus is a short narrows between two rounded tips, wherever it lies
+
+**Definitions.** A Strait is a water channel joining two waters between two land masses; an Isthmus is a
+land neck joining two land masses between two waters. A hex is either only with exactly two separate land
+groups and two separate water groups round it (`passageNeighbours`); three of either is not one passage and
+fails validation. Up to rotation and reflection that leaves five neighbour patterns: banks opposite, banks
+two apart, three land sides (runs of two and one), and four land sides (runs of two and two, or three and
+one). A Mainland and islands hex keeps 2.5% for its mainland and each island's minimum (2.5% small, 5% large).
+
+**Chosen.** Sea straits, sea isthmuses and isthmuses in lakes take the local shore field that lake straits
+had (decision 47's lake passage work): the coast is traced with the passage hex open (a strait's as sea, an
+isthmus's as land), the shore round it is reshaped into two rounded tips a throat of the set width apart,
+and the result is joined to that coast on a circle 1.55 to 1.85 radii out, beyond which the field is the
+old shore (`passageContour`, `spliceChainPaths`). A join that fails keeps the passage's own cut rather than
+the opened background. The set width is the narrowest point; the shores open quickly either side of it.
+
+**Shape.** Narrower throats take sharper tips (radius 0.3 to 0.48 of the hex radius with width), so that a
+Very narrow passage is not a thin gap held parallel for half a hex. The flanks recede at a blunt tip's
+rate, and where the throat is moved towards one side they return to a blunt tip's from half a hex out, so
+that the far banks stay on their roots. A bank of three edges is rooted at the mean of its edges' midpoints
+(the chord across them passes through the hex centre and crowded the throat against the opposite bank).
+Shore detail is capped at half the local half-width and cannot pinch a passage shut.
+
+**Land share.** Unset, a passage counts the share its natural shape is drawn with (`NATURAL_PASSAGE_LAND`,
+the median over the five patterns to 2.5%): straits 55, 47.5, 40 and 25% from Very narrow to Wide,
+isthmuses 45, 52.5, 62.5 and 75%. A share that is set is fitted by headland depth, never below the depth at
+which the banks part by a quarter hex within 0.4 radii of the tips; a share beyond that is left short and
+reported, not drawn as a canal. Measured across the five patterns, a strait can then be drawn with about
+21–75% land at Very narrow, 19–64% Narrow, 15–53% Normal and 8–40% Wide; an isthmus with about 33–85%,
+43–87%, 54–90% and 72–95%.
+
+**Bounds by width.** Those measurements, to 5%, are the shares a passage may be set to
+(`PASSAGE_LAND_RANGE`): a strait 20–75% Very narrow, 20–65% Narrow, 15–55% Normal and 10–40% Wide; an
+isthmus 35–85%, 45–85%, 55–90% and 70–95%. They replace the fixed type bounds (Strait 10–70%, Isthmus
+15–80%), which allowed shares no width can draw as a narrows (an isthmus at 15%, a Wide strait at 70%) and
+ruled out natural ones (a Wide isthmus above 80%). The range follows the width the hex is drawn at, its own
+or the map's: the land share settings offer only that range, a share set outside it is held to it, and
+changing the width holds a share already set to the new range. A share saved outside it reads as the
+nearest one allowed and is flagged by validation; without a width (`landShareRange` called bare) the range
+covers every width.
+
+**Old passage defaults cleared once.** Decision 49 has maps saved with the old map-wide defaults (isthmus
+70% or 30%, strait 40%) load as unset. That was done on every read of the dimensions, so the same values
+chosen later (40% is a Normal strait's, 70% a Normal isthmus's) were dropped too and never took effect. It
+is now a load migration that runs once, marked by `chosenPassageShares` (set on new maps), and clears the
+current dimensions and the undo history's alike; a map-wide passage share after that is kept whatever it is.
+
+**Why.** A uniform channel or neck through the hex is a canal, not a strait or isthmus, and counting a
+strait's share as one (65% land at Normal) described a shape that is never drawn.
+
+## 102. Sea straits and isthmuses kept local to an edit (merging §101 into §94–§96)
+
+**Problem.** §101 (merged to main while §85–§100 were in review) draws a sea strait or isthmus by
+tracing a second, background coast with the passage open and splicing a reshaped shore into it.
+Merged as it stood, any map holding one such passage lost the incremental coast on every edit:
+- the background was traced without the incremental key, so it was fitted whole, and the
+  incremental fit of the coast it replaces was thrown away;
+- `passageContour` was drawn again on every build, though it reads only the shore within about two
+  hexes of the passage.
+
+On a 24×14 map with one sea strait, an island edit 9 hexes from the strait took 290–470 ms, against
+55–140 ms on the same map without the strait.
+
+**Fix.**
+- The background is traced incrementally like a lake strait's (§94): keyed by the map's coast and
+  the passages it opens, it is refitted in windows round an edit.
+- `passageContour` is kept by an exact fingerprint: the passage's spec, the old shore's segments
+  within 3.1 radii of its centre (every segment a node of its field can read, sorted), and which
+  side of that shore the centre lies on. Within that box even-odd sides change only across those
+  segments, so a kept contour equals a fresh one. Lake straits share it.
+
+The same edit then takes 100–200 ms. What remains is the coast traced and fitted once with the
+passage cut and once with it open (the first is discarded once the splice holds), which §101
+does in every build; it is not changed here.
+
+**Test.** `test/passageEdits.test.ts`, which fails without the fix: after an edit away from a sea
+strait, the strait's shore is kept, a cached build equals an uncached one, and every group fit of
+the incremental build, the background's included, is windowed.
+
+The performance maps of §85 hold no strait or isthmus, so §89–§99's timings are unaffected.
+
+
+## 103. A coastal edit redraws the coast from a crop round it (regional coast)
+
+**Problem.** After §89–§102 a coastal edit on the 50×50 map still took about 1.1 s to build in Node.
+No stage held more than about 18% of it. Making each stage exactly local would have meant reworking
+eight stages for 20–30% in all. The roughening's features are placed along a whole ring, so the
+edited ring could not be traced only near the edit without changing the picture.
+
+**Owner's decision (9 November 2026).** The coast near an edit may be drawn with new random detail
+(new bays and capes, not only the edited hex) as long as it looks good.
+
+**Chosen.** In the editor's incremental builds (`SceneOptions.incrementalCoast`), a small edit is
+drawn regionally (`regionalCoast` in `scene.ts`, `coastRegion.ts`):
+- The changed hexes (base or shape settings) must lie within 1.2 hex widths of their middle, at
+  most 7 of them. Hexes changed further apart, up to 48 (a brush stroke), are drawn a group at a
+  time, each group regionally on the coast the one before left.
+- A crop of the map is built as a map of its own, non-incrementally and not cached. The crop is the
+  region with one hex of margin, starting on an even row so that its hexes lie as the map's do.
+- The crop's coast replaces the old one within 1.3 hex widths of the change. Across the next 1.4
+  hex radii the two are blended through their signed distance fields (land positive, capped at half
+  a hex), with a smoothstep weight. A contour of the blend is then traced on a grid a thirty-second
+  of a hex fine. Only cells near the line are evaluated: a coarse pass skips cells whose corners all
+  lie clearly on one side.
+- The contour is cut into the old coast where it crosses the circle and reconnected run by run,
+  which joins or splits rings where the edit does. Near the page's edge the region is cut half a
+  hex beyond the page, and lines reaching that cut run on to the rim as every open coast does.
+- The hexes' chains are traced from the shapes the hexes settled on, in the crop or in the last
+  build. Unchanged chains keep their paths. The rest are matched to the reconnected lines by where
+  their hex edges run.
+- The region's hexes are measured. The new coast near any that misses its share is fitted again
+  in windows, the rest held still.
+- Where a blend changes the coast's topology from the hexes', the band is moved in, narrowed and
+  moved out before giving up.
+
+**Falling back.** Where an edit cannot be drawn regionally, the coast is drawn as before. Maps with a
+strait or isthmus (whose shores §101 splices) always are, so for them nothing changes. After a
+regional build the passes' and fits' records describe a coast that was never traced: windowed refits
+against them refitted up to 81 rings whole and missed 58 shares in one test. A fallback after a
+regional build therefore draws the coast whole, as a cold build does (its groups' fits are still
+found by content), and the coast's history is reset there.
+
+**Measured.**
+- Node, 40 random coastal edits in one session: mean 713 ms against 1,106 ms drawn as before (−36%),
+  all 40 drawn regionally.
+- Browser, `perf:edit-wait`, paired in one session (medians of 3, sharp frame), drawn as before
+  against regionally:
+
+| Edit | Before | Regional |
+|---|---:|---:|
+| coast: land to sea | 1,295 ms | 929 ms |
+| coast: sea to land | 1,099 ms | 771 ms |
+| coast: land share 60% | 1,197 ms | 858 ms |
+
+  Builds fell by 28–40% and the coast stage by about half (735 → 345 ms on the first edit). Cold
+  builds and other edits are unchanged.
+- Shares: over 12 random edits, and over strokes of 3–5 hexes, no hex missed its share where a fresh
+  build met it. Six edits rendered side by side with the previous method looked alike in quality,
+  with no seam at the band.
+
+**Tests.** `test/slow/coastWindow.test.ts` now requires its four edits to be drawn regionally, with
+the shares and the still far coast as before. `test/coastShapeEdits.test.ts` no longer requires the
+coast at an edited hex to stay within 0.2 hex of a fresh build's, since its detail is now new; it
+requires the coast to move there and the shares to hold.
+
+**Limits.** A crop's own coast, fits and components still go into the component and fit caches,
+which are sized for the map. The blend can close a narrow channel between an islet and the shore
+(caught, and retried or fallen back). After a fallback the whole coast is redrawn fresh, so features
+can shift by up to about 10 px (§94) everywhere on that one edit. What remains of a coastal edit is
+mostly outside the coast: symbols, land fills and labels (about 400 ms in Node) and paint.
+
+## 104. A passage without roughness of its own inherits the shore's default (review of PR #185)
+
+**Bug.** A code review (Codex) found that a sea strait's or isthmus's reshaped shore (§101) read
+the hex's roughness without the map's default. A strait with no roughness of its own was then drawn
+at its type's default (Ragged) on a map set to Smooth, while the coast round it followed the map. A
+strait in a lake had the same fault: its banks took the type's default, not the lakes' default the
+lake shore round it uses.
+
+**Fix.** A sea strait or isthmus resolves its roughness with the map's default, as the coast does. A
+strait in a lake resolves it as lake shore does (`lakeShoreIrregularity`, with the lakes' default).
+An explicit setting on the hex wins in both cases, as before.
+
+**Test.** In `test/passageShore.test.ts`, a sea strait, a sea isthmus and a lake strait each draw the
+same land when they inherit Smooth as when Smooth is set on them. Each case fails without its fix.
+
+## 105. Keeping the rest of a regional coastal edit local: symbols, ground patches, glacier margins, river courses
+
+**Problem.** After §103 the coast was about half of a coastal edit. On the 50×50 map the scene round it
+spent about 290 ms (Node) per edit, against about 120 ms for an edit away from the coast. Profiling
+named what still ran across the whole map:
+- symbols: about 700 of them took a fingerprint of the land near their hex on every coastal edit,
+  though almost all were then kept;
+- the coast's ground patches (`coastPaintPatches`), built again for every chain;
+- the glacier margins, keyed by the whole base layer;
+- the river courses, laid again for every river;
+- each mainland-and-islands hex scanning the whole shore for the segments near it.
+
+**Chosen (scenes unchanged).** Over a fixed sequence of ten edits on the 50×50 map, every step's scene hash is
+identical before and after.
+- **Symbols.** A coast drawn regionally records the coast it was joined to and the disc it
+  changed. Outside every disc the old coast is kept exactly, and a change confined to a disc cannot
+  change which side of the coast a point outside it lies on: the old and new boundaries differ by
+  a cycle within the disc. A symbol fit checked against an earlier coast is therefore kept, with no
+  fingerprint, while no disc drawn since (widened by three hex radii for the islets drawn clear of
+  the mainland there) reaches its hex's box or its probes. A change to the lakes breaks the link.
+  Elsewhere the fingerprint is taken as before. 684 of 721 symbols per edit are now kept this way.
+- **Ground patches.** Each chain's patches are kept by its path and an exact fingerprint of its
+  edges, donors and the anchors of its corners.
+- **Glacier margins.** These are keyed by the glacier hexes and those within two rings: their base,
+  water, roughness, height and shape settings, all that `glacierEdges` reads.
+- **River courses.** Each course is kept by everything it is laid from (`riverCourses`) and the land
+  near the river's hexes and their neighbours (`landNear`).
+- **Mainland distances.** The shore's segments are indexed by cell, and those near a hex are taken
+  in their order along the lines, as the scan of every line took them.
+
+**Tried and withdrawn.** Realm names reused per realm, keyed by the land, owners, obstacles and
+names that can reach each one. The large realms' areas contain almost every edit, so they were
+searched again anyway, and the keys over their areas cost more than the small realms' searches
+saved: 33 ms became 46–60 ms.
+
+**Measured.** CPU time of 30 random coastal edits, three interleaved pairs: a mean of 1,216 ms before
+and 1,128 ms after (−7%). Wall time varies by more than that between runs on this container. In
+Node, symbols fell from about 88 to 71 ms, ground patches from 35 to 12 ms, and the glacier margin
+and river courses are kept on edits away from them.
+
+**What remains.** Islets beside an edit are sized again (each a search of up to 20 layouts), and the
+realm and water names are placed again. Both are reached by the edit itself or are a single
+placement over the whole map. The rest is the drawing every build does, about 120 ms for any edit.
+
+**Test.** `test/slow/coastWindow.test.ts` checks that most symbols are kept outside the regions over
+three edits, and that the scene equals the one found by checking every symbol again on the same
+coast. With the regions shrunk by three hex radii it fails.
+
+## 106. The regional links hold numbers, not coasts (review of PR #185)
+
+**Bug.** A code review (Codex) found that §105's links kept every coast of an editing session alive.
+Each regionally drawn coast held the coast it was joined to, and the newest coast is always held,
+so the whole chain stayed reachable after the caches had let the coasts go. The WeakMap kept its
+keys weak, but not its values. Measured over 80 random coastal edits on the 50×50 map, the heap
+after garbage collection grew by about 19 MB per edit, to 1.68 GB.
+
+**Fix.** Each coast is given a number. The links (from a coast to the coast it was joined to, with the
+disc it changed) and each coast's land revision are kept by number, the newest 64 of each.
+`landKeptSince` looks back at most 12 links, so 64 covers it. Scenes are unchanged: every step's
+hash in the ten-edit sequence is the same. Over the same 80 edits the heap now levels off at
+267–322 MB as the bounded caches fill.

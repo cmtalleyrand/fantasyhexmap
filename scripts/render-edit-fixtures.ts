@@ -60,7 +60,7 @@ export function editCases(): EditCase[] {
     append(`${name}/cold`, map);
     const hex = Object.keys(map.hexShapes ?? {})[0] ?? String(map.layers.base.data!.findIndex(v => v === 'Isthmus'));
     if (map.layers.base.data![Number(hex)] === 'Isthmus' && !map.hexShapes?.[hex]) map.hexShapes = { ...map.hexShapes, [hex]: { type: 'Isthmus' } };
-    map.hexShapes = { ...map.hexShapes, [hex]: { ...map.hexShapes![hex]!, land: 60 } }; append(`${name}/share`, map);
+    map.hexShapes = { ...map.hexShapes, [hex]: { ...map.hexShapes![hex]!, land: 55 } }; append(`${name}/share`, map); // Within a Normal strait's range and a Normal isthmus's.
     map.hexShapes![hex] = { ...map.hexShapes![hex]!, concentration: 80, concentrationSide: 2 }; append(`${name}/concentration`, map);
     if (map.layers.base.data![Number(hex)] === 'Strait' || map.layers.base.data![Number(hex)] === 'Isthmus') {
       map.hexShapes![hex] = { ...map.hexShapes![hex]!, width: 'Narrow' }; append(`${name}/width`, map);
