@@ -2301,8 +2301,12 @@ plain builds of the same sequence, single runs):
 | Far coast from a fresh build of the same map | up to 12.5 px | 0 |
 | Share misses not in a fresh build | none | none |
 
-The difference from a fresh build is the feature slides a fresh build would make, and it shows only
-when the map is reopened. The coast then moves as a plain build's does on every edit today.
+The difference from a fresh build is the feature slides a fresh build would make. It shows when the
+map is reopened, and in PNG and SVG exports, which are built fresh on the main thread rather than in
+the paint worker: after an editing session an export's far coast can differ from the screen's by the
+same amounts. On reopening, the coast then moves as a plain build's does on every edit today.
+(Corrected 9 November 2026: this entry first said the difference shows only on reopening. The owner
+accepts the export difference too.)
 **Owner's decision (8 November 2026):** shown side-by-side renders of an incremental and a fresh
 build after four edits (largest far differences 9–11 px, visible as reshaped bays), the owner does
 not mind the differences. Incremental refits stay on in the editor. A test (`test/slow/coastWindow.test.ts`) holds
