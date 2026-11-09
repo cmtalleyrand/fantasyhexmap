@@ -988,9 +988,23 @@ test('a strait junction is central by default and can be moved towards any selec
 });
 
 test('maps saved with land shares for isthmuses and straits take widths instead', () => {
-  const old = { ...dims, isthmusPercent: 30, straitPercent: 40 };
-  const migrated = normaliseHexDimensions(old);
-  assert.ok(!('isthmusPercent' in migrated) && !('straitPercent' in migrated));
+  // An old map's defaults (isthmus 30% or 70%, strait 40%) were never chosen: they are cleared once, on load.
+  const saved = createMapState('Old passages', 3, 3);
+  delete saved.chosenPassageShares;
+  saved.hexDimensions = { ...dims, isthmusPercent: 70, straitPercent: 40 };
+  saved.history = { past: [{ ...saved, hexDimensions: { ...dims, isthmusPercent: 30 } }], future: [] };
+  const loaded = reducer(saved, { type: 'load', map: saved });
+  assert.ok(!('isthmusPercent' in loaded.hexDimensions) && !('straitPercent' in loaded.hexDimensions));
+  assert.ok(!('isthmusPercent' in loaded.history!.past[0]!.hexDimensions), 'an undo does not bring an old default back');
+  assert.equal(loaded.chosenPassageShares, true);
+  // Chosen afterwards, the same values are kept: when read, and when the map is loaded again.
+  const chosen = reducer(loaded, { type: 'setHexDimensions', hexDimensions: { ...loaded.hexDimensions, isthmusPercent: 70, straitPercent: 40 } });
+  assert.equal(normaliseHexDimensions(chosen.hexDimensions).straitPercent, 40);
+  assert.equal(normaliseHexDimensions(chosen.hexDimensions).isthmusPercent, 70);
+  const reloaded = reducer(chosen, { type: 'load', map: chosen });
+  assert.equal(reloaded.hexDimensions.straitPercent, 40);
+  assert.equal(reloaded.hexDimensions.isthmusPercent, 70);
+  const migrated = normaliseHexDimensions(dims);
   assert.equal(migrated.isthmusWidth, 'Normal');
   assert.equal(migrated.straitWidth, 'Normal');
   assert.equal(normaliseHexDimensions({ ...dims, straitWidth: 'Wide' }).straitWidth, 'Wide');

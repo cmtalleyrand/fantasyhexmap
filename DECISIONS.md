@@ -1862,6 +1862,12 @@ changing the width holds a share already set to the new range. A share saved out
 nearest one allowed and is flagged by validation; without a width (`landShareRange` called bare) the range
 covers every width.
 
+**Old passage defaults cleared once.** Decision 49 has maps saved with the old map-wide defaults (isthmus
+70% or 30%, strait 40%) load as unset. That was done on every read of the dimensions, so the same values
+chosen later (40% is a Normal strait's, 70% a Normal isthmus's) were dropped too and never took effect. It
+is now a load migration that runs once, marked by `chosenPassageShares` (set on new maps), and clears the
+current dimensions and the undo history's alike; a map-wide passage share after that is kept whatever it is.
+
 **Why.** A uniform channel or neck through the hex is a canal, not a strait or isthmus, and counting a
 strait's share as one (65% land at Normal) described a shape that is never drawn.
 

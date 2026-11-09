@@ -739,6 +739,11 @@ export interface MapState {
   /** Set once the old whole-glacier share (100%) has moved to the glacier shore default (`migrateToDerivedGlacierShores`). */
   derivedGlacierShores?: true;
   /**
+   * Set once the old map-wide passage defaults (isthmus 70% or 30%, strait 40%), which were never chosen,
+   * have been cleared (`migrateToChosenPassageShares`): any map-wide passage share after that was chosen.
+   */
+  chosenPassageShares?: true;
+  /**
    * The irregularity of every shaped hex that has none of its own (`hexShapes`).
    * Absent: each type uses its own default (`DEFAULT_IRREGULARITY`).
    */

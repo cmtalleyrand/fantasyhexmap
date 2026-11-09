@@ -34,9 +34,10 @@ type StoredHexDimensions = Partial<HexDimensions> & { islandLandPercent?: number
 export function normaliseHexDimensions(value?: StoredHexDimensions): HexDimensions {
   const { islandLandPercent, ...rest } = value ?? {};
   const out = { ...DEFAULT_HEX_DIMENSIONS, ...rest };
-  // The old defaults (70% and 30% for an isthmus, 40% for a strait) were not chosen: those maps take the natural shape.
-  if (out.isthmusPercent === 70 || out.isthmusPercent === 30 || typeof out.isthmusPercent !== 'number') delete out.isthmusPercent;
-  if (out.straitPercent === 40 || typeof out.straitPercent !== 'number') delete out.straitPercent;
+  // The old defaults (70% and 30% for an isthmus, 40% for a strait) are cleared once, on load
+  // (`migrateToChosenPassageShares`): any share here was chosen, whatever its value.
+  if (typeof out.isthmusPercent !== 'number') delete out.isthmusPercent;
+  if (typeof out.straitPercent !== 'number') delete out.straitPercent;
   if (!CHANNEL_WIDTH_VALUES.includes(out.isthmusWidth)) out.isthmusWidth = DEFAULT_HEX_DIMENSIONS.isthmusWidth;
   if (!CHANNEL_WIDTH_VALUES.includes(out.straitWidth)) out.straitWidth = DEFAULT_HEX_DIMENSIONS.straitWidth;
   heldPassageShares(out);
