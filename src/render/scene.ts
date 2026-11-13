@@ -3090,8 +3090,13 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
         for (let n = 0; n < irregular.skerries; n++) {
           const a = sub(2000 + n) * Math.PI * 2;
           const r = size * (0.035 + 0.035 * sub(2100 + n));
-          const out = 1.25 + 0.35 * sub(2200 + n);
-          skerries.push(...blobPath({ x: isle.c.x + Math.cos(a) * rx * out, y: isle.c.y + Math.sin(a) * ry * out }, r * 1.3, r, sub(2300 + n) * Math.PI, (q) => sub(2400 + n * 17 + q), 8, 0.2));
+          // Clear of the body: past the furthest its wobbled outline can reach that way, by the
+          // skerry's own furthest reach and a strait between, so a skerry never runs into its island.
+          const bodyWobble = 0.16 * irregular.wobble;
+          const ellipse = (rx * ry) / Math.hypot(ry * Math.cos(a), rx * Math.sin(a));
+          const dist = ellipse * (1 + bodyWobble) * 1.08 + r * 1.3 * 1.25 + size * (0.02 + 0.03 * sub(2200 + n));
+          const dir = a + isle.axis;
+          skerries.push(...blobPath({ x: isle.c.x + Math.cos(dir) * dist, y: isle.c.y + Math.sin(dir) * dist }, r * 1.3, r, sub(2300 + n) * Math.PI, (q) => sub(2400 + n * 17 + q), 8, 0.2));
         }
       }
       return [...body, ...skerries];
@@ -3741,7 +3746,9 @@ function buildStaticSceneInner(map: MapState, opts: SceneOptions): Scene {
         ),
       ];
       const shores = [...(shoreLakes.get(owner) ?? [])].flatMap((k) => lakeShores[k] ?? []);
-      const colour = polityColour.get(owner) ?? '#888888';
+      // A realm's band is one colour all round it, its parts' included: a part's own colour on the
+      // stretch of band along its coast or frontier reads as a border inside the realm.
+      const colour = polityColour.get(topLevel.get(owner) ?? owner) ?? polityColour.get(owner) ?? '#888888';
       const hexes = regions.get(owner) ?? [];
       const evenGround = baseColour('Land');
       // Without ice under it, the band on its even ground is one opaque colour:
