@@ -31,6 +31,7 @@ import { riverHexAreaKm2, riverLengthCorrectionFactor } from '../shared/riverLen
 import { keyAt, type PassId, type Roster } from './rosters.js';
 import { gridView, tally } from './grid.js';
 import { physicalContext } from './physicalContext.js';
+import { promptNumber } from './promptNumber.js';
 import { neighbourOf } from '../shared/hex.js';
 import {
   BASE_GEO_VALUES,
@@ -147,9 +148,9 @@ ${scaleRules(cols, rows, dimensions)}`;
 function scaleRules(cols: number, rows: number, dimensions?: HexDimensions): string {
   const d = dimensions ?? DEFAULT_HEX_DIMENSIONS;
   return `SPATIAL SCALE - use the saved map scale
-- Each hex is ${d.width} ${d.unit} flat-to-flat and ${d.height} ${d.unit} corner-to-corner.
-  The map spans approximately ${cols * d.width} ${d.unit} east-west and ${rows * d.height * 0.75} ${d.unit} north-south.
-- Whole-hex area is 0.75 * width * height = ${0.75 * d.width * d.height} ${d.unit}^2. Use the supplied effective
+- Each hex is ${promptNumber(d.width)} ${d.unit} flat-to-flat and ${promptNumber(d.height)} ${d.unit} corner-to-corner.
+  The map spans approximately ${promptNumber(cols * d.width)} ${d.unit} east-west and ${promptNumber(rows * d.height * 0.75)} ${d.unit} north-south.
+- Whole-hex area is 0.75 * width * height = ${promptNumber(0.75 * d.width * d.height)} ${d.unit}^2. Use the supplied effective
   land fractions and measured areas to match land areas in the brief, rather than counting every coast/island as a full hex.
 - Do not infer another scale from the brief or from existing hex counts. Convert document units to the saved units.
   Respect stated sizes as closely as grid resolution permits. If they cannot all fit, keep the largest and most prominent.
@@ -696,7 +697,7 @@ function riverDrawingRules(ctx: PromptContext): string {
     'Expect a continuous curved course, not the angular centre-to-centre hex walk. Smoothing may shorten that',
     'walk and meanders add length; neither hex-step count nor endpoint distance gives the final drawn length.',
     '',
-    `The configured hex is ${dims.width} ${dims.unit} flat-to-flat by ${dims.height} ${dims.unit} corner-to-corner.`,
+    `The configured hex is ${promptNumber(dims.width)} ${dims.unit} flat-to-flat by ${promptNumber(dims.height)} ${dims.unit} corner-to-corner.`,
     'Use these saved physical dimensions; do not infer a different hex size from the brief.',
     'After measuring the drawn curve, the app MULTIPLIES its length by 1.05 * A^0.02 to allow for bends and',
     'meanders too small to display. A is the WHOLE hex surface area in km^2 (0.75 * width * height, converted',
@@ -704,7 +705,7 @@ function riverDrawingRules(ctx: PromptContext): string {
     ...(area === null
       ? [`The custom unit "${dims.unit}" has no known conversion to km; the app leaves lengths uncorrected until a supported physical unit is used.`]
       : [
-          `For this map A = ${Number(area.toPrecision(8))} km^2, so the additional multiplier is ${Number(factor.toPrecision(8))}.`,
+          `For this map A = ${promptNumber(area)} km^2, so the additional multiplier is ${promptNumber(factor)}.`,
           'A river described as L long should therefore have a drawn course of approximately L divided by this',
           'multiplier. Plan a plausible route towards that drawn length; the app applies the multiplier once.',
         ]),

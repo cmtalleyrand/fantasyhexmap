@@ -1,23 +1,24 @@
 import { baseSurfaceStatistics, landFraction, landFractionAt, normaliseHexDimensions, politySurfaceAreas } from '../shared/surfaceArea.js';
 import { BASE_GEO_VALUES, DEFAULT_ISLAND_SPECS } from '../shared/types.js';
 import { gridView } from './grid.js';
+import { promptNumber } from './promptNumber.js';
 import type { PromptContext } from './prompts.js';
 
 /** Measurements use the same land fractions and ownership rules as the app. */
 export function physicalContext(ctx: PromptContext): string {
   const dims = normaliseHexDimensions(ctx.hexDimensions);
   const area = 0.75 * dims.width * dims.height;
-  const number = (n: number) => Number(n.toPrecision(9));
+  const number = promptNumber;
   const parts = [
     'PHYSICAL SCALE AND LAND SURFACE AREAS (authoritative app settings)',
-    `One whole hex: ${number(area)} ${dims.unit}^2; width ${dims.width} ${dims.unit}, height ${dims.height} ${dims.unit}.`,
+    `One whole hex: ${number(area)} ${dims.unit}^2; width ${number(dims.width)} ${dims.unit}, height ${number(dims.height)} ${dims.unit}.`,
     'Whole-hex area = 0.75 * width * height. Land area = whole-hex area * effective land fraction.',
     'Use land area for land/realm sizes and population carrying capacity; water area for seas/lakes.',
     'Measured grids and totals below describe the existing map. If replacing base geography, recompute them',
     'for your proposed output using these settings, proposed island counts and applicable overrides. Independently',
     'check stated areas, counts and distances before replying, including in an external chat without app access.',
     'Current map settings (land percentages, channel widths and physical dimensions):',
-    JSON.stringify(dims),
+    JSON.stringify({ ...dims, width: Number(number(dims.width)), height: Number(number(dims.height)) }),
     `Default island configurations: ${JSON.stringify(DEFAULT_ISLAND_SPECS)}`,
     'Default land percentages by terrain, using the current map settings and default island counts:',
     BASE_GEO_VALUES.map((v) => v === 'Land' || v === 'Glacier'
